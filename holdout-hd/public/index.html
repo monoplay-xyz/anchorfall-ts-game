@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HOLDOUT HD</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="stage">
+    <aside id="left">
+      <div id="squadPanels"></div>
+      <div class="panel" id="squadStatusPanel">
+        <div class="ptitle">SQUAD STATUS</div>
+        <div id="squadStatusBody">—</div>
+      </div>
+    </aside>
+
+    <main id="center">
+      <canvas id="game" width="960" height="672"></canvas>
+
+      <div id="menu" class="screen">
+        <h1>HOLD<span>OUT</span> <em>HD</em></h1>
+        <p class="tag">Hold the line. Rescue the lost. Reach the exit.</p>
+        <input id="nameInput" placeholder="Your name" maxlength="12" autocomplete="off">
+        <button id="btnAudio" class="ghost">Audio: On</button>
+        <button id="btnSolo">Solo Campaign</button>
+        <button id="btnContinue" hidden>Continue Solo</button>
+        <button id="btnHost">Host Co-op</button>
+        <div class="joinrow">
+          <input id="joinCode" placeholder="CODE" maxlength="4" autocomplete="off">
+          <button id="btnJoin">Join Co-op</button>
+        </div>
+        <p class="help">Move: WASD / Arrows &middot; Fire: Space &middot; You shoot the way you face<br>
+        Walk into stranded allies to pick them up &mdash; carry them to the exit to recruit them.</p>
+      </div>
+
+      <div id="lobby" class="screen" hidden>
+        <h2 id="lobbyTitle"></h2>
+        <p id="roomInfo"></p>
+        <div id="playerList"></div>
+        <h3>Choose your operative</h3>
+        <div id="charGrid"></div>
+        <div class="btnrow">
+          <button id="btnStart">Deploy</button>
+          <button id="btnLeave" class="ghost">Leave</button>
+        </div>
+      </div>
+
+      <div id="msg" class="screen" hidden>
+        <h2 id="msgTitle"></h2>
+        <p id="msgBody"></p>
+        <button id="btnMsgOk">Continue</button>
+      </div>
+    </main>
+
+    <aside id="right">
+      <div class="panel" id="missionPanel">
+        <div class="ptitle green" id="missionNo">MISSION —</div>
+        <div id="missionName">—</div>
+        <div id="missionObj" class="dim">—</div>
+      </div>
+      <div class="panel" id="minimapPanel">
+        <canvas id="minimap" width="200" height="140"></canvas>
+      </div>
+      <div class="panel" id="scorePanel">
+        <div class="srow"><span>SCORE</span><b id="hScore">0</b></div>
+        <div class="srow"><span>TIME</span><b id="hTime">--:--</b></div>
+        <div class="srow"><span>KILLS</span><b id="hKills">0</b></div>
+        <div class="srow"><span>COMBO</span><b id="hCombo" class="amber">x1</b></div>
+      </div>
+      <div class="panel" id="weaponPanel">
+        <div class="ptitle amber" id="wName">—</div>
+        <canvas id="wIcon" width="170" height="46"></canvas>
+        <div id="wStats" class="dim">—</div>
+      </div>
+    </aside>
+  </div>
+  <script type="module" src="client.js"></script>
+</body>
+</html>

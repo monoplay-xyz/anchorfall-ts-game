@@ -1,0 +1,19 @@
+{
+  "name": "holdout-hd",
+  "version": "0.1.0",
+  "description": "Top-down tactical action game with roster rescue mechanics. Solo and online co-op.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/sim.test.js",
+    "gen-assets": "node scripts/gen-assets.js"
+  },
+  "dependencies": {
+    "express": "^4.19.0",
+    "ws": "^8.17.0"
+  },
+  "devDependencies": {
+    "pngjs": "^7.0.0"
+  }
+}

@@ -1,0 +1,19 @@
+# Copyrighted game files used as local design reference only — NEVER commit
+*.sms
+*.iso
+*.rom
+*.bin
+
+# Dependencies & runtime artifacts
+node_modules/
+saves/
+*.log
+nohup.out
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Railway link state
+.railway/

@@ -1,0 +1,130 @@
+[
+  {
+    "id": "scout",
+    "name": "Scout",
+    "color": "#4fc3f7",
+    "speed": 4.4,
+    "starting": true,
+    "weapon": { "name": "Pulse SMG", "kind": "smg", "damage": 1, "projSpeed": 11, "range": 6, "cooldown": 0.2, "count": 1, "spreadDeg": 0, "overWalls": false }
+  },
+  {
+    "id": "soldier",
+    "name": "Soldier",
+    "color": "#aed581",
+    "speed": 3.2,
+    "starting": true,
+    "weapon": { "name": "Scatter Rifle", "kind": "scatter", "damage": 1, "projSpeed": 9, "range": 4.6, "cooldown": 0.52, "count": 4, "spreadDeg": 28, "overWalls": false }
+  },
+  {
+    "id": "grenadier",
+    "name": "Grenadier",
+    "color": "#ffb74d",
+    "speed": 2.6,
+    "starting": true,
+    "weapon": { "name": "Arc Mortar", "kind": "mortar", "damage": 2, "projSpeed": 6.4, "range": 7.5, "cooldown": 0.9, "count": 1, "spreadDeg": 0, "overWalls": true, "aoeRadius": 1.05 }
+  },
+  {
+    "id": "medic",
+    "name": "Medic",
+    "color": "#80cbc4",
+    "speed": 3.7,
+    "starting": true,
+    "weapon": { "name": "Needle Burst", "kind": "needle", "damage": 1, "projSpeed": 12, "range": 5.5, "cooldown": 0.28, "count": 2, "spreadDeg": 8, "overWalls": false }
+  },
+  {
+    "id": "sniper",
+    "name": "Sniper",
+    "color": "#ce93d8",
+    "speed": 2.5,
+    "starting": false,
+    "weapon": { "name": "Rail Lance", "kind": "rail", "damage": 3, "projSpeed": 18, "range": 12, "cooldown": 1.05, "count": 1, "spreadDeg": 0, "overWalls": false, "pierce": 3 }
+  },
+  {
+    "id": "raider",
+    "name": "Raider",
+    "color": "#ff8a80",
+    "speed": 4.7,
+    "starting": false,
+    "weapon": { "name": "Twin Fangs", "kind": "twin", "damage": 1, "projSpeed": 10, "range": 3.6, "cooldown": 0.26, "count": 2, "spreadDeg": 14, "overWalls": false }
+  },
+  {
+    "id": "pyro",
+    "name": "Pyro",
+    "color": "#ffd54f",
+    "speed": 3.0,
+    "starting": false,
+    "weapon": { "name": "Ember Fan", "kind": "flame", "damage": 1, "projSpeed": 7, "range": 3.2, "cooldown": 0.34, "count": 7, "spreadDeg": 58, "overWalls": false, "pierce": 1 }
+  },
+  {
+    "id": "bastion",
+    "name": "Bastion",
+    "color": "#90a4ae",
+    "speed": 2.0,
+    "starting": false,
+    "weapon": { "name": "Siege Cannon", "kind": "cannon", "damage": 4, "projSpeed": 8, "range": 7, "cooldown": 1.1, "count": 1, "spreadDeg": 0, "overWalls": false, "aoeRadius": 0.75 }
+  },
+  {
+    "id": "engineer",
+    "name": "Engineer",
+    "color": "#b0bec5",
+    "speed": 3.1,
+    "starting": false,
+    "weapon": { "name": "Rivet Mine", "kind": "rivet", "damage": 2, "projSpeed": 5.5, "range": 5.8, "cooldown": 0.7, "count": 1, "spreadDeg": 0, "overWalls": true, "aoeRadius": 0.65 }
+  },
+  {
+    "id": "duelist",
+    "name": "Duelist",
+    "color": "#f06292",
+    "speed": 5.0,
+    "starting": false,
+    "weapon": { "name": "Blade Shredder", "kind": "blade", "damage": 1, "projSpeed": 13, "range": 1.7, "cooldown": 0.12, "count": 3, "spreadDeg": 38, "overWalls": false, "pierce": 1 }
+  },
+  {
+    "id": "volt",
+    "name": "Volt",
+    "color": "#4dd0e1",
+    "speed": 3.6,
+    "starting": false,
+    "weapon": { "name": "Chain Spark", "kind": "spark", "damage": 1, "projSpeed": 14, "range": 6.2, "cooldown": 0.42, "count": 1, "spreadDeg": 0, "overWalls": false, "pierce": 2 }
+  },
+  {
+    "id": "boomer",
+    "name": "Boomer",
+    "color": "#ffcc80",
+    "speed": 3.4,
+    "starting": false,
+    "weapon": { "name": "Gyro Disc", "kind": "disc", "damage": 2, "projSpeed": 8, "range": 6.5, "cooldown": 0.62, "count": 1, "spreadDeg": 0, "overWalls": false, "pierce": 2, "curve": 1.8, "radius": 8 }
+  },
+  {
+    "id": "warden",
+    "name": "Warden",
+    "color": "#81c784",
+    "speed": 2.8,
+    "starting": false,
+    "weapon": { "name": "Buckler Slugs", "kind": "slug", "damage": 2, "projSpeed": 9.5, "range": 5.5, "cooldown": 0.5, "count": 2, "spreadDeg": 10, "overWalls": false }
+  },
+  {
+    "id": "shade",
+    "name": "Shade",
+    "color": "#7986cb",
+    "speed": 4.1,
+    "starting": false,
+    "weapon": { "name": "Ghost Carbine", "kind": "ghost", "damage": 1, "projSpeed": 16, "range": 8, "cooldown": 0.24, "count": 1, "spreadDeg": 0, "overWalls": false, "pierce": 1 }
+  },
+  {
+    "id": "helix",
+    "name": "Helix",
+    "color": "#ba68c8",
+    "speed": 3.3,
+    "starting": false,
+    "weapon": { "name": "Tri-Arc", "kind": "helix", "damage": 1, "projSpeed": 9, "range": 6.3, "cooldown": 0.48, "count": 3, "spreadDeg": 18, "overWalls": false, "pierce": 1, "curve": 1.25 }
+  },
+  {
+    "id": "atlas",
+    "name": "Atlas",
+    "color": "#ffab91",
+    "speed": 1.9,
+    "starting": false,
+    "weapon": { "name": "Comet Mortar", "kind": "comet", "damage": 5, "projSpeed": 5.2, "range": 8.5, "cooldown": 1.35, "count": 1, "spreadDeg": 0, "overWalls": true, "aoeRadius": 1.35 }
+  }
+]

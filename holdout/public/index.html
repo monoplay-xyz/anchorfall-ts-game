@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HOLDOUT</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <canvas id="game" width="960" height="672"></canvas>
+
+    <div id="menu" class="screen">
+      <h1>HOLD<span>OUT</span></h1>
+      <p class="tag">Hold the line. Rescue the lost. Reach the exit.</p>
+      <input id="nameInput" placeholder="Your name" maxlength="12" autocomplete="off">
+      <button id="btnAudio" class="ghost">Audio: On</button>
+      <button id="btnSolo">Solo Campaign</button>
+      <button id="btnContinue" hidden>Continue Solo</button>
+      <button id="btnHost">Host Co-op</button>
+      <div class="joinrow">
+        <input id="joinCode" placeholder="CODE" maxlength="4" autocomplete="off">
+        <button id="btnJoin">Join Co-op</button>
+      </div>
+      <p class="help">Move: WASD / Arrows &middot; Fire: Space &middot; You shoot the way you face<br>
+      Walk into stranded allies to pick them up &mdash; carry them to the exit to recruit them.<br>
+      Clear all enemies, or get everyone to the exit, before time runs out.</p>
+    </div>
+
+    <div id="lobby" class="screen" hidden>
+      <h2 id="lobbyTitle"></h2>
+      <p id="roomInfo"></p>
+      <div id="playerList"></div>
+      <h3>Choose your character</h3>
+      <div id="charGrid"></div>
+      <div class="btnrow">
+        <button id="btnStart">Start Level</button>
+        <button id="btnLeave" class="ghost">Leave</button>
+      </div>
+    </div>
+
+    <div id="msg" class="screen" hidden>
+      <h2 id="msgTitle"></h2>
+      <p id="msgBody"></p>
+      <button id="btnMsgOk">Continue</button>
+    </div>
+  </div>
+  <script type="module" src="client.js"></script>
+</body>
+</html>
