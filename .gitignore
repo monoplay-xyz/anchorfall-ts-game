@@ -17,3 +17,5 @@ nohup.out
 
 # Railway link state
 .railway/
+*.chd
+*.zip
