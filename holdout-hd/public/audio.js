@@ -13,7 +13,66 @@ function ensureAudio() {
   }
   if (ctx.state === 'suspended') ctx.resume().catch(() => {});
   master.gain.value = muted ? 0 : 0.55;
+  startAmbient(); // gesture-gated by construction: ensureAudio runs on input
   return ctx;
+}
+
+// ============================== AMBIENT LOOP ==============================
+// A very quiet generative bed — low drone + sparse pentatonic plucks, the
+// Monolythium night mood under couch-TV gameplay. Routed through `master`,
+// so the existing audio toggle silences it instantly. Started once, lazily,
+// from ensureAudio (which only ever runs off a user gesture or game sound).
+let amb = null;
+
+function startAmbient() {
+  if (amb || !ctx) return;
+  const now = ctx.currentTime;
+  const bed = ctx.createGain();
+  bed.gain.setValueAtTime(0.0001, now);
+  bed.gain.exponentialRampToValueAtTime(0.16, now + 8); // slow fade-in
+  bed.connect(master);
+  const drone = (freq, type, vol) => {
+    const o = ctx.createOscillator();
+    const og = ctx.createGain();
+    o.type = type;
+    o.frequency.value = freq;
+    og.gain.value = vol;
+    o.connect(og);
+    og.connect(bed);
+    o.start();
+    return o;
+  };
+  drone(55, 'sine', 0.16);            // root
+  drone(55 * 1.5, 'sine', 0.05);      // fifth
+  drone(55 * 2.02, 'triangle', 0.02); // detuned octave shimmer
+  // slow breathing on the bed
+  const lfo = ctx.createOscillator();
+  const lfoG = ctx.createGain();
+  lfo.frequency.value = 0.06;
+  lfoG.gain.value = 0.05;
+  lfo.connect(lfoG);
+  lfoG.connect(bed.gain);
+  lfo.start();
+  // sparse pluck — leave plenty of silence in the night
+  const scale = [220, 261.63, 293.66, 329.63, 392, 523.25];
+  const timer = setInterval(() => {
+    if (!ctx || ctx.state !== 'running' || muted) return;
+    if (Math.random() < 0.45) return;
+    const f = scale[Math.floor(Math.random() * scale.length)] * (Math.random() < 0.25 ? 0.5 : 1);
+    const t0 = ctx.currentTime;
+    const o = ctx.createOscillator();
+    const og = ctx.createGain();
+    o.type = 'sine';
+    o.frequency.value = f;
+    og.gain.setValueAtTime(0.0001, t0);
+    og.gain.exponentialRampToValueAtTime(0.035, t0 + 0.04);
+    og.gain.exponentialRampToValueAtTime(0.0001, t0 + 2.6);
+    o.connect(og);
+    og.connect(master);
+    o.start(t0);
+    o.stop(t0 + 2.7);
+  }, 3800);
+  amb = { bed, timer };
 }
 
 function updateButton(btn) {
@@ -141,6 +200,13 @@ export function playEvent(ev) {
     tone(1568, 0.1, 'triangle', 0.07, 0.72);
     noise(0.07, 0.05, 2800);
   }
+  else if (ev.type === 'wave') {
+    // nightwave incoming — low dread swell + two alarm knocks
+    tone(58, 1.0, 'sawtooth', 0.12, 2.6);
+    noise(0.7, 0.05, 200);
+    setTimeout(() => tone(466.16, 0.1, 'square', 0.07, 0.8), 380);
+    setTimeout(() => tone(466.16, 0.12, 'square', 0.06, 0.7), 560);
+  }
   // unknown event types stay silent, never throw
 }
 
@@ -153,6 +219,11 @@ export function playUi(kind) {
   } else if (kind === 'fail') {
     tone(220, 0.18, 'sawtooth', 0.11, 0.6);
     setTimeout(() => tone(130, 0.2, 'sawtooth', 0.1, 0.55), 130);
+  } else if (kind === 'cutscene') {
+    // soft story sting — low relay tones swelling, never startling
+    tone(196, 0.5, 'sine', 0.07, 1);
+    setTimeout(() => tone(293.66, 0.6, 'sine', 0.06, 1), 160);
+    setTimeout(() => tone(392, 0.8, 'triangle', 0.04, 1), 320);
   } else {
     tone(600, 0.08, 'triangle', 0.07, 1.2);
   }

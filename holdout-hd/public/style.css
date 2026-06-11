@@ -232,3 +232,22 @@ button.ghost { background: rgba(255,255,255,.1); color: #c2cde0; }
 
 /* LYTH shard accent — use anywhere a shard amount appears */
 .shard { color: var(--amber); font-weight: 700; }
+
+/* --- gamepad menu nav (Batocera: no mouse) -----------------------------
+   .navfocus marks the focused control. Buttons are clip-path'd, so a normal
+   outline would be clipped away — use inset shadows that follow the angular
+   shape instead, plus a brightness lift so the ring reads from the couch. */
+button.navfocus, .navfocus {
+  box-shadow:
+    inset 0 0 0 2px var(--relay),
+    inset 0 0 16px rgba(111, 216, 242, .35);
+  filter: brightness(1.18);
+}
+button.ghost.navfocus { color: #eaf6ff; }
+.card.navfocus {
+  border-color: var(--relay);
+  box-shadow: 0 0 16px rgba(111, 216, 242, .45), inset 0 0 0 1px var(--relay);
+}
+
+/* --- story cutscenes (drawn on the game canvas by render.drawCutscene) --- */
+#game.cutscene { cursor: pointer; }

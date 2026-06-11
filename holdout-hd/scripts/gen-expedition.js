@@ -1,4 +1,5 @@
-// Generates levels/level11.json — "The Long Crossing", the first expedition map.
+// Generates levels/level11.json — "The Long Crossing", Chapter I of the
+// Anchorfall story campaign (also the first expedition map).
 // Deterministic (fixed seed): re-running always produces the same map.
 // A 96x64 west-to-east journey: moonlit meadow, river fords, deep forest under
 // tree canopy, a fortified worked-stone village, a sniper ridge over a southern
@@ -149,15 +150,13 @@ place('m', 86, 32);
 place('s', 90, 30); place('s', 90, 34); place('a', 91, 28); place('a', 91, 36);
 
 // --- captives at landmarks (ids bound in row-major scan order) ---
+// Chapter I rescues exactly four operators; the rest of the roster is
+// stranded deeper in the frontier and turns up in later chapters.
 const captivePlan = [
   ['raider', 16, 8],    // meadow north pocket
   ['pyro', 16, 55],     // meadow south pocket
   ['sniper', 40, 10],   // forest north lane
-  ['bastion', 55, 32],  // fortress keep (next to the boss)
-  ['duelist', 40, 53],  // forest south lane
-  ['volt', 74, 7],      // behind the ridge
-  ['shade', 72, 53],    // swamp island
-  ['atlas', 86, 20],    // approach ruin
+  ['duelist', 55, 32],  // fortress keep (next to the boss)
 ];
 const placedCaptives = [];
 for (const [id, x, y] of captivePlan) {
@@ -390,7 +389,41 @@ const def = {
   name: 'The Long Crossing',
   objective: 'Cross the frontier west to east — raise the relay pylons to wake the dormant Anchor',
   time: 720,
+  story: true,
+  chapter: 1,
+  title: 'Chapter I — The Long Crossing',
   expedition: true,
+  intro: [
+    {
+      title: 'After the Anchorfall',
+      lines: [
+        'The night the Anchors fell, the frontier forgot itself.',
+        'Roads unwrote. Names ran like wet ink.',
+        'The Anchorcraft carries the last operators east.',
+      ],
+      art: 'anchorcraft',
+    },
+    {
+      title: 'The Long Crossing',
+      lines: [
+        'Beyond the meadow, the first dormant Anchor waits.',
+        'Relight it — or the Entropy unwrites the road home.',
+        'Keep the signal alive.',
+      ],
+      art: 'crossing',
+    },
+  ],
+  outro: [
+    {
+      title: 'First Light',
+      lines: [
+        'The first Anchor settles. Finality, even out here.',
+        'The crew rests by the fire. One road remembered.',
+        'Eastward, the basin glows wrong.',
+      ],
+      art: 'campfire',
+    },
+  ],
   captiveChars,
   npcs,
   builds,

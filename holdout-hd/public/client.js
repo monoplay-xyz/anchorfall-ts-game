@@ -1,5 +1,8 @@
 import { TILE, createGame, step, snapshot, applyResults, charsById } from '/shared/game.js';
 import { render, renderMinimap, addEventFX, initTextures, drawPortrait, drawWeaponIcon } from './render.js';
+// Namespace import so optional renderer features (cutscenes, menu backdrop) can
+// ship independently — accessed via renderMod.* with runtime existence checks.
+import * as renderMod from './render.js';
 import { playEvent, playUi, setupAudioToggle } from './audio.js';
 
 const characters = await (await fetch('/shared/characters.json')).json();
@@ -8,6 +11,9 @@ const levels = await (await fetch('/api/levels')).json();
 // Expedition maps live outside the campaign rotation (menu shortcut only).
 const campaign = levels.filter(l => !l.expedition);
 const expeditions = levels.filter(l => l.expedition);
+// Story chapters are expedition-flagged too (kept out of classic + online),
+// ordered by their chapter number.
+const storyLevels = levels.filter(l => l.story).sort((a, b) => (a.chapter ?? 0) - (b.chapter ?? 0));
 const startingRoster = characters.filter(c => c.starting).map(c => c.id);
 await initTextures();
 
@@ -18,6 +24,7 @@ const canvas = $('game');
 const ctx = canvas.getContext('2d');
 const mmCtx = $('minimap').getContext('2d');
 const SAVE_KEY = 'holdout-hd.save';
+const STORY_KEY = 'holdout-hd.story'; // { chapter: next 1-based chapter, roster }
 const PCOLORS = ['#4fc3f7', '#ffb74d', '#f06292', '#aed581'];
 
 let session = null;
@@ -38,7 +45,8 @@ addEventListener('keyup', e => { keys[e.code] = false; });
 
 // E = interact (matches the on-screen [E/X] prompts), F = special
 const KB1 = { up: ['KeyW'], down: ['KeyS'], left: ['KeyA'], right: ['KeyD'], fire: ['Space'], special: ['KeyF'], act: ['KeyE'], start: ['Escape'] };
-const KB2 = { up: ['ArrowUp'], down: ['ArrowDown'], left: ['ArrowLeft'], right: ['ArrowRight'], fire: ['Enter'], special: ['ShiftRight'], act: ['Slash'], start: ['Escape'] };
+// KB2 pauses with Backspace (a shared Escape would emit start on BOTH seats at once)
+const KB2 = { up: ['ArrowUp'], down: ['ArrowDown'], left: ['ArrowLeft'], right: ['ArrowRight'], fire: ['Enter'], special: ['ShiftRight'], act: ['Slash'], start: ['Backspace'] };
 const DEVICES = ['kb1', 'kb2', 'gp0', 'gp1', 'gp2', 'gp3'];
 const DEVICE_LABEL = { kb1: 'Keyboard WASD', kb2: 'Keyboard Arrows', gp0: 'Pad 1', gp1: 'Pad 2', gp2: 'Pad 3', gp3: 'Pad 4' };
 
@@ -153,6 +161,79 @@ function resultText(res) {
   return s;
 }
 
+// ---------- menu gamepad navigation (couch box has no mouse) ----------
+// Any device's UP/DOWN moves a focus ring ('navfocus') across the visible
+// screen's buttons in document order; FIRE clicks the focused one. Text inputs
+// are never nav targets and the mouse keeps working. Focus resets whenever a
+// screen opens. Lobby exception: joined couch players' dpads drive their pick
+// cursor, so there only un-joined devices steer the ring, and only the device
+// that moved it may fire it (a stray FIRE must still mean "join the lobby").
+let navScreen = null, navEl = null, navDev = null;
+
+function visibleScreen() {
+  for (const s of ['msg', 'lobby', 'menu']) if (!$(s).hidden) return s;
+  return null;
+}
+function navButtons(screenId) {
+  return [...$(screenId).querySelectorAll('button')]
+    .filter(b => !b.disabled && b.offsetParent !== null); // skips [hidden] buttons
+}
+function setNavFocus(el) {
+  navEl = el;
+  for (const b of document.querySelectorAll('.navfocus')) if (b !== el) b.classList.remove('navfocus');
+  el?.classList.add('navfocus');
+}
+// Runs before session.tick each frame; consumes (zeroes) the *Just edges it
+// handles so the session never double-acts on the same press.
+function navTick(polled) {
+  const screen = visibleScreen();
+  if (screen !== navScreen) { navScreen = screen; navDev = null; setNavFocus(null); }
+  if (!screen) return;
+  const btns = navButtons(screen);
+  if (!btns.length) { setNavFocus(null); return; }
+  if (navEl && !btns.includes(navEl)) setNavFocus(null); // focused button hid or disabled
+  // Menu and dialogs get a default focus so a lone gamepad can always just
+  // press FIRE; the lobby starts unfocused because FIRE there means "join".
+  // Continue buttons take priority so a blind first press resumes a campaign
+  // instead of wiping it with a fresh start.
+  if (!navEl && screen !== 'lobby') {
+    setNavFocus(
+      btns.find(b => b.id === 'btnStoryContinue' || b.id === 'btnContinue')
+      || btns.find(b => !b.classList.contains('ghost'))
+      || btns[0]
+    );
+  }
+  for (const [dev, st] of Object.entries(polled)) {
+    if (screen === 'lobby' && session?.deviceOf?.(dev)) continue; // joined player: dpad = pick cursor
+    if (st.upJust || st.downJust) {
+      const idx = btns.indexOf(navEl);
+      const next = idx < 0
+        ? (st.downJust ? 0 : btns.length - 1)
+        : mod(idx + (st.downJust ? 1 : -1), btns.length);
+      setNavFocus(btns[next]);
+      navDev = dev;
+    }
+    if (screen === 'msg') {
+      // dialogs: FIRE or START from anyone clicks (keeps the old click-through feel)
+      if (st.fireJust || st.startJust) {
+        st.fireJust = st.startJust = false;
+        (navEl || $('btnMsgOk')).click();
+        return; // screen likely changed — re-evaluate next frame
+      }
+    } else if (st.fireJust && navEl && screen === 'menu') {
+      st.fireJust = false;
+      navEl.click();
+      return;
+    } else if (screen === 'lobby' && st.startJust && navEl && dev === navDev && !session?.deviceOf?.(dev)) {
+      // lobby: FIRE from an un-joined device ALWAYS means "join" (a stray
+      // press must never click Leave) — the ring activates with START instead
+      st.startJust = false;
+      navEl.click();
+      return;
+    }
+  }
+}
+
 function renderLobby({ title, info, hint, players, roster, canStart, cursors = [], onCard }) {
   $('lobbyTitle').textContent = title;
   $('roomInfo').innerHTML = info;
@@ -246,8 +327,13 @@ function updateMissionPanel() {
   const idx = session?.levelIdxView?.() ?? 0;
   const list = session?.levelList?.() ?? campaign;
   const lvl = list[Math.min(idx, list.length - 1)];
-  $('missionNo').textContent = `MISSION ${String(idx + 1).padStart(2, '0')}`;
-  $('missionName').textContent = lvl?.name?.toUpperCase() || '—';
+  if (session?.story) {
+    $('missionNo').textContent = `CHAPTER ${String(Math.min(idx + 1, list.length)).padStart(2, '0')} / ${String(list.length).padStart(2, '0')}`;
+    $('missionName').textContent = (lvl?.title || lvl?.name || '—').toUpperCase();
+  } else {
+    $('missionNo').textContent = `MISSION ${String(idx + 1).padStart(2, '0')}`;
+    $('missionName').textContent = lvl?.name?.toUpperCase() || '—';
+  }
   $('missionObj').textContent = lvl?.objective || 'Reach the exit gate';
 }
 
@@ -272,7 +358,9 @@ function updateHUD(snap) {
     gateEl.hidden = false;
     gateEl.textContent = snap.gate.open
       ? 'ANCHOR OPEN'
-      : `PYLONS ${snap.gate.built ?? 0}/${snap.gate.need ?? 0}`;
+      : snap.gate.charging
+        ? 'ANCHOR CHARGING…' // full quorum, time-locked (hold the line)
+        : `PYLONS ${snap.gate.built ?? 0}/${snap.gate.need ?? 0}`;
     gateEl.style.color = snap.gate.open ? 'var(--green)' : '';
   } else {
     gateEl.hidden = true;
@@ -313,15 +401,19 @@ function updateHUD(snap) {
 // ---------- local couch session (1-4 players, one screen) ----------
 class LocalSession {
   constructor(save, opts = {}) {
-    this.expedition = !!opts.expedition;
-    this.levels = this.expedition ? expeditions : campaign;
-    this.levelIdx = this.expedition ? 0 : (save?.levelIdx ?? 0);
+    this.story = !!opts.story;
+    this.expedition = !this.story && !!opts.expedition;
+    this.levels = this.story ? storyLevels : this.expedition ? expeditions : campaign;
+    this.levelIdx = this.story
+      ? Math.max(0, Math.min((save?.chapter ?? 1) - 1, this.levels.length - 1))
+      : this.expedition ? 0 : (save?.levelIdx ?? 0);
     this.roster = save?.roster ?? startingRoster.slice();
     this.players = []; // { pid, name, device, charId, cursor }
     this.game = null;
     this.snap = null;
     this.paused = false;
     this.inLobby = false;
+    this.cutscene = null; // { slides, idx, t, done } — intro/outro state machine
   }
   focusPids() { return new Set(this.players.map(p => p.pid)); }
   primaryPid() { return 0; }
@@ -337,12 +429,16 @@ class LocalSession {
   renderLobby() {
     const lvl = this.levels[this.levelIdx];
     renderLobby({
-      title: this.expedition
-        ? `Expedition — ${lvl.name}`
-        : `Mission ${this.levelIdx + 1} / ${this.levels.length} — ${lvl.name}`,
-      info: this.expedition ? 'One huge map. No autosave — bring everyone home.' : 'Local campaign · progress autosaves',
+      title: this.story
+        ? (lvl.title || `Chapter ${this.levelIdx + 1} — ${lvl.name}`)
+        : this.expedition
+          ? `Expedition — ${lvl.name}`
+          : `Mission ${this.levelIdx + 1} / ${this.levels.length} — ${lvl.name}`,
+      info: this.story
+        ? 'Story campaign · progress autosaves between chapters'
+        : this.expedition ? 'One huge map. No autosave — bring everyone home.' : 'Local campaign · progress autosaves',
       hint: 'Press FIRE to join: gamepad (A) · keyboard WASD+Space · keyboard Arrows+Enter — up to 4 players. Move your cursor with LEFT/RIGHT, FIRE to lock in. '
-        + 'In the field — SPECIAL: E / RShift / B·RB · ACT: F / Slash / X. '
+        + 'In the field — SPECIAL: F / RShift / B·RB · ACT: E / Slash / X. '
         + 'Hold ACT on a build site to construct — LYTH shards drop from fallen Entropy.',
       players: this.players.map(p => ({
         name: p.name, charId: p.charId, isHost: p.pid === 0, me: false,
@@ -424,15 +520,59 @@ class LocalSession {
   start() {
     if (!this.inLobby || !this.canStart()) return;
     this.inLobby = false;
-    this.game = createGame(
-      this.levels[this.levelIdx],
-      this.players.map(p => ({ pid: p.pid, name: p.name, charId: p.charId })),
-      charMap,
-      this.roster
-    );
-    this.snap = null;
-    this.paused = false;
+    const lvl = this.levels[this.levelIdx];
+    const begin = () => {
+      this.game = createGame(
+        lvl,
+        this.players.map(p => ({ pid: p.pid, name: p.name, charId: p.charId })),
+        charMap,
+        this.roster
+      );
+      this.snap = null;
+      this.paused = false;
+      hideAll();
+    };
+    // Story chapters open on an intro cutscene; the sim is created only after
+    // it ends, so no mission time is lost. Classic/expedition start instantly.
+    if (this.story) this.startCutscene(lvl.intro, begin);
+    else begin();
+  }
+  // Cutscenes are client-owned: render.drawCutscene draws, this advances.
+  // If the renderer doesn't ship cutscenes (yet), or we're in demo/attract
+  // mode (bots can't press FIRE, &warp needs the sim immediately), skip.
+  startCutscene(slides, done) {
+    if (demoMode || !slides?.length || typeof renderMod.drawCutscene !== 'function') return done();
     hideAll();
+    hideDialogue();
+    playUi('cutscene');
+    canvas.classList.add('cutscene');
+    canvas.onclick = () => { this.cutsceneClick = true; }; // mouse can advance too
+    this.cutscene = { slides, idx: 0, t: 0, done };
+  }
+  cutsceneTick(polled, dt) {
+    const cs = this.cutscene;
+    cs.t += dt;
+    let adv = cs.t >= 12 || this.cutsceneClick; // idle couch still auto-advances
+    this.cutsceneClick = false;
+    for (const st of Object.values(polled)) {
+      if (st.fireJust || st.startJust) { st.fireJust = st.startJust = false; adv = true; }
+    }
+    if (!adv) return;
+    cs.idx++;
+    cs.t = 0;
+    if (cs.idx >= cs.slides.length) {
+      this.cutscene = null;
+      canvas.classList.remove('cutscene');
+      canvas.onclick = null;
+      // a button still held from the dismissing press must not fire into the
+      // sim's first frames — squelch each device's fire until it is released
+      this.fireSquelch = new Set(
+        Object.entries(polled).filter(([, st]) => st.fire).map(([dev]) => dev)
+      );
+      cs.done();
+    } else {
+      playUi('cutscene');
+    }
   }
   togglePause() {
     if (!this.game || this.game.status !== 'play') return;
@@ -441,6 +581,7 @@ class LocalSession {
     else hideAll();
   }
   tick(polled, dt) {
+    if (this.cutscene) return this.cutsceneTick(polled, dt);
     if (this.inLobby) return this.lobbyTick(polled, dt);
     if (!this.game) {
       // a mission-end dialog is up: fire/start on any device clicks through,
@@ -458,8 +599,13 @@ class LocalSession {
     for (const p of this.players) {
       if (p.device.startsWith('bot')) { inputs[p.pid] = this.botInput(p, dt); continue; }
       const st = polled[p.device];
+      let fire = !!st?.fire;
+      if (this.fireSquelch?.has(p.device)) {
+        if (fire) fire = false; // held since the cutscene dismissal
+        else this.fireSquelch.delete(p.device);
+      }
       inputs[p.pid] = st
-        ? { up: st.up, down: st.down, left: st.left, right: st.right, fire: st.fire, special: st.special, act: st.act }
+        ? { up: st.up, down: st.down, left: st.left, right: st.right, fire, special: st.special, act: st.act }
         : {};
     }
     step(this.game, inputs, dt);
@@ -530,11 +676,26 @@ class LocalSession {
     const res = applyResults(this.roster, this.game);
     const cleared = this.game.status === 'cleared';
     const score = Math.round(this.game.score);
+    const lvl = this.levels[this.levelIdx];
     this.game = null;
     this.paused = false;
     for (const p of this.players) { p.charId = null; p.cursor = 0; p.bot = null; }
     if (cleared) {
       this.roster = res.roster;
+      if (this.story) {
+        this.levelIdx++;
+        // save now (before any cutscene/dialog) so quitting can't lose the clear;
+        // demo/attract runs never touch the player's story save
+        if (!demoMode) {
+          if (this.levelIdx >= this.levels.length) localStorage.removeItem(STORY_KEY);
+          else localStorage.setItem(STORY_KEY, JSON.stringify({ chapter: this.levelIdx + 1, roster: this.roster }));
+        }
+        this.startCutscene(lvl.outro, () => {
+          if (this.levelIdx >= this.levels.length) return this.victory();
+          showMsg('Chapter Cleared', (resultText(res) || 'The line holds.') + `\nScore: ${score.toLocaleString()}`, 'Continue', () => this.lobby());
+        });
+        return;
+      }
       if (this.expedition) {
         playUi('victory');
         showMsg('Expedition Complete!', (resultText(res) || 'The crossing is yours.') + `\nScore: ${score.toLocaleString()}`, 'Main Menu', () => this.leave());
@@ -544,12 +705,17 @@ class LocalSession {
       localStorage.setItem(SAVE_KEY, JSON.stringify({ levelIdx: this.levelIdx, roster: this.roster }));
       showMsg('Mission Cleared', (resultText(res) || 'Nicely done.') + `\nScore: ${score.toLocaleString()}`, 'Continue', () => this.lobby());
     } else {
-      showMsg('Mission Failed', 'Time ran out or the whole squad went down.\nNo one is lost on a failed run — try again.', 'Retry', () => this.lobby());
+      showMsg(this.story ? 'Chapter Failed' : 'Mission Failed', 'Time ran out or the whole squad went down.\nNo one is lost on a failed run — try again.', 'Retry', () => this.lobby());
     }
   }
   victory() {
-    localStorage.removeItem(SAVE_KEY);
     playUi('victory');
+    if (this.story) {
+      if (!demoMode) localStorage.removeItem(STORY_KEY);
+      showMsg('The Crossing Holds', `The Anchor is lit and the frontier breathes again.\nFinal roster: ${this.roster.map(id => charMap[id].name).join(', ')}`, 'Main Menu', () => this.leave());
+      return;
+    }
+    localStorage.removeItem(SAVE_KEY);
     showMsg('Campaign Complete!', `You held out to the end.\nFinal roster: ${this.roster.map(id => charMap[id].name).join(', ')}`, 'Main Menu', () => this.leave());
   }
   leave() { session = null; show('menu'); refreshContinue(); }
@@ -665,6 +831,8 @@ class NetSession {
 // ---------- menu wiring ----------
 function refreshContinue() {
   $('btnContinue').hidden = !localStorage.getItem(SAVE_KEY);
+  $('btnStory').hidden = !storyLevels.length;
+  $('btnStoryContinue').hidden = !storyLevels.length || !localStorage.getItem(STORY_KEY);
 }
 refreshContinue();
 $('nameInput').value = localStorage.getItem('holdout.name') || '';
@@ -683,11 +851,19 @@ $('btnContinue').onclick = e => {
   session = new LocalSession(save);
   session.lobby();
 };
-$('btnExpedition').hidden = !expeditions.length;
-$('btnExpedition').onclick = e => {
+$('btnStory').onclick = e => {
   e.currentTarget.blur();
-  if (!expeditions.length || session) return;
-  session = new LocalSession(null, { expedition: true });
+  if (!storyLevels.length || session) return;
+  localStorage.removeItem(STORY_KEY); // fresh start, like btnSolo for classic
+  session = new LocalSession(null, { story: true });
+  session.lobby();
+};
+$('btnStoryContinue').onclick = e => {
+  e.currentTarget.blur();
+  if (!storyLevels.length || session) return;
+  let save = null;
+  try { save = JSON.parse(localStorage.getItem(STORY_KEY)); } catch {}
+  session = new LocalSession(save, { story: true });
   session.lobby();
 };
 $('btnHost').onclick = e => {
@@ -707,7 +883,14 @@ $('btnLeave').onclick = () => session?.leave();
 
 // ---------- demo / attract mode ----------
 if (demoMode) {
-  session = new LocalSession(null, { expedition: expeditions.length > 0 });
+  // ?demo runs the story campaign with bots; &ch=N (1-based) picks the chapter.
+  // Cutscenes are skipped in demo (see startCutscene) so &warp works instantly.
+  if (storyLevels.length) {
+    const ch = Math.max(1, Math.min(storyLevels.length, +(new URLSearchParams(location.search).get('ch') || 1) || 1));
+    session = new LocalSession({ chapter: ch }, { story: true });
+  } else {
+    session = new LocalSession(null, { expedition: expeditions.length > 0 });
+  }
   session.roster.slice(0, 4).forEach((charId, i) => {
     session.players.push({ pid: i, name: 'BOT' + (i + 1), device: 'bot' + i, charId, cursor: 0, missingT: 0 });
   });
@@ -744,13 +927,22 @@ function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   const polled = pollDevices();
+  navTick(polled); // first: consumes the button edges it handles
   if (session) {
     session.tick?.(polled, dt);
-    const snap = session.snap;
-    if (snap) {
-      render(ctx, snap, charMap, session.focusPids(), now / 1000, dt);
-      updateHUD(snap);
+    const cs = session.cutscene;
+    if (cs) {
+      renderMod.drawCutscene?.(ctx, cs.slides[cs.idx], now / 1000, cs.t);
+    } else {
+      const snap = session.snap;
+      if (snap) {
+        render(ctx, snap, charMap, session.focusPids(), now / 1000, dt);
+        updateHUD(snap);
+      }
     }
+  } else {
+    // cheap animated backdrop behind the DOM menu (optional renderer feature)
+    renderMod.drawMenuBackdrop?.(ctx, now / 1000);
   }
   requestAnimationFrame(frame);
 }

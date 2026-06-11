@@ -45,7 +45,9 @@ function aimAtNearest(g, p) {
 }
 
 function testLevelsParse() {
-  assert.equal(levels.length, 11, 'campaign should contain 11 levels (10 classic + 1 expedition)');
+  const classics = levels.filter(l => !l.story && !l.expedition);
+  assert.equal(classics.length, 10, 'classic campaign keeps exactly its 10 missions');
+  assert.ok(levels.length >= 11, 'at least one story/expedition level ships beside the classics');
   const validChars = new Set(characters.map(c => c.id));
   const captiveIds = new Set();
   for (const [idx, level] of levels.entries()) {
@@ -248,51 +250,65 @@ function testTwoLocalPlayersMoveIndependently() {
   assert.ok(b.x > bx, 'player 2 moved right');
 }
 
-function testExpeditionMapIntegrity() {
-  const def = levels.find(l => l.expedition);
-  assert.ok(def, 'an expedition level exists');
-  const parsed = parseLevel(def);
-  assert.ok(parsed.w * parsed.h > 600, 'expedition map is big enough for the journey camera');
-  assert.ok(parsed.spawns.length >= 4, 'expedition supports 4 players');
-  assert.ok(parsed.captives.length >= 6, 'expedition carries rescuable characters');
-  assert.ok(def.tiles.some(r => r.includes('E')), 'expedition has an exit');
-  // walkable connectivity from spawn to exit and every captive
-  // ('T' trees block movement; crystals are parsed out and never block)
-  const pass = c => c !== '#' && c !== 'T' && c !== '~' && c !== 'o';
-  const seen = new Set();
-  const sx = Math.floor(parsed.spawns[0].x / TILE), sy = Math.floor(parsed.spawns[0].y / TILE);
-  const q = [[sx, sy]];
-  seen.add(sx + ',' + sy);
-  while (q.length) {
-    const [x, y] = q.pop();
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      const nx = x + dx, ny = y + dy;
-      if (nx < 0 || ny < 0 || nx >= parsed.w || ny >= parsed.h) continue;
-      const k = nx + ',' + ny;
-      if (!seen.has(k) && pass(parsed.grid[ny][nx])) { seen.add(k); q.push([nx, ny]); }
+// Generic integrity gate for EVERY story/expedition level. New chapters are
+// validated automatically the moment their files land in levels/.
+const ART_KEYS = new Set(['anchorcraft', 'crossing', 'basin', 'quorum', 'forkfall', 'siege', 'settlement', 'campfire', 'entropy', 'dawn']);
+const WAVE_LETTERS = new Set('garsmnwb');
+
+function testStoryLevelIntegrity() {
+  const storyLevels = levels.filter(l => l.story || l.expedition);
+  assert.ok(storyLevels.length >= 1, 'at least one story/expedition level exists');
+  for (const def of storyLevels) {
+    const tag = def.name || 'story level';
+    const w = def.tiles[0].length;
+    assert.ok(def.tiles.every(r => r.length === w), `${tag}: rows have equal width`);
+    const parsed = parseLevel(def);
+    assert.ok(parsed.spawns.length >= 2, `${tag}: at least 2 spawns`);
+    // entity arrays must match their tile counts exactly
+    const tileCount = ch => def.tiles.reduce((n, r) => n + (r.split(ch).length - 1), 0);
+    assert.equal((def.captiveChars || []).length, tileCount('c'), `${tag}: captiveChars length matches 'c' tiles`);
+    assert.equal((def.npcs || []).length, tileCount('N'), `${tag}: npcs length matches 'N' tiles`);
+    assert.equal((def.builds || []).length, tileCount('B'), `${tag}: builds length matches 'B' tiles`);
+    if (def.gate) {
+      const pylons = (def.builds || []).filter(b => b.kind === 'pylon').length;
+      assert.ok(def.gate.need <= pylons, `${tag}: gate.need ${def.gate.need} <= ${pylons} pylon sites`);
     }
-  }
-  for (let y = 0; y < parsed.h; y++)
-    for (let x = 0; x < parsed.w; x++)
-      if (parsed.grid[y][x] === 'E') assert.ok(seen.has(x + ',' + y), `exit at ${x},${y} reachable`);
-  for (const c of parsed.captives) {
-    const k = Math.floor(c.x / TILE) + ',' + Math.floor(c.y / TILE);
-    assert.ok(seen.has(k), `captive ${c.charId} reachable`);
-  }
-  // expedition systems content: camps, build sites, crystals, dormant gate
-  assert.ok(parsed.npcs.length >= 4, 'expedition has at least 4 stranded operators');
-  assert.equal(parsed.builds.filter(b => b.kind === 'pylon').length, 3, 'expedition has 3 pylon sites');
-  assert.ok(parsed.builds.length >= 9, 'expedition has barricade/turret sites too');
-  assert.ok(parsed.crystals.length >= 9, 'expedition scatters LYTH crystals along the journey');
-  assert.ok(def.gate && def.gate.need === 3, 'expedition gate needs the pylon quorum');
-  for (const n of parsed.npcs) {
-    assert.ok(n.lines.length >= 4, `npc ${n.id} has dialogue`);
-    const k = Math.floor(n.x / TILE) + ',' + Math.floor(n.y / TILE);
-    assert.ok(seen.has(k), `npc ${n.id} reachable`);
-  }
-  for (const b of parsed.builds) {
-    const k = Math.floor(b.x / TILE) + ',' + Math.floor(b.y / TILE);
-    assert.ok(seen.has(k), `${b.kind} site reachable`);
+    // walkable connectivity (BFS) from the first spawn to every objective
+    // ('T' trees block movement; crystals are parsed out and never block)
+    const pass = c => c !== '#' && c !== 'T' && c !== '~' && c !== 'o';
+    const seen = new Set();
+    const sx = Math.floor(parsed.spawns[0].x / TILE), sy = Math.floor(parsed.spawns[0].y / TILE);
+    const q = [[sx, sy]];
+    seen.add(sx + ',' + sy);
+    while (q.length) {
+      const [x, y] = q.pop();
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = x + dx, ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= parsed.w || ny >= parsed.h) continue;
+        const k = nx + ',' + ny;
+        if (!seen.has(k) && pass(parsed.grid[ny][nx])) { seen.add(k); q.push([nx, ny]); }
+      }
+    }
+    const reach = (px, py, what) =>
+      assert.ok(seen.has(Math.floor(px / TILE) + ',' + Math.floor(py / TILE)), `${tag}: ${what} reachable from spawn`);
+    for (let y = 0; y < parsed.h; y++)
+      for (let x = 0; x < parsed.w; x++)
+        if (parsed.grid[y][x] === 'E') assert.ok(seen.has(x + ',' + y), `${tag}: exit at ${x},${y} reachable from spawn`);
+    for (const c of parsed.captives) reach(c.x, c.y, `captive ${c.charId}`);
+    for (const n of parsed.npcs) reach(n.x, n.y, `npc ${n.id}`);
+    for (const b of parsed.builds) reach(b.x, b.y, `${b.kind} site`);
+    // story modifiers: wave letters/edges/timing must be sane
+    for (const wv of (def.modifiers && def.modifiers.waves) || []) {
+      assert.ok(wv.letters.length >= 1 && [...wv.letters].every(c => WAVE_LETTERS.has(c)), `${tag}: wave letters '${wv.letters}' all in garsmnwb`);
+      assert.ok(['n', 's', 'e', 'w'].includes(wv.edge), `${tag}: wave edge '${wv.edge}' is n/s/e/w`);
+      assert.ok(typeof wv.at === 'number' && wv.at < def.time, `${tag}: wave at ${wv.at}s fires inside the ${def.time}s timer`);
+    }
+    // cutscene slides: title, 1-3 lines, known art key
+    for (const slide of [...(def.intro || []), ...(def.outro || [])]) {
+      assert.ok(typeof slide.title === 'string' && slide.title.length > 0, `${tag}: slide has a title`);
+      assert.ok(Array.isArray(slide.lines) && slide.lines.length >= 1 && slide.lines.length <= 3, `${tag}: slide has 1-3 lines`);
+      assert.ok(ART_KEYS.has(slide.art), `${tag}: slide art '${slide.art}' is a known art key`);
+    }
   }
 }
 
@@ -453,7 +469,7 @@ function testPylonOpensGateAndGatesExtraction() {
   };
   const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   assert.equal(g.arcade, false, 'synthetic gate map is big-map class');
-  assert.deepEqual(snapshot(g, false).gate, { need: 1, built: 0, open: false }, 'snapshot carries the dormant gate');
+  assert.deepEqual(snapshot(g, false).gate, { need: 1, after: 0, built: 0, open: false, charging: false }, 'snapshot carries the dormant gate');
   const b = g.builds[0];
   const p = g.players[0];
   p.invuln = 999;
@@ -689,6 +705,175 @@ function testRespawnPickFlow() {
   assert.equal(a.charId, choices[1], 'the cycled-to character is the one fielded');
 }
 
+// --- dark modifier: aggro radii x0.75, lit behavior untouched ---
+function testDarkAggroShrink() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  // grunt aggro is 9 tiles; the player stands 8 tiles away in clear sight
+  let r = '#' + '.'.repeat(38) + '#';
+  r = put(put(r, 4, 'P'), 12, 'g');
+  const make = dark => {
+    const def = bigEmptyLevel([[5, r]]);
+    if (dark) def.modifiers = { dark: true };
+    const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+    g.graceT = 0;
+    g.players[0].invuln = 999;
+    return g;
+  };
+  const lit = make(false);
+  assert.equal(lit.dark, false, 'no modifier: g.dark stays false');
+  run(lit, () => ({ 0: {} }), 0.5);
+  assert.equal(lit.enemies[0].awake, true, 'lit: grunt aggro (9 tiles) sights a player 8 tiles out');
+  const dark = make(true);
+  assert.equal(dark.dark, true, 'modifiers.dark sets g.dark');
+  run(dark, () => ({ 0: {} }), 0.5);
+  assert.equal(dark.enemies[0].awake, false, 'dark: aggro shrinks to 6.75 tiles, grunt stays asleep');
+  // inside the shrunken radius it still wakes
+  dark.players[0].x = dark.enemies[0].x - TILE * 5;
+  dark.players[0].y = dark.enemies[0].y;
+  run(dark, () => ({ 0: {} }), 0.5);
+  assert.equal(dark.enemies[0].awake, true, 'dark: enemies still wake inside the shrunken radius');
+}
+
+// --- dark modifier: sight (canSee) additionally capped at 8 tiles ---
+function testDarkSightCap() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  // sniper aggro is 12.5 tiles (9.375 in the dark); the player stands 9 tiles
+  // out — inside the dark aggro radius, but beyond the 8-tile sight cap
+  let r = '#' + '.'.repeat(38) + '#';
+  r = put(put(r, 4, 'P'), 13, 'n');
+  const make = dark => {
+    const def = bigEmptyLevel([[5, r]]);
+    if (dark) def.modifiers = { dark: true };
+    const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+    g.graceT = 0;
+    g.players[0].invuln = 999;
+    return g;
+  };
+  const lit = make(false);
+  run(lit, () => ({ 0: {} }), 0.5);
+  assert.equal(lit.enemies[0].awake, true, 'lit: sniper sights a player 9 tiles out');
+  const dark = make(true);
+  run(dark, () => ({ 0: {} }), 0.5);
+  assert.equal(dark.enemies[0].awake, false, 'dark: the 8-tile sight cap blinds the sniper even inside aggro range');
+  dark.players[0].x = dark.enemies[0].x - TILE * 7;
+  dark.players[0].y = dark.enemies[0].y;
+  run(dark, () => ({ 0: {} }), 0.5);
+  assert.equal(dark.enemies[0].awake, true, 'dark: sniper sights a player back inside 8 tiles');
+}
+
+// --- dark modifier: snapshots carry top-level dark:true, classics stay clean ---
+function testDarkSnapshotFlag() {
+  const def = bigEmptyLevel([[17, '#....................................g#']]);
+  def.modifiers = { dark: true };
+  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  assert.equal(snapshot(g, true).dark, true, 'full snapshot carries dark:true');
+  assert.equal(snapshot(g, false).dark, true, 'lite snapshot carries dark:true');
+  const classic = createGame(levels[0], [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  assert.ok(!('dark' in snapshot(classic, true)), 'classic snapshots gain no dark key (byte-identical)');
+}
+
+// --- waves: timed deterministic edge spawns ---
+function waveLevel(waves) {
+  const def = bigEmptyLevel([
+    [10, '#P....................................#'],
+    [17, '#....................................g#'], // keeps the level alive
+  ]);
+  def.modifiers = { waves };
+  return def;
+}
+
+function testWaveSpawnTimingAndPlacement() {
+  const def = waveLevel([{ at: 2, letters: 'ggw', edge: 'n' }]);
+  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  g.graceT = 9999; // freeze enemy AI so spawn positions can be inspected exactly
+  g.players[0].invuln = 999;
+  const before = g.enemies.length;
+  run(g, () => ({ 0: {} }), 1.9);
+  assert.equal(g.enemies.length, before, 'no spawns before the wave time');
+  assert.ok(!g.events.some(ev => ev.type === 'wave'), 'no wave event before the wave time');
+  run(g, () => ({ 0: {} }), 0.5);
+  const spawned = g.enemies.slice(before);
+  assert.equal(spawned.length, 3, 'the wave spawns one enemy per letter');
+  assert.deepEqual(spawned.map(e => e.letter), ['g', 'g', 'w'], 'letters spawn in order');
+  const xs = [];
+  for (const e of spawned) {
+    assert.equal(e.awake, true, 'wave enemy spawns awake');
+    assert.ok(e.aggro >= TILE * 100, 'wave enemy hunts with x100 aggro (never leashes home)');
+    assert.equal(e.homeX, e.x, 'home anchored at spawn x');
+    assert.equal(e.homeY, e.y, 'home anchored at spawn y');
+    assert.ok(e.y < TILE * 2, 'spawn lies in the 2-tile north band');
+    xs.push(Math.floor(e.x / TILE));
+  }
+  assert.ok(xs[0] < xs[1] && xs[1] < xs[2], `entry points spread along the edge (cols ${xs.join(',')})`);
+  const ev = g.events.find(v => v.type === 'wave');
+  assert.ok(ev, 'wave event emitted');
+  assert.equal(ev.edge, 'n', 'wave event carries the edge');
+  assert.equal(ev.count, 3, 'wave event carries the spawned count');
+  assert.equal(ev.x, g.w * TILE / 2, 'wave event x at the entry band center');
+  assert.equal(ev.y, TILE, 'wave event y at the entry band center');
+}
+
+function testWaveEdgeBands() {
+  // 40x20 map: each edge's spawns must land in its own 2-tile band and the
+  // event must point at that band's center
+  const cases = {
+    n: { band: e => e.y < TILE * 2, cx: 20 * TILE, cy: TILE },
+    s: { band: e => e.y > 18 * TILE, cx: 20 * TILE, cy: 19 * TILE },
+    w: { band: e => e.x < TILE * 2, cx: TILE, cy: 10 * TILE },
+    e: { band: e => e.x > 38 * TILE, cx: 39 * TILE, cy: 10 * TILE },
+  };
+  for (const [edge, want] of Object.entries(cases)) {
+    const def = waveLevel([{ at: 1, letters: 'gg', edge }]);
+    const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+    g.graceT = 9999;
+    g.players[0].invuln = 999;
+    const before = g.enemies.length;
+    run(g, () => ({ 0: {} }), 1.5);
+    const spawned = g.enemies.slice(before);
+    assert.equal(spawned.length, 2, `edge ${edge}: both letters spawned`);
+    for (const e of spawned) assert.ok(want.band(e), `edge ${edge}: spawn inside the 2-tile band`);
+    const ev = g.events.find(v => v.type === 'wave');
+    assert.equal(ev.edge, edge, `edge ${edge}: event edge`);
+    assert.equal(ev.x, want.cx, `edge ${edge}: event x at band center`);
+    assert.equal(ev.y, want.cy, `edge ${edge}: event y at band center`);
+  }
+}
+
+function testWaveFiresOnce() {
+  const def = waveLevel([{ at: 1, letters: 'gg', edge: 's' }]);
+  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  g.graceT = 99999;
+  g.players[0].invuln = 999;
+  const before = g.enemies.length;
+  run(g, () => ({ 0: {} }), 10);
+  assert.equal(g.enemies.length, before + 2, 'the wave spawned its two enemies exactly once');
+  assert.equal(g.events.filter(v => v.type === 'wave').length, 1, 'the wave event fired exactly once');
+}
+
+function testWaveRespectsGlobalCap() {
+  // 88 pre-placed grunts: a 5-letter wave may only add 2 before the 90 cap
+  const rows = [];
+  rows.push('#'.repeat(40));
+  for (let y = 1; y < 19; y++) rows.push('#' + '.'.repeat(38) + '#');
+  rows.push('#'.repeat(40));
+  rows[2] = '#P' + '.'.repeat(37) + '#';
+  rows[10] = '#' + 'g'.repeat(38) + '#';
+  rows[11] = '#' + 'g'.repeat(38) + '#';
+  rows[12] = '#' + 'g'.repeat(12) + '.'.repeat(26) + '#';
+  const def = {
+    name: 'Cap Wave', time: 60, captiveChars: [], tiles: rows,
+    modifiers: { waves: [{ at: 1, letters: 'wwwww', edge: 'n' }] },
+  };
+  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  assert.equal(g.enemies.length, 88, 'pre-placed population is 88');
+  g.graceT = 99999;
+  g.players[0].invuln = 999;
+  run(g, () => ({ 0: {} }), 2);
+  assert.equal(g.enemies.length, 90, 'wave overflow is dropped at the global 90 cap');
+  const ev = g.events.find(v => v.type === 'wave');
+  assert.equal(ev.count, 2, 'wave event reports the post-cap spawned count');
+}
+
 testLevelsParse();
 testEveryCharacterCanKill();
 testNewEnemiesCanDownPlayer();
@@ -699,7 +884,7 @@ testSmallMapsStayArcade();
 testPathfindingAroundWall();
 testSnapshotGridModes();
 testTwoLocalPlayersMoveIndependently();
-testExpeditionMapIntegrity();
+testStoryLevelIntegrity();
 testArcadeSpawnCapsPreserved();
 testEnemiesShootAcrossWater();
 testPickupOwnerPidZeroNotStolen();
@@ -712,6 +897,101 @@ testEveryCharacterSpecial();
 testCrystalBreakDropsShards();
 testBigMapSpawnerPopulationCap();
 testDeterministicExpeditionRun();
+function testEnemyPathsAroundBuiltPylon() {
+  // a built pylon mid-corridor must not wedge chasers — A* routes around it
+  const rows = [];
+  rows.push('#'.repeat(40));
+  for (let y = 1; y < 19; y++) rows.push('#' + '.'.repeat(38) + '#');
+  rows.push('#'.repeat(40));
+  rows[9] = '#P............B.......w...............#';
+  const level = {
+    name: 'Pylon Path', time: 60, captiveChars: [],
+    builds: [{ kind: 'pylon', cost: 1 }],
+    tiles: rows,
+  };
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  g.shards = 10;
+  const p = g.players[0];
+  p.invuln = 999;
+  // build the pylon, standing beside (not on) the site
+  const site = g.builds[0];
+  p.x = site.x - TILE; p.y = site.y;
+  run(g, () => ({ 0: { act: true } }), 5);
+  assert.ok(site.built, 'pylon built');
+  const e = g.enemies[0];
+  e.awake = true;
+  // skitter must reach the player even though the pylon sits on the beeline
+  run(g, () => ({ 0: {} }), 25);
+  const d = Math.hypot(e.x - p.x, e.y - p.y);
+  assert.ok(d < TILE * 3, `chaser routes around the built pylon (ended ${(d / TILE).toFixed(1)} tiles away)`);
+}
+
+function testDismantleBuiltStructure() {
+  const rows = [];
+  rows.push('#'.repeat(30));
+  for (let y = 1; y < 9; y++) rows.push('#' + '.'.repeat(28) + '#');
+  rows.push('#'.repeat(30));
+  rows[4] = '#P..B.....................g..#';
+  const level = {
+    name: 'Dismantle', time: 60, captiveChars: [],
+    builds: [{ kind: 'barricade', cost: 4 }],
+    tiles: rows,
+  };
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  g.shards = 10;
+  const p = g.players[0];
+  p.invuln = 999;
+  const site = g.builds[0];
+  p.x = site.x - TILE; p.y = site.y;
+  run(g, () => ({ 0: { act: true } }), 4);
+  assert.ok(site.built, 'barricade built');
+  const shardsBefore = g.shards;
+  // keep holding act: with no enemies near (grunt is 20+ tiles away, asleep),
+  // the structure dismantles after ~2s and refunds half its cost. Release act
+  // the moment it drops, or the same hold would immediately rebuild it.
+  run(g, () => ({ 0: { act: site.built } }), 3);
+  assert.equal(site.built, false, 'holding act dismantles the structure');
+  assert.equal(g.shards, shardsBefore + 2, 'dismantle refunds half the cost');
+}
+
+function testGateTimeLock() {
+  const rows = [];
+  rows.push('#'.repeat(30));
+  for (let y = 1; y < 9; y++) rows.push('#' + '.'.repeat(28) + '#');
+  rows.push('#'.repeat(30));
+  rows[4] = '#P.B....E................g...#';
+  const level = {
+    name: 'Charging Anchor', time: 60, captiveChars: [],
+    builds: [{ kind: 'pylon', cost: 1 }],
+    gate: { need: 1, after: 6 },
+    tiles: rows,
+  };
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  g.shards = 5;
+  const p = g.players[0];
+  p.invuln = 999;
+  const site = g.builds[0];
+  p.x = site.x - TILE; p.y = site.y;
+  run(g, () => ({ 0: { act: true } }), 2);
+  assert.ok(site.built, 'pylon built before the time lock');
+  assert.equal(g.gate.open, false, 'gate stays shut at full quorum until `after` elapses');
+  const snapCharging = snapshot(g, false).gate;
+  assert.equal(snapCharging.charging, true, 'snapshot reports the charging state');
+  run(g, () => ({ 0: {} }), 5);
+  assert.equal(g.gate.open, true, 'gate opens once the time lock elapses');
+  assert.equal(snapshot(g).events !== undefined, true);
+}
+
 testRespawnPickFlow();
+testEnemyPathsAroundBuiltPylon();
+testDismantleBuiltStructure();
+testGateTimeLock();
+testDarkAggroShrink();
+testDarkSightCap();
+testDarkSnapshotFlag();
+testWaveSpawnTimingAndPlacement();
+testWaveEdgeBands();
+testWaveFiresOnce();
+testWaveRespectsGlobalCap();
 
 console.log('sim tests passed');

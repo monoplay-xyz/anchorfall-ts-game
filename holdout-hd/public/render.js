@@ -9,7 +9,9 @@ const particles = [];
 const flashes = [];
 const popups = [];
 const rings = [];
+const edgePulses = []; // nightwave warnings: violet bleed from a map edge
 let shake = 0;
+let darkWorld = false; // set per-frame from snap.dark (story night missions)
 const tex = {};
 const imageCache = {};
 
@@ -710,6 +712,22 @@ export function addEventFX(ev) {
   else if (ev.type === 'crystal') { burst(13, PAL.lythAmber, 160, 0.55); burst(5, PAL.lythPale, 100, 0.4); shake = Math.max(shake, 2); }
   else if (ev.type === 'special') { burst(12, PAL.anchor, 180, 0.5); flashes.push({ x: ev.x, y: ev.y, life: 0.1, who: 'p' }); }
   else if (ev.type === 'dash') burst(8, ev.kind ? PAL.glitch : PAL.relay, 140, 0.3);
+  else if (ev.type === 'wave') {
+    // a nightwave pours in from one map edge: directional violet pulse + banner
+    const dir = { n: 'NORTH', s: 'SOUTH', e: 'EAST', w: 'WEST' }[ev.edge] || '';
+    edgePulses.push({ edge: ev.edge || 'n', life: 2.6, max: 2.6 });
+    popups.push({
+      screen: true, x: 0, y: 0,
+      text: dir ? `NIGHTWAVE — ${dir}` : 'NIGHTWAVE',
+      life: 2.6, max: 2.6, color: PAL.glitch, size: 28,
+    });
+    if (ev.x != null && ev.y != null) {
+      ring(120, PAL.glitch, 0.9, 4);
+      burst(18, PAL.glitch, 200, 0.6);
+      burst(6, PAL.eye, 160, 0.35);
+    }
+    shake = Math.max(shake, 3);
+  }
   // unknown event types are ignored gracefully
 }
 
@@ -931,10 +949,11 @@ function drawEye(ctx, x, y, r, alpha = 1) {
   ctx.save();
   ctx.globalAlpha *= alpha;
   ctx.shadowColor = PAL.relay;
-  ctx.shadowBlur = 6;
+  // on dark missions the eyes are the brightest thing in the night
+  ctx.shadowBlur = darkWorld ? 11 : 6;
   ctx.fillStyle = PAL.eye;
   ctx.beginPath();
-  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.arc(x, y, darkWorld ? r * 1.25 : r, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
 }
@@ -2016,6 +2035,7 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
   const npcs = snap.npcs ?? [];
   const gate = snap.gate ?? null;
   const lights = []; // per-frame light pools (campfires, LYTH, pylons...)
+  darkWorld = !!snap.dark; // story night missions deepen the grade
 
   // particles, flashes, popups, rings
   shake = Math.max(0, shake - dt * 18);
@@ -2038,6 +2058,10 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
   for (let i = rings.length - 1; i >= 0; i--) {
     rings[i].life -= dt;
     if (rings[i].life <= 0) rings.splice(i, 1);
+  }
+  for (let i = edgePulses.length - 1; i >= 0; i--) {
+    edgePulses[i].life -= dt;
+    if (edgePulses[i].life <= 0) edgePulses.splice(i, 1);
   }
 
   cam.vw = ctx.canvas.width;
@@ -2226,6 +2250,22 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
     ctx.fillText(p.name.toUpperCase(), p.x, p.y - 26);
   }
 
+  // --- dark mission: night falls over the world; warm light punches through ---
+  if (darkWorld) {
+    ctx.fillStyle = 'rgba(6,6,15,0.32)';
+    ctx.fillRect((tx0 - 1) * TILE, (ty0 - 1) * TILE, (tx1 - tx0 + 3) * TILE, (ty1 - ty0 + 3) * TILE);
+    // operators carry a faint cool aura so the squad stays readable
+    for (const p of snap.players) {
+      if (p.state !== 'active') continue;
+      lights.push({ x: p.x, y: p.y, r: 95, rgb: '140,170,210', a: 0.09 });
+    }
+    // hunting eyes glow through the dark
+    for (const e of snap.enemies) {
+      if (e.awake === false || !inView(e.x, e.y)) continue;
+      lights.push({ x: e.x + e.fx * 7, y: e.y + e.fy * 7, r: 13, rgb: '191,251,255', a: 0.3 });
+    }
+  }
+
   // --- interaction prompts near focus players (build sites take priority) ---
   const R2 = (TILE * 1.5) ** 2;
   const focusActive = snap.players.filter(p => p.state === 'active' && focus.has(p.pid));
@@ -2341,21 +2381,48 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
   }
   for (const L of lights) {
     if (!inView(L.x, L.y, L.r)) continue;
-    const lg = ctx.createRadialGradient(L.x, L.y, 0, L.x, L.y, L.r);
-    lg.addColorStop(0, `rgba(${L.rgb},${L.a})`);
+    let la = L.a, lr = L.r;
+    if (darkWorld) {
+      // night missions: warm pools (fires, LYTH, lanterns) bloom brighter
+      const [cr, , cb] = L.rgb.split(',').map(Number);
+      const warm = cr > cb;
+      la = Math.min(0.85, la * (warm ? 1.8 : 1.35));
+      lr = lr * (warm ? 1.25 : 1.1);
+    }
+    const lg = ctx.createRadialGradient(L.x, L.y, 0, L.x, L.y, lr);
+    lg.addColorStop(0, `rgba(${L.rgb},${la})`);
     lg.addColorStop(1, `rgba(${L.rgb},0)`);
     ctx.fillStyle = lg;
-    ctx.fillRect(L.x - L.r, L.y - L.r, L.r * 2, L.r * 2);
+    ctx.fillRect(L.x - lr, L.y - lr, lr * 2, lr * 2);
   }
   ctx.restore();
   ctx.restore();
 
-  // --- vignette (screen space, Void Night) ---
-  const vg = ctx.createRadialGradient(VW / 2, VH / 2, VH * 0.32, VW / 2, VH / 2, VH * 0.85);
+  // --- vignette (screen space, Void Night; deeper on dark missions) ---
+  const vg = ctx.createRadialGradient(VW / 2, VH / 2, VH * (darkWorld ? 0.24 : 0.32), VW / 2, VH / 2, VH * 0.85);
   vg.addColorStop(0, 'rgba(11,10,20,0)');
-  vg.addColorStop(1, 'rgba(11,10,20,0.62)');
+  vg.addColorStop(1, `rgba(11,10,20,${darkWorld ? 0.8 : 0.62})`);
   ctx.fillStyle = vg;
   ctx.fillRect(0, 0, VW, VH);
+
+  // --- nightwave warning: violet pulse bleeding in from the breached edge ---
+  for (const ep of edgePulses) {
+    const k = Math.max(0, ep.life / ep.max);
+    const a = Math.max(0, k * (0.26 + 0.16 * Math.sin(t * 9)));
+    const th = Math.min(VW, VH) * 0.18;
+    let eg;
+    if (ep.edge === 'n') eg = ctx.createLinearGradient(0, 0, 0, th);
+    else if (ep.edge === 's') eg = ctx.createLinearGradient(0, VH, 0, VH - th);
+    else if (ep.edge === 'w') eg = ctx.createLinearGradient(0, 0, th, 0);
+    else eg = ctx.createLinearGradient(VW, 0, VW - th, 0);
+    eg.addColorStop(0, `rgba(142,79,209,${a})`);
+    eg.addColorStop(1, 'rgba(142,79,209,0)');
+    ctx.fillStyle = eg;
+    if (ep.edge === 'n') ctx.fillRect(0, 0, VW, th);
+    else if (ep.edge === 's') ctx.fillRect(0, VH - th, VW, th);
+    else if (ep.edge === 'w') ctx.fillRect(0, 0, th, VH);
+    else ctx.fillRect(VW - th, 0, th, VH);
+  }
 
   // --- screen-space banners (LOW TIME / THE ANCHOR WAKES) ---
   for (const p of popups) {
@@ -2486,4 +2553,865 @@ export function renderMinimap(ctx, snap, focusPids) {
   );
   ctx.strokeStyle = 'rgba(54,160,138,0.35)';
   ctx.strokeRect(0.5, 0.5, W - 1, H - 1);
+}
+
+// ============================== STORY CUTSCENES ==============================
+// Full-canvas vector story art, one scene per ART_KEY, all in the Monolythium
+// palette. Everything is a pure function of (W, H, t) — deterministic layouts
+// from flick(), subtle drift/pulse animation from t. The client owns the slide
+// state machine; we only paint.
+
+function csSky(ctx, W, H, top, bottom, end = 1) {
+  const g = ctx.createLinearGradient(0, 0, 0, H * end);
+  g.addColorStop(0, top);
+  g.addColorStop(1, bottom);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H * end + 1);
+}
+
+function csStars(ctx, W, H, n, t, hMax = 0.6, seed = 0) {
+  for (let i = 0; i < n; i++) {
+    const tw = 0.5 + 0.5 * Math.sin(t * (0.4 + flick(seed + i * 4.9) * 1.1) + i * 2.4);
+    ctx.fillStyle = `rgba(223,243,255,${(0.08 + 0.4 * flick(seed + i * 3.3)) * tw})`;
+    const s = flick(seed + i * 5.1) < 0.1 ? 2 : 1.3;
+    ctx.fillRect(flick(seed + i * 1.37) * W, flick(seed + i * 2.11) * H * hMax, s, s);
+  }
+}
+
+function csMotes(ctx, W, H, n, rgb, t, drift = 10, rise = 5, seed = 0) {
+  for (let i = 0; i < n; i++) {
+    const sp = 0.4 + flick(seed + i * 2.3);
+    const x = (((flick(seed + i * 1.7) * (W + 60) + t * drift * sp) % (W + 60)) + W + 60) % (W + 60) - 30;
+    const y = (((flick(seed + i * 3.1) * (H + 60) - t * rise * sp) % (H + 60)) + H + 60) % (H + 60) - 30;
+    const a = (0.08 + 0.22 * flick(seed + i * 6.7)) * (0.7 + 0.3 * Math.sin(t * 1.3 + i));
+    ctx.fillStyle = `rgba(${rgb},${a})`;
+    ctx.beginPath();
+    ctx.arc(x, y, 1 + flick(seed + i * 8.9) * 1.8, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function csRidge(ctx, W, H, baseY, amp, color, seed) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(-10, H + 10);
+  ctx.lineTo(-10, baseY);
+  const steps = 26;
+  for (let i = 0; i <= steps; i++) {
+    const x = (i / steps) * (W + 20) - 10;
+    const y = baseY - amp * (0.25 + 0.75 * flick(seed + i * 0.73)) * (0.6 + 0.4 * Math.sin(i * 1.9 + seed));
+    ctx.lineTo(x, y);
+  }
+  ctx.lineTo(W + 10, H + 10);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function csGlow(ctx, x, y, r, rgb, a) {
+  if (r <= 0 || a <= 0) return;
+  const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+  g.addColorStop(0, `rgba(${rgb},${a})`);
+  g.addColorStop(1, `rgba(${rgb},0)`);
+  ctx.fillStyle = g;
+  ctx.fillRect(x - r, y - r, r * 2, r * 2);
+}
+
+function csMonolith(ctx, x, baseY, w, h, fill) {
+  ctx.fillStyle = fill;
+  ctx.beginPath();
+  ctx.moveTo(x - w / 2, baseY);
+  ctx.lineTo(x - w * 0.36, baseY - h);
+  ctx.lineTo(x + w * 0.36, baseY - h);
+  ctx.lineTo(x + w / 2, baseY);
+  ctx.closePath();
+  ctx.fill();
+}
+
+// ANCHORCRAFT — the crew's vessel hanging over the dark frontier.
+function artAnchorcraft(ctx, W, H, t) {
+  csSky(ctx, W, H, '#0B0A14', '#10131F');
+  csStars(ctx, W, H, 90, t, 0.75);
+  csGlow(ctx, W * 0.18, H * 0.16, H * 0.3, '94,107,140', 0.16); // moon haze
+  csRidge(ctx, W, H, H * 0.78, H * 0.07, '#11141D', 31);
+  csRidge(ctx, W, H, H * 0.86, H * 0.05, '#0D0F17', 47);
+  ctx.fillStyle = '#0B0C12';
+  ctx.fillRect(0, H * 0.92, W, H * 0.08);
+  // far settlement embers on the dark land
+  for (let i = 0; i < 5; i++) {
+    const fx = W * (0.1 + 0.8 * flick(61 + i * 3.7));
+    ctx.fillStyle = `rgba(240,169,60,${0.25 + 0.3 * flick(i * 9.1) * (0.6 + 0.4 * Math.sin(t * 2 + i))})`;
+    ctx.fillRect(fx, H * (0.83 + 0.06 * flick(62 + i * 5.3)), 2, 2);
+  }
+  // the vessel, riding the night wind
+  const cx = W * 0.52, cy = H * 0.34 + Math.sin(t * 0.8) * H * 0.012;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(Math.sin(t * 0.5) * 0.015);
+  const s = Math.min(W, H) / 720;
+  ctx.scale(s, s);
+  csGlow(ctx, 0, 150, 190, '111,216,242', 0.05); // downwash
+  ctx.fillStyle = PAL.graphDark;
+  ctx.beginPath();
+  ctx.moveTo(-170, 6); ctx.lineTo(-120, -34); ctx.lineTo(120, -34);
+  ctx.lineTo(178, 2); ctx.lineTo(120, 30); ctx.lineTo(-120, 30);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = PAL.graphPlate;
+  ctx.beginPath();
+  ctx.moveTo(-170, 6); ctx.lineTo(-120, -34); ctx.lineTo(120, -34);
+  ctx.lineTo(178, 2); ctx.lineTo(120, -6); ctx.lineTo(-120, -6);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#3A4050';
+  ctx.fillRect(-58, -58, 116, 28); // cabin
+  ctx.strokeStyle = 'rgba(138,152,184,0.7)'; // moonsteel rim
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(-168, 4); ctx.lineTo(-120, -33); ctx.lineTo(120, -33);
+  ctx.stroke();
+  ctx.fillStyle = PAL.relay; // window strip
+  ctx.shadowColor = PAL.relay;
+  ctx.shadowBlur = 12;
+  ctx.fillRect(-48, -48, 96, 5);
+  ctx.shadowBlur = 0;
+  for (const ex of [-96, 96]) { // engine pods
+    ctx.fillStyle = PAL.graphDark;
+    ctx.fillRect(ex - 18, 26, 36, 14);
+    const fa = 0.5 + 0.4 * flick(Math.floor(t * 14) + ex);
+    ctx.fillStyle = `rgba(223,243,255,${fa})`;
+    ctx.shadowColor = PAL.relay;
+    ctx.shadowBlur = 16;
+    ctx.fillRect(ex - 12, 40, 24, 5);
+    ctx.shadowBlur = 0;
+    csGlow(ctx, ex, 58, 60, '111,216,242', 0.12 * fa);
+  }
+  if (fract(t * 0.7) < 0.12) { // gold nav beacon blink
+    ctx.fillStyle = PAL.lythGold;
+    ctx.shadowColor = PAL.lythGold;
+    ctx.shadowBlur = 10;
+    ctx.beginPath(); ctx.arc(172, 0, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+  ctx.restore();
+  csMotes(ctx, W, H, 24, '94,107,140', t, 14, 4, 5);
+}
+
+// CROSSING — the meadow road toward a distant dormant monolith.
+function artCrossing(ctx, W, H, t) {
+  csSky(ctx, W, H, '#0B0A14', '#141B28', 0.55);
+  csStars(ctx, W, H, 70, t, 0.5);
+  const horizon = H * 0.52;
+  const mg = ctx.createLinearGradient(0, horizon, 0, H);
+  mg.addColorStop(0, '#1B2530');
+  mg.addColorStop(1, '#10161D');
+  ctx.fillStyle = mg;
+  ctx.fillRect(0, horizon, W, H - horizon);
+  // the dormant monolith on the horizon
+  const mx = W * 0.62;
+  csGlow(ctx, mx, horizon - H * 0.13, H * 0.2, '90,46,140', 0.08);
+  csMonolith(ctx, mx, horizon + 2, W * 0.05, H * 0.26, '#101321');
+  ctx.strokeStyle = `rgba(90,46,140,${0.25 + 0.18 * Math.sin(t * 1.1)})`;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(mx - W * 0.008, horizon - H * 0.24);
+  ctx.lineTo(mx - W * 0.002, horizon - H * 0.17);
+  ctx.lineTo(mx - W * 0.012, horizon - H * 0.1);
+  ctx.stroke();
+  // the road, converging on the monolith's feet
+  ctx.fillStyle = '#232936';
+  ctx.beginPath();
+  ctx.moveTo(W * 0.18, H + 4);
+  ctx.quadraticCurveTo(W * 0.42, H * 0.78, mx - W * 0.01, horizon + 2);
+  ctx.lineTo(mx + W * 0.012, horizon + 2);
+  ctx.quadraticCurveTo(W * 0.62, H * 0.8, W * 0.58, H + 4);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(11,10,20,0.55)'; // wheel rut
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(W * 0.27, H + 4);
+  ctx.quadraticCurveTo(W * 0.46, H * 0.8, mx, horizon + 3);
+  ctx.stroke();
+  // grass tufts, denser up close
+  for (let i = 0; i < 60; i++) {
+    const gx = flick(i * 1.9) * W;
+    const gy = horizon + flick(i * 3.7) * (H - horizon);
+    const sc = (gy - horizon) / (H - horizon);
+    ctx.fillStyle = flick(i * 5.3) < 0.5 ? 'rgba(50,74,64,0.8)' : 'rgba(61,90,74,0.8)';
+    ctx.fillRect(gx, gy, 1.5, 2 + sc * 5);
+  }
+  // fireflies low over the meadow
+  for (let i = 0; i < 12; i++) {
+    const fx = W * fract(flick(i * 7.7) + t * 0.01 * (0.5 + flick(i)));
+    const fy = horizon + (H - horizon) * (0.25 + 0.6 * flick(i * 4.1)) + Math.sin(t * 1.6 + i * 2.2) * 6;
+    const fa = Math.max(0, Math.sin(t * (0.8 + flick(i * 9.3)) + i * 5)) * 0.5;
+    if (fa > 0.04) csGlow(ctx, fx, fy, 9, '255,217,138', fa * 0.5);
+    ctx.fillStyle = `rgba(255,239,194,${fa})`;
+    ctx.fillRect(fx, fy, 1.6, 1.6);
+  }
+  csMotes(ctx, W, H, 14, '94,107,140', t, 9, 3, 11);
+}
+
+// BASIN — drowned LYTH refinery, warm crystal light in black water.
+function artBasin(ctx, W, H, t) {
+  csSky(ctx, W, H, '#0B0A14', '#0E1420', 0.46);
+  csStars(ctx, W, H, 40, t, 0.4);
+  const wl = H * 0.46; // waterline
+  const towers = [
+    [0.12, 0.3, 0.05], [0.2, 0.18, 0.035], [0.34, 0.36, 0.06],
+    [0.55, 0.24, 0.04], [0.7, 0.42, 0.07], [0.84, 0.2, 0.045],
+  ];
+  ctx.fillStyle = '#13151F';
+  for (const [fx, fh, fw] of towers) ctx.fillRect(W * fx, wl - H * fh, W * fw, H * fh + 4);
+  ctx.strokeStyle = '#181B28'; // gantry truss
+  ctx.lineWidth = Math.max(2, H * 0.008);
+  ctx.beginPath();
+  ctx.moveTo(W * 0.145, wl - H * 0.22); ctx.lineTo(W * 0.37, wl - H * 0.27);
+  ctx.moveTo(W * 0.59, wl - H * 0.18); ctx.lineTo(W * 0.73, wl - H * 0.3);
+  ctx.stroke();
+  ctx.strokeStyle = '#161926'; // broken pipe arcing into the water
+  ctx.lineWidth = Math.max(3, H * 0.012);
+  ctx.beginPath();
+  ctx.arc(W * 0.47, wl, H * 0.13, Math.PI, Math.PI * 1.85);
+  ctx.stroke();
+  // black water
+  const wg = ctx.createLinearGradient(0, wl, 0, H);
+  wg.addColorStop(0, '#0A111E');
+  wg.addColorStop(1, '#06090F');
+  ctx.fillStyle = wg;
+  ctx.fillRect(0, wl, W, H - wl);
+  ctx.fillStyle = 'rgba(19,21,31,0.55)'; // tower reflections
+  for (const [fx, fh, fw] of towers) ctx.fillRect(W * fx, wl, W * fw, H * fh * 0.5);
+  // crystal clusters glowing under the surface
+  const nodes = [[0.28, 0.62], [0.5, 0.74], [0.66, 0.58], [0.81, 0.7]];
+  nodes.forEach(([fx, fy], i) => {
+    const cx = W * fx, cy = H * fy;
+    const pulse = 0.8 + 0.2 * Math.sin(t * 1.4 + i * 2.1);
+    csGlow(ctx, cx, cy, H * 0.09 * pulse, '240,169,60', 0.22);
+    for (let k = 0; k < 3; k++) {
+      const ox = (flick(i * 13 + k * 7) - 0.5) * H * 0.05;
+      const hh = H * (0.02 + 0.025 * flick(i * 17 + k * 3));
+      ctx.fillStyle = k === 1 ? PAL.lythGold : PAL.lythAmber;
+      ctx.beginPath();
+      ctx.moveTo(cx + ox - hh * 0.3, cy + 4);
+      ctx.lineTo(cx + ox, cy - hh);
+      ctx.lineTo(cx + ox + hh * 0.3, cy + 4);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.fillStyle = `rgba(255,217,138,${0.1 + 0.05 * Math.sin(t * 2.3 + i)})`;
+    for (let k = 0; k < 4; k++) {
+      const sy = cy + 10 + k * 9 + Math.sin(t * 1.8 + k + i) * 2;
+      ctx.fillRect(cx - 14 + flick(i + k * 5) * 8, sy, 22, 1.5);
+    }
+  });
+  // waterline sheen + slow laps
+  ctx.fillStyle = 'rgba(94,107,140,0.18)';
+  ctx.fillRect(0, wl - 1, W, 1.5);
+  for (let i = 0; i < 9; i++) {
+    ctx.fillStyle = `rgba(94,107,140,${0.05 + 0.05 * Math.sin(t * 1.2 + i * 1.7)})`;
+    ctx.fillRect(flick(i * 3.3) * W, wl + 4 + flick(i * 7.1) * (H - wl) * 0.8, 30 + flick(i) * 50, 1.2);
+  }
+  csGlow(ctx, W * 0.5, wl + H * 0.06, W * 0.42, '94,107,140', 0.05); // low mist
+  csMotes(ctx, W, H, 16, '255,217,138', t, 6, 7, 23);
+}
+
+// QUORUM — a field of dead relay pylons; one still answers.
+function artQuorum(ctx, W, H, t) {
+  csSky(ctx, W, H, '#0B0A14', '#10131D', 0.6);
+  csStars(ctx, W, H, 60, t, 0.55);
+  const horizon = H * 0.58;
+  const gg = ctx.createLinearGradient(0, horizon, 0, H);
+  gg.addColorStop(0, '#141622');
+  gg.addColorStop(1, '#0D0E16');
+  ctx.fillStyle = gg;
+  ctx.fillRect(0, horizon, W, H - horizon);
+  let live = null;
+  for (let row = 0; row < 5; row++) {
+    const depth = row / 4; // 0 = far, 1 = near
+    const py = horizon + (H - horizon) * (0.06 + 0.9 * depth * depth);
+    const ph = H * (0.05 + 0.2 * depth);
+    const n = 7 - row;
+    const c = mix('#1B1E2B', '#12141E', depth);
+    for (let i = 0; i < n; i++) {
+      const px = W * ((i + 0.5) / n + (flick(row * 11 + i * 3.1) - 0.5) * 0.06);
+      ctx.strokeStyle = c;
+      ctx.lineWidth = Math.max(1, 3 * depth);
+      ctx.beginPath();
+      ctx.moveTo(px, py); ctx.lineTo(px, py - ph);
+      ctx.moveTo(px - ph * 0.16, py - ph * 0.78); ctx.lineTo(px + ph * 0.16, py - ph * 0.78);
+      ctx.stroke();
+      ctx.fillStyle = c; // dead head
+      ctx.beginPath();
+      ctx.arc(px, py - ph, Math.max(1.5, ph * 0.05), 0, Math.PI * 2);
+      ctx.fill();
+      if (row === 2 && i === 2) live = { x: px, y: py - ph, py };
+    }
+  }
+  // the one that still answers — flickering relay cyan
+  if (live) {
+    const on = flick(Math.floor(t * 9)) > 0.35;
+    ctx.fillStyle = `rgba(111,216,242,${on ? 0.85 : 0.12})`;
+    ctx.shadowColor = PAL.relay;
+    ctx.shadowBlur = on ? 16 : 4;
+    ctx.beginPath(); ctx.arc(live.x, live.y, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+    if (on) {
+      csGlow(ctx, live.x, live.y, H * 0.09, '111,216,242', 0.2);
+      csGlow(ctx, live.x, live.py, H * 0.05, '111,216,242', 0.1); // ground catch
+    }
+  }
+  // entropy haze creeping at the field's edges
+  csGlow(ctx, W * 0.03, H * 0.8, H * 0.25, '90,46,140', 0.07);
+  csGlow(ctx, W * 0.97, H * 0.75, H * 0.22, '90,46,140', 0.06);
+  csMotes(ctx, W, H, 18, '94,107,140', t, 8, 4, 31);
+}
+
+// FORKFALL — a city skyline duplicated and mirrored, split by a glitch seam.
+function artForkfall(ctx, W, H, t) {
+  csSky(ctx, W, H, '#0B0A14', '#131022', 0.75);
+  csStars(ctx, W, H, 46, t, 0.45);
+  const base = H * 0.66;
+  const frame = Math.floor(t * 8);
+  // deterministic building strip
+  const bld = [];
+  let bx0 = -W * 0.02, bi = 0;
+  while (bx0 < W * 1.02) {
+    const bw = W * (0.025 + 0.05 * flick(bi * 3.7 + 1));
+    const bh = H * (0.08 + 0.3 * flick(bi * 2.9 + 2));
+    bld.push([bx0, bw, bh, bi]);
+    bx0 += bw + W * 0.008;
+    bi++;
+  }
+  // the phantom duplicate, hanging mirrored from the sky
+  ctx.save();
+  ctx.globalAlpha = 0.45;
+  const joff = (flick(frame * 1.7) - 0.5) * W * 0.012 + W * 0.012;
+  ctx.fillStyle = '#1B1430';
+  for (const [bx, bw, bh] of bld) ctx.fillRect(bx + joff, H * 0.06, bw, bh * 0.8);
+  ctx.restore();
+  csGlow(ctx, W * 0.5, H * 0.3, H * 0.3, '90,46,140', 0.06); // haze between the forks
+  // the real city
+  for (const [bx, bw, bh, k] of bld) {
+    const gl = bx > W * 0.56; // beyond the seam, reality stutters
+    const ox = gl ? (flick(k * 7 + frame) - 0.5) * 7 : 0;
+    ctx.fillStyle = gl ? '#171229' : '#14161F';
+    ctx.fillRect(bx + ox, base - bh, bw, bh);
+    if (flick(k * 5.1) < 0.5) {
+      const wn = 1 + Math.floor(flick(k * 8.3) * 3);
+      for (let wI = 0; wI < wn; wI++) {
+        const wx = bx + ox + bw * (0.2 + 0.6 * flick(k * 11 + wI * 3));
+        const wy = base - bh * (0.15 + 0.7 * flick(k * 13 + wI * 5));
+        ctx.fillStyle = flick(k + wI) < 0.7 ? 'rgba(255,217,138,0.7)' : 'rgba(111,216,242,0.7)';
+        ctx.fillRect(wx, wy, 2, 2.5);
+      }
+    }
+  }
+  ctx.fillStyle = '#0D0E16';
+  ctx.fillRect(0, base, W, H - base);
+  // THE SEAM — a vertical violet tear with static shards
+  const sx = W * 0.56 + Math.sin(t * 0.7) * 2;
+  csGlow(ctx, sx, H * 0.45, H * 0.34, '142,79,209', 0.16);
+  ctx.strokeStyle = `rgba(142,79,209,${0.5 + 0.3 * flick(frame)})`;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  let yy = H * 0.06;
+  ctx.moveTo(sx, yy);
+  while (yy < H * 0.95) {
+    yy += H * 0.07;
+    ctx.lineTo(sx + (flick(Math.floor(yy) + frame) - 0.5) * 10, yy);
+  }
+  ctx.stroke();
+  for (let k = 0; k < 26; k++) {
+    const by = H * (0.08 + 0.85 * flick(k * 3.3 + frame * 0.13));
+    const bw2 = 3 + flick(k * 7.7 + frame) * 16;
+    const off = (flick(k * 1.9 + frame) - 0.5) * 36;
+    const colr = flick(k + frame) < 0.18 ? '191,251,255' : '142,79,209';
+    ctx.fillStyle = `rgba(${colr},${0.12 + 0.3 * flick(k * 5.1 + frame)})`;
+    ctx.fillRect(sx + off, by, bw2, 2 + flick(k) * 3);
+  }
+  csMotes(ctx, W, H, 14, '142,79,209', t, 7, 6, 41);
+}
+
+// SIEGE — torchlight on the palisade against a violet tide.
+function artSiege(ctx, W, H, t) {
+  csSky(ctx, W, H, '#0B0A14', '#160D24', 0.65);
+  csStars(ctx, W, H, 30, t, 0.35);
+  const horizon = H * 0.52;
+  const tg = ctx.createLinearGradient(0, horizon - H * 0.16, 0, horizon + H * 0.1);
+  tg.addColorStop(0, 'rgba(20,9,31,0)');
+  tg.addColorStop(1, 'rgba(90,46,140,0.5)');
+  ctx.fillStyle = tg;
+  ctx.fillRect(0, horizon - H * 0.16, W, H * 0.26);
+  ctx.fillStyle = '#14091F';
+  ctx.fillRect(0, horizon, W, H * 0.12);
+  // a hundred watching eyes, shifting with the tide
+  for (let i = 0; i < 70; i++) {
+    if (flick(i * 3.7 + Math.floor(t * 2.5)) < 0.35) continue;
+    const ex = W * flick(i * 1.31);
+    const ey = horizon - H * 0.02 + H * 0.1 * flick(i * 2.17);
+    ctx.fillStyle = `rgba(191,251,255,${0.25 + 0.6 * flick(i * 5.3)})`;
+    const es = 1 + flick(i * 7.7);
+    ctx.fillRect(ex, ey, es, es);
+    if (flick(i * 9.1) < 0.12) ctx.fillRect(ex + es + 1.5, ey, es, es); // paired eyes
+  }
+  // trampled dark field between tide and wall
+  const fg = ctx.createLinearGradient(0, horizon + H * 0.1, 0, H);
+  fg.addColorStop(0, '#171522');
+  fg.addColorStop(1, '#100E16');
+  ctx.fillStyle = fg;
+  ctx.fillRect(0, horizon + H * 0.1, W, H);
+  // defenders' helmets just above the wall line
+  for (const fx of [0.3, 0.62]) {
+    const hx = W * fx, hy = H * 0.815;
+    ctx.fillStyle = '#232533';
+    ctx.beginPath(); ctx.arc(hx, hy, H * 0.014, Math.PI, 0); ctx.fill();
+    ctx.fillStyle = PAL.relay;
+    ctx.fillRect(hx - H * 0.008, hy - H * 0.004, H * 0.016, 2);
+  }
+  // the palisade across the foreground
+  const py = H * 0.86;
+  ctx.fillStyle = '#100D0B';
+  ctx.fillRect(0, py - H * 0.02, W, H);
+  for (let i = 0; i < 42; i++) {
+    const sxp = (i / 41) * W + (flick(i * 1.7) - 0.5) * 6;
+    const sh = H * (0.13 + 0.05 * flick(i * 2.3));
+    const sw = W * 0.012;
+    ctx.fillStyle = i % 2 ? '#1A140F' : '#15110D';
+    ctx.beginPath();
+    ctx.moveTo(sxp - sw, py);
+    ctx.lineTo(sxp - sw, py - sh);
+    ctx.lineTo(sxp, py - sh - H * 0.02);
+    ctx.lineTo(sxp + sw, py - sh);
+    ctx.lineTo(sxp + sw, py);
+    ctx.closePath();
+    ctx.fill();
+  }
+  // torches along the wall — warm light against the violet
+  for (const fx of [0.16, 0.5, 0.84]) {
+    const tx = W * fx, ty = py - H * 0.17;
+    ctx.strokeStyle = '#221C12';
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(tx, py - H * 0.05); ctx.lineTo(tx, ty); ctx.stroke();
+    const j = flick(Math.floor(t * 9) + tx);
+    ctx.fillStyle = PAL.lythAmber;
+    tear(ctx, tx, ty - 6, 4 + j * 2, 11 + j * 5);
+    ctx.fillStyle = PAL.lythGold;
+    tear(ctx, tx, ty - 5, 2.6, 7 + j * 3);
+    csGlow(ctx, tx, ty - 6, H * 0.1 * (0.9 + j * 0.2), '240,169,60', 0.22);
+  }
+  csMotes(ctx, W, H, 16, '142,79,209', t, 10, 6, 53);
+}
+
+// SETTLEMENT — the last great Anchor, half-lit over its town.
+function artSettlement(ctx, W, H, t) {
+  csSky(ctx, W, H, '#0B0A14', '#11131F', 0.8);
+  csStars(ctx, W, H, 80, t, 0.7);
+  const baseY = H * 0.82;
+  const mx = W * 0.5, mw = W * 0.13, mh = H * 0.62;
+  csGlow(ctx, mx - mw * 0.4, baseY - mh * 0.7, mh * 0.55, '111,216,242', 0.07);
+  csMonolith(ctx, mx, baseY, mw, mh, '#171A26');
+  // the lit western face
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(mx - mw / 2, baseY);
+  ctx.lineTo(mx - mw * 0.36, baseY - mh);
+  ctx.lineTo(mx + mw * 0.36, baseY - mh);
+  ctx.lineTo(mx + mw / 2, baseY);
+  ctx.closePath();
+  ctx.clip();
+  const lg = ctx.createLinearGradient(mx - mw / 2, 0, mx + mw * 0.1, 0);
+  lg.addColorStop(0, 'rgba(223,243,255,0.2)');
+  lg.addColorStop(1, 'rgba(223,243,255,0)');
+  ctx.fillStyle = lg;
+  ctx.fillRect(mx - mw, baseY - mh, mw * 2, mh);
+  // carved relay bands — half awake
+  for (let i = 0; i < 5; i++) {
+    const by = baseY - mh * (0.2 + i * 0.16);
+    const pa = 0.18 + 0.3 * Math.max(0, Math.sin(t * 0.9 + i * 1.3));
+    ctx.fillStyle = `rgba(111,216,242,${i < 3 ? pa : pa * 0.25})`;
+    ctx.fillRect(mx - mw * 0.42, by, mw * (0.38 - i * 0.04), Math.max(2, mh * 0.008));
+  }
+  ctx.restore();
+  ctx.strokeStyle = 'rgba(138,152,184,0.6)'; // moonsteel rim on the lit edge
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(mx - mw / 2, baseY);
+  ctx.lineTo(mx - mw * 0.36, baseY - mh);
+  ctx.lineTo(mx + mw * 0.36, baseY - mh);
+  ctx.stroke();
+  // crown beacon — slow waking pulse
+  const bp = 0.4 + 0.6 * Math.max(0, Math.sin(t * 0.6));
+  csGlow(ctx, mx, baseY - mh, H * 0.06 * bp + 6, '223,243,255', 0.25 * bp);
+  ctx.fillStyle = `rgba(223,243,255,${0.5 + 0.5 * bp})`;
+  ctx.fillRect(mx - 2, baseY - mh - 4, 4, 4);
+  // ground
+  const gg = ctx.createLinearGradient(0, baseY, 0, H);
+  gg.addColorStop(0, '#12141E');
+  gg.addColorStop(1, '#0C0D14');
+  ctx.fillStyle = gg;
+  ctx.fillRect(0, baseY, W, H - baseY);
+  // the settlement at its feet: hut silhouettes + warm windows
+  for (let i = 0; i < 9; i++) {
+    const hx = W * (0.16 + 0.68 * flick(i * 3.1));
+    if (Math.abs(hx - mx) < mw * 0.6) continue;
+    const hw = W * (0.022 + 0.02 * flick(i * 5.7));
+    const hh = H * (0.02 + 0.015 * flick(i * 7.3));
+    ctx.fillStyle = '#10121A';
+    ctx.fillRect(hx, baseY - hh, hw, hh + 3);
+    ctx.beginPath();
+    ctx.moveTo(hx - 2, baseY - hh);
+    ctx.lineTo(hx + hw / 2, baseY - hh - H * 0.012);
+    ctx.lineTo(hx + hw + 2, baseY - hh);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = `rgba(255,217,138,${0.4 + 0.3 * Math.sin(t * 1.8 + i * 2.4)})`;
+    ctx.fillRect(hx + hw * 0.3, baseY - hh * 0.6, 2.4, 2.8);
+    csGlow(ctx, hx + hw * 0.4, baseY - hh * 0.4, 16, '240,169,60', 0.1);
+  }
+  csGlow(ctx, mx, baseY, mh * 0.3, '94,107,140', 0.08); // base haze
+  csMotes(ctx, W, H, 20, '111,216,242', t, 5, 9, 67);
+}
+
+// CAMPFIRE — operators resting in the warm light.
+function artCampfire(ctx, W, H, t) {
+  csSky(ctx, W, H, '#0B0A14', '#0F1119', 0.5);
+  csStars(ctx, W, H, 55, t, 0.45);
+  csRidge(ctx, W, H, H * 0.55, H * 0.06, '#0F121A', 71);
+  for (let i = 0; i < 14; i++) { // tree wall
+    const tx = W * flick(i * 2.3);
+    const th = H * (0.1 + 0.12 * flick(i * 3.7));
+    const ty = H * (0.5 + 0.1 * flick(i * 5.1));
+    ctx.fillStyle = i % 2 ? '#0D1410' : '#0B1110';
+    ctx.beginPath();
+    ctx.moveTo(tx - th * 0.3, ty);
+    ctx.lineTo(tx, ty - th);
+    ctx.lineTo(tx + th * 0.3, ty);
+    ctx.closePath();
+    ctx.fill();
+  }
+  const gg = ctx.createLinearGradient(0, H * 0.58, 0, H);
+  gg.addColorStop(0, '#15131C');
+  gg.addColorStop(1, '#0E0C12');
+  ctx.fillStyle = gg;
+  ctx.fillRect(0, H * 0.56, W, H * 0.44);
+  const cx = W * 0.5, cy = H * 0.74;
+  const j = flick(Math.floor(t * 8));
+  csGlow(ctx, cx, cy, H * 0.3 * (0.95 + j * 0.1), '240,169,60', 0.2);
+  csGlow(ctx, cx, cy, H * 0.12, '255,217,138', 0.25);
+  // operators resting — silhouettes rimmed in firelight
+  const crew = [[-0.16, 0.02, 1], [0.17, 0.015, -1], [0.04, 0.07, -1]];
+  crew.forEach(([ox, oy, side], i) => {
+    const px = cx + W * ox, py2 = cy + H * oy;
+    const s = (H / 720) * (1 + i * 0.06);
+    const a0 = side > 0 ? -0.9 : Math.PI - 0.9;
+    ctx.save();
+    ctx.translate(px, py2);
+    ctx.scale(s, s);
+    ctx.fillStyle = '#191B26'; // seated body
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 26, 30, 0, Math.PI, 0);
+    ctx.fill();
+    ctx.fillRect(-26, 0, 52, 12);
+    ctx.fillStyle = '#15161F'; // legs folded toward the fire
+    ctx.beginPath();
+    ctx.ellipse(side * -14, 12, 20, 9, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#1D202C'; // helmet
+    ctx.beginPath(); ctx.arc(0, -36, 13, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = `rgba(240,169,60,${0.5 + j * 0.3})`; // firelit rim
+    ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(0, -36, 12, a0, a0 + 1.8); ctx.stroke();
+    ctx.strokeStyle = `rgba(240,169,60,${0.35 + j * 0.2})`;
+    ctx.beginPath(); ctx.arc(0, -2, 25, a0 + 0.2, a0 + 1.6); ctx.stroke();
+    ctx.fillStyle = 'rgba(111,216,242,0.8)'; // visor catching the fire
+    ctx.fillRect(side > 0 ? 2 : -10, -38, 8, 2.5);
+    ctx.restore();
+  });
+  // the fire itself
+  ctx.fillStyle = '#17141A';
+  ctx.beginPath(); ctx.ellipse(cx, cy + 6, 26, 10, 0, 0, Math.PI * 2); ctx.fill();
+  for (let i = 0; i < 7; i++) { // stone ring
+    const a = (i / 7) * Math.PI * 2;
+    ctx.fillStyle = '#262A36';
+    ctx.beginPath();
+    ctx.ellipse(cx + Math.cos(a) * 24, cy + 6 + Math.sin(a) * 8, 5, 3.6, a, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  const fl = 0.9 + j * 0.25;
+  ctx.fillStyle = PAL.ember;
+  tear(ctx, cx - 6, cy + 2, 6 * fl, 13 * fl);
+  tear(ctx, cx + 6, cy + 2, 5 * fl, 11);
+  ctx.fillStyle = PAL.lythAmber;
+  tear(ctx, cx, cy, 9 * fl, 24 * fl);
+  ctx.fillStyle = PAL.lythGold;
+  tear(ctx, cx, cy + 2, 6 * fl, 16);
+  ctx.fillStyle = PAL.lythPale;
+  tear(ctx, cx, cy + 3, 3.2, 9);
+  for (let i = 0; i < 8; i++) { // rising sparks
+    const pr = fract(t * 0.45 + i * 0.125 + flick(i * 7.7));
+    ctx.fillStyle = `rgba(224,123,57,${0.85 * (1 - pr)})`;
+    ctx.fillRect(cx + Math.sin(pr * 7 + i * 2.3) * (8 + pr * 18), cy - 10 - pr * H * 0.3, 2, 2);
+  }
+  csMotes(ctx, W, H, 10, '94,107,140', t, 6, 3, 83);
+}
+
+// ENTROPY — a wall of violet static unwriting the terrain.
+function artEntropy(ctx, W, H, t) {
+  csSky(ctx, W, H, '#0B0A14', '#10141D', 0.6);
+  csStars(ctx, W, H, 50, t, 0.5);
+  csRidge(ctx, W, H, H * 0.6, H * 0.08, '#131720', 91);
+  const gg = ctx.createLinearGradient(0, H * 0.6, 0, H);
+  gg.addColorStop(0, '#1A222C');
+  gg.addColorStop(1, '#10151C');
+  ctx.fillStyle = gg;
+  ctx.fillRect(0, H * 0.58, W, H * 0.42);
+  // the living side
+  for (let i = 0; i < 8; i++) {
+    const tx = W * (0.04 + 0.5 * flick(i * 2.9));
+    const ty = H * (0.62 + 0.3 * flick(i * 4.3));
+    const th = H * (0.05 + 0.06 * flick(i * 6.1));
+    ctx.fillStyle = '#16241C';
+    ctx.beginPath();
+    ctx.arc(tx, ty - th, th * 0.55, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#10181A';
+    ctx.fillRect(tx - 1.5, ty - th, 3, th);
+  }
+  // ...being unwritten on the right
+  const frame = Math.floor(t * 10);
+  const bx = W * (0.6 + 0.012 * Math.sin(t * 0.5)); // the wall creeps
+  const ng = ctx.createLinearGradient(bx, 0, W, 0);
+  ng.addColorStop(0, '#14091F');
+  ng.addColorStop(1, '#0B0512');
+  ctx.fillStyle = ng;
+  ctx.fillRect(bx, 0, W - bx + 1, H);
+  // torn edge — a vertical static curtain
+  const cell = Math.max(4, Math.round(H / 90));
+  for (let gy = 0; gy < H; gy += cell) {
+    const row = gy / cell;
+    const reach = (flick(row * 3.7 + frame) - 0.2) * W * 0.08;
+    ctx.fillStyle = `rgba(142,79,209,${0.25 + 0.45 * flick(row * 1.3 + frame * 1.7)})`;
+    ctx.fillRect(bx - Math.max(0, reach), gy, Math.abs(reach) + cell, cell - 1);
+  }
+  // static cells inside the null
+  for (let k = 0; k < 130; k++) {
+    const zx = bx + flick(k * 1.7 + frame * 0.31) ** 2 * (W - bx);
+    const zy = H * flick(k * 2.3 + frame * 0.17);
+    const r = flick(k * 5.1 + frame);
+    const colr = r < 0.06 ? '191,251,255' : r < 0.5 ? '142,79,209' : '90,46,140';
+    ctx.fillStyle = `rgba(${colr},${0.1 + 0.4 * flick(k * 3.3 + frame)})`;
+    const zs = cell * (0.4 + flick(k * 7.7));
+    ctx.fillRect(zx, zy, zs, zs * 0.8);
+  }
+  // a tree caught mid-unwrite at the boundary
+  const ux = bx - W * 0.045, uy = H * 0.7, uh = H * 0.1;
+  ctx.fillStyle = '#16241C';
+  ctx.beginPath(); ctx.arc(ux, uy - uh, uh * 0.5, Math.PI * 0.5, Math.PI * 1.5); ctx.fill();
+  for (let k = 0; k < 14; k++) {
+    ctx.fillStyle = `rgba(142,79,209,${0.3 + 0.5 * flick(k * 3.1 + frame)})`;
+    ctx.fillRect(ux + flick(k * 1.9 + frame * 0.4) * W * 0.07, uy - uh * 1.5 + flick(k * 4.7) * uh, 3, 3);
+  }
+  csGlow(ctx, bx, H * 0.5, H * 0.4, '142,79,209', 0.1); // boundary glow
+  csMotes(ctx, W, H, 14, '142,79,209', t, -12, 5, 97); // motes pulled toward the wall
+}
+
+// DAWN — the anchored frontier at first light. The one warm sky.
+function artDawn(ctx, W, H, t) {
+  const sg = ctx.createLinearGradient(0, 0, 0, H * 0.62);
+  sg.addColorStop(0, '#0B0A14');
+  sg.addColorStop(0.45, '#222338');
+  sg.addColorStop(0.8, '#7A4A33');
+  sg.addColorStop(1, '#F0A93C');
+  ctx.fillStyle = sg;
+  ctx.fillRect(0, 0, W, H * 0.62);
+  csStars(ctx, W, H, 24, t, 0.25);
+  const horizon = H * 0.62;
+  csGlow(ctx, W * 0.42, horizon, H * 0.3, '255,217,138', 0.4); // sun about to crest
+  csGlow(ctx, W * 0.42, horizon, H * 0.12, '255,239,194', 0.5);
+  csRidge(ctx, W, H, horizon + 2, H * 0.05, '#241A20', 101);
+  csRidge(ctx, W, H, H * 0.72, H * 0.06, '#191219', 113);
+  const gg = ctx.createLinearGradient(0, H * 0.72, 0, H);
+  gg.addColorStop(0, '#150F16');
+  gg.addColorStop(1, '#0E0A10');
+  ctx.fillStyle = gg;
+  ctx.fillRect(0, H * 0.78, W, H * 0.22);
+  // anchored monoliths, beacons steady at last
+  const ms = [[0.2, 0.3, 0.05, 0.7], [0.66, 0.46, 0.075, 0.74], [0.88, 0.22, 0.04, 0.68]];
+  ms.forEach(([fx, fh, fw, fy], i) => {
+    const mx = W * fx, baseY = H * fy, mh = H * fh, mw = W * fw;
+    csMonolith(ctx, mx, baseY, mw, mh, '#16121C');
+    ctx.strokeStyle = 'rgba(240,169,60,0.55)'; // dawn-lit eastern edge
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(mx - mw / 2, baseY);
+    ctx.lineTo(mx - mw * 0.36, baseY - mh);
+    ctx.stroke();
+    ctx.fillStyle = PAL.relay; // steady relay beacon
+    ctx.shadowColor = PAL.relay;
+    ctx.shadowBlur = 10;
+    ctx.fillRect(mx - 1.5, baseY - mh - 4, 3, 4);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = `rgba(111,216,242,${0.1 + 0.04 * Math.sin(t * 1.1 + i * 2)})`;
+    ctx.fillRect(mx - 1, 0, 2, baseY - mh); // thin anchor-light beam
+    csGlow(ctx, mx, baseY - mh, 18, '111,216,242', 0.3);
+  });
+  // chimney smoke from a waking settlement
+  for (let i = 0; i < 3; i++) {
+    const hx = W * (0.32 + i * 0.09), hy = H * 0.8;
+    ctx.fillStyle = '#0D0A0F';
+    ctx.fillRect(hx, hy - H * 0.025, W * 0.03, H * 0.03);
+    ctx.fillStyle = 'rgba(255,217,138,0.65)';
+    ctx.fillRect(hx + W * 0.008, hy - H * 0.012, 2.4, 2.8);
+    for (let k = 0; k < 5; k++) {
+      const pr = fract(t * 0.12 + k * 0.2 + i * 0.37);
+      ctx.fillStyle = `rgba(138,152,184,${0.2 * (1 - pr)})`;
+      ctx.beginPath();
+      ctx.arc(hx + W * 0.014 + Math.sin(pr * 5 + i) * 8, hy - H * 0.03 - pr * H * 0.12, 2 + pr * 6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  // birds crossing the dawn
+  for (let i = 0; i < 5; i++) {
+    const bx = ((flick(i * 3.3) * W + t * (6 + flick(i) * 8)) % (W + 40)) - 20;
+    const by = H * (0.2 + 0.18 * flick(i * 5.7)) + Math.sin(t * 2 + i) * 4;
+    const fl2 = Math.sin(t * 7 + i * 2.7) * 3;
+    ctx.strokeStyle = 'rgba(20,16,24,0.8)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(bx - 5, by + fl2);
+    ctx.lineTo(bx, by);
+    ctx.lineTo(bx + 5, by + fl2);
+    ctx.stroke();
+  }
+  csMotes(ctx, W, H, 18, '255,217,138', t, 9, 4, 131);
+}
+
+const CUTSCENE_ART = {
+  anchorcraft: artAnchorcraft,
+  crossing: artCrossing,
+  basin: artBasin,
+  quorum: artQuorum,
+  forkfall: artForkfall,
+  siege: artSiege,
+  settlement: artSettlement,
+  campfire: artCampfire,
+  entropy: artEntropy,
+  dawn: artDawn,
+};
+
+// Full-canvas story slide: art scene + title + typewriter lines + FIRE hint.
+// The client owns timing; slideElapsed is seconds since this slide appeared.
+export function drawCutscene(ctx, slide, t, slideElapsed) {
+  const W = ctx.canvas.width, H = ctx.canvas.height;
+  ctx.save();
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = PAL.voidNight;
+  ctx.fillRect(0, 0, W, H);
+  (CUTSCENE_ART[slide?.art] || artCrossing)(ctx, W, H, t);
+  // cinematic letterbox
+  const lb = Math.round(H * 0.04);
+  ctx.fillStyle = 'rgba(7,6,12,0.9)';
+  ctx.fillRect(0, 0, W, lb);
+  ctx.fillRect(0, H - lb, W, lb);
+  // text scrim
+  const sg = ctx.createLinearGradient(0, H * 0.5, 0, H);
+  sg.addColorStop(0, 'rgba(11,10,20,0)');
+  sg.addColorStop(0.55, 'rgba(11,10,20,0.62)');
+  sg.addColorStop(1, 'rgba(11,10,20,0.88)');
+  ctx.fillStyle = sg;
+  ctx.fillRect(0, H * 0.5, W, H * 0.5);
+  const x0 = Math.round(W * 0.09);
+  const ty = Math.round(H * 0.66);
+  const ts = Math.max(24, Math.round(H * 0.052));
+  // title — fades in fast
+  ctx.globalAlpha = Math.min(1, slideElapsed / 0.5);
+  ctx.font = `800 ${ts}px "Avenir Next", "Segoe UI", system-ui, sans-serif`;
+  ctx.fillStyle = PAL.anchor;
+  ctx.shadowColor = 'rgba(111,216,242,0.55)';
+  ctx.shadowBlur = 16;
+  ctx.fillText(slide?.title || '', x0, ty);
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = PAL.relay;
+  ctx.fillRect(x0 + 1, ty + ts * 0.35, Math.min(W * 0.26, 240), 2);
+  ctx.globalAlpha = 1;
+  // body lines — typewriter reveal over ~2.5s
+  const lines = (slide?.lines || []).map(l => String(l ?? ''));
+  const totalChars = Math.max(1, lines.reduce((s, l) => s + l.length, 0));
+  const shown = Math.floor(totalChars * Math.max(0, Math.min(1, (slideElapsed - 0.35) / 2.5)));
+  const ls = Math.max(14, Math.round(H * 0.026));
+  ctx.font = `${ls}px ui-monospace, Menlo, monospace`;
+  let used = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const take = Math.max(0, Math.min(lines[i].length, shown - used));
+    used += lines[i].length;
+    if (take <= 0) break;
+    const ly = ty + ts * 0.62 + (i + 1) * ls * 1.6;
+    const txt = lines[i].slice(0, take);
+    ctx.fillStyle = 'rgba(200,212,230,0.95)';
+    ctx.fillText(txt, x0, ly);
+    // blinking caret while this line types
+    if (take < lines[i].length && Math.floor(t * 2.6) % 2 === 0) {
+      ctx.fillStyle = PAL.relay;
+      ctx.fillRect(x0 + ctx.measureText(txt).width + 3, ly - ls * 0.8, Math.max(2, ls * 0.12), ls * 0.95);
+    }
+  }
+  // advance hint
+  if (slideElapsed > 1) {
+    const ha = Math.min(1, (slideElapsed - 1) / 0.4) * (0.55 + 0.35 * Math.sin(t * 3.4));
+    ctx.globalAlpha = Math.max(0, ha);
+    ctx.font = `bold ${Math.max(13, Math.round(H * 0.021))}px ui-monospace, Menlo, monospace`;
+    ctx.textAlign = 'right';
+    ctx.fillStyle = PAL.relay;
+    ctx.shadowColor = PAL.relay;
+    ctx.shadowBlur = 8;
+    ctx.fillText('▸ FIRE', W - Math.round(W * 0.045), H - lb - Math.round(H * 0.028));
+    ctx.shadowBlur = 0;
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+// Cheap animated backdrop behind the DOM menu: dark field, a distant dormant
+// monolith, drifting motes. Called every frame while no session exists.
+export function drawMenuBackdrop(ctx, t) {
+  const W = ctx.canvas.width, H = ctx.canvas.height;
+  ctx.save();
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#0B0A14');
+  g.addColorStop(0.7, '#0E1019');
+  g.addColorStop(1, '#0B0C13');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+  csStars(ctx, W, H, 70, t, 0.8, 7);
+  csGlow(ctx, W * 0.2, H * 0.14, H * 0.26, '94,107,140', 0.1); // moon haze
+  csRidge(ctx, W, H, H * 0.8, H * 0.05, '#10121B', 17);
+  csRidge(ctx, W, H, H * 0.88, H * 0.045, '#0C0D15', 29);
+  // the distant dormant monolith
+  const mx = W * 0.72, baseY = H * 0.84, mh = H * 0.34, mw = W * 0.045;
+  csGlow(ctx, mx, baseY - mh * 0.55, mh * 0.5, '90,46,140', 0.05 + 0.02 * Math.sin(t * 0.7));
+  csMonolith(ctx, mx, baseY, mw, mh, '#10121D');
+  ctx.strokeStyle = 'rgba(138,152,184,0.25)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(mx - mw / 2, baseY);
+  ctx.lineTo(mx - mw * 0.36, baseY - mh);
+  ctx.stroke();
+  // a single dormant vein, barely breathing
+  ctx.strokeStyle = `rgba(142,79,209,${0.12 + 0.1 * Math.max(0, Math.sin(t * 0.5))})`;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(mx - mw * 0.1, baseY - mh * 0.9);
+  ctx.lineTo(mx + mw * 0.05, baseY - mh * 0.6);
+  ctx.lineTo(mx - mw * 0.12, baseY - mh * 0.3);
+  ctx.stroke();
+  csGlow(ctx, W * 0.5, H * 0.95, W * 0.4, '30,40,60', 0.18); // ground haze
+  csMotes(ctx, W, H, 22, '94,107,140', t, 7, 3, 19);
+  const vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.3, W / 2, H / 2, H * 0.9);
+  vg.addColorStop(0, 'rgba(11,10,20,0)');
+  vg.addColorStop(1, 'rgba(11,10,20,0.55)');
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, W, H);
+  ctx.restore();
 }

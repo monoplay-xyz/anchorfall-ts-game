@@ -10,6 +10,15 @@ npm run gen-assets     # rebuild public/assets/*.png from shared/characters.json
 npm run gen-expedition # regenerate levels/level11.json (deterministic)
 ```
 
+## Story campaign — Anchorfall Crossing
+
+Six chapters with intro/outro cutscenes, a persistent roster, and one save
+slot: The Long Crossing, Lythium Basin, Broken Quorum, Forkfall, Cluster
+Siege (a night defense — dark sight, four enemy waves, a time-locked Anchor),
+and Final Settlement. Rescued characters carry across chapters. Menus, lobby,
+dialogs and cutscenes are fully gamepad-navigable — no mouse or keyboard
+needed (Batocera-ready: see docs/BATOCERA.md and `npm run build-static`).
+
 ## Couch co-op (local multiplayer)
 
 The game is built for one screen and a sofa. In a Local Game lobby, every input

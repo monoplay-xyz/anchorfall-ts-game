@@ -144,6 +144,7 @@ export function parseLevel(def) {
 
 export function createGame(def, party, charMap, roster) {
   const lvl = parseLevel(def);
+  const mods = def.modifiers || {};
   // Arcade maps (the classic single-screen levels) keep the original behavior
   // exactly: every enemy awake, straight-line steering, fire on range without
   // sight checks, global spawn caps, respawn at the level spawn point.
@@ -174,6 +175,12 @@ export function createGame(def, party, charMap, roster) {
     arcade,
     spawns: lvl.spawns,
     timeLeft: def.time || 90,
+    // Story modifiers. dark shrinks enemy aggro and caps their sight; waves
+    // pour hunters in from a map edge at fixed elapsed times. Classic levels
+    // define neither, so their behavior is untouched.
+    dark: !!mods.dark,
+    elapsed: 0,
+    waves: (mods.waves || []).map(w => ({ at: w.at, letters: w.letters || '', edge: w.edge, fired: false })),
     players,
     enemies: lvl.enemies,
     captives: lvl.captives,
@@ -182,7 +189,9 @@ export function createGame(def, party, charMap, roster) {
     crystals: lvl.crystals,
     drops: [],
     shards: 0,
-    gate: def.gate ? { need: def.gate.need, built: 0, open: false } : null,
+    // gate.after: optional time lock — even at full pylon quorum the Anchor
+    // only opens once `after` seconds have elapsed (siege missions).
+    gate: def.gate ? { need: def.gate.need, after: def.gate.after || 0, built: 0, open: false } : null,
     exitX,
     exitY,
     shots: [],
@@ -289,13 +298,43 @@ function hasLoS(g, ax, ay, bx, by, blocks = blocksMove) {
   return true;
 }
 
+// In the dark, enemy sight is additionally capped at 8 tiles regardless of
+// line of sight. Lit levels are untouched.
+const DARK_SIGHT_TILES = 8;
+
 function canSee(g, e, tgt) {
+  if (g.dark && dist2(e, tgt) > (TILE * DARK_SIGHT_TILES) ** 2) return false;
   return hasLoS(g, e.x, e.y, tgt.x, tgt.y, blocksSight);
 }
 
 function tileBlocked(g, tx, ty) {
   if (tx < 0 || ty < 0 || tx >= g.w || ty >= g.h) return true;
-  return blocksMove(g.grid[ty][tx]);
+  if (blocksMove(g.grid[ty][tx])) return true;
+  // A* routes around built structures instead of funneling chasers into them
+  if (g.builds) {
+    for (const b of g.builds) {
+      if (b.built && Math.floor(b.x / TILE) === tx && Math.floor(b.y / TILE) === ty) return true;
+    }
+  }
+  return false;
+}
+
+// True when the straight segment passes through a built structure's circle —
+// straight-line steering must fall back to A* in that case or enemies wedge
+// against pylons forever.
+function segmentHitsBuild(g, ax, ay, bx, by, r) {
+  if (!g.builds) return false;
+  for (const b of g.builds) {
+    if (!b.built) continue;
+    const dx = bx - ax, dy = by - ay;
+    const L2 = dx * dx + dy * dy || 1;
+    let t = ((b.x - ax) * dx + (b.y - ay) * dy) / L2;
+    t = Math.max(0, Math.min(1, t));
+    const px = ax + dx * t, py = ay + dy * t;
+    const rr = BUILD_RADIUS + r;
+    if ((px - b.x) ** 2 + (py - b.y) ** 2 < rr * rr) return true;
+  }
+  return false;
 }
 
 // Deterministic A* over the tile grid. Diagonals allowed unless they cut a corner.
@@ -392,7 +431,7 @@ function wakeEnemy(g, e, ripple = true) {
 // A* waypoints when not. A failed search respects the repath cooldown so a
 // stranded enemy can't burn a full A* budget every tick.
 function moveToward(g, e, tgt, dt, speed = e.speed, r = ENEMY_R) {
-  if (hasLoS(g, e.x, e.y, tgt.x, tgt.y)) {
+  if (hasLoS(g, e.x, e.y, tgt.x, tgt.y) && !segmentHitsBuild(g, e.x, e.y, tgt.x, tgt.y, r)) {
     e.path = null;
     e.repathT = 0;
     const [fx, fy] = norm(tgt.x - e.x, tgt.y - e.y);
@@ -653,10 +692,13 @@ function stepEnemy(g, e, dt) {
   const [tgt, best] = nearestTarget(g, e);
   if (!tgt) return;
 
+  // Dark missions shrink every aggro radius to 75% (leash shrinks with it).
+  const aggro = g.dark ? e.aggro * 0.75 : e.aggro;
+
   // Sleeping enemies hold their post until a player is seen inside aggro
   // range, bumps into them, or damages them (handled in damageEnemy).
   if (!e.awake) {
-    if (best < e.aggro * e.aggro && canSee(g, e, tgt)) wakeEnemy(g, e);
+    if (best < aggro * aggro && canSee(g, e, tgt)) wakeEnemy(g, e);
     else if (best < (TILE * 2.2) ** 2) wakeEnemy(g, e);
     else return;
   }
@@ -666,13 +708,13 @@ function stepEnemy(g, e, dt) {
   // Mobile kinds walk back to their post and fall asleep there; stationary
   // kinds simply go back to ambush sleep on the spot.
   if (!g.arcade) {
-    const leash = e.aggro * LEASH_MULT;
+    const leash = aggro * LEASH_MULT;
     if (!e.returning && best > leash * leash) {
       if (STATIONARY_KINDS.has(e.kind)) { e.aimT = 0; e.awake = false; return; }
       e.returning = true;
     }
     if (e.returning) {
-      if ((best < e.aggro * e.aggro && canSee(g, e, tgt)) || best < (TILE * 2.2) ** 2) {
+      if ((best < aggro * aggro && canSee(g, e, tgt)) || best < (TILE * 2.2) ** 2) {
         e.returning = false;
       } else {
         if (Math.hypot(e.homeX - e.x, e.homeY - e.y) < TILE * 0.6) {
@@ -826,8 +868,71 @@ function stepEnemy(g, e, dt) {
   }
 }
 
+// Deterministic wave entry points: for each position along the given map
+// edge, the outermost passable tile in the 2-tile border band is a candidate
+// (grid order, stable). The n spawn points are chosen evenly spaced across
+// the candidate list. Pure grid math — no randomness.
+function waveEntryPoints(g, edge, n) {
+  const horiz = edge === 'n' || edge === 's';
+  const len = horiz ? g.w : g.h;
+  const cands = [];
+  for (let i = 0; i < len; i++) {
+    for (let depth = 0; depth < 2; depth++) {
+      let tx, ty;
+      if (edge === 'n') { tx = i; ty = depth; }
+      else if (edge === 's') { tx = i; ty = g.h - 1 - depth; }
+      else if (edge === 'w') { tx = depth; ty = i; }
+      else { tx = g.w - 1 - depth; ty = i; }
+      if (!blocksMove(g.grid[ty][tx])) {
+        cands.push({ x: (tx + 0.5) * TILE, y: (ty + 0.5) * TILE });
+        break;
+      }
+    }
+  }
+  const pts = [];
+  if (!cands.length) return pts;
+  for (let i = 0; i < n; i++) pts.push(cands[Math.floor(((i + 0.5) * cands.length) / n)]);
+  return pts;
+}
+
+// Fire every wave whose time has come: spawn its letters at the edge entry
+// points as awake hunters (aggro x100 — they never leash home), respecting
+// the global 90-enemy cap. Each wave fires exactly once.
+function maybeOpenGate(g) {
+  if (!g.gate || g.gate.open) return;
+  if (g.gate.built >= g.gate.need && g.elapsed >= g.gate.after) {
+    g.gate.open = true;
+    g.events.push({ type: 'gateOpen', x: g.exitX, y: g.exitY });
+  }
+}
+
+function stepWaves(g) {
+  if (!g.waves || !g.waves.length) return;
+  for (const w of g.waves) {
+    if (w.fired || g.elapsed < w.at) continue;
+    w.fired = true;
+    const room = Math.max(0, 90 - g.enemies.length);
+    const count = Math.min(w.letters.length, room); // drop overflow
+    const pts = waveEntryPoints(g, w.edge, count);
+    for (let i = 0; i < pts.length; i++) {
+      const e = makeEnemy(w.letters[i], pts[i].x, pts[i].y, g.nextEnemyId++);
+      e.awake = true;
+      e.aggro *= 100;
+      g.enemies.push(e);
+    }
+    // x,y = center of the entry band, for FX/audio.
+    const cx = w.edge === 'w' ? TILE : w.edge === 'e' ? (g.w - 1) * TILE : g.w * TILE / 2;
+    const cy = w.edge === 'n' ? TILE : w.edge === 's' ? (g.h - 1) * TILE : g.h * TILE / 2;
+    g.events.push({ type: 'wave', edge: w.edge, count: pts.length, x: cx, y: cy });
+  }
+}
+
 export function step(g, inputs, dt) {
   if (g.status !== 'play') return;
+
+  g.elapsed += dt;
+  stepWaves(g);
+  maybeOpenGate(g); // time-locked gates open when `after` elapses at full quorum
 
   g.timeLeft -= dt;
   if (g.timeLeft <= 0) { g.timeLeft = 0; g.status = 'failed'; g.events.push({ type: 'fail', x: 0, y: 0 }); return; }
@@ -985,7 +1090,44 @@ export function step(g, inputs, dt) {
   // proportionally from the shared pool as they go; an empty pool stalls. ---
   for (const b of g.builds) {
     if (b.evT > 0) b.evT -= dt;
-    if (b.built) continue;
+    if (b.built) {
+      // Dismantle: hold act on a built barricade/turret with no enemies within
+      // 6 tiles to take it down (half-cost refund). Closes the self-seal trap
+      // (a camp fully barricaded from inside) and lets misplaced turrets move.
+      if (b.kind === 'pylon') continue;
+      let dismantlers = 0;
+      for (const p of g.players) {
+        if (p.state !== 'active') continue;
+        const inp = inputs[p.pid] || {};
+        if (inp.act && dist2(p, b) < (TILE * BUILD_REACH) ** 2) dismantlers++;
+      }
+      if (dismantlers) {
+        let enemyNear = false;
+        const r2 = (TILE * 6) ** 2;
+        for (const e of g.enemies) {
+          if (!e.dead && dist2(e, b) < r2) { enemyNear = true; break; }
+        }
+        if (!enemyNear) {
+          b.dismantleT = (b.dismantleT || 0) + dt * dismantlers;
+          if (b.evT <= 0) {
+            g.events.push({ type: 'build', x: b.x, y: b.y });
+            b.evT = 0.5;
+          }
+          if (b.dismantleT >= 2) {
+            b.built = false;
+            b.progress = 0;
+            b.paid = 0;
+            b.hp = 0;
+            b.dismantleT = 0;
+            g.shards += Math.floor(b.cost / 2);
+            g.events.push({ type: 'buildDown', x: b.x, y: b.y, kind: b.kind });
+          }
+          continue;
+        }
+      }
+      b.dismantleT = 0;
+      continue;
+    }
     let builders = 0;
     for (const p of g.players) {
       if (p.state !== 'active') continue;
@@ -1011,10 +1153,7 @@ export function step(g, inputs, dt) {
       g.events.push({ type: 'built', x: b.x, y: b.y, kind: b.kind });
       if (b.kind === 'pylon' && g.gate) {
         g.gate.built++;
-        if (!g.gate.open && g.gate.built >= g.gate.need) {
-          g.gate.open = true;
-          g.events.push({ type: 'gateOpen', x: g.exitX, y: g.exitY });
-        }
+        maybeOpenGate(g);
       }
     }
   }
@@ -1180,10 +1319,11 @@ export function snapshot(g, full = true) {
     name: g.name,
     objective: g.objective,
     ...(full ? { grid: g.grid } : {}), w: g.w, h: g.h,
+    ...(g.dark ? { dark: true } : {}),
     timeLeft: g.timeLeft,
     status: g.status,
     shards: g.shards,
-    gate: g.gate ? { need: g.gate.need, built: g.gate.built, open: g.gate.open } : null,
+    gate: g.gate ? { need: g.gate.need, after: g.gate.after, built: g.gate.built, open: g.gate.open, charging: !g.gate.open && g.gate.built >= g.gate.need } : null,
     builds: g.builds.map(b => ({ x: b.x, y: b.y, kind: b.kind, cost: b.cost, progress: b.progress, paid: b.paid, built: b.built, hp: b.hp, maxHp: b.maxHp })),
     crystals: g.crystals.map(c => ({ x: c.x, y: c.y, hp: c.hp })),
     drops: g.drops.map(d => ({ x: d.x, y: d.y, amount: d.amount, ttl: d.ttl })),
