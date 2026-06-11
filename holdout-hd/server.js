@@ -27,8 +27,19 @@ const levels = fs.readdirSync(levelsDir).filter(f => f.endsWith('.json')).sort()
 // Expedition maps are local-couch shortcuts; the online classic campaign skips them.
 const classicLevels = levels.filter(l => !l.expedition);
 const storyLevels = levels.filter(l => l.story).sort((a, b) => (a.chapter ?? 0) - (b.chapter ?? 0));
-const roomLevels = room => room.mode === 'story' ? storyLevels : classicLevels;
-console.log(`Loaded ${levels.length} levels (${classicLevels.length} classic, ${storyLevels.length} story), ${characters.length} characters`);
+const ctfLevels = levels.filter(l => l.mode === 'ctf');
+const brLevels = levels.filter(l => l.mode === 'br');
+const bastionLevels = levels.filter(l => l.mode === 'bastion');
+const roomLevels = room => room.mode === 'story' ? storyLevels
+  : room.mode === 'ctf' ? ctfLevels
+  : room.mode === 'br' ? brLevels
+  : room.mode === 'bastion' ? bastionLevels
+  : classicLevels;
+const isPvp = room => room.mode === 'ctf' || room.mode === 'br';
+// pvp and bastion rooms are one-shots: never saved, never resumed, never
+// advanced — the lobby is the rematch on the same map
+const isOneShot = room => isPvp(room) || room.mode === 'bastion';
+console.log(`Loaded ${levels.length} levels (${classicLevels.length} classic, ${storyLevels.length} story, ${ctfLevels.length} ctf, ${brLevels.length} br, ${bastionLevels.length} bastion), ${characters.length} characters`);
 
 const savesDir = path.join(__dirname, 'saves');
 fs.mkdirSync(savesDir, { recursive: true });
@@ -69,7 +80,16 @@ function broadcast(room, msg) {
   for (const p of room.players.values()) if (p.ws.readyState === 1) p.ws.send(s);
 }
 
+// CTF teams alternate over join/seat order (Map insertion order — local seats on
+// one ws slot in where they were added); leavers cause a clean re-alternation.
+function assignTeams(room) {
+  if (room.mode !== 'ctf') return;
+  let i = 0;
+  for (const p of room.players.values()) p.team = i++ % 2;
+}
+
 function lobbyState(room) {
+  assignTeams(room);
   const list = roomLevels(room);
   const def = list[room.levelIdx];
   return {
@@ -82,7 +102,7 @@ function lobbyState(room) {
     totalLevels: list.length,
     roster: room.roster,
     lan: lanUrl || undefined,
-    players: [...room.players.values()].map(p => ({ pid: p.pid, name: p.name, charId: p.charId, isHost: p.pid === room.hostPid })),
+    players: [...room.players.values()].map(p => ({ pid: p.pid, name: p.name, charId: p.charId, isHost: p.pid === room.hostPid, team: p.team })),
   };
 }
 
@@ -97,17 +117,22 @@ function endLevel(room) {
   const list = roomLevels(room);
   const def = list[room.levelIdx]; // the chapter just played
   const g = room.game;
-  const res = applyResults(room.roster, g);
+  const res = applyResults(room.roster, g); // pvp: sim returns the roster untouched
   room.roster = res.roster;
   let victory = false;
-  if (g.status === 'cleared') {
+  if (g.status === 'cleared' && !isOneShot(room)) {
     room.levelIdx++;
     victory = room.levelIdx >= list.length;
     fs.writeFileSync(savePath(room.code), JSON.stringify({ mode: room.mode, levelIdx: room.levelIdx, roster: room.roster }));
   }
+  // pvp/bastion rooms never save and never advance — rematch replays the same map (levelIdx stays 0)
   for (const p of room.players.values()) p.charId = null;
   room.phase = 'lobby';
   const msg = { t: 'levelEnd', status: g.status, gained: res.gained, lost: res.lost, roster: room.roster, victory };
+  if (isPvp(room)) {
+    if (g.winner !== undefined) msg.winner = g.winner; // ctf: team 0|1, br: pid
+    if (g.caps) msg.caps = g.caps.slice();
+  }
   if (room.mode === 'story') {
     if (g.status === 'cleared' && def.outro?.length) msg.outro = def.outro;
     const next = list[room.levelIdx];
@@ -120,8 +145,10 @@ function endLevel(room) {
 }
 
 function startLevel(room) {
-  const party = [...room.players.values()].filter(p => p.charId).map(p => ({ pid: p.pid, name: p.name, charId: p.charId }));
+  assignTeams(room); // ctf party entries carry their lobby team into the sim
+  const party = [...room.players.values()].filter(p => p.charId).map(p => ({ pid: p.pid, name: p.name, charId: p.charId, team: p.team }));
   if (!party.length) return;
+  if (room.mode === 'br' && party.length < 2) return; // BR is meaningless solo
   for (const p of room.players.values()) p.input = {};
   room.game = createGame(roomLevels(room)[room.levelIdx], party, charMap, room.roster);
   room.phase = 'play';
@@ -149,9 +176,12 @@ wss.on('connection', ws => {
     if (m.t === 'host') {
       me.name = String(m.name || 'Player').slice(0, 12);
       let code = makeCode();
-      let mode = m.mode === 'story' ? 'story' : 'classic';
+      let mode = ['story', 'ctf', 'br', 'bastion'].includes(m.mode) ? m.mode : 'classic';
       let levelIdx = 0, roster = startingRoster.slice();
-      const resume = String(m.resume || '').toUpperCase().trim();
+      // pvp/bastion rooms never save, so they never resume either (the client
+      // reuses the join-code field for resume — don't let stray text morph a
+      // one-shot room into a campaign)
+      const resume = mode === 'ctf' || mode === 'br' || mode === 'bastion' ? '' : String(m.resume || '').toUpperCase().trim();
       if (resume && !rooms.has(resume) && fs.existsSync(savePath(resume))) {
         try {
           const save = JSON.parse(fs.readFileSync(savePath(resume), 'utf8'));
@@ -197,7 +227,11 @@ wss.on('connection', ws => {
       const id = String(m.charId || '');
       if (!id || target.charId === id) target.charId = null; // re-pick / empty = unlock
       else {
-        const taken = [...room.players.values()].some(p => p !== target && p.charId === id);
+        assignTeams(room);
+        // pvp relaxes uniqueness: ctf allows the same char on opposite teams,
+        // br is all-teams-of-one so duplicates are always fine
+        const taken = [...room.players.values()].some(p => p !== target && p.charId === id
+          && room.mode !== 'br' && (room.mode !== 'ctf' || p.team === target.team));
         if (room.roster.includes(id) && !taken) target.charId = id;
       }
       broadcast(room, lobbyState(room));
@@ -205,6 +239,8 @@ wss.on('connection', ws => {
     else if (m.t === 'start' && room && me.pid === room.hostPid && room.phase === 'lobby' && !room.game) {
       const list = roomLevels(room);
       if (room.levelIdx >= list.length) return;
+      // br needs a real field — the client greys Deploy out too, this is the backstop
+      if (room.mode === 'br' && [...room.players.values()].filter(p => p.charId).length < 2) return;
       const def = list[room.levelIdx];
       if (room.mode === 'story' && def.intro?.length) {
         if (![...room.players.values()].some(p => p.charId)) return; // no party — don't strand the room in intro

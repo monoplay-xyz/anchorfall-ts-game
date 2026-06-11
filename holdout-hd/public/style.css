@@ -251,3 +251,78 @@ button.ghost.navfocus { color: #eaf6ff; }
 
 /* --- story cutscenes (drawn on the game canvas by render.drawCutscene) --- */
 #game.cutscene { cursor: pointer; }
+
+/* --- frontier survival HUD (bastion / versus; markup is client-managed) ---
+   hearts row: <div class="hearts"><i class="hp"></i><i class="hpe"></i>
+   <i class="sp"></i></div> — .hp lit heart, .hpe empty, .sp shield pip. */
+.hearts { display: flex; gap: 3px; align-items: center; margin-top: 5px; }
+.hearts i {
+  display: block; width: 10px; height: 10px;
+  clip-path: polygon(50% 100%, 0 35%, 12% 8%, 38% 8%, 50% 26%, 62% 8%, 88% 8%, 100% 35%);
+}
+.hearts .hp  { background: #E04848; box-shadow: 0 0 6px rgba(224, 72, 72, .6); }
+.hearts .hpe { background: rgba(255, 255, 255, .12); }
+.hearts .sp  { /* shield pip — relay hex */
+  background: var(--relay);
+  box-shadow: 0 0 6px rgba(111, 216, 242, .6);
+  clip-path: polygon(50% 0, 100% 28%, 100% 72%, 50% 100%, 0 72%, 0 28%);
+}
+
+/* item slot (weapon panel): icon canvas/img + count + key hint */
+.itemslot {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 6px; padding: 5px 8px;
+  background: rgba(255, 255, 255, .05);
+  border: 1px solid var(--panel-edge);
+  border-radius: 4px;
+}
+.itemslot .icn { width: 18px; height: 18px; flex-shrink: 0; }
+.itemslot .inm { font-size: 11px; letter-spacing: 1px; color: #c2cde0; text-transform: uppercase; }
+.itemslot .cnt { color: var(--amber); font-weight: 800; font-size: 13px; }
+.itemslot .hint { margin-left: auto; color: #5E6B8C; font-size: 10px; letter-spacing: 1px; }
+.itemslot.empty { opacity: .4; }
+
+/* bastion mission readouts: night counter + phase clock + core hp */
+.nightclock { display: flex; justify-content: space-between; font-size: 12px; letter-spacing: 1px; color: #8A98B8; margin-top: 4px; }
+.nightclock b { color: var(--relay); font-variant-numeric: tabular-nums; }
+.nightclock.day b { color: var(--amber); }
+.nightclock.blood b { color: #FF5A66; }
+.corebar { height: 7px; margin-top: 5px; background: rgba(255, 255, 255, .08); border-radius: 3px; overflow: hidden; }
+.corebar i { display: block; height: 100%; background: linear-gradient(90deg, #F0A93C, #FFD98A); transition: width .3s; }
+.corebar.low i { background: linear-gradient(90deg, #7A2230, #E04848); }
+
+/* blood moon banner — client toggles .show on the 'bloodWarn' event */
+#bloodBanner {
+  position: fixed; top: 12vh; left: 50%; transform: translateX(-50%);
+  padding: 10px 30px;
+  color: #FF5A66; font-weight: 800; font-size: 24px; letter-spacing: 6px;
+  background: rgba(20, 4, 9, .85);
+  border: 1px solid rgba(199, 34, 48, .7);
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+  text-shadow: 0 0 18px rgba(224, 72, 72, .8);
+  z-index: 50; pointer-events: none;
+  opacity: 0; transition: opacity .5s;
+}
+#bloodBanner.show { opacity: 1; animation: bloodpulse 1.2s ease-in-out infinite; }
+@keyframes bloodpulse { 50% { text-shadow: 0 0 32px rgba(255, 90, 102, 1); } }
+
+/* versus: team badges (lobby seats + squad cards) and score readouts */
+.teambadge {
+  display: inline-block; min-width: 34px; padding: 2px 8px;
+  border-radius: 9px; font-size: 10px; font-weight: 800;
+  letter-spacing: 1px; text-align: center; text-transform: uppercase;
+}
+.teambadge.t0 { background: rgba(111, 216, 242, .18); color: var(--relay); border: 1px solid rgba(111, 216, 242, .6); }
+.teambadge.t1 { background: rgba(224, 72, 72, .16); color: #FF8A80; border: 1px solid rgba(224, 72, 72, .6); }
+.pchip.team0 { border-color: rgba(111, 216, 242, .6); }
+.pchip.team1 { border-color: rgba(224, 72, 72, .55); }
+.squadcard.team0 { border-left: 3px solid rgba(111, 216, 242, .75); }
+.squadcard.team1 { border-left: 3px solid rgba(224, 72, 72, .7); }
+.vsscore { display: flex; justify-content: center; align-items: baseline; gap: 10px; font-size: 16px; font-weight: 800; letter-spacing: 2px; font-variant-numeric: tabular-nums; }
+.vsscore .you { color: var(--relay); }
+.vsscore .foe { color: #FF8A80; }
+.vsscore .sep { color: #5E6B8C; font-size: 11px; }
+.flagstate { font-size: 10px; letter-spacing: 1.5px; color: #8A98B8; text-align: center; margin-top: 3px; text-transform: uppercase; }
+.brinfo { font-size: 12px; letter-spacing: 1px; color: #8A98B8; }
+.brinfo b { color: var(--relay); font-variant-numeric: tabular-nums; }
+.brinfo .zonet { color: var(--amber); }

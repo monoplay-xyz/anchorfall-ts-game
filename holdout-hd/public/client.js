@@ -9,8 +9,15 @@ const characters = await (await fetch('/shared/characters.json')).json();
 const charMap = charsById(characters);
 const levels = await (await fetch('/api/levels')).json();
 // Expedition maps live outside the campaign rotation (menu shortcut only).
+// Versus maps carry expedition:true too — keep them out of the expedition list.
 const campaign = levels.filter(l => !l.expedition);
-const expeditions = levels.filter(l => l.expedition);
+const expeditions = levels.filter(l => l.expedition && !l.mode);
+// PvP map pools (level JSONs carrying mode:'ctf'/'br'; absent until shipped).
+const ctfLevels = levels.filter(l => l.mode === 'ctf');
+const brLevels = levels.filter(l => l.mode === 'br');
+// Bastion siege maps (mode:'bastion'; expedition-flagged so they stay out of
+// the campaign and expedition rotations).
+const bastionLevels = levels.filter(l => l.mode === 'bastion');
 // Story chapters are expedition-flagged too (kept out of classic + online),
 // ordered by their chapter number.
 const storyLevels = levels.filter(l => l.story).sort((a, b) => (a.chapter ?? 0) - (b.chapter ?? 0));
@@ -26,6 +33,10 @@ const mmCtx = $('minimap').getContext('2d');
 const SAVE_KEY = 'holdout-hd.save';
 const STORY_KEY = 'holdout-hd.story'; // { chapter: next 1-based chapter, roster }
 const PCOLORS = ['#4fc3f7', '#ffb74d', '#f06292', '#aed581'];
+// CTF team identity (badge color sets) + display names.
+const TEAMC = ['#5ea7ff', '#ff7a6a'];
+const TEAM_NAME = ['TEAM A', 'TEAM B'];
+const ITEM_ICON = { cracker: '✷ ', medkit: '✚ ', shield: '⬡ ' };
 
 let session = null;
 setupAudioToggle($('btnAudio'));
@@ -43,10 +54,10 @@ addEventListener('keydown', e => {
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
 
-// E = interact (matches the on-screen [E/X] prompts), F = special
-const KB1 = { up: ['KeyW'], down: ['KeyS'], left: ['KeyA'], right: ['KeyD'], fire: ['Space'], special: ['KeyF'], act: ['KeyE'], start: ['Escape'] };
+// E = interact (matches the on-screen [E/X] prompts), F = special, Q = item
+const KB1 = { up: ['KeyW'], down: ['KeyS'], left: ['KeyA'], right: ['KeyD'], fire: ['Space'], special: ['KeyF'], act: ['KeyE'], item: ['KeyQ'], start: ['Escape'] };
 // KB2 pauses with Backspace (a shared Escape would emit start on BOTH seats at once)
-const KB2 = { up: ['ArrowUp'], down: ['ArrowDown'], left: ['ArrowLeft'], right: ['ArrowRight'], fire: ['Enter'], special: ['ShiftRight'], act: ['Slash'], start: ['Backspace'] };
+const KB2 = { up: ['ArrowUp'], down: ['ArrowDown'], left: ['ArrowLeft'], right: ['ArrowRight'], fire: ['Enter'], special: ['ShiftRight'], act: ['Slash'], item: ['Period'], start: ['Backspace'] };
 const DEVICES = ['kb1', 'kb2', 'gp0', 'gp1', 'gp2', 'gp3'];
 const DEVICE_LABEL = { kb1: 'Keyboard WASD', kb2: 'Keyboard Arrows', gp0: 'Pad 1', gp1: 'Pad 2', gp2: 'Pad 3', gp3: 'Pad 4' };
 
@@ -70,6 +81,7 @@ function readPad(i) {
     fire: b(0) || b(7),
     special: b(1) || b(5),
     act: b(2),
+    item: b(3), // Y
     start: b(9),
   };
 }
@@ -97,6 +109,7 @@ function pollDevices() {
       startJust: cur.start && !prev.start,
       specialJust: cur.special && !prev.special,
       actJust: cur.act && !prev.act,
+      itemJust: cur.item && !prev.item, // unused by menus/lobby (item only acts in the sim)
     };
     prevDev[id] = cur;
   }
@@ -105,12 +118,12 @@ function pollDevices() {
 
 // Online play: one player per machine, so any device drives them.
 function mergedInput() {
-  const o = { up: false, down: false, left: false, right: false, fire: false, special: false, act: false };
+  const o = { up: false, down: false, left: false, right: false, fire: false, special: false, act: false, item: false };
   for (const id of DEVICES) {
     const c = readDevice(id);
     if (!c) continue;
     o.up ||= c.up; o.down ||= c.down; o.left ||= c.left; o.right ||= c.right;
-    o.fire ||= c.fire; o.special ||= c.special; o.act ||= c.act;
+    o.fire ||= c.fire; o.special ||= c.special; o.act ||= c.act; o.item ||= c.item;
   }
   return o;
 }
@@ -132,16 +145,61 @@ function hideDialogue() {
   clearTimeout(dlgTimer);
   $('dialogueBox').hidden = true;
 }
-// One funnel for sim events: FX + audio + the DOM dialogue box.
+// ---------- event banner (big one-liners over the play field) ----------
+let bannerTimer = 0;
+function showBanner(text, blood = false, dur = 3200) {
+  const el = $('banner');
+  el.textContent = text;
+  el.classList.toggle('blood', !!blood);
+  el.hidden = false;
+  clearTimeout(bannerTimer);
+  bannerTimer = setTimeout(() => { el.hidden = true; }, dur);
+}
+function hideBanner() {
+  clearTimeout(bannerTimer);
+  $('banner').hidden = true;
+  $('spectateTag').hidden = true;
+}
+const playerName = pid =>
+  session?.snap?.players?.find(p => p.pid === pid)?.name ?? 'P' + ((pid ?? 0) + 1);
+// Returns { text, blood } for events that deserve a banner; null otherwise.
+function bannerFor(ev) {
+  switch (ev.type) {
+    case 'dusk': return {
+      text: ev.bloodMoon ? `BLOOD MOON — NIGHT ${ev.nightNo ?? '?'}` : `NIGHT ${ev.nightNo ?? '?'} FALLS`,
+      blood: !!ev.bloodMoon,
+    };
+    case 'dawn': return { text: `DAWN — NIGHT ${ev.nightNo ?? '?'} SURVIVED` };
+    case 'bloodWarn': return { text: 'BLOOD MOON RISING', blood: true };
+    case 'coreDown': return { text: 'THE CORE HAS FALLEN', blood: true };
+    case 'capture': return { text: `${TEAM_NAME[ev.team] ?? 'TEAM'} SCORES` };
+    case 'flagTaken': return { text: `${TEAM_NAME[ev.team] ?? ''} FLAG TAKEN`.trim() };
+    case 'flagDrop': return { text: `${TEAM_NAME[ev.team] ?? ''} FLAG DROPPED`.trim() };
+    case 'flagReturn': return { text: 'FLAG RETURNED' };
+    case 'eliminated': return {
+      text: `${playerName(ev.pid)} ELIMINATED${ev.remaining != null ? ` — ${ev.remaining} REMAIN` : ''}`,
+    };
+    case 'matchEnd': {
+      if (ev.winner == null) return { text: 'MATCH OVER' };
+      const ctf = session?.versusMode?.() === 'ctf';
+      return { text: `${ctf ? (TEAM_NAME[ev.winner] ?? 'TEAM') : playerName(ev.winner)} WINS THE MATCH` };
+    }
+  }
+  return null;
+}
+// One funnel for sim events: FX + audio + banners + the DOM dialogue box.
 function handleEvent(ev) {
   addEventFX(ev);
   playEvent(ev);
   if (ev.type === 'talk') showDialogue(ev);
+  const b = bannerFor(ev);
+  if (b) showBanner(b.text, b.blood);
 }
 
 // ---------- screens ----------
 function show(id) {
   hideDialogue();
+  hideBanner();
   for (const s of ['menu', 'lobby', 'msg']) $(s).hidden = s !== id;
 }
 function hideAll() {
@@ -249,8 +307,11 @@ function renderLobby({ title, info, hint, players, roster, canStart, cursors = [
   }
   const grid = $('charGrid');
   grid.innerHTML = '';
+  // versus allows the same char on both teams, so a card can have SEVERAL
+  // owners — track them all (an object keyed by charId would drop all but
+  // the last) and stamp one badge per owner.
   const takenBy = {};
-  for (const p of players) if (p.charId) takenBy[p.charId] = p;
+  for (const p of players) if (p.charId) (takenBy[p.charId] ??= []).push(p);
   roster.forEach((id, idx) => {
     const ch = charMap[id];
     const card = document.createElement('div');
@@ -262,7 +323,10 @@ function renderLobby({ title, info, hint, players, roster, canStart, cursors = [
     meta.innerHTML = `<div class="cname" style="color:${ch.color}">${ch.name.toUpperCase()}</div>
       <div class="cstats">${ch.weapon.name}<br>SPD ${ch.speed} · DMG ${ch.weapon.damage} · RNG ${ch.weapon.range}</div>`;
     card.appendChild(meta);
-    const owner = takenBy[id];
+    const owners = takenBy[id] || [];
+    // the local/me owner wins the selected/claimed styling so your own pick
+    // always reads as yours even when the other team grabbed the same char
+    const owner = owners.find(o => o.me) || owners.find(o => o.badge) || owners[0];
     let blocked = false;
     if (owner) {
       if (owner.me) card.classList.add('selected');
@@ -273,11 +337,14 @@ function renderLobby({ title, info, hint, players, roster, canStart, cursors = [
         card.classList.add('taken');
         blocked = true;
       }
-      const b = document.createElement('div');
-      b.className = 'pbadge';
-      b.textContent = owner.badge || '✓';
-      b.style.background = owner.color || charMap[id].color;
-      card.appendChild(b);
+      owners.forEach((o, i) => {
+        const b = document.createElement('div');
+        b.className = 'pbadge';
+        b.textContent = o.badge || '✓';
+        b.style.background = o.color || charMap[id].color;
+        if (i) b.style.right = (-6 + i * 26) + 'px'; // fan extra badges leftward
+        card.appendChild(b);
+      });
     }
     for (const cur of cursors) {
       if (cur.idx === idx && !cur.picked) {
@@ -304,6 +371,7 @@ function buildSquadPanels(roster) {
   const host = $('squadPanels');
   host.innerHTML = '';
   for (const k of Object.keys(squadCards)) delete squadCards[k];
+  resetHearts();
   for (const id of roster.slice(0, 5)) {
     const ch = charMap[id];
     const card = document.createElement('div');
@@ -327,6 +395,21 @@ function updateMissionPanel() {
   const idx = session?.levelIdxView?.() ?? 0;
   const list = session?.levelList?.() ?? campaign;
   const lvl = list[Math.min(idx, list.length - 1)];
+  const vm = session?.versusMode?.();
+  if (vm) {
+    $('missionNo').textContent = vm === 'ctf' ? 'VERSUS — CTF' : 'VERSUS — ROYALE';
+    $('missionName').textContent = (lvl?.name || '—').toUpperCase();
+    $('missionObj').textContent = lvl?.objective
+      || (vm === 'ctf' ? 'First to 3 captures wins' : 'Last operative standing wins');
+    return;
+  }
+  if (session?.bastionMode?.()) {
+    // NIGHT n/N itself lives in the bastion HUD panel (updateModePanels)
+    $('missionNo').textContent = 'BASTION SIEGE';
+    $('missionName').textContent = (lvl?.name || '—').toUpperCase();
+    $('missionObj').textContent = lvl?.objective || 'Hold the core until the final dawn';
+    return;
+  }
   if (session?.story) {
     $('missionNo').textContent = `CHAPTER ${String(Math.min(idx + 1, list.length)).padStart(2, '0')} / ${String(list.length).padStart(2, '0')}`;
     $('missionName').textContent = (lvl?.title || lvl?.name || '—').toUpperCase();
@@ -335,6 +418,110 @@ function updateMissionPanel() {
     $('missionName').textContent = lvl?.name?.toUpperCase() || '—';
   }
   $('missionObj').textContent = lvl?.objective || 'Reach the exit gate';
+}
+
+// Hearts row per LOCAL player (survival maps only — players carry hp/maxHp).
+// DOM is rebuilt only when the signature changes; classic snapshots have no
+// hp so the panel stays hidden and nothing regresses.
+let heartsSig = null;
+function resetHearts() {
+  heartsSig = null;
+  const host = $('heartsPanel');
+  host.hidden = true;
+  host.innerHTML = '';
+}
+function updateHearts(snap) {
+  const host = $('heartsPanel');
+  const focus = session?.focusPids?.() ?? new Set();
+  const rows = (snap.players ?? []).filter(p => focus.has(p.pid) && p.maxHp != null);
+  if (!rows.length) { if (!host.hidden) resetHearts(); return; }
+  const sig = rows.map(p =>
+    [p.pid, p.charId, p.state, p.hp ?? 0, p.maxHp, p.shield ?? 0, p.team ?? ''].join(':')).join('|');
+  if (sig === heartsSig) return;
+  heartsSig = sig;
+  host.hidden = false;
+  host.innerHTML = '';
+  for (const p of rows) {
+    const ch = p.charId ? charMap[p.charId] : null;
+    const row = document.createElement('div');
+    row.className = 'heartrow' + (p.state === 'out' ? ' outrow' : '');
+    let pips = '';
+    for (let i = 0; i < p.maxHp; i++) {
+      pips += i < (p.hp ?? 0) ? '<span class="pip hp">♥</span>' : '<span class="pip off">♡</span>';
+    }
+    for (let i = 0; i < (p.shield ?? 0); i++) pips += '<span class="pip sh">⬡</span>';
+    const col = p.team != null ? (TEAMC[p.team] ?? ch?.color) : ch?.color;
+    row.innerHTML = `<span class="hr-name" style="color:${col ?? '#cfd8e8'}">`
+      + `${String(ch?.name ?? p.name ?? '').toUpperCase()}</span><span class="pips">${pips}</span>`;
+    host.appendChild(row);
+  }
+}
+
+// Item slot in the weapon panel (single slot: cracker/medkit/shield).
+function updateItemSlot(me) {
+  const el = $('wItem');
+  if (!me || me.maxHp == null) { el.hidden = true; return; }
+  el.hidden = false;
+  const it = me.item;
+  $('wItemLabel').textContent = it?.kind
+    ? `${ITEM_ICON[it.kind] ?? ''}${it.kind.toUpperCase()}${(it.count ?? 1) > 1 ? ' ×' + it.count : ''}`
+    : '—';
+}
+
+// Bastion (day/night + core) and PvP (ctf score / br zone) mission readouts.
+// Every field is optional — absent on classic/story snapshots.
+function updateModePanels(snap) {
+  const cyc = snap.cycle;
+  $('bastionInfo').hidden = !cyc;
+  if (cyc) {
+    const t = Math.max(0, cyc.t ?? 0);
+    const clock = `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+    const night = cyc.phase === 'night';
+    $('cyclePhase').textContent = night
+      ? `${cyc.bloodMoon ? 'BLOOD MOON' : 'NIGHT'} ${cyc.nightNo ?? 1}${cyc.nights ? '/' + cyc.nights : ''} — ${clock}`
+      : `DAY — DUSK IN ${clock}`;
+    $('cyclePhase').style.color = night && cyc.bloodMoon ? '#ff7a6a' : '';
+    const core = snap.core;
+    $('coreWrap').hidden = !core;
+    if (core) {
+      $('coreLabel').textContent = `CORE ${core.hp ?? 0}/${core.maxHp ?? 0}`;
+      const pct = Math.max(0, Math.min(1, (core.hp ?? 0) / (core.maxHp || 1)));
+      $('coreFill').style.width = Math.round(pct * 100) + '%';
+    }
+  }
+
+  const el = $('pvpInfo');
+  const focus = session?.focusPids?.() ?? new Set();
+  let text = '';
+  if (snap.caps) {
+    // ctf score — relative ("YOU/FOE") when every local seat shares a team,
+    // neutral when a couch hosts both teams
+    const teams = new Set((snap.players ?? []).filter(p => focus.has(p.pid) && p.team != null).map(p => p.team));
+    const caps = snap.caps;
+    if (teams.size === 1) {
+      const mine = [...teams][0];
+      text = `YOU ${caps[mine] ?? 0} — ${caps[1 - mine] ?? 0} FOE`;
+    } else {
+      text = `${TEAM_NAME[0]} ${caps[0] ?? 0} — ${caps[1] ?? 0} ${TEAM_NAME[1]}`;
+    }
+    if (snap.flags?.length) {
+      const st = f => f.carrier != null ? 'TAKEN' : (f.atBase ?? true) ? 'AT BASE' : 'DROPPED';
+      text += '\n' + snap.flags.map(f => `${TEAM_NAME[f.team] ?? 'FLAG'}: ${st(f)}`).join(' · ');
+    }
+  } else if (snap.zone) {
+    const remaining = (snap.players ?? []).filter(p => p.state !== 'out' && p.state !== 'extracted').length;
+    text = `${remaining} REMAIN`;
+    const sh = snap.zone.shrinkT;
+    if (sh != null && sh > 0) text += ` · ZONE SHRINKS ${Math.ceil(sh)}s`;
+  }
+  el.hidden = !text;
+  if (text) el.textContent = text;
+
+  // spectate tag: every local seat is out but the match plays on (camera
+  // already falls back to the remaining active players)
+  const locals = (snap.players ?? []).filter(p => focus.has(p.pid));
+  $('spectateTag').hidden =
+    !(snap.status === 'play' && locals.length > 0 && locals.every(p => p.state === 'out'));
 }
 
 function charStatus(id, snap) {
@@ -351,7 +538,17 @@ function updateHUD(snap) {
   $('hTime').style.color = tl < 15 ? '#ff7a6a' : '';
   $('hKills').textContent = snap.kills ?? 0;
   $('hCombo').textContent = 'x' + (snap.combo ?? 1);
-  $('hShards').textContent = '◆' + Math.floor(snap.shards ?? 0);
+  // ctf runs per-team shard pools: show YOUR team's pool (both, labelled,
+  // when a couch hosts both teams). Everything else shows the squad pool.
+  if (snap.teamShards) {
+    const focus = session?.focusPids?.() ?? new Set();
+    const teams = new Set((snap.players ?? []).filter(p => focus.has(p.pid) && p.team != null).map(p => p.team));
+    $('hShards').textContent = teams.size === 1
+      ? '◆' + Math.floor(snap.teamShards[[...teams][0]] ?? 0)
+      : `A◆${Math.floor(snap.teamShards[0] ?? 0)} B◆${Math.floor(snap.teamShards[1] ?? 0)}`;
+  } else {
+    $('hShards').textContent = '◆' + Math.floor(snap.shards ?? 0);
+  }
 
   const gateEl = $('missionGate');
   if (snap.gate) {
@@ -395,6 +592,9 @@ function updateHUD(snap) {
   } else {
     $('wSpecial').hidden = true;
   }
+  updateItemSlot(me);
+  updateHearts(snap);
+  updateModePanels(snap);
   renderMinimap(mmCtx, snap, session?.focusPids() ?? new Set());
 }
 
@@ -451,11 +651,18 @@ function endSlides(sess) {
 class LocalSession {
   constructor(save, opts = {}) {
     this.story = !!opts.story;
-    this.expedition = !this.story && !!opts.expedition;
-    this.levels = this.story ? storyLevels : this.expedition ? expeditions : campaign;
+    // local versus ('ctf'|'br'): one-map match list, no autosave, no roster churn
+    this.mode = opts.mode === 'ctf' || opts.mode === 'br' ? opts.mode : null;
+    // bastion siege: expedition-style one-shot (no saves), solo+ couch fine
+    this.bastion = opts.mode === 'bastion';
+    this.expedition = !this.story && !this.mode && !this.bastion && !!opts.expedition;
+    this.levels = this.story ? storyLevels
+      : this.mode ? (this.mode === 'ctf' ? ctfLevels : brLevels)
+        : this.bastion ? bastionLevels
+          : this.expedition ? expeditions : campaign;
     this.levelIdx = this.story
       ? Math.max(0, Math.min((save?.chapter ?? 1) - 1, this.levels.length - 1))
-      : this.expedition ? 0 : (save?.levelIdx ?? 0);
+      : (this.expedition || this.mode || this.bastion) ? 0 : (save?.levelIdx ?? 0);
     this.roster = save?.roster ?? startingRoster.slice();
     this.players = []; // { pid, name, device, charId, cursor }
     this.game = null;
@@ -468,7 +675,13 @@ class LocalSession {
   primaryPid() { return 0; }
   levelIdxView() { return this.levelIdx; }
   levelList() { return this.levels; }
-  canStart() { return this.players.length > 0 && this.players.every(p => p.charId); }
+  versusMode() { return this.mode; }
+  bastionMode() { return this.bastion; }
+  // seats alternate ctf teams by join order (P1/P3 vs P2/P4)
+  teamOf(p) { return this.mode === 'ctf' ? p.pid % 2 : this.mode === 'br' ? p.pid : null; }
+  canStart() {
+    return this.players.length >= (this.mode ? 2 : 1) && this.players.every(p => p.charId);
+  }
 
   lobby() {
     if (this.levelIdx >= this.levels.length) return this.victory();
@@ -477,25 +690,36 @@ class LocalSession {
   }
   renderLobby() {
     const lvl = this.levels[this.levelIdx];
+    const ctf = this.mode === 'ctf';
+    // versus lobbies tint badges/cursors by team so the split reads at a glance
+    const colorOf = p => ctf ? TEAMC[p.pid % 2] : PCOLORS[p.pid];
     renderLobby({
       title: this.story
         ? (lvl.title || `Chapter ${this.levelIdx + 1} — ${lvl.name}`)
-        : this.expedition
-          ? `Expedition — ${lvl.name}`
-          : `Mission ${this.levelIdx + 1} / ${this.levels.length} — ${lvl.name}`,
+        : this.mode
+          ? `Versus ${ctf ? 'CTF' : 'Royale'} — ${lvl.name}`
+          : this.bastion
+            ? `Bastion — ${lvl.name}`
+            : this.expedition
+              ? `Expedition — ${lvl.name}`
+              : `Mission ${this.levelIdx + 1} / ${this.levels.length} — ${lvl.name}`,
       info: this.story
         ? 'Story campaign · progress autosaves between chapters'
-        : this.expedition ? 'One huge map. No autosave — bring everyone home.' : 'Local campaign · progress autosaves',
+        : ctf ? 'Capture the Flag · first to 3 captures · 2-4 players, join order alternates teams'
+          : this.mode === 'br' ? 'Battle Royale · last operative standing · 2-4 players'
+            : this.bastion ? 'Siege survival · hold the core through every night · 1-4 players, no autosave'
+              : this.expedition ? 'One huge map. No autosave — bring everyone home.' : 'Local campaign · progress autosaves',
       hint: 'Press FIRE to join: gamepad (A) · keyboard WASD+Space · keyboard Arrows+Enter — up to 4 players. Move your cursor with LEFT/RIGHT, FIRE to lock in. '
-        + 'In the field — SPECIAL: F / RShift / B·RB · ACT: E / Slash / X. '
-        + 'Hold ACT on a build site to construct — LYTH shards drop from fallen Entropy.',
+        + 'In the field — SPECIAL: F / RShift / B·RB · ACT: E / Slash / X · ITEM: Q / . / Y. '
+        + (ctf ? 'Blue seats are Team A, red seats Team B — odd joins vs even joins.'
+          : 'Hold ACT on a build site to construct — LYTH shards drop from fallen Entropy.'),
       players: this.players.map(p => ({
         name: p.name, charId: p.charId, isHost: p.pid === 0, me: false,
-        badge: 'P' + (p.pid + 1), color: PCOLORS[p.pid],
+        badge: 'P' + (p.pid + 1), color: colorOf(p),
       })),
       roster: this.roster,
       canStart: this.canStart(),
-      cursors: this.players.map(p => ({ idx: p.cursor, color: PCOLORS[p.pid], badge: 'P' + (p.pid + 1), picked: !!p.charId })),
+      cursors: this.players.map(p => ({ idx: p.cursor, color: colorOf(p), badge: 'P' + (p.pid + 1), picked: !!p.charId })),
       onCard: id => this.clickChar(id),
     });
   }
@@ -527,7 +751,11 @@ class LocalSession {
     if (p.charId === id) {
       p.charId = null;
     } else {
-      const taken = this.players.some(o => o !== p && o.charId === id);
+      // versus relaxes uniqueness to same-team only (matches the server):
+      // ctf allows the same char on opposite teams; br teams are the pids so
+      // duplicates always pass. Classic/story/co-op stay strictly unique.
+      const taken = this.players.some(o => o !== p && o.charId === id
+        && (!this.mode || this.teamOf(o) === this.teamOf(p)));
       if (taken || !this.roster.includes(id)) return;
       p.charId = id;
       p.cursor = this.roster.indexOf(id);
@@ -573,7 +801,11 @@ class LocalSession {
     const begin = () => {
       this.game = createGame(
         lvl,
-        this.players.map(p => ({ pid: p.pid, name: p.name, charId: p.charId })),
+        // versus party entries carry team (ctf: alternating seats, br: own pid)
+        this.players.map(p => ({
+          pid: p.pid, name: p.name, charId: p.charId,
+          ...(this.mode ? { team: this.teamOf(p) } : {}),
+        })),
         charMap,
         this.roster
       );
@@ -623,7 +855,7 @@ class LocalSession {
         else this.fireSquelch.delete(p.device);
       }
       inputs[p.pid] = st
-        ? { up: st.up, down: st.down, left: st.left, right: st.right, fire, special: st.special, act: st.act }
+        ? { up: st.up, down: st.down, left: st.left, right: st.right, fire, special: st.special, act: st.act, item: st.item }
         : {};
     }
     step(this.game, inputs, dt);
@@ -635,7 +867,7 @@ class LocalSession {
   // close, holds ACT at build sites/NPCs. Reads only snapshot state, so it is
   // safe on classic maps where builds/npcs do not exist.
   botInput(p, dt) {
-    const inp = { up: false, down: false, left: false, right: false, fire: false, special: false, act: false };
+    const inp = { up: false, down: false, left: false, right: false, fire: false, special: false, act: false, item: false };
     const snap = this.snap;
     const me = snap?.players?.find(q => q.pid === p.pid);
     if (!me) return inp;
@@ -691,6 +923,7 @@ class LocalSession {
     return inp;
   }
   finish() {
+    if (this.mode) return this.finishVersus();
     const res = applyResults(this.roster, this.game);
     const cleared = this.game.status === 'cleared';
     const score = Math.round(this.game.score);
@@ -714,6 +947,12 @@ class LocalSession {
         });
         return;
       }
+      if (this.bastion) {
+        // expedition-style one-shot: no save written, straight back to menu
+        playUi('victory');
+        showMsg('The Bastion Holds', (resultText(res) || 'Every night survived — the core still stands.') + `\nScore: ${score.toLocaleString()}`, 'Main Menu', () => this.leave());
+        return;
+      }
       if (this.expedition) {
         playUi('victory');
         showMsg('Expedition Complete!', (resultText(res) || 'The crossing is yours.') + `\nScore: ${score.toLocaleString()}`, 'Main Menu', () => this.leave());
@@ -725,6 +964,29 @@ class LocalSession {
     } else {
       showMsg(this.story ? 'Chapter Failed' : 'Mission Failed', 'Time ran out or the whole squad went down.\nNo one is lost on a failed run — try again.', 'Retry', () => this.lobby());
     }
+  }
+  // Versus matches never touch the roster or saves; the lobby is the rematch
+  // (levelIdx stays put, so the same map reloads with fresh picks).
+  finishVersus() {
+    const g = this.game;
+    const winner = g?.winner;
+    const caps = g?.caps;
+    this.game = null;
+    this.paused = false;
+    let body;
+    if (this.mode === 'ctf' && winner != null) {
+      const names = this.players.filter(p => p.pid % 2 === winner).map(p => p.name).join(', ');
+      body = `${TEAM_NAME[winner] ?? 'A team'} takes the match${names ? ` — ${names}` : ''}`
+        + (caps ? `\nCaptures: ${caps[0] ?? 0} — ${caps[1] ?? 0}` : '');
+    } else if (this.mode === 'br' && winner != null) {
+      const name = this.players.find(p => p.pid === winner)?.name ?? 'P' + (winner + 1);
+      body = `${name} is the last operative standing.`;
+    } else {
+      body = 'The match is over.';
+    }
+    for (const p of this.players) { p.charId = null; p.cursor = 0; p.bot = null; }
+    playUi('victory');
+    showMsg('Match Over', body, 'Rematch', () => this.lobby());
   }
   victory() {
     playUi('victory');
@@ -763,7 +1025,8 @@ class NetSession {
     this.ws.onopen = () => {
       if (mode === 'host') {
         const msg = { t: 'host', name: this.name, resume: code };
-        if (hostMode === 'story') msg.mode = 'story'; // classic hosting stays byte-identical
+        // classic hosting stays byte-identical; story/ctf/br ride the mode field
+        if (hostMode && hostMode !== 'classic') msg.mode = hostMode;
         this.ws.send(JSON.stringify(msg));
       } else {
         this.ws.send(JSON.stringify({ t: 'join', room: code, name: this.name }));
@@ -795,12 +1058,23 @@ class NetSession {
     }, 50);
   }
   get story() { return this.lobbyData?.mode === 'story'; }
+  versusMode() {
+    const md = this.lobbyData?.mode;
+    return md === 'ctf' || md === 'br' ? md : null;
+  }
+  bastionMode() { return this.lobbyData?.mode === 'bastion'; }
   isHost() { return !!this.lobbyData?.players.find(p => p.pid === this.myPid)?.isHost; }
   pickOf(pid) { return this.lobbyData?.players.find(p => p.pid === pid)?.charId || null; }
   focusPids() { return this.seats.size ? new Set(this.seats.values()) : new Set([this.myPid]); }
   primaryPid() { return this.myPid; }
   levelIdxView() { return this.lobbyData?.levelIdx ?? 0; }
-  levelList() { return this.story ? storyLevels : campaign; }
+  levelList() {
+    const md = this.lobbyData?.mode;
+    return md === 'story' ? storyLevels
+      : md === 'ctf' ? ctfLevels
+        : md === 'br' ? brLevels
+          : md === 'bastion' ? bastionLevels : campaign;
+  }
   // navTick: a bound device's dpad drives its pick cursor, not the focus ring
   deviceOf(dev) { return this.seats.has(dev) ? dev : null; }
   deviceInput(dev) {
@@ -811,7 +1085,7 @@ class NetSession {
       if (fire) fire = false; // held since a cutscene was dismissed
       else this.fireSquelch.delete(dev);
     }
-    return { up: c.up, down: c.down, left: c.left, right: c.right, fire, special: c.special, act: c.act };
+    return { up: c.up, down: c.down, left: c.left, right: c.right, fire, special: c.special, act: c.act, item: c.item };
   }
   onMsg(m) {
     if (m.t === 'joined') this.myPid = m.you;
@@ -860,15 +1134,45 @@ class NetSession {
     }
     else if (m.t === 'levelEnd') {
       this.myPick = null;
+      const vm = this.versusMode();
+      if (vm) {
+        // pvp: rosters never change and levelIdx stays put (rematch = same map)
+        if (m.roster && this.lobbyData) this.lobbyData.roster = m.roster;
+        let body;
+        if (vm === 'ctf' && m.winner != null) {
+          const myTeam = this.lobbyData?.players.find(p => p.pid === this.myPid)?.team;
+          body = `${TEAM_NAME[m.winner] ?? 'A team'} takes the match`
+            + (myTeam != null ? (myTeam === m.winner ? ' — VICTORY' : ' — DEFEAT') : '')
+            + (m.caps ? `\nCaptures: ${m.caps[0] ?? 0} — ${m.caps[1] ?? 0}` : '');
+        } else if (vm === 'br' && m.winner != null) {
+          const w = this.lobbyData?.players.find(p => p.pid === m.winner)
+            ?? this.snap?.players?.find(p => p.pid === m.winner);
+          body = `${w?.name ?? 'Player ' + m.winner} is the last operative standing.`;
+        } else {
+          body = 'The match is over.';
+        }
+        showMsg('Match Over', body, 'To Lobby', () => this.renderLobby());
+        return;
+      }
       if (this.lobbyData) this.lobbyData.roster = m.roster;
       const story = this.story;
+      // Optimistic levelIdx bump happens HERE, synchronously at message
+      // receipt — never inside the deferred results dialog. A chapter outro
+      // can hold results() open across the server's fresh lobby broadcast
+      // (which already carries the advanced levelIdx); bumping the captured
+      // object then would double-increment. Capture identity and only bump
+      // the lobby we hold right now. Bastion rooms rematch in place (the
+      // server never advances them), so they are exempt.
+      if (m.status === 'cleared' && !m.victory
+          && this.lobbyData && this.lobbyData.mode !== 'bastion') {
+        this.lobbyData.levelIdx++;
+      }
       const results = () => {
         if (m.victory) {
           showMsg(story ? 'The Crossing Holds' : 'Campaign Complete!',
             resultText(m) + `Final roster: ${m.roster.map(id => charMap[id].name).join(', ')}`,
             'OK', () => this.leave());
         } else if (m.status === 'cleared') {
-          if (this.lobbyData) this.lobbyData.levelIdx++;
           showMsg(story ? 'Chapter Cleared' : 'Mission Cleared',
             (resultText(m) || 'Nicely done.') + (m.nextTitle ? `\nNext: ${m.nextTitle}` : ''),
             'To Lobby', () => this.renderLobby());
@@ -891,25 +1195,39 @@ class NetSession {
     if (!m) return;
     const allPicked = m.players.every(p => p.charId);
     const story = m.mode === 'story';
+    const vm = this.versusMode();
+    const ctf = vm === 'ctf';
     const seatNo = new Map([...this.seats.values()].map((pid, i) => [pid, i]));
     renderLobby({
       title: (story && m.levelTitle)
         ? m.levelTitle
-        : `${story ? 'Chapter' : 'Mission'} ${m.levelIdx + 1} / ${m.totalLevels} — ${m.levelName || ''}`,
+        : vm
+          ? `Versus ${ctf ? 'CTF' : 'Royale'} — ${m.levelName || ''}`
+          : m.mode === 'bastion'
+            ? `Bastion — ${m.levelName || ''}`
+            : `${story ? 'Chapter' : 'Mission'} ${m.levelIdx + 1} / ${m.totalLevels} — ${m.levelName || ''}`,
       info: m.lan
         ? `Room <b>${m.room}</b> — friends: ${m.lan} (or this machine's address)`
         : `Room code: <b>${m.room}</b> — friends join with this code`,
       hint: 'Press FIRE to claim a seat — up to 4 couch players per machine, 8 per room. '
         + 'Move your cursor with LEFT/RIGHT, FIRE to lock in; START on an unpicked extra seat hands it back. '
-        + 'The mouse picks for the first seat.',
+        + 'The mouse picks for the first seat.'
+        + (ctf ? ' Capture the Flag: badge colors are your team — seats alternate.'
+          : vm === 'br' ? ' Battle Royale: free-for-all, 2+ players to start.' : ''),
       players: m.players.map(p => ({
         ...p,
         me: p.pid === this.myPid,
-        badge: seatNo.has(p.pid) ? 'P' + (seatNo.get(p.pid) + 1) : undefined,
-        color: seatNo.has(p.pid) ? PCOLORS[seatNo.get(p.pid)] : undefined,
+        // ctf: team badge color sets (server assigns p.team); seat number text
+        // for local seats, team letter for everyone else
+        badge: seatNo.has(p.pid)
+          ? 'P' + (seatNo.get(p.pid) + 1)
+          : (ctf && p.team != null ? (p.team ? 'B' : 'A') : undefined),
+        color: ctf && p.team != null
+          ? TEAMC[p.team]
+          : (seatNo.has(p.pid) ? PCOLORS[seatNo.get(p.pid)] : undefined),
       })),
       roster: m.roster,
-      canStart: this.isHost() && allPicked,
+      canStart: this.isHost() && allPicked && (!vm || m.players.length >= 2),
       cursors: [...this.seats.entries()].map(([dev, pid], i) => ({
         idx: this.cursors[dev] ?? 0,
         color: PCOLORS[i],
@@ -1021,6 +1339,13 @@ function refreshContinue() {
   $('btnStory').hidden = !storyLevels.length;
   $('btnStoryContinue').hidden = !storyLevels.length || !localStorage.getItem(STORY_KEY);
   $('btnHostStory').hidden = !storyLevels.length;
+  // versus/bastion buttons only exist once their mode maps ship
+  $('btnBastion').hidden = !bastionLevels.length;
+  $('btnHostBastion').hidden = !bastionLevels.length;
+  $('btnCtf').hidden = !ctfLevels.length;
+  $('btnHostCtf').hidden = !ctfLevels.length;
+  $('btnBr').hidden = !brLevels.length;
+  $('btnHostBr').hidden = !brLevels.length;
 }
 refreshContinue();
 $('nameInput').value = localStorage.getItem('holdout.name') || '';
@@ -1054,10 +1379,43 @@ $('btnStoryContinue').onclick = e => {
   session = new LocalSession(save, { story: true });
   session.lobby();
 };
+$('btnBastion').onclick = e => {
+  e.currentTarget.blur();
+  if (!bastionLevels.length || session) return;
+  session = new LocalSession(null, { mode: 'bastion' });
+  session.lobby();
+};
+$('btnCtf').onclick = e => {
+  e.currentTarget.blur();
+  if (!ctfLevels.length || session) return;
+  session = new LocalSession(null, { mode: 'ctf' });
+  session.lobby();
+};
+$('btnBr').onclick = e => {
+  e.currentTarget.blur();
+  if (!brLevels.length || session) return;
+  session = new LocalSession(null, { mode: 'br' });
+  session.lobby();
+};
 $('btnHost').onclick = e => {
   e.currentTarget.blur();
   if (session) return;
   session = new NetSession('host', $('joinCode').value.trim().toUpperCase());
+};
+$('btnHostBastion').onclick = e => {
+  e.currentTarget.blur();
+  if (!bastionLevels.length || session) return;
+  session = new NetSession('host', $('joinCode').value.trim().toUpperCase(), 'bastion');
+};
+$('btnHostCtf').onclick = e => {
+  e.currentTarget.blur();
+  if (!ctfLevels.length || session) return;
+  session = new NetSession('host', $('joinCode').value.trim().toUpperCase(), 'ctf');
+};
+$('btnHostBr').onclick = e => {
+  e.currentTarget.blur();
+  if (!brLevels.length || session) return;
+  session = new NetSession('host', $('joinCode').value.trim().toUpperCase(), 'br');
 };
 $('btnHostStory').onclick = e => {
   e.currentTarget.blur();

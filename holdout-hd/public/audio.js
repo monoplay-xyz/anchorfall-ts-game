@@ -207,6 +207,110 @@ export function playEvent(ev) {
     setTimeout(() => tone(466.16, 0.1, 'square', 0.07, 0.8), 380);
     setTimeout(() => tone(466.16, 0.12, 'square', 0.06, 0.7), 560);
   }
+  // --- frontier survival / bastion / versus events ---
+  else if (ev.type === 'playerHit') {
+    // armor thud — heavier than an enemy hit
+    tone(180, 0.1, 'sawtooth', 0.12, 0.55);
+    noise(0.07, 0.07, 500);
+  }
+  else if (ev.type === 'crackerOut') {
+    // the lure lands: clack + fizzing fuse
+    tone(340, 0.05, 'square', 0.08, 0.7);
+    noise(0.12, 0.04, 2400);
+  }
+  else if (ev.type === 'crackerBoom') {
+    tone(80, 0.22, 'sawtooth', 0.2, 0.4);
+    noise(0.2, 0.14, 220);
+  }
+  else if (ev.type === 'volatile') {
+    // mutant pop — sharper, smaller than a full explosion
+    tone(110, 0.16, 'sawtooth', 0.15, 0.4);
+    noise(0.13, 0.1, 320);
+  }
+  else if (ev.type === 'dusk') {
+    // the dusk horn — two long low calls over the walls
+    tone(98, 0.9, 'sawtooth', 0.09, 1.0);
+    tone(147, 0.9, 'triangle', 0.05, 1.0);
+    setTimeout(() => { tone(98, 1.2, 'sawtooth', 0.08, 1.26); tone(196, 1.0, 'triangle', 0.04, 1.0); }, 700);
+  }
+  else if (ev.type === 'dawn') {
+    // first light — rising soft chime
+    tone(392, 0.5, 'sine', 0.06, 1.25);
+    setTimeout(() => tone(587.33, 0.7, 'sine', 0.05, 1.12), 220);
+    setTimeout(() => tone(784, 1.0, 'triangle', 0.04, 1.05), 460);
+  }
+  else if (ev.type === 'bloodWarn') {
+    // blood moon dread sting — grinding minor cluster + slow swell
+    tone(62, 1.6, 'sawtooth', 0.12, 1.4);
+    tone(66, 1.6, 'sawtooth', 0.1, 1.45);
+    noise(1.1, 0.05, 130);
+    setTimeout(() => tone(124.5, 0.8, 'sawtooth', 0.07, 0.5), 600);
+  }
+  else if (ev.type === 'coreHit') {
+    // core alarm: two clipped beeps over a deep thunk
+    tone(880, 0.09, 'square', 0.09, 1);
+    tone(110, 0.12, 'triangle', 0.12, 0.6);
+    setTimeout(() => tone(880, 0.09, 'square', 0.08, 1), 140);
+  }
+  else if (ev.type === 'coreDown') {
+    tone(60, 1.2, 'sawtooth', 0.22, 0.3);
+    noise(0.9, 0.14, 110);
+    setTimeout(() => playUi('fail'), 350);
+  }
+  else if (ev.type === 'trample') noise(0.09, 0.08, 800); // crops crushed
+  else if (ev.type === 'repair') {
+    // two wrench ticks
+    tone(1200, 0.03, 'square', 0.04, 0.9);
+    setTimeout(() => tone(900, 0.03, 'square', 0.03, 0.85), 70);
+  }
+  else if (ev.type === 'buy') {
+    // shard-spend chime
+    tone(932, 0.07, 'triangle', 0.08, 1.2);
+    setTimeout(() => tone(1397, 0.1, 'triangle', 0.06, 1.1), 70);
+  }
+  else if (ev.type === 'chest') {
+    // latch + sparkle
+    noise(0.05, 0.06, 700);
+    setTimeout(() => { tone(1047, 0.08, 'sine', 0.06, 1.2); tone(1568, 0.1, 'sine', 0.04, 1.1); }, 60);
+  }
+  else if (ev.type === 'heal') {
+    // warm mend
+    tone(523, 0.16, 'sine', 0.07, 1.18);
+    setTimeout(() => tone(784, 0.22, 'sine', 0.05, 1.08), 110);
+  }
+  else if (ev.type === 'mount') { noise(0.06, 0.07, 420); tone(196, 0.07, 'triangle', 0.07, 0.85); }
+  else if (ev.type === 'dismount') noise(0.05, 0.05, 360);
+  else if (ev.type === 'hired') {
+    // a handshake by the signal fire
+    tone(440, 0.08, 'triangle', 0.07, 1.1);
+    setTimeout(() => tone(659, 0.12, 'triangle', 0.06, 1.05), 90);
+  }
+  else if (ev.type === 'capture') {
+    // capture fanfare
+    tone(523, 0.1, 'triangle', 0.1, 1.05);
+    setTimeout(() => tone(659, 0.1, 'triangle', 0.09, 1.05), 110);
+    setTimeout(() => tone(784, 0.12, 'triangle', 0.09, 1.04), 220);
+    setTimeout(() => tone(1047, 0.22, 'triangle', 0.08, 1.0), 330);
+  }
+  else if (ev.type === 'flagTaken') {
+    tone(740, 0.09, 'square', 0.08, 0.85);
+    setTimeout(() => tone(587, 0.09, 'square', 0.07, 0.85), 110);
+  }
+  else if (ev.type === 'flagReturn') {
+    tone(587, 0.08, 'triangle', 0.07, 1.1);
+    setTimeout(() => tone(880, 0.1, 'triangle', 0.06, 1.05), 90);
+  }
+  else if (ev.type === 'eliminated') {
+    tone(140, 0.3, 'sawtooth', 0.13, 0.45);
+    noise(0.16, 0.08, 240);
+  }
+  else if (ev.type === 'matchEnd') playUi('clear');
+  else if (ev.type === 'zoneShrink') {
+    // the zone hum — rising pressure
+    tone(55, 1.4, 'sine', 0.14, 1.5);
+    tone(110, 1.2, 'sine', 0.07, 1.5);
+    noise(0.8, 0.03, 90);
+  }
   // unknown event types stay silent, never throw
 }
 
