@@ -1,4 +1,4 @@
-import { createGame, step, snapshot, applyResults, charsById } from '/shared/game.js';
+import { TILE, createGame, step, snapshot, applyResults, charsById } from '/shared/game.js';
 import { render, renderMinimap, addEventFX, initTextures, drawPortrait, drawWeaponIcon } from './render.js';
 import { playEvent, playUi, setupAudioToggle } from './audio.js';
 
@@ -22,6 +22,8 @@ const PCOLORS = ['#4fc3f7', '#ffb74d', '#f06292', '#aed581'];
 
 let session = null;
 setupAudioToggle($('btnAudio'));
+// ?demo=1 -> 4-bot attract mode; ?demo=2 -> same but pacifist (never fires)
+const demoMode = +(new URLSearchParams(location.search).get('demo') || 0);
 
 // ---------- input devices ----------
 // Couch co-op input model: the keyboard is split into two devices and up to
@@ -30,12 +32,12 @@ const keys = {};
 addEventListener('keydown', e => {
   if (e.target?.tagName === 'INPUT') return;
   keys[e.code] = true;
-  if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault();
+  if (e.code.startsWith('Arrow') || e.code === 'Space' || e.code === 'Slash') e.preventDefault();
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
 
-const KB1 = { up: ['KeyW'], down: ['KeyS'], left: ['KeyA'], right: ['KeyD'], fire: ['Space', 'KeyJ'], start: ['Escape'] };
-const KB2 = { up: ['ArrowUp'], down: ['ArrowDown'], left: ['ArrowLeft'], right: ['ArrowRight'], fire: ['Enter', 'ShiftRight'], start: ['Escape'] };
+const KB1 = { up: ['KeyW'], down: ['KeyS'], left: ['KeyA'], right: ['KeyD'], fire: ['Space'], special: ['KeyE'], act: ['KeyF'], start: ['Escape'] };
+const KB2 = { up: ['ArrowUp'], down: ['ArrowDown'], left: ['ArrowLeft'], right: ['ArrowRight'], fire: ['Enter'], special: ['ShiftRight'], act: ['Slash'], start: ['Escape'] };
 const DEVICES = ['kb1', 'kb2', 'gp0', 'gp1', 'gp2', 'gp3'];
 const DEVICE_LABEL = { kb1: 'Keyboard WASD', kb2: 'Keyboard Arrows', gp0: 'Pad 1', gp1: 'Pad 2', gp2: 'Pad 3', gp3: 'Pad 4' };
 
@@ -56,7 +58,9 @@ function readPad(i) {
     down: ay > DZ || b(13),
     left: ax < -DZ || b(14),
     right: ax > DZ || b(15),
-    fire: b(0) || b(2) || b(5) || b(7),
+    fire: b(0) || b(7),
+    special: b(1) || b(5),
+    act: b(2),
     start: b(9),
   };
 }
@@ -82,6 +86,8 @@ function pollDevices() {
       upJust: cur.up && !prev.up,
       downJust: cur.down && !prev.down,
       startJust: cur.start && !prev.start,
+      specialJust: cur.special && !prev.special,
+      actJust: cur.act && !prev.act,
     };
     prevDev[id] = cur;
   }
@@ -90,17 +96,43 @@ function pollDevices() {
 
 // Online play: one player per machine, so any device drives them.
 function mergedInput() {
-  const o = { up: false, down: false, left: false, right: false, fire: false };
+  const o = { up: false, down: false, left: false, right: false, fire: false, special: false, act: false };
   for (const id of DEVICES) {
     const c = readDevice(id);
     if (!c) continue;
-    o.up ||= c.up; o.down ||= c.down; o.left ||= c.left; o.right ||= c.right; o.fire ||= c.fire;
+    o.up ||= c.up; o.down ||= c.down; o.left ||= c.left; o.right ||= c.right;
+    o.fire ||= c.fire; o.special ||= c.special; o.act ||= c.act;
   }
   return o;
 }
 
+// ---------- dialogue box (NPC talk lines; game keeps running) ----------
+let dlgTimer = 0;
+function showDialogue(ev) {
+  const box = $('dialogueBox');
+  // 'talk' carries the gift amount on the first conversation; tolerate either
+  // a plain number or a {shards} object so classic/newer sims both work.
+  const gift = typeof ev.gift === 'object' ? (ev.gift?.shards ?? 0) : (ev.gift ?? 0);
+  box.querySelector('.dname').textContent = ev.name ?? '';
+  box.querySelector('.dtext').textContent = (ev.line ?? '') + (gift ? ` (+${gift}◆)` : '');
+  box.hidden = false;
+  clearTimeout(dlgTimer);
+  dlgTimer = setTimeout(() => { box.hidden = true; }, 4500);
+}
+function hideDialogue() {
+  clearTimeout(dlgTimer);
+  $('dialogueBox').hidden = true;
+}
+// One funnel for sim events: FX + audio + the DOM dialogue box.
+function handleEvent(ev) {
+  addEventFX(ev);
+  playEvent(ev);
+  if (ev.type === 'talk') showDialogue(ev);
+}
+
 // ---------- screens ----------
 function show(id) {
+  hideDialogue();
   for (const s of ['menu', 'lobby', 'msg']) $(s).hidden = s !== id;
 }
 function hideAll() {
@@ -232,6 +264,18 @@ function updateHUD(snap) {
   $('hTime').style.color = tl < 15 ? '#ff7a6a' : '';
   $('hKills').textContent = snap.kills ?? 0;
   $('hCombo').textContent = 'x' + (snap.combo ?? 1);
+  $('hShards').textContent = '◆' + Math.floor(snap.shards ?? 0);
+
+  const gateEl = $('missionGate');
+  if (snap.gate) {
+    gateEl.hidden = false;
+    gateEl.textContent = snap.gate.open
+      ? 'ANCHOR OPEN'
+      : `PYLONS ${snap.gate.built ?? 0}/${snap.gate.need ?? 0}`;
+    gateEl.style.color = snap.gate.open ? 'var(--green)' : '';
+  } else {
+    gateEl.hidden = true;
+  }
 
   for (const [id, card] of Object.entries(squadCards)) {
     const [label, cls, pct] = charStatus(id, snap);
@@ -251,6 +295,16 @@ function updateHUD(snap) {
     $('wName').textContent = ch.weapon.name.toUpperCase();
     drawWeaponIcon($('wIcon'), ch);
     $('wStats').textContent = `DMG ${ch.weapon.damage} · RNG ${ch.weapon.range} · ROF ${(1 / ch.weapon.cooldown).toFixed(1)}/s`;
+  }
+  const sp = ch?.special;
+  if (sp) {
+    $('wSpecial').hidden = false;
+    $('wSpecialName').textContent = (sp.name ?? sp.kind ?? 'SPECIAL').toUpperCase();
+    const cool = Math.max(0, me?.specialCool ?? 0);
+    const pct = Math.max(0, Math.min(1, 1 - cool / (sp.cooldown || 1)));
+    $('wSpecialFill').style.width = Math.round(pct * 100) + '%';
+  } else {
+    $('wSpecial').hidden = true;
   }
   renderMinimap(mmCtx, snap, session?.focusPids() ?? new Set());
 }
@@ -286,7 +340,9 @@ class LocalSession {
         ? `Expedition — ${lvl.name}`
         : `Mission ${this.levelIdx + 1} / ${this.levels.length} — ${lvl.name}`,
       info: this.expedition ? 'One huge map. No autosave — bring everyone home.' : 'Local campaign · progress autosaves',
-      hint: 'Press FIRE to join: gamepad (A) · keyboard WASD+Space · keyboard Arrows+Enter — up to 4 players. Move your cursor with LEFT/RIGHT, FIRE to lock in.',
+      hint: 'Press FIRE to join: gamepad (A) · keyboard WASD+Space · keyboard Arrows+Enter — up to 4 players. Move your cursor with LEFT/RIGHT, FIRE to lock in. '
+        + 'In the field — SPECIAL: E / RShift / B·RB · ACT: F / Slash / X. '
+        + 'Hold ACT on a build site to construct — LYTH shards drop from fallen Entropy.',
       players: this.players.map(p => ({
         name: p.name, charId: p.charId, isHost: p.pid === 0, me: false,
         badge: 'P' + (p.pid + 1), color: PCOLORS[p.pid],
@@ -399,13 +455,75 @@ class LocalSession {
     if (this.paused || this.game.status !== 'play') return;
     const inputs = {};
     for (const p of this.players) {
+      if (p.device.startsWith('bot')) { inputs[p.pid] = this.botInput(p, dt); continue; }
       const st = polled[p.device];
-      inputs[p.pid] = st ? { up: st.up, down: st.down, left: st.left, right: st.right, fire: st.fire } : {};
+      inputs[p.pid] = st
+        ? { up: st.up, down: st.down, left: st.left, right: st.right, fire: st.fire, special: st.special, act: st.act }
+        : {};
     }
     step(this.game, inputs, dt);
     this.snap = snapshot(this.game);
-    for (const ev of this.snap.events) { addEventFX(ev); playEvent(ev); }
+    for (const ev of this.snap.events) handleEvent(ev);
     if (this.snap.status !== 'play') this.finish();
+  }
+  // Attract-mode bot (?demo=1): walks east toward the exit, shoots what gets
+  // close, holds ACT at build sites/NPCs. Reads only snapshot state, so it is
+  // safe on classic maps where builds/npcs do not exist.
+  botInput(p, dt) {
+    const inp = { up: false, down: false, left: false, right: false, fire: false, special: false, act: false };
+    const snap = this.snap;
+    const me = snap?.players?.find(q => q.pid === p.pid);
+    if (!me) return inp;
+    const b = p.bot ??= { bias: p.pid % 2 ? 1 : -1, lastX: me.x, t: 0, pulse: 0 };
+    if (me.state === 'pick') {
+      // pulse fire so the respawn pick confirms (edges need release+press)
+      b.pulse += dt;
+      inp.fire = Math.floor(b.pulse * 4) % 2 === 0;
+      return inp;
+    }
+    if (me.state !== 'active') return inp;
+
+    // march east; flip the vertical bias every ~2s while x-progress stalls
+    b.t += dt;
+    if (b.t >= 2) {
+      if (me.x - b.lastX < 0.4 * TILE) b.bias = -b.bias;
+      b.lastX = me.x;
+      b.t = 0;
+    }
+    inp.right = true;
+    if (b.bias < 0) inp.up = true; else inp.down = true;
+
+    const steerTo = (tx, ty) => {
+      inp.up = inp.down = inp.left = inp.right = false;
+      if (tx - me.x > 0.25 * TILE) inp.right = true; else if (me.x - tx > 0.25 * TILE) inp.left = true;
+      if (ty - me.y > 0.25 * TILE) inp.down = true; else if (me.y - ty > 0.25 * TILE) inp.up = true;
+    };
+
+    // hold ACT at an unbuilt build site (nudging to stay in range) or near an NPC
+    const dist = o => Math.hypot(o.x - me.x, o.y - me.y);
+    const site = (snap.builds ?? []).find(s => !s.built && dist(s) <= 1.4 * TILE);
+    if (site) {
+      inp.act = true;
+      steerTo(site.x, site.y);
+      return inp;
+    }
+    if ((snap.npcs ?? []).some(n => dist(n) <= 1.4 * TILE)) inp.act = true;
+
+    // engage AWAKE enemies within ~5 tiles (sleeping ones may be unreachable
+    // behind walls — chasing them deadlocks the eastward march)
+    if (demoMode !== 2) {
+      let tgt = null, best = 5 * TILE;
+      for (const e of snap.enemies ?? []) {
+        if (e.awake === false) continue;
+        const d = dist(e);
+        if (d < best) { best = d; tgt = e; }
+      }
+      if (tgt) {
+        inp.fire = true;
+        steerTo(tgt.x, tgt.y);
+      }
+    }
+    return inp;
   }
   finish() {
     const res = applyResults(this.roster, this.game);
@@ -413,7 +531,7 @@ class LocalSession {
     const score = Math.round(this.game.score);
     this.game = null;
     this.paused = false;
-    for (const p of this.players) { p.charId = null; p.cursor = 0; }
+    for (const p of this.players) { p.charId = null; p.cursor = 0; p.bot = null; }
     if (cleared) {
       this.roster = res.roster;
       if (this.expedition) {
@@ -490,7 +608,7 @@ class NetSession {
       else this.grid = m.s.grid;
       const prev = this.snap;
       this.snap = m.s;
-      for (const ev of m.s.events) { addEventFX(ev); playEvent(ev); }
+      for (const ev of m.s.events) handleEvent(ev);
       if (!prev) hideAll();
     }
     else if (m.t === 'levelEnd') {
@@ -585,6 +703,39 @@ $('btnJoin').onclick = e => {
 };
 $('btnStart').onclick = e => { e.currentTarget.blur(); session?.start(); };
 $('btnLeave').onclick = () => session?.leave();
+
+// ---------- demo / attract mode ----------
+if (demoMode) {
+  session = new LocalSession(null, { expedition: expeditions.length > 0 });
+  session.roster.slice(0, 4).forEach((charId, i) => {
+    session.players.push({ pid: i, name: 'BOT' + (i + 1), device: 'bot' + i, charId, cursor: 0, missingT: 0 });
+  });
+  session.inLobby = true;
+  session.start();
+  // dev: ?demo=1&warp=54,32 drops the squad at a tile for screenshots/testing
+  const warp = new URLSearchParams(location.search).get('warp');
+  if (warp && session.game) {
+    const [wx, wy] = warp.split(',').map(Number);
+    if (Number.isFinite(wx) && Number.isFinite(wy)) {
+      const grid = session.game.grid;
+      const open = (x, y) => grid[y]?.[x] && !'#T~o'.includes(grid[y][x]);
+      // ring-scan to the nearest passable tile so a warp can't trap the squad
+      let tx = wx, ty = wy;
+      outer: for (let r = 0; r < 8; r++) {
+        for (let dy = -r; dy <= r; dy++) {
+          for (let dx = -r; dx <= r; dx++) {
+            if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+            if (open(wx + dx, wy + dy)) { tx = wx + dx; ty = wy + dy; break outer; }
+          }
+        }
+      }
+      session.game.players.forEach((p, i) => {
+        p.x = (tx + 0.5) * TILE + (i % 2) * 20;
+        p.y = (ty + 0.5) * TILE + (i >> 1) * 20;
+      });
+    }
+  }
+}
 
 // ---------- main loop ----------
 let last = performance.now();

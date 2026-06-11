@@ -30,6 +30,25 @@ const START_GRACE = 2.5;
 
 const ENEMY_LETTERS = new Set(Object.keys(ENEMY_STATS));
 
+// Shards dropped on death, by kind. Deterministic, always.
+const SHARD_DROPS = { grunt: 1, archer: 1, skitter: 1, charger: 2, sniper: 2, bulwark: 2, spawner: 3, boss: 12 };
+const DROP_TTL = 25;
+const MAGNET_RANGE = 2.5; // tiles
+const MAGNET_SPEED = 6; // tiles/sec
+const BUILD_RADIUS = 18; // px, built structures block movement in this circle
+const BUILD_REACH = 1.5; // tiles, act range for building and talking
+const CRYSTAL_R = 16;
+const MELEE_KINDS = new Set(['grunt', 'skitter', 'charger', 'bulwark', 'boss']);
+const STATIONARY_KINDS = new Set(['archer', 'sniper', 'spawner']);
+const LEASH_MULT = 1.8;
+const TURRET_WEAPON = { kind: 'turret', damage: 1, projSpeed: 10, range: 6, count: 1 };
+
+function buildMaxHp(kind) {
+  if (kind === 'barricade') return 14;
+  if (kind === 'turret') return 10;
+  return 20; // pylon: never takes damage once built (indestructible)
+}
+
 export function charsById(characters) {
   const m = {};
   for (const c of characters) m[c.id] = c;
@@ -63,6 +82,10 @@ function makeEnemy(letter, x, y, id) {
     repathT: (id % 5) * 0.1,
     path: null,
     pathI: 0,
+    homeX: x,
+    homeY: y,
+    returning: false,
+    hitCool: 0,
   };
 }
 
@@ -73,7 +96,12 @@ export function parseLevel(def) {
   const spawns = [];
   const captives = [];
   const enemies = [];
+  const npcs = [];
+  const builds = [];
+  const crystals = [];
   let ci = 0;
+  let ni = 0;
+  let bi = 0;
   let eid = 0;
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
@@ -87,13 +115,31 @@ export function parseLevel(def) {
         const charId = (def.captiveChars || [])[ci++];
         if (charId) captives.push({ id: 'c' + ci, charId, x: px, y: py, owner: null, fromPlayer: false });
         grid[y][x] = '.';
+      } else if (c === 'N') {
+        const nd = (def.npcs || [])[ni++];
+        if (nd) npcs.push({ id: nd.id, name: nd.name, x: px, y: py, lines: nd.lines || [], gift: nd.gift || null, lineIdx: 0, given: false });
+        grid[y][x] = '.';
+      } else if (c === 'B') {
+        const bd = (def.builds || [])[bi++];
+        if (bd) {
+          builds.push({
+            x: px, y: py, kind: bd.kind, cost: bd.cost,
+            progress: 0, paid: 0, built: false,
+            hp: 0, maxHp: buildMaxHp(bd.kind),
+            cool: 0, evT: 0,
+          });
+        }
+        grid[y][x] = '.';
+      } else if (c === 'Y') {
+        crystals.push({ cid: crystals.length, x: px, y: py, hp: 3 });
+        grid[y][x] = '.';
       } else if (ENEMY_LETTERS.has(c)) {
         enemies.push(makeEnemy(c, px, py, eid++));
         grid[y][x] = '.';
       }
     }
   }
-  return { grid: grid.map(r => r.join('')), w, h, spawns, captives, enemies };
+  return { grid: grid.map(r => r.join('')), w, h, spawns, captives, enemies, npcs, builds, crystals };
 }
 
 export function createGame(def, party, charMap, roster) {
@@ -103,10 +149,24 @@ export function createGame(def, party, charMap, roster) {
   // sight checks, global spawn caps, respawn at the level spawn point.
   const arcade = lvl.w * lvl.h <= ARCADE_MAP_TILES;
   if (arcade) for (const e of lvl.enemies) e.awake = true;
+  // Big-map spawn tuning: slower brood cycles than the arcade originals.
+  if (!arcade) {
+    for (const e of lvl.enemies) {
+      if (e.kind === 'spawner') e.spawnCool = 6.5;
+      else if (e.kind === 'boss') e.spawnCool = 7;
+    }
+  }
   const players = party.map((p, i) => {
     const s = lvl.spawns[i % lvl.spawns.length] || { x: TILE * 2, y: TILE * 2 };
     return spawnPlayer(p.pid, p.name, p.charId, s.x + (i * 10), s.y);
   });
+  // First 'E' tile center, used by the gateOpen event.
+  let exitX = lvl.w * TILE / 2, exitY = lvl.h * TILE / 2;
+  outer: for (let y = 0; y < lvl.h; y++) {
+    for (let x = 0; x < lvl.w; x++) {
+      if (lvl.grid[y][x] === 'E') { exitX = (x + 0.5) * TILE; exitY = (y + 0.5) * TILE; break outer; }
+    }
+  }
   return {
     name: def.name || 'Untitled',
     objective: def.objective || '',
@@ -117,6 +177,14 @@ export function createGame(def, party, charMap, roster) {
     players,
     enemies: lvl.enemies,
     captives: lvl.captives,
+    npcs: lvl.npcs,
+    builds: lvl.builds,
+    crystals: lvl.crystals,
+    drops: [],
+    shards: 0,
+    gate: def.gate ? { need: def.gate.need, built: 0, open: false } : null,
+    exitX,
+    exitY,
     shots: [],
     events: [],
     rescued: [],
@@ -136,7 +204,10 @@ export function createGame(def, party, charMap, roster) {
 }
 
 function spawnPlayer(pid, name, charId, x, y) {
-  return { pid, name, charId, x, y, fx: 0, fy: -1, cool: 0, state: 'active', respawn: 0, invuln: 3 };
+  return {
+    pid, name, charId, x, y, fx: 0, fy: -1, cool: 0, state: 'active', respawn: 0, invuln: 3,
+    specialCool: 0, dashT: 0, dashFx: 0, dashFy: -1, stimT: 0, actPrev: false, specialPrev: false,
+  };
 }
 
 function tileAt(g, x, y) {
@@ -146,18 +217,51 @@ function tileAt(g, x, y) {
   return g.grid[ty][tx];
 }
 
-function blocksMove(c) { return c === '#' || c === '~' || c === 'o'; }
+// Trees block movement (and sight); water and sandbags block movement only.
+// New floor letters (',' ':' ';' '_') and the campfire '*' are all passable.
+function blocksMove(c) { return c === '#' || c === 'T' || c === '~' || c === 'o'; }
 
 function collides(g, x, y, r) {
   for (const [ox, oy] of [[-r, -r], [r, -r], [-r, r], [r, r]]) {
     if (blocksMove(tileAt(g, x + ox, y + oy))) return true;
   }
+  // Built structures (pylons, barricades, turrets) block players and enemies.
+  // A* ignores them on purpose so enemies bump into them and gnaw them down.
+  if (g.builds) {
+    for (const b of g.builds) {
+      if (!b.built) continue;
+      const dx = x - b.x, dy = y - b.y;
+      const rr = BUILD_RADIUS + r;
+      if (dx * dx + dy * dy < rr * rr) return true;
+    }
+  }
+  return false;
+}
+
+// Like collides, but escape-friendly for build circles: a structure completing
+// around someone must never entomb them — moves that increase distance from
+// the structure's center are always allowed, only inward moves are blocked.
+function moveBlocked(g, fromX, fromY, x, y, r) {
+  for (const [ox, oy] of [[-r, -r], [r, -r], [-r, r], [r, r]]) {
+    if (blocksMove(tileAt(g, x + ox, y + oy))) return true;
+  }
+  if (g.builds) {
+    for (const b of g.builds) {
+      if (!b.built) continue;
+      const dx = x - b.x, dy = y - b.y;
+      const rr = BUILD_RADIUS + r;
+      if (dx * dx + dy * dy < rr * rr) {
+        const fx = fromX - b.x, fy = fromY - b.y;
+        if (dx * dx + dy * dy < fx * fx + fy * fy) return true;
+      }
+    }
+  }
   return false;
 }
 
 function moveCircle(g, e, dx, dy, r) {
-  if (dx && !collides(g, e.x + dx, e.y, r)) e.x += dx;
-  if (dy && !collides(g, e.x, e.y + dy, r)) e.y += dy;
+  if (dx && !moveBlocked(g, e.x, e.y, e.x + dx, e.y, r)) e.x += dx;
+  if (dy && !moveBlocked(g, e.x, e.y, e.x, e.y + dy, r)) e.y += dy;
 }
 
 function dist2(a, b) {
@@ -170,9 +274,9 @@ function norm(dx, dy) {
   return [dx / d, dy / d, d];
 }
 
-// Sight only stops at walls — shots fly over water and sandbags, so enemies
-// must be able to see (and shoot) across them too. Movement blocks on all three.
-function blocksSight(c) { return c === '#'; }
+// Sight stops at rock and trees — shots fly over water and sandbags, so
+// enemies must be able to see (and shoot) across those too.
+function blocksSight(c) { return c === '#' || c === 'T'; }
 
 // True when the straight segment between two points crosses no blocking tile.
 function hasLoS(g, ax, ay, bx, by, blocks = blocksMove) {
@@ -352,11 +456,16 @@ function fireWeapon(g, shooter, weapon, who, target = null) {
   const n = weapon.count || 1;
   const spread = ((weapon.spreadDeg || 0) * Math.PI) / 180;
   const speed = Math.max(0.1, weapon.projSpeed || 8) * TILE;
-  const ttl = ((weapon.range || 5) * TILE) / speed;
+  const ttl = ((weapon.range ?? 5) * TILE) / speed;
   const pierce = weapon.pierce === true ? 99 : (weapon.pierce || 0);
   const aoeRadius = (weapon.aoeRadius || 0) * TILE;
   for (let i = 0; i < n; i++) {
-    const a = n === 1 ? base : base - spread / 2 + (spread * i) / (n - 1);
+    // full rings space shots by spread/n (spread/(n-1) would duplicate the
+    // rear shot and leave a gap along the facing direction)
+    const fullRing = spread >= Math.PI * 2 - 1e-6;
+    const a = n === 1 ? base
+      : fullRing ? base + (spread * i) / n
+      : base - spread / 2 + (spread * i) / (n - 1);
     const curve = (weapon.curve || 0) * (n > 1 && i % 2 ? -1 : 1);
     g.shots.push({
       id: g.nextShotId++,
@@ -394,6 +503,8 @@ function downPlayer(g, p) {
   p.charId = null;
   p.state = 'down';
   p.respawn = RESPAWN_DELAY;
+  p.dashT = 0;
+  p.stimT = 0;
 }
 
 function freeChars(g) {
@@ -433,11 +544,14 @@ function killEnemy(g, e) {
   if (e.dead) return;
   e.dead = true;
   addKillScore(g, e);
+  // Every kill drops a shard pickup at the corpse. Deterministic, always.
+  g.drops.push({ x: e.x, y: e.y, amount: SHARD_DROPS[e.kind] || 1, ttl: DROP_TTL });
 }
 
 function damageEnemy(g, e, dmg, x, y, cause) {
   if (e.dead) return false;
   wakeEnemy(g, e);
+  e.returning = false; // a hit always re-engages an enemy walking home
   e.hp -= dmg;
   e.hurt = 0.14;
   g.events.push({ type: 'hit', x: x ?? e.x, y: y ?? e.y, kind: e.kind, hp: Math.max(0, e.hp), cause });
@@ -505,9 +619,37 @@ function spawnSkitter(g, e, tgt) {
   }
 }
 
+// Melee-class enemies in contact with a blocking built structure chew it down:
+// 1 hp per 0.9s. Pylons are indestructible once built. Returns true while the
+// enemy is gnawing so its step can stop there.
+function attackBuilds(g, e, dt) {
+  if (!MELEE_KINDS.has(e.kind) || !g.builds.length) return false;
+  let touching = null;
+  const rr = BUILD_RADIUS + ENEMY_R + 3;
+  for (const b of g.builds) {
+    if (!b.built || b.kind === 'pylon') continue;
+    if (dist2(e, b) < rr * rr) { touching = b; break; }
+  }
+  if (!touching) return false;
+  if (e.hitCool <= 0) {
+    e.hitCool = 0.9;
+    touching.hp -= 1;
+    g.events.push({ type: 'buildHit', x: touching.x, y: touching.y });
+    if (touching.hp <= 0) {
+      touching.hp = 0;
+      touching.built = false;
+      touching.progress = 0;
+      touching.paid = 0;
+      g.events.push({ type: 'buildDown', x: touching.x, y: touching.y, kind: touching.kind });
+    }
+  }
+  return true;
+}
+
 function stepEnemy(g, e, dt) {
   if (e.dead) return;
   if (e.hurt > 0) e.hurt -= dt;
+  if (e.hitCool > 0) e.hitCool -= dt;
   const [tgt, best] = nearestTarget(g, e);
   if (!tgt) return;
 
@@ -519,8 +661,54 @@ function stepEnemy(g, e, dt) {
     else return;
   }
 
+  // Leash (big maps only — arcade keeps classic behavior byte-identical):
+  // an awake enemy whose nearest target drifts beyond aggro*1.8 disengages.
+  // Mobile kinds walk back to their post and fall asleep there; stationary
+  // kinds simply go back to ambush sleep on the spot.
+  if (!g.arcade) {
+    const leash = e.aggro * LEASH_MULT;
+    if (!e.returning && best > leash * leash) {
+      if (STATIONARY_KINDS.has(e.kind)) { e.aimT = 0; e.awake = false; return; }
+      e.returning = true;
+    }
+    if (e.returning) {
+      if ((best < e.aggro * e.aggro && canSee(g, e, tgt)) || best < (TILE * 2.2) ** 2) {
+        e.returning = false;
+      } else {
+        if (Math.hypot(e.homeX - e.x, e.homeY - e.y) < TILE * 0.6) {
+          e.returning = false;
+          e.awake = false;
+          return;
+        }
+        // gnaw through barricades blocking the way home (else a wall built
+        // behind a returning enemy pins it forever)
+        if (attackBuilds(g, e, dt)) return;
+        const dHome = Math.hypot(e.homeX - e.x, e.homeY - e.y);
+        moveToward(g, e, { x: e.homeX, y: e.homeY }, dt);
+        // wedged against something indestructible (a pylon): give up and
+        // fall asleep on the spot instead of pushing forever
+        if (dHome < (e.bestHome ?? Infinity) - 0.5) {
+          e.bestHome = dHome;
+          e.stuckT = 0;
+        } else {
+          e.stuckT = (e.stuckT || 0) + dt;
+          if (e.stuckT > 2.5) {
+            e.returning = false;
+            e.awake = false;
+            e.stuckT = 0;
+            e.bestHome = undefined;
+            return;
+          }
+        }
+        return; // no attacking players while returning
+      }
+    }
+  }
+
   const [fx, fy, d] = norm(tgt.x - e.x, tgt.y - e.y);
   e.fx = fx; e.fy = fy;
+
+  if (attackBuilds(g, e, dt)) return;
 
   if (e.kind === 'grunt' || e.kind === 'skitter' || e.kind === 'bulwark') {
     if (g.arcade) {
@@ -581,10 +769,10 @@ function stepEnemy(g, e, dt) {
       e.spawnCool -= dt;
       const spawnOk = g.arcade
         ? g.enemies.length < 36
-        : g.enemies.length < 160 && countNear(g, e, TILE * 8) < 12;
+        : g.enemies.length < 90 && countNear(g, e, TILE * 8) < 6;
       if (e.spawnCool <= 0 && spawnOk) {
         spawnSkitter(g, e, tgt);
-        e.spawnCool = 3.0;
+        e.spawnCool = g.arcade ? 3.0 : 6.5;
       }
     }
     return;
@@ -628,10 +816,12 @@ function stepEnemy(g, e, dt) {
     }
     const spawnOk = g.arcade
       ? g.enemies.length < 34
-      : g.enemies.length < 160 && countNear(g, e, TILE * 9) < 14;
+      : g.enemies.length < 90 && countNear(g, e, TILE * 9) < 8;
     if (e.spawnCool <= 0 && spawnOk) {
       spawnSkitter(g, e, tgt);
-      e.spawnCool = phase === 2 ? 2.2 : 3.8;
+      e.spawnCool = g.arcade
+        ? (phase === 2 ? 2.2 : 3.8)
+        : (phase === 2 ? 4.5 : 7);
     }
   }
 }
@@ -655,36 +845,128 @@ export function step(g, inputs, dt) {
       if (p.respawn <= 0) {
         const free = freeChars(g);
         if (free.length) {
-          const s = respawnSpot(g);
-          p.charId = free[0];
-          p.x = s.x; p.y = s.y; p.fx = 0; p.fy = -1; p.cool = 0;
-          p.invuln = 3.5;
-          p.state = 'active';
-          g.events.push({ type: 'spawn', x: p.x, y: p.y });
+          // Gain Ground style: the fallen player picks their next operative.
+          // pickPrev starts all-held so a button held while dying can't
+          // instantly confirm — release first, then choose.
+          p.state = 'pick';
+          p.pickIdx = 0;
+          p.pickPrev = { left: true, right: true, fire: true };
         } else {
           p.state = 'out';
         }
       }
       continue;
     }
+    if (p.state === 'pick') {
+      const free = freeChars(g);
+      if (!free.length) { p.state = 'out'; continue; }
+      if (p.pickIdx >= free.length) p.pickIdx = free.length - 1;
+      const inp = inputs[p.pid] || {};
+      const edgeL = !!inp.left && !p.pickPrev.left;
+      const edgeR = !!inp.right && !p.pickPrev.right;
+      const edgeF = !!inp.fire && !p.pickPrev.fire;
+      p.pickPrev = { left: !!inp.left, right: !!inp.right, fire: !!inp.fire };
+      if (edgeL) p.pickIdx = (p.pickIdx + free.length - 1) % free.length;
+      if (edgeR) p.pickIdx = (p.pickIdx + 1) % free.length;
+      if (edgeF) {
+        const s = respawnSpot(g);
+        p.charId = free[p.pickIdx];
+        p.x = s.x; p.y = s.y; p.fx = 0; p.fy = -1; p.cool = 0;
+        p.invuln = 3.5;
+        p.state = 'active';
+        g.events.push({ type: 'spawn', x: p.x, y: p.y });
+      }
+      continue;
+    }
     if (p.state !== 'active') continue;
 
     if (p.invuln > 0) p.invuln -= dt;
+    if (p.specialCool > 0) p.specialCool -= dt;
+    if (p.stimT > 0) p.stimT -= dt;
     const inp = inputs[p.pid] || {};
     const ch = g.charMap[p.charId];
     if (!ch) continue;
-    let dx = (inp.right ? 1 : 0) - (inp.left ? 1 : 0);
-    let dy = (inp.down ? 1 : 0) - (inp.up ? 1 : 0);
-    if (dx || dy) {
-      const [mx, my] = norm(dx, dy);
-      p.fx = mx; p.fy = my;
-      const v = ch.speed * TILE * dt;
-      moveCircle(g, p, mx * v, my * v, PLAYER_R);
+
+    // --- special (edge-triggered) ---
+    const specialEdge = !!inp.special && !p.specialPrev;
+    p.specialPrev = !!inp.special;
+    if (specialEdge && p.specialCool <= 0 && ch.special) {
+      const sp = ch.special;
+      if (sp.kind === 'dash') {
+        p.dashT = 0.15;
+        p.dashFx = p.fx;
+        p.dashFy = p.fy;
+        p.invuln = Math.max(p.invuln, 0.4);
+        g.events.push({ type: 'dash', x: p.x, y: p.y });
+      } else if (sp.kind === 'stim') {
+        for (const q of g.players) {
+          if (q.state === 'active' && (q === p || dist2(p, q) < (TILE * 2) ** 2)) {
+            q.invuln = Math.max(q.invuln, 1.5);
+          }
+        }
+        p.stimT = 3;
+        g.events.push({ type: 'special', x: p.x, y: p.y, kind: 'stim', who: 'p' });
+      } else {
+        fireWeapon(g, p, sp, 'p');
+        g.events.push({ type: 'special', x: p.x, y: p.y, kind: sp.kind, who: 'p' });
+      }
+      p.specialCool = sp.cooldown || 3;
+    }
+
+    // --- movement (dash overrides stick input; stim grants +30% speed) ---
+    if (p.dashT > 0) {
+      p.dashT -= dt;
+      // 3 tiles over 0.15s, in collision-checked sub-steps so the dash
+      // cannot tunnel through walls or built structures.
+      let remain = (3 / 0.15) * TILE * dt;
+      while (remain > 0) {
+        const m = Math.min(6, remain);
+        moveCircle(g, p, p.dashFx * m, p.dashFy * m, PLAYER_R);
+        remain -= m;
+      }
+    } else {
+      const dx = (inp.right ? 1 : 0) - (inp.left ? 1 : 0);
+      const dy = (inp.down ? 1 : 0) - (inp.up ? 1 : 0);
+      if (dx || dy) {
+        const [mx, my] = norm(dx, dy);
+        p.fx = mx; p.fy = my;
+        const v = ch.speed * TILE * dt * (p.stimT > 0 ? 1.3 : 1);
+        moveCircle(g, p, mx * v, my * v, PLAYER_R);
+      }
     }
     p.cool -= dt;
     if (inp.fire && p.cool <= 0) {
       fireWeapon(g, p, ch.weapon, 'p');
       p.cool = ch.weapon.cooldown;
+    }
+
+    // --- act (edge-triggered talk; build sites take priority in their radius,
+    // and building itself is handled per-site below on the held bool) ---
+    const actEdge = !!inp.act && !p.actPrev;
+    p.actPrev = !!inp.act;
+    if (actEdge) {
+      let onSite = false;
+      for (const b of g.builds) {
+        if (!b.built && dist2(p, b) < (TILE * BUILD_REACH) ** 2) { onSite = true; break; }
+      }
+      if (!onSite) {
+        let npc = null, bestN = (TILE * BUILD_REACH) ** 2;
+        for (const n of g.npcs) {
+          const dd = dist2(p, n);
+          if (dd < bestN) { bestN = dd; npc = n; }
+        }
+        if (npc) {
+          const line = npc.lines.length ? npc.lines[npc.lineIdx % npc.lines.length] : '';
+          if (npc.lines.length) npc.lineIdx = (npc.lineIdx + 1) % npc.lines.length;
+          let gift;
+          if (!npc.given && npc.gift && npc.gift.shards) {
+            npc.given = true;
+            g.shards += npc.gift.shards;
+            gift = npc.gift.shards;
+          }
+          g.events.push({ type: 'talk', x: npc.x, y: npc.y, npcId: npc.id, name: npc.name, line, gift });
+        }
+      }
     }
 
     for (const c of g.captives) {
@@ -695,7 +977,88 @@ export function step(g, inputs, dt) {
       }
     }
 
-    if (tileAt(g, p.x, p.y) === 'E') extractPlayer(g, p);
+    // A dormant gate keeps its 'E' tiles inert — players just walk over them.
+    if (tileAt(g, p.x, p.y) === 'E' && (!g.gate || g.gate.open)) extractPlayer(g, p);
+  }
+
+  // --- build sites: nearby players holding 'act' add progress, paying shards
+  // proportionally from the shared pool as they go; an empty pool stalls. ---
+  for (const b of g.builds) {
+    if (b.evT > 0) b.evT -= dt;
+    if (b.built) continue;
+    let builders = 0;
+    for (const p of g.players) {
+      if (p.state !== 'active') continue;
+      const inp = inputs[p.pid] || {};
+      if (inp.act && dist2(p, b) < (TILE * BUILD_REACH) ** 2) builders++;
+    }
+    if (!builders) continue;
+    let delta = Math.min((builders * dt) / (b.cost * 0.6), 1 - b.progress);
+    const pay = Math.min(delta * b.cost, g.shards);
+    if (b.cost > 0) delta = pay / b.cost;
+    if (delta <= 0) continue; // pool empty: progress stalls
+    g.shards -= pay;
+    b.paid += pay;
+    b.progress += delta;
+    if (b.evT <= 0) {
+      g.events.push({ type: 'build', x: b.x, y: b.y });
+      b.evT = 0.5;
+    }
+    if (b.progress >= 1 - 1e-9) {
+      b.progress = 1;
+      b.built = true;
+      b.hp = b.maxHp;
+      g.events.push({ type: 'built', x: b.x, y: b.y, kind: b.kind });
+      if (b.kind === 'pylon' && g.gate) {
+        g.gate.built++;
+        if (!g.gate.open && g.gate.built >= g.gate.need) {
+          g.gate.open = true;
+          g.events.push({ type: 'gateOpen', x: g.exitX, y: g.exitY });
+        }
+      }
+    }
+  }
+
+  // --- shard drops: expire, magnetize toward the nearest player, collect ---
+  for (let i = g.drops.length - 1; i >= 0; i--) {
+    const d = g.drops[i];
+    d.ttl -= dt;
+    if (d.ttl <= 0) { g.drops.splice(i, 1); continue; }
+    let near = null, best = Infinity;
+    for (const p of g.players) {
+      if (p.state !== 'active') continue;
+      const dd = dist2(d, p);
+      if (dd < best) { best = dd; near = p; }
+    }
+    if (!near) continue;
+    // magnetize and collect only with a clear walkable line — shards must not
+    // slide through walls or leak out of sealed pockets
+    if (best < (TILE * MAGNET_RANGE) ** 2 && hasLoS(g, d.x, d.y, near.x, near.y)) {
+      const [mx, my] = norm(near.x - d.x, near.y - d.y);
+      d.x += mx * MAGNET_SPEED * TILE * dt;
+      d.y += my * MAGNET_SPEED * TILE * dt;
+    }
+    if (dist2(d, near) < TILE * TILE && hasLoS(g, d.x, d.y, near.x, near.y)) {
+      g.shards += d.amount;
+      g.events.push({ type: 'shard', x: d.x, y: d.y, amount: d.amount });
+      g.drops.splice(i, 1);
+    }
+  }
+
+  // --- built turrets: auto-fire at the nearest awake enemy in range+sight ---
+  for (const b of g.builds) {
+    if (!b.built || b.kind !== 'turret') continue;
+    if (b.cool > 0) { b.cool -= dt; continue; }
+    let tgt = null, best = (TILE * 5) ** 2;
+    for (const e of g.enemies) {
+      if (e.dead || !e.awake) continue;
+      const dd = dist2(b, e);
+      if (dd < best && hasLoS(g, b.x, b.y, e.x, e.y, blocksSight)) { best = dd; tgt = e; }
+    }
+    if (tgt) {
+      fireWeapon(g, b, TURRET_WEAPON, 'p', tgt);
+      b.cool = 0.8;
+    }
   }
 
   // --- captives follow their owner ---
@@ -729,7 +1092,7 @@ export function step(g, inputs, dt) {
     s.y += s.vy * dt;
     s.ttl -= dt;
     let dead = s.ttl <= 0 || s.x < 0 || s.y < 0 || s.x > g.w * TILE || s.y > g.h * TILE;
-    if (!dead && !s.overWalls && tileAt(g, s.x, s.y) === '#') {
+    if (!dead && !s.overWalls && blocksSight(tileAt(g, s.x, s.y))) {
       dead = true;
       g.events.push({ type: 'hitWall', x: s.x, y: s.y });
     }
@@ -750,6 +1113,23 @@ export function step(g, inputs, dt) {
           break;
         }
       }
+      // LYTH crystals crack under player fire; a broken node spills shards.
+      if (!dead) {
+        for (const c of g.crystals) {
+          if (c.hp <= 0 || s.hits.includes('y' + c.cid)) continue;
+          if (dist2(s, c) < (CRYSTAL_R + (s.radius || SHOT_R)) ** 2) {
+            s.hits.push('y' + c.cid);
+            c.hp -= s.dmg;
+            if (c.hp <= 0) {
+              g.events.push({ type: 'crystal', x: c.x, y: c.y });
+              g.drops.push({ x: c.x, y: c.y, amount: 4, ttl: DROP_TTL });
+            }
+            if (s.pierce > 0) s.pierce--;
+            else dead = true;
+            break;
+          }
+        }
+      }
     } else if (!dead && s.who === 'e') {
       for (const p of g.players) {
         if (p.state === 'active' && p.invuln <= 0 && dist2(s, p) < (PLAYER_R + (s.radius || SHOT_R)) ** 2) {
@@ -767,6 +1147,7 @@ export function step(g, inputs, dt) {
   }
 
   g.enemies = g.enemies.filter(e => !e.dead);
+  g.crystals = g.crystals.filter(c => c.hp > 0);
 
   // --- end conditions ---
   if (g.enemies.length === 0) {
@@ -801,7 +1182,17 @@ export function snapshot(g, full = true) {
     ...(full ? { grid: g.grid } : {}), w: g.w, h: g.h,
     timeLeft: g.timeLeft,
     status: g.status,
-    players: g.players.map(p => ({ pid: p.pid, name: p.name, charId: p.charId, x: p.x, y: p.y, fx: p.fx, fy: p.fy, state: p.state, invuln: p.invuln })),
+    shards: g.shards,
+    gate: g.gate ? { need: g.gate.need, built: g.gate.built, open: g.gate.open } : null,
+    builds: g.builds.map(b => ({ x: b.x, y: b.y, kind: b.kind, cost: b.cost, progress: b.progress, paid: b.paid, built: b.built, hp: b.hp, maxHp: b.maxHp })),
+    crystals: g.crystals.map(c => ({ x: c.x, y: c.y, hp: c.hp })),
+    drops: g.drops.map(d => ({ x: d.x, y: d.y, amount: d.amount, ttl: d.ttl })),
+    npcs: g.npcs.map(n => ({ id: n.id, name: n.name, x: n.x, y: n.y })),
+    players: g.players.map(p => ({
+      pid: p.pid, name: p.name, charId: p.charId, x: p.x, y: p.y, fx: p.fx, fy: p.fy,
+      state: p.state, invuln: p.invuln, specialCool: p.specialCool,
+      ...(p.state === 'pick' ? { pick: { idx: p.pickIdx, choices: freeChars(g) } } : {}),
+    })),
     enemies: g.enemies.map(e => ({
       id: e.id,
       kind: e.kind,
@@ -817,6 +1208,7 @@ export function snapshot(g, full = true) {
       aimX: e.aimX,
       aimY: e.aimY,
       awake: e.awake,
+      returning: e.returning,
     })),
     captives: g.captives.map(c => ({ charId: c.charId, x: c.x, y: c.y, owner: c.owner, fromPlayer: c.fromPlayer })),
     shots: g.shots.map(s => ({ x: s.x, y: s.y, vx: s.vx, vy: s.vy, who: s.who, kind: s.kind })),

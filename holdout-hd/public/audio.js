@@ -104,6 +104,44 @@ export function playEvent(ev) {
   else if (ev.type === 'lowTime') tone(660, 0.08, 'square', 0.12, 0.6);
   else if (ev.type === 'spawn' || ev.type === 'spawnEnemy') tone(360, 0.07, 'triangle', 0.07, 1.25);
   else if (ev.type === 'telegraph' || ev.type === 'aim') tone(620, 0.06, 'sine', 0.05, 1.05);
+  // --- Anchorfall events ---
+  else if (ev.type === 'shard') {
+    // bright LYTH chime
+    tone(1175, 0.06, 'sine', 0.07, 1.2);
+    setTimeout(() => tone(1760, 0.09, 'sine', 0.05, 1.15), 45);
+  }
+  else if (ev.type === 'build') tone(420, 0.03, 'square', 0.025, 0.9); // quiet work tick
+  else if (ev.type === 'built') {
+    // deep thunk + relay hum
+    tone(92, 0.16, 'triangle', 0.2, 0.7);
+    noise(0.05, 0.05, 320);
+    setTimeout(() => tone(228, 0.32, 'sine', 0.05, 1.02), 60);
+  }
+  else if (ev.type === 'buildHit') noise(0.05, 0.07, 650);
+  else if (ev.type === 'buildDown') {
+    // structural crack
+    noise(0.12, 0.13, 2100);
+    tone(120, 0.16, 'sawtooth', 0.11, 0.5);
+  }
+  else if (ev.type === 'gateOpen') {
+    // low boom swell — the Anchor wakes
+    tone(52, 1.1, 'sine', 0.22, 2.2);
+    noise(0.7, 0.07, 140);
+    setTimeout(() => tone(330, 0.5, 'triangle', 0.07, 1.6), 250);
+  }
+  else if (ev.type === 'talk') tone(720, 0.05, 'sine', 0.05, 1.12);
+  else if (ev.type === 'special') {
+    // energy whoosh
+    noise(0.16, 0.1, 1500);
+    setTimeout(() => noise(0.12, 0.08, 600), 70);
+  }
+  else if (ev.type === 'dash') noise(0.1, 0.07, 950);
+  else if (ev.type === 'crystal') {
+    // glassy LYTH crack
+    tone(1568, 0.1, 'triangle', 0.07, 0.72);
+    noise(0.07, 0.05, 2800);
+  }
+  // unknown event types stay silent, never throw
 }
 
 export function playUi(kind) {

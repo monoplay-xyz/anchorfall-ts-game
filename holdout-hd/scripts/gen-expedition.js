@@ -1,7 +1,9 @@
 // Generates levels/level11.json — "The Long Crossing", the first expedition map.
 // Deterministic (fixed seed): re-running always produces the same map.
-// A 96x64 west-to-east journey: meadow, river fords, deep forest, a fortified
-// village, a sniper ridge over a southern swamp, and a boss gate before the exit.
+// A 96x64 west-to-east journey: moonlit meadow, river fords, deep forest under
+// tree canopy, a fortified worked-stone village, a sniper ridge over a southern
+// swamp, and a scorched approach to the dormant Anchor gate. Camps with stranded
+// operators, relay pylon build sites, and LYTH crystal nodes mark the road.
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -119,14 +121,14 @@ function place(c, x, y) {
   return false;
 }
 
-// meadow: grunts + a few archers
-for (let i = 0; i < 8; i++) place('g', 8 + rnd() * 10, 4 + rnd() * 56);
+// meadow: grunts + a few archers (grunt clusters thinned — the crossing was too crowded)
+for (let i = 0; i < 6; i++) place('g', 8 + rnd() * 10, 4 + rnd() * 56);
 for (let i = 0; i < 3; i++) place('a', 12 + rnd() * 6, 8 + rnd() * 48);
 // river 1 ford guards
 place('a', 25, 12); place('a', 25, 15); place('a', 25, 45); place('a', 25, 48);
 place('o', 26, 13); place('o', 26, 47);
 // forest: grunts, chargers, a spawner nest
-for (let i = 0; i < 9; i++) place('g', 28 + rnd() * 16, 4 + rnd() * 56);
+for (let i = 0; i < 7; i++) place('g', 28 + rnd() * 16, 4 + rnd() * 56);
 for (let i = 0; i < 5; i++) place('r', 30 + rnd() * 14, 6 + rnd() * 52);
 place('m', 38, 31);
 // fortress garrison
@@ -139,9 +141,9 @@ for (const x of [63, 70, 77, 84]) place('n', x, 6);
 // swamp skitters
 for (let i = 0; i < 8; i++) place('w', 60 + rnd() * 24, 47 + rnd() * 12);
 place('n', 80, 55);
-// approach: chargers + grunts + spawner
+// approach: chargers + grunts + spawner (grunts thinned)
 for (let i = 0; i < 5; i++) place('r', 74 + rnd() * 12, 14 + rnd() * 36);
-for (let i = 0; i < 7; i++) place('g', 74 + rnd() * 12, 10 + rnd() * 44);
+for (let i = 0; i < 5; i++) place('g', 74 + rnd() * 12, 10 + rnd() * 44);
 place('m', 86, 32);
 // gate guards
 place('s', 90, 30); place('s', 90, 34); place('a', 91, 28); place('a', 91, 36);
@@ -175,8 +177,137 @@ for (const [id, x, y] of captivePlan) {
 placedCaptives.sort((a, b) => a.y - b.y || a.x - b.x);
 const captiveChars = placedCaptives.map(c => c.id);
 
+// --- camps, build sites and LYTH crystals ---
+// forceSet never overwrites spawns/captives/enemies/exits; it prefers open
+// floor near the requested tile and falls back to clearing terrain.
+const PROTECT = new Set(['P', 'c', 'E', 'g', 'a', 'r', 's', 'm', 'n', 'w', 'b', 'N', 'B', 'Y', '*']);
+function forceSet(x, y, ch) {
+  for (const accept of [c => c === '.', c => !PROTECT.has(c)]) {
+    for (let r = 0; r < 8; r++) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          const tx = x + dx, ty = y + dy;
+          if (tx < 1 || ty < 1 || tx >= W - 1 || ty >= H - 1) continue;
+          if (accept(get(tx, ty))) { set(tx, ty, ch); return [tx, ty]; }
+        }
+      }
+    }
+  }
+  return null;
+}
+
+// Four stranded-operator camps along the journey, each with a campfire.
+// The spawn-camp NPC (Wrenna) teaches the loop: dormant Anchor east, build the
+// relay pylons, the Entropy drops LYTH when it falls.
+const campPlan = [
+  {
+    x: 7, y: 31,
+    npc: {
+      id: 'wrenna-halv',
+      name: 'Wrenna Halv',
+      lines: [
+        'Operator on your feet — good. The Anchor east of here is dormant. Cold since the Fall.',
+        "Three relay pylons feed it. All three online or the gate stays cold — quorums don't negotiate.",
+        'Pylons take LYTH. The Entropy drops shards when it falls — kill it, take them, build.',
+        'Crystal nodes grow along the road. Crack them open; unsealed LYTH helps nobody but the Leeches.',
+        "People lie. Quorums don't. Get my pylons up and we all go home.",
+      ],
+      gift: { shards: 6 },
+    },
+  },
+  {
+    x: 36, y: 31,
+    npc: {
+      id: 'cassio-bell',
+      name: "Cassio 'Quorum' Bell",
+      lines: [
+        "Three pylons for one gate. Counted twice on my fingers. I don't like the odds.",
+        "I don't run jobs under seven-in-ten. This lane? Coin flip. That's why I'm sitting down.",
+        'Nightwave took the last courier through here. Keep to the fires, operator.',
+        "Forklings in the trees. See one, there are already two. That's how forks work.",
+      ],
+    },
+  },
+  {
+    x: 54, y: 29,
+    npc: {
+      id: 'doc-aroyo',
+      name: 'Doc Aroyo',
+      lines: [
+        'Hold still — there. Good as before the Fall. Almost.',
+        "This keep held three nightwaves. The garrison didn't. I stayed for the patients.",
+        'Hm, hm-hmm... sorry. Old transit jingle. The lines will run again once the Anchor settles.',
+        'A barricade and a working turret would do more for my patients than I ever could.',
+        'Watch the Leeches out east. Unsealed shards feed them fat.',
+      ],
+    },
+  },
+  {
+    x: 66, y: 52,
+    npc: {
+      id: 'old-tarn',
+      name: 'Old Tarn',
+      lines: [
+        'Stranded two seasons in this muck. Thought nobody kept the signal.',
+        'Here — shards I pulled before my lantern drowned. The LYTH remembers who carried it. It remembers me fondly.',
+        'Shiny mud is slow mud. Walk the causeway, not the sheen.',
+        "A Phantom past the ridge wears an operator's coat. It is not an operator. Burn anything classical it offers.",
+        "Settle the Anchor. Once it settles, that's finality — even out here.",
+      ],
+      gift: { shards: 4 },
+    },
+  },
+];
+const placedNpcs = [];
+for (const camp of campPlan) {
+  const at = forceSet(camp.x, camp.y, 'N');
+  if (!at) { console.error('failed to place npc', camp.npc.id); process.exit(1); }
+  placedNpcs.push({ x: at[0], y: at[1], npc: camp.npc });
+  // campfire beside the operator
+  forceSet(at[0] + 1, at[1], '*');
+}
+// def.npcs binds to 'N' tiles in row-major scan order
+placedNpcs.sort((a, b) => a.y - b.y || a.x - b.x);
+const npcs = placedNpcs.map(p => p.npc);
+
+// 3 pylons + 4 barricades + 2 turrets along the journey
+const buildPlan = [
+  { kind: 'barricade', cost: 4, x: 23, y: 13 },  // first river, north ford
+  { kind: 'pylon', cost: 14, x: 26, y: 14 },     // just past the first river
+  { kind: 'pylon', cost: 14, x: 86, y: 28 },     // before the boss arena
+  { kind: 'pylon', cost: 14, x: 50, y: 30 },     // fortress plaza
+  { kind: 'barricade', cost: 4, x: 46, y: 31 },  // fortress west gate
+  { kind: 'barricade', cost: 4, x: 63, y: 31 },  // fortress east gate
+  { kind: 'turret', cost: 10, x: 50, y: 33 },    // fortress plaza turret
+  { kind: 'barricade', cost: 4, x: 23, y: 46 },  // first river, south ford
+  { kind: 'turret', cost: 10, x: 70, y: 51 },    // swamp causeway turret
+];
+const placedBuilds = [];
+for (const b of buildPlan) {
+  const at = forceSet(b.x, b.y, 'B');
+  if (!at) { console.error('failed to place build site', b.kind); process.exit(1); }
+  placedBuilds.push({ x: at[0], y: at[1], kind: b.kind, cost: b.cost });
+}
+// def.builds binds to 'B' tiles in row-major scan order
+placedBuilds.sort((a, b) => a.y - b.y || a.x - b.x);
+const builds = placedBuilds.map(b => ({ kind: b.kind, cost: b.cost }));
+
+// LYTH crystal nodes — warm beacons scattered along the whole crossing
+const crystalPlan = [
+  [12, 10], [15, 52], [30, 18], [42, 44], [50, 40],
+  [62, 12], [66, 55], [78, 50], [80, 20], [85, 38],
+];
+for (const [cx, cy] of crystalPlan) forceSet(cx, cy, 'Y');
+
+// --- forest rock becomes tree canopy (keep some rock) ---
+for (let y = 1; y < H - 1; y++)
+  for (let x = 25; x <= 46; x++)
+    if (get(x, y) === '#' && rnd() < 0.78) set(x, y, 'T');
+
 // --- connectivity: everything must be reachable from spawn on foot ---
-const PASS = c => c !== '#' && c !== '~' && c !== 'o';
+// Trees block the walk check; crystals ('Y') do not block movement.
+const PASS = c => c !== '#' && c !== 'T' && c !== '~' && c !== 'o';
 function reachableFrom(sx, sy) {
   const seen = Array.from({ length: H }, () => Array(W).fill(false));
   const q = [[sx, sy]];
@@ -206,7 +337,7 @@ function carveTo(x, y, seen) {
   }
 }
 
-const ENTITY = new Set(['P', 'c', 'E', 'g', 'a', 'r', 's', 'm', 'n', 'w', 'b']);
+const ENTITY = new Set(['P', 'c', 'E', 'g', 'a', 'r', 's', 'm', 'n', 'w', 'b', 'N', 'B', 'Y']);
 for (let pass = 0; pass < 10; pass++) {
   const seen = reachableFrom(3, 30);
   let bad = 0;
@@ -234,18 +365,36 @@ for (let pass = 0; pass < 10; pass++) {
   }
 }
 
+// --- paint biome floors by zone (after carving so carved lanes get painted) ---
+for (let y = 1; y < H - 1; y++) {
+  for (let x = 1; x < W - 1; x++) {
+    if (get(x, y) !== '.') continue;
+    if (x > FX0 && x < FX1 && y > FY0 && y < FY1) { set(x, y, ';'); continue; } // fortress: worked stone
+    if (x >= 87 && y >= 25 && y <= 39) { set(x, y, ';'); continue; }            // Anchor arena: worked stone
+    if (x >= 58 && x <= 86 && y >= 46 && y <= 60) { set(x, y, ':'); continue; } // swamp mud
+    if (x >= 25 && x <= 46) { set(x, y, ','); continue; }                       // forest floor
+    if (x >= 63 && x <= 87) { set(x, y, '_'); continue; }                       // scorched eastern approach
+    // meadow keeps '.'
+  }
+}
+
 const counts = {};
 for (const row of grid) for (const c of row) counts[c] = (counts[c] || 0) + 1;
 console.log(`${W}x${H} map (${W * H} tiles)`);
 console.log('tile counts:', Object.fromEntries(Object.entries(counts).sort()));
 console.log('captives (scan order):', captiveChars.join(', '));
+console.log('npcs (scan order):', npcs.map(n => n.id).join(', '));
+console.log('builds (scan order):', builds.map(b => b.kind).join(', '));
 
 const def = {
   name: 'The Long Crossing',
-  objective: 'Cross the frontier west to east — rescue the stranded, reach the far gate',
+  objective: 'Cross the frontier west to east — raise the relay pylons to wake the dormant Anchor',
   time: 720,
   expedition: true,
   captiveChars,
+  npcs,
+  builds,
+  gate: { need: 3 },
   tiles: grid.map(r => r.join('')),
 };
 const out = path.join(__dirname, '../levels/level11.json');

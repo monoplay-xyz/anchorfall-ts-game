@@ -200,7 +200,9 @@ function testSmallMapsStayArcade() {
 }
 
 function testPathfindingAroundWall() {
-  // a wall splits the room; the enemy must route around the gap at the bottom
+  // a wall splits the room; the enemy must route around the gap at the bottom.
+  // Geometry keeps the straight-line distance inside the skitter's big-map
+  // leash (aggro 10.5 * 1.8 tiles) while still forcing a long detour.
   const rows = [];
   rows.push('#'.repeat(40));
   for (let y = 1; y < 19; y++) {
@@ -209,9 +211,9 @@ function testPathfindingAroundWall() {
     rows.push(r);
   }
   rows.push('#'.repeat(40));
-  rows[3] = '#P' + rows[3].slice(2);
-  // skitter: fast enough to finish the ~54-tile detour within the test budget
-  rows[3] = rows[3].slice(0, 30) + 'w' + rows[3].slice(31);
+  rows[3] = rows[3].slice(0, 16) + 'P' + rows[3].slice(17);
+  // skitter: fast enough to finish the ~36-tile detour within the test budget
+  rows[3] = rows[3].slice(0, 24) + 'w' + rows[3].slice(25);
   const level = { name: 'Path Test', time: 90, captiveChars: [], tiles: rows };
   const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   const e = g.enemies[0];
@@ -255,7 +257,8 @@ function testExpeditionMapIntegrity() {
   assert.ok(parsed.captives.length >= 6, 'expedition carries rescuable characters');
   assert.ok(def.tiles.some(r => r.includes('E')), 'expedition has an exit');
   // walkable connectivity from spawn to exit and every captive
-  const pass = c => c !== '#' && c !== '~' && c !== 'o';
+  // ('T' trees block movement; crystals are parsed out and never block)
+  const pass = c => c !== '#' && c !== 'T' && c !== '~' && c !== 'o';
   const seen = new Set();
   const sx = Math.floor(parsed.spawns[0].x / TILE), sy = Math.floor(parsed.spawns[0].y / TILE);
   const q = [[sx, sy]];
@@ -275,6 +278,21 @@ function testExpeditionMapIntegrity() {
   for (const c of parsed.captives) {
     const k = Math.floor(c.x / TILE) + ',' + Math.floor(c.y / TILE);
     assert.ok(seen.has(k), `captive ${c.charId} reachable`);
+  }
+  // expedition systems content: camps, build sites, crystals, dormant gate
+  assert.ok(parsed.npcs.length >= 4, 'expedition has at least 4 stranded operators');
+  assert.equal(parsed.builds.filter(b => b.kind === 'pylon').length, 3, 'expedition has 3 pylon sites');
+  assert.ok(parsed.builds.length >= 9, 'expedition has barricade/turret sites too');
+  assert.ok(parsed.crystals.length >= 9, 'expedition scatters LYTH crystals along the journey');
+  assert.ok(def.gate && def.gate.need === 3, 'expedition gate needs the pylon quorum');
+  for (const n of parsed.npcs) {
+    assert.ok(n.lines.length >= 4, `npc ${n.id} has dialogue`);
+    const k = Math.floor(n.x / TILE) + ',' + Math.floor(n.y / TILE);
+    assert.ok(seen.has(k), `npc ${n.id} reachable`);
+  }
+  for (const b of parsed.builds) {
+    const k = Math.floor(b.x / TILE) + ',' + Math.floor(b.y / TILE);
+    assert.ok(seen.has(k), `${b.kind} site reachable`);
   }
 }
 
@@ -358,11 +376,317 @@ function testRespawnNearTeammateOnBigMap() {
   g.players[0].charId = null;
   g.players[0].state = 'down';
   g.players[0].respawn = 0.01;
-  step(g, { 0: {}, 1: {} }, 1 / 30);
+  step(g, { 0: {}, 1: {} }, 1 / 30); // timer expires -> pick
+  step(g, { 0: {}, 1: {} }, 1 / 30); // release
+  step(g, { 0: { fire: true }, 1: {} }, 1 / 30); // confirm first choice
   const a = g.players[0];
   assert.equal(a.state, 'active', 'player respawned');
   const d = Math.hypot(a.x - g.players[1].x, a.y - g.players[1].y);
   assert.ok(d < TILE * 6, `respawn lands beside the living teammate (${Math.round(d / TILE)} tiles away)`);
+}
+
+// --- leash: big-map enemies disengage, walk home and fall back asleep ---
+function testLeashReturnAndResleep() {
+  const level = bigEmptyLevel([
+    [2, '#P....................................#'],
+    [17, '#..................................g..#'],
+  ]);
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const e = g.enemies[0];
+  const hx = e.x, hy = e.y;
+  g.players[0].invuln = 999;
+  g.graceT = 0; // skip the level-start freeze; this test is about the leash
+  // walk a player up to it: it wakes and chases
+  g.players[0].x = e.x - TILE * 3;
+  g.players[0].y = e.y;
+  run(g, () => ({ 0: {} }), 1);
+  assert.equal(e.awake, true, 'enemy wakes near a player');
+  assert.ok(e.x !== hx || e.y !== hy, 'awake enemy left its post');
+  // teleport the player across the map, far beyond the leash
+  g.players[0].x = TILE * 2;
+  g.players[0].y = TILE * 2;
+  let sawReturning = false;
+  run(g, () => { if (e.returning) sawReturning = true; return { 0: {} }; }, 12);
+  assert.ok(sawReturning, 'leashed enemy entered the returning state');
+  assert.equal(e.awake, false, 'returned enemy fell back into ambush sleep');
+  assert.ok(Math.hypot(e.x - hx, e.y - hy) < TILE, 'enemy is back at its post');
+}
+
+// --- shard economy: kills drop pickups that magnetize and join the pool ---
+function testShardDropMagnetPickup() {
+  const level = bigEmptyLevel([
+    [5, '#...P.g...............................#'],
+    [17, '#....................................g#'],
+  ]);
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  g.players[0].invuln = 999;
+  run(g, gg => {
+    const p = gg.players[0];
+    p.fx = 1; p.fy = 0;
+    return { 0: { fire: true } };
+  }, 2.5);
+  assert.equal(g.kills, 1, 'nearby grunt is dead');
+  assert.ok(g.events.some(ev => ev.type === 'shard' && ev.amount === 1), 'shard pickup event fired');
+  assert.equal(g.shards, 1, 'grunt shard magnetized into the squad pool');
+  assert.equal(g.drops.length, 0, 'collected drop is gone');
+  // far-away drops expire on their ttl instead
+  g.drops.push({ x: 35 * TILE, y: 17 * TILE, amount: 5, ttl: 0.3 });
+  run(g, () => ({ 0: {} }), 1);
+  assert.equal(g.drops.length, 0, 'unclaimed drop expires');
+  assert.equal(g.shards, 1, 'expired drop pays nothing');
+}
+
+// --- building: a pylon paid from the pool opens the gate, which gates extraction ---
+function testPylonOpensGateAndGatesExtraction() {
+  const tiles = [];
+  tiles.push('#'.repeat(40));
+  for (let y = 1; y < 19; y++) tiles.push('#' + '.'.repeat(38) + '#');
+  tiles.push('#'.repeat(40));
+  tiles[2] = '#P' + tiles[2].slice(2);
+  tiles[10] = tiles[10].slice(0, 10) + 'B..E' + tiles[10].slice(14);
+  tiles[17] = tiles[17].slice(0, 37) + 'g' + tiles[17].slice(38);
+  const def = {
+    name: 'Gate Test', time: 120, captiveChars: [],
+    gate: { need: 1 },
+    builds: [{ kind: 'pylon', cost: 14 }],
+    tiles,
+  };
+  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  assert.equal(g.arcade, false, 'synthetic gate map is big-map class');
+  assert.deepEqual(snapshot(g, false).gate, { need: 1, built: 0, open: false }, 'snapshot carries the dormant gate');
+  const b = g.builds[0];
+  const p = g.players[0];
+  p.invuln = 999;
+  // dormant gate: standing on 'E' does not extract
+  p.x = 13.5 * TILE; p.y = 10.5 * TILE;
+  step(g, { 0: {} }, 1 / 30);
+  assert.equal(p.state, 'active', 'dormant gate does not extract');
+  // build the pylon with a pre-granted shard pool
+  g.shards = 14;
+  p.x = b.x + TILE; p.y = b.y;
+  run(g, () => ({ 0: { act: true } }), 10);
+  assert.equal(b.built, true, 'pylon completes');
+  assert.ok(b.paid > 13.9, 'cost paid from the shared pool as progress accrued');
+  assert.ok(g.shards < 0.1, 'pool spent');
+  assert.ok(g.events.some(ev => ev.type === 'build'), 'build progress events fired');
+  assert.ok(g.events.some(ev => ev.type === 'built' && ev.kind === 'pylon'), 'built event fired');
+  assert.ok(g.events.some(ev => ev.type === 'gateOpen'), 'gateOpen event fired');
+  assert.equal(g.gate.open, true, 'pylon quorum opens the gate');
+  // the built pylon blocks movement
+  p.x = b.x - TILE; p.y = b.y;
+  run(g, () => ({ 0: { right: true } }), 1);
+  assert.ok(p.x < b.x - 18, 'built pylon blocks the player');
+  // with the gate open, 'E' extracts again
+  p.x = 13.5 * TILE; p.y = 10.5 * TILE;
+  step(g, { 0: {} }, 1 / 30);
+  assert.equal(p.state, 'extracted', 'open gate extracts');
+}
+
+// --- npc talk: edge-detected act, cycling lines, one-time gift ---
+function testNpcTalkAndGift() {
+  const level = {
+    name: 'Talk Test', time: 30, captiveChars: [],
+    npcs: [{ id: 'uma', name: 'Uma', lines: ['First line', 'Second line'], gift: { shards: 6 } }],
+    tiles: ['#########', '#PN....g#', '#########'],
+  };
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  g.players[0].invuln = 999;
+  assert.equal(g.npcs.length, 1, 'npc bound from level def');
+  assert.deepEqual(
+    snapshot(g, false).npcs,
+    [{ id: 'uma', name: 'Uma', x: 2.5 * TILE, y: 1.5 * TILE }],
+    'snapshot exposes npc id/name/position only'
+  );
+  // holding act for a second still produces exactly one talk (edge-detected)
+  run(g, () => ({ 0: { act: true } }), 1);
+  let talks = g.events.filter(ev => ev.type === 'talk');
+  assert.equal(talks.length, 1, 'held act produces a single talk');
+  assert.equal(talks[0].line, 'First line');
+  assert.equal(talks[0].npcId, 'uma');
+  assert.equal(talks[0].gift, 6, 'first talk includes the gift amount');
+  assert.equal(g.shards, 6, 'gift shards land in the pool');
+  // release, press again: next line, gift only once
+  run(g, () => ({ 0: {} }), 0.2);
+  run(g, () => ({ 0: { act: true } }), 0.2);
+  talks = g.events.filter(ev => ev.type === 'talk');
+  assert.equal(talks.length, 2, 'second press talks again');
+  assert.equal(talks[1].line, 'Second line', 'lines advance');
+  assert.equal(talks[1].gift, undefined, 'gift granted only once');
+  assert.equal(g.shards, 6);
+  // third press cycles back to the first line
+  run(g, () => ({ 0: {} }), 0.2);
+  run(g, () => ({ 0: { act: true } }), 0.2);
+  talks = g.events.filter(ev => ev.type === 'talk');
+  assert.equal(talks[2].line, 'First line', 'lines cycle');
+}
+
+// --- specials: every character's special does something ---
+function testEveryCharacterSpecial() {
+  // a full ring of grunts two tiles out in every direction: whatever shape a
+  // weapon special throws (forward, twin-opposed, 360, curved, lobbed), its
+  // projectiles must cross the ring and connect with something
+  const ringTiles = (() => {
+    const rows = [];
+    for (let y = 0; y < 15; y++) {
+      let r = '';
+      for (let x = 0; x < 15; x++) r += (x === 0 || y === 0 || x === 14 || y === 14) ? '#' : '.';
+      rows.push(r);
+    }
+    const put = (x, y, c) => { rows[y] = rows[y].slice(0, x) + c + rows[y].slice(x + 1); };
+    put(7, 7, 'P');
+    for (let dy = -2; dy <= 2; dy++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) === 2) put(7 + dx, 7 + dy, 'g');
+      }
+    }
+    return rows;
+  })();
+  for (const ch of characters) {
+    assert.ok(ch.special && ch.special.kind, `${ch.name} has a special`);
+    assert.ok(ch.special.cooldown >= 3 && ch.special.cooldown <= 8, `${ch.name} special cooldown in range`);
+    const sp = ch.special;
+    if (sp.kind === 'dash') {
+      const level = { name: 'Dash', time: 20, captiveChars: [], tiles: ['##########', '#P......g#', '##########'] };
+      const g = createGame(level, [{ pid: 0, name: ch.name, charId: ch.id }], charMap, [ch.id]);
+      const p = g.players[0];
+      p.invuln = 0;
+      p.fx = 1; p.fy = 0;
+      const x0 = p.x;
+      step(g, { 0: { special: true } }, 1 / 30);
+      assert.ok(p.invuln > 0.3, `${ch.name} dash grants brief invulnerability`);
+      run(g, () => ({ 0: {} }), 0.3);
+      assert.ok(p.x - x0 > TILE * 2.5, `${ch.name} dash covers ~3 tiles`);
+      assert.ok(g.events.some(ev => ev.type === 'dash'), 'dash event emitted');
+      assert.ok(p.specialCool > 0, 'dash starts the cooldown');
+    } else if (sp.kind === 'stim') {
+      const level = { name: 'Stim', time: 20, captiveChars: [], tiles: ['##########', '#PP.....g#', '##########'] };
+      const allyId = startingRoster.find(id => id !== ch.id) || startingRoster[0];
+      const g = createGame(level, [
+        { pid: 0, name: ch.name, charId: ch.id },
+        { pid: 1, name: 'Ally', charId: allyId },
+      ], charMap, startingRoster);
+      const [a, ally] = g.players;
+      a.invuln = 0; ally.invuln = 0;
+      step(g, { 0: { special: true }, 1: {} }, 1 / 30);
+      assert.ok(a.invuln >= 1.4, `${ch.name} stim shields the caster`);
+      assert.ok(ally.invuln >= 1.4, 'stim shields the nearby ally');
+      assert.ok(a.stimT > 2.5, 'caster gains the speed surge');
+      assert.ok(g.events.some(ev => ev.type === 'special' && ev.kind === 'stim'), 'stim special event emitted');
+      assert.ok(a.specialCool > 0, 'stim starts the cooldown');
+    } else {
+      const level = { name: 'Special', time: 30, captiveChars: [], tiles: ringTiles };
+      const g = createGame(level, [{ pid: 0, name: ch.name, charId: ch.id }], charMap, [ch.id]);
+      g.players[0].invuln = 999;
+      run(g, (gg, t) => ({ 0: { special: Math.round(t * 30) % 2 === 0 } }), 15);
+      assert.ok(g.kills >= 1 || g.status === 'cleared', `${ch.name}'s special (${sp.name}) can kill a grunt`);
+      assert.ok(g.events.some(ev => ev.type === 'special' && ev.who === 'p'), 'weapon special event emitted');
+    }
+  }
+}
+
+// --- crystals: player fire cracks a node, which spills a 4-shard pickup ---
+function testCrystalBreakDropsShards() {
+  const level = bigEmptyLevel([
+    [5, '#...P..Y..............................#'],
+    [17, '#....................................g#'],
+  ]);
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  assert.equal(g.crystals.length, 1, 'crystal parsed from the grid');
+  g.players[0].invuln = 999;
+  run(g, gg => {
+    const p = gg.players[0];
+    p.fx = 1; p.fy = 0;
+    return { 0: { fire: true } };
+  }, 2.5);
+  assert.equal(g.crystals.length, 0, 'crystal breaks after 3 damage');
+  assert.ok(g.events.some(ev => ev.type === 'crystal'), 'crystal break event emitted');
+  assert.equal(g.drops.length, 1, 'broken crystal leaves a pickup');
+  assert.equal(g.drops[0].amount, 4, 'crystal pickup is worth 4 shards');
+  g.players[0].x = 6.5 * TILE;
+  g.players[0].y = 5.5 * TILE;
+  run(g, () => ({ 0: {} }), 1);
+  assert.equal(g.shards, 4, 'crystal shards magnetize and collect');
+}
+
+// --- big-map spawn tuning: sustained brooding stays under the global 90 cap ---
+function testBigMapSpawnerPopulationCap() {
+  const W2 = 70, H2 = 30;
+  const rows = [];
+  for (let y = 0; y < H2; y++) {
+    let r = '';
+    for (let x = 0; x < W2; x++) r += (x === 0 || y === 0 || x === W2 - 1 || y === H2 - 1) ? '#' : '.';
+    rows.push(r);
+  }
+  const put = (x, y, c) => { rows[y] = rows[y].slice(0, x) + c + rows[y].slice(x + 1); };
+  put(35, 15, 'P');
+  for (const [x, y] of [[48, 15], [44, 24], [35, 27], [26, 24], [22, 15], [26, 6], [35, 3], [44, 6]]) put(x, y, 'm');
+  const level = { name: 'Brood Test', time: 300, captiveChars: [], tiles: rows };
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  assert.equal(g.arcade, false, 'brood map is big-map class');
+  g.players[0].invuln = 999;
+  for (const e of g.enemies) e.awake = true;
+  let peak = 0;
+  run(g, () => { peak = Math.max(peak, g.enemies.length); return { 0: {} }; }, 100);
+  peak = Math.max(peak, g.enemies.length);
+  assert.ok(peak > 36, `big-map spawners outgrow the arcade cap (peaked at ${peak})`);
+  assert.ok(peak <= 90, `big-map population respects the global 90 cap (peaked at ${peak})`);
+}
+
+// --- determinism: identical scripted co-op runs on the expedition match exactly ---
+function testDeterministicExpeditionRun() {
+  const def = levels.find(l => l.expedition);
+  const party = startingRoster.map((id, i) => ({ pid: i, name: id, charId: id }));
+  const runOnce = () => {
+    const g = createGame(def, party, charMap, startingRoster);
+    const dt = 1 / 30;
+    for (let i = 0; i < 900 && g.status === 'play'; i++) {
+      const inputs = {};
+      for (const p of g.players) {
+        inputs[p.pid] = {
+          right: (i % 50) < 35,
+          left: false,
+          down: p.pid % 2 === 0 && (i % 80) < 15,
+          up: p.pid % 2 === 1 && (i % 80) < 15,
+          fire: (i % 9) < 4,
+          special: (i % 150) === 20 + p.pid,
+          act: (i % 70) < 12,
+        };
+      }
+      step(g, inputs, dt);
+    }
+    return JSON.stringify(snapshot(g, true));
+  };
+  const a = runOnce();
+  const b = runOnce();
+  assert.ok(a === b, 'two identical scripted runs on the expedition produce identical snapshots at t=30');
+}
+
+function testRespawnPickFlow() {
+  const level = bigEmptyLevel([
+    [2, '#PP...................................#'],
+    [17, '#g....................................#'], // keeps the level alive
+  ]);
+  const g = createGame(level, [
+    { pid: 0, name: 'A', charId: startingRoster[0] },
+    { pid: 1, name: 'B', charId: startingRoster[1] },
+  ], charMap, startingRoster);
+  const a = g.players[0];
+  a.charId = null;
+  a.state = 'down';
+  a.respawn = 0.01;
+  step(g, { 0: {}, 1: {} }, 1 / 30);
+  assert.equal(a.state, 'pick', 'fallen player enters character pick after the respawn delay');
+  const snapMe = snapshot(g).players.find(q => q.pid === 0);
+  assert.ok(Array.isArray(snapMe.pick?.choices) && snapMe.pick.choices.length >= 2, 'snapshot carries the pick choices');
+  const choices = snapMe.pick.choices;
+  // a held button must not auto-confirm; cycle right with a clean edge
+  step(g, { 0: { right: false, fire: false }, 1: {} }, 1 / 30);
+  step(g, { 0: { right: true }, 1: {} }, 1 / 30);
+  assert.equal(a.pickIdx, 1, 'right cycles to the next free operative');
+  step(g, { 0: {}, 1: {} }, 1 / 30);
+  step(g, { 0: { fire: true }, 1: {} }, 1 / 30);
+  assert.equal(a.state, 'active', 'fire deploys the chosen operative');
+  assert.equal(a.charId, choices[1], 'the cycled-to character is the one fielded');
 }
 
 testLevelsParse();
@@ -380,5 +704,14 @@ testArcadeSpawnCapsPreserved();
 testEnemiesShootAcrossWater();
 testPickupOwnerPidZeroNotStolen();
 testRespawnNearTeammateOnBigMap();
+testLeashReturnAndResleep();
+testShardDropMagnetPickup();
+testPylonOpensGateAndGatesExtraction();
+testNpcTalkAndGift();
+testEveryCharacterSpecial();
+testCrystalBreakDropsShards();
+testBigMapSpawnerPopulationCap();
+testDeterministicExpeditionRun();
+testRespawnPickFlow();
 
 console.log('sim tests passed');

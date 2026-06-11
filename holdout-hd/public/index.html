@@ -33,7 +33,9 @@
           <button id="btnJoin">Join Online</button>
         </div>
         <p class="help">Couch co-op: plug in controllers, everyone presses FIRE in the lobby to join.<br>
-        Keyboard fits two: WASD + Space &middot; Arrows + Enter &middot; Gamepad: stick/d-pad + A &middot; Start pauses<br>
+        Keyboard fits two: WASD &middot; Space fire &middot; E special &middot; F act &nbsp;|&nbsp; Arrows &middot; Enter fire &middot; RShift special &middot; / act<br>
+        Gamepad: stick/d-pad &middot; A/RT fire &middot; B/RB special &middot; X act &middot; Start pauses<br>
+        Hold ACT on a build site to construct &mdash; LYTH shards drop from fallen Entropy<br>
         Walk into stranded allies to pick them up &mdash; carry them to the exit to recruit them.</p>
       </div>
 
@@ -62,6 +64,7 @@
         <div class="ptitle green" id="missionNo">MISSION —</div>
         <div id="missionName">—</div>
         <div id="missionObj" class="dim">—</div>
+        <div id="missionGate" class="amber" hidden>—</div>
       </div>
       <div class="panel" id="minimapPanel">
         <canvas id="minimap" width="200" height="140"></canvas>
@@ -71,14 +74,22 @@
         <div class="srow"><span>TIME</span><b id="hTime">--:--</b></div>
         <div class="srow"><span>KILLS</span><b id="hKills">0</b></div>
         <div class="srow"><span>COMBO</span><b id="hCombo" class="amber">x1</b></div>
+        <div class="srow"><span>SHARDS</span><b id="hShards" class="amber">◆0</b></div>
       </div>
       <div class="panel" id="weaponPanel">
         <div class="ptitle amber" id="wName">—</div>
         <canvas id="wIcon" width="170" height="46"></canvas>
         <div id="wStats" class="dim">—</div>
+        <div id="wSpecial" hidden>
+          <div class="srow"><span>SPECIAL</span><b id="wSpecialName" class="amber">—</b></div>
+          <div style="height:6px;background:rgba(255,255,255,.08);border-radius:3px;overflow:hidden">
+            <i id="wSpecialFill" style="display:block;height:100%;width:0%;background:var(--amber);transition:width .15s"></i>
+          </div>
+        </div>
       </div>
     </aside>
   </div>
+  <div id="dialogueBox" hidden><b class="dname"></b><span class="dtext"></span></div>
   <script type="module" src="client.js"></script>
 </body>
 </html>

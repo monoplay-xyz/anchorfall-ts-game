@@ -172,7 +172,7 @@ wss.on('connection', ws => {
     room.players.delete(me.pid);
     if (room.game) {
       const gp = room.game.players.find(p => p.pid === me.pid);
-      if (gp && (gp.state === 'active' || gp.state === 'down')) gp.state = 'out';
+      if (gp && (gp.state === 'active' || gp.state === 'down' || gp.state === 'pick')) gp.state = 'out';
     }
     if (!room.players.size || me.pid === room.hostPid) {
       broadcast(room, { t: 'error', error: 'Host left — room closed' });
