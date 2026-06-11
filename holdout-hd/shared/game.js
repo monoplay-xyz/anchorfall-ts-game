@@ -28,7 +28,7 @@ const ENEMY_STATS = {
   q: { kind: 'acolyte', hp: 2, speed: 0.9, range: 5, cool: 2.5, score: 220, aggro: 9 },
   // v Volt Wraith: LYTH Leech-kin elite — chain-zap shots that sting and
   // briefly stun one operative (shield pips absorb the whole zap).
-  v: { kind: 'wraith', hp: 2, speed: 1.1, range: 6, cool: 2.2, score: 200, aggro: 10 },
+  v: { kind: 'wraith', hp: 3, speed: 1.1, range: 6, cool: 2.2, score: 230, aggro: 10 },
   // x Phase Stalker: Rift Brute lineage — blinks 3 tiles toward its prey on a
   // deterministic per-id cadence, then mauls in melee.
   x: { kind: 'stalker', hp: 3, speed: 1.3, score: 260, aggro: 10 },
@@ -179,6 +179,11 @@ const FIELD_WEAPONS = {
 };
 const FIELD_KINDS = ['flamer', 'railcannon', 'stormgun', 'mortarMk2']; // 'A' default cycle
 const FIELD_DROP_HOLD = 0.8; // seconds holding ITEM to drop a field weapon
+// With a field weapon in hand the ITEM button is overloaded: a press released
+// inside this window is a TAP (use the item slot, on release); holding to
+// FIELD_DROP_HOLD lays the weapon down instead. Empty-handed players keep the
+// classic edge-triggered use — there is nothing to disambiguate.
+const ITEM_TAP_T = 0.3;
 const QITEM_R = 12; // px, quest item touch radius (captive-sized)
 const QUEST_REACH_TILES = 1.5; // tiles, 'reach' quests trip inside this ring
 
@@ -187,7 +192,8 @@ const QUEST_REACH_TILES = 1.5; // tiles, 'reach' quests trip inside this ring
 const PILLAR_HP = 12;
 const PILLAR_R = 16; // px, shot-hit circle (crystal-sized)
 // 'Z' seal forge: act-hold with 20 shards + a carried proof fragment mints a
-// lythseal into the crafter's item slot.
+// lythseal. The seal is its OWN player field (p.lythseal) — never an
+// item-slot occupant, so chest loot/shop buys/quest rewards can't destroy it.
 const FORGE_COST = 20; // shards
 const FORGE_ITEM = 'fragment'; // required carried quest-item kind
 const FORGE_HOLD_T = 1.0; // seconds of act-hold at the anvil
@@ -1327,10 +1333,11 @@ function questTalk(g, npc, p) {
   }
 }
 
-// Per-tick quest upkeep: 'reach' quests trip when any active player stands
-// inside 1.5 tiles of the target tile, and fetch quests mirror the carried
-// count into progress so the objectives HUD reads live (completion still
-// demands the talker carry them to the giver).
+// Per-tick quest upkeep: 'reach' quests are BINARY — they complete outright
+// the moment any active player stands inside 1.5 tiles of the target tile
+// (count is ignored: progress jumps straight to count, never 1 per tick).
+// Fetch quests mirror the carried count into progress so the objectives HUD
+// reads live (completion still demands the talker carry them to the giver).
 function stepQuests(g) {
   if (!g.quests.length) return;
   for (const q of g.quests) {
@@ -1339,7 +1346,7 @@ function stepQuests(g) {
       const tx = (q.target.x + 0.5) * TILE, ty = (q.target.y + 0.5) * TILE;
       for (const p of g.players) {
         if (p.state !== 'active' || dist2(p, { x: tx, y: ty }) >= (TILE * QUEST_REACH_TILES) ** 2) continue;
-        q.progress++;
+        q.progress = q.count;
         g.events.push({ type: 'questProgress', id: q.id, progress: q.progress, count: q.count, x: tx, y: ty });
         break;
       }
@@ -1448,9 +1455,12 @@ function lightGlyph(g, gl, p) {
 }
 
 // Seal forge: an act-hold at the anvil by a player trailing a proof fragment
-// while the pool holds 20 shards consumes both and mints a lythseal into the
-// crafter's item slot. Carrying it opens sealLock doors on touch and reveals
-// Classical Phantoms (snapshot players hasSeal; render does the distance).
+// while the pool holds 20 shards consumes both and mints a lythseal. The seal
+// lives on its OWN field (p.lythseal) — the item slot stays free, so loot and
+// rewards can never silently destroy a carried seal. Carrying it opens
+// sealLock doors on touch and reveals Classical Phantoms (snapshot players
+// hasSeal; render does the distance). A bearer never re-forges: the anvil
+// refuses the hold rather than waste a fragment and 20 shards on nothing.
 function stepForges(g, inputs, dt) {
   if (!g.forges.length) return;
   const r2 = (TILE * BUILD_REACH) ** 2;
@@ -1458,6 +1468,7 @@ function stepForges(g, inputs, dt) {
     let crafter = null;
     for (const p of g.players) {
       if (p.state !== 'active' || p.towerId != null || p.riding || p.shopping || p.selecting) continue;
+      if (p.lythseal) continue; // one seal per bearer — nothing to mint
       const inp = inputs[p.pid] || {};
       if (!inp.act || dist2(p, f) >= r2) continue;
       if (!g.qitems.some(it => it.carrier === p.pid && it.kind === FORGE_ITEM)) continue;
@@ -1472,8 +1483,7 @@ function stepForges(g, inputs, dt) {
     const idx = g.qitems.findIndex(it => it.carrier === crafter.pid && it.kind === FORGE_ITEM);
     g.qitems.splice(idx, 1);
     addShards(g, crafter, -FORGE_COST);
-    if (crafter.item && crafter.item.kind === 'lythseal') crafter.item.count++;
-    else crafter.item = { kind: 'lythseal', count: 1 };
+    crafter.lythseal = true;
     g.events.push({ type: 'sealForged', pid: crafter.pid, x: f.x, y: f.y });
     questProgress(g, 'craft', ['lythseal'], f.x, f.y);
   }
@@ -1491,7 +1501,7 @@ function stepDoors(g) {
   for (const d of g.doors) {
     if (d.open || !d.sealLock) continue;
     for (const p of g.players) {
-      if (p.state !== 'active' || !(p.item && p.item.kind === 'lythseal')) continue;
+      if (p.state !== 'active' || !p.lythseal) continue;
       // nearest point of the door's pixel rect to the carrier
       const nx = Math.max(d.x * TILE, Math.min((d.x + d.w) * TILE, p.x));
       const ny = Math.max(d.y * TILE, Math.min((d.y + d.h) * TILE, p.y));
@@ -1508,6 +1518,9 @@ function stepDoors(g) {
 // 0.8s, then blinks to the twin. Carried captives and quest items arrive at
 // the destination with them; the player's followers blink along too. A 2s
 // per-player cooldown stops ping-ponging; enemies never channel at all.
+// A twin pad sitting inside a CLOSED door rect refuses the channel outright —
+// blinking into a sealed rect would trap the player (door blocking has no
+// escape carve-out). The pad answers again the moment the door opens.
 function stepTeleports(g, dt) {
   if (!g.teleports.length) return;
   for (const p of g.players) {
@@ -1520,7 +1533,7 @@ function stepTeleports(g, dt) {
       if (Math.floor(t.x / TILE) === tx && Math.floor(t.y / TILE) === ty) { pad = t; break; }
     }
     const twin = pad && pad.twin != null ? g.teleports.find(t => t.id === pad.twin) : null;
-    if (!twin || p.teleCool > 0) { p.channelT = 0; continue; }
+    if (!twin || p.teleCool > 0 || doorBlocksPx(g, twin.x, twin.y)) { p.channelT = 0; continue; }
     p.channelT = (p.channelT || 0) + dt;
     if (p.channelT < TELE_CHANNEL_T) continue;
     p.channelT = 0;
@@ -2426,20 +2439,31 @@ function stepWaves(g) {
 
 // --- bastion mode: day/night cycle, dusk waves, mutants -------------------
 
-// Wave composition scales with the night: base 6 grunts/skitters on night 1
-// up to 14 mixed (chargers from night 3, bulwarks from night 4) on night 5+.
+// Wave composition scales with the night: base 6 on night 1 up to 14 mixed
+// on night 5+. The frontier roster joins the siege as it deepens:
+//   n1:  husk fodder with skitters             (z z w cycle)
+//   n2:  Pyre Beetles join, plus one Fork Alpha (z z w u cycle + one f)
+//   n3:  grunts/chargers harden the line, plus one Null Acolyte
+//                                              (z g w u r cycle + f + q)
+//   n4:  bulwarks anchor every 5th slot; Volt Wraiths stalk in every 6th
+//   n5+: Phase Stalkers complete the blend, every 7th slot
+// The f/q specials take the trailing slots so every staple still shows.
 // Size also scales with the squad: ceil(base * (0.6 + 0.2 * players)) — 0.8x
 // solo, 1.0x duo, 1.4x for a full couch. The global 90 cap still rules.
 function bastionWaveLetters(n, players = 1) {
   const base = Math.min(14, 4 + n * 2);
   const size = Math.ceil(base * (0.6 + 0.2 * players));
-  let s = '';
+  const cycle = n >= 3 ? 'zgwur' : n >= 2 ? 'zzwu' : 'zzw';
+  const letters = [];
   for (let i = 0; i < size; i++) {
-    if (n >= 4 && i % 5 === 4) s += 's';
-    else if (n >= 3 && i % 4 === 3) s += 'r';
-    else s += i % 3 === 2 ? 'w' : 'g';
+    if (n >= 5 && i % 7 === 6) letters.push('x');
+    else if (n >= 4 && i % 6 === 5) letters.push('v');
+    else if (n >= 4 && i % 5 === 4) letters.push('s');
+    else letters.push(cycle[i % cycle.length]);
   }
-  return s;
+  if (n >= 2 && size >= 2) letters[size - 1] = 'f';
+  if (n >= 3 && size >= 4) letters[size - 2] = 'q';
+  return letters.join('');
 }
 
 function applyMutation(e, mut) {
@@ -3013,12 +3037,40 @@ export function step(g, inputs, dt) {
       p.specialCool = sp.cooldown || 3;
     }
 
-    // --- item slot (edge-triggered): cracker lobs a lure grenade, medkit
-    // heals +1 (only when hurt), shield refills the pips (only when low).
-    // Arcade players carry no items so the button is inert there. ---
-    const itemEdge = !!inp.item && !p.itemPrev;
+    // --- ITEM button: tap vs hold --------------------------------------
+    // With a field weapon in hand the button is overloaded, so the two
+    // gestures are split: a TAP (released inside 0.3s) uses the item slot on
+    // release; a HOLD reaching 0.8s lays the weapon down as a pickup (the
+    // release that closes a fired hold never tap-uses). With empty hands the
+    // press edge uses the item outright, exactly as before field weapons —
+    // and a hold with an empty item slot still drops the weapon. All clocks
+    // accrue dt, so the gesture split is deterministic.
+    const itemPress = !!inp.item && !p.itemPrev;
+    const itemRelease = !inp.item && !!p.itemPrev;
     p.itemPrev = !!inp.item;
-    if (itemEdge && p.item && p.item.count > 0 && p.maxHp !== undefined) {
+    let itemUse = false;
+    if (p.fieldWeapon) {
+      if (inp.item) {
+        p.itemHoldT = (p.itemHoldT || 0) + dt;
+        if (!p.itemHoldFired && p.itemHoldT >= FIELD_DROP_HOLD) {
+          p.itemHoldFired = true;
+          dropFieldWeapon(g, p);
+        }
+      } else {
+        if (itemRelease && !p.itemHoldFired && (p.itemHoldT || 0) < ITEM_TAP_T) itemUse = true;
+        p.itemHoldT = 0;
+        p.itemHoldFired = false;
+      }
+    } else {
+      itemUse = itemPress;
+      p.itemHoldT = 0;
+      if (!inp.item) p.itemHoldFired = false;
+    }
+
+    // --- item slot use: cracker lobs a lure grenade, medkit heals +1 (only
+    // when hurt), shield refills the pips (only when low). Arcade players
+    // carry no items so the button is inert there. ---
+    if (itemUse && p.item && p.item.count > 0 && p.maxHp !== undefined) {
       const it = p.item;
       let used = false;
       if (it.kind === 'cracker') {
@@ -3064,18 +3116,6 @@ export function step(g, inputs, dt) {
         }
       }
       if (used && --it.count <= 0) p.item = null;
-    }
-
-    // --- field weapon drop: holding ITEM for 0.8s lays the carried weapon at
-    // the feet as a pickup with its remaining ammo (teammates can grab it) ---
-    if (p.fieldWeapon && inp.item) {
-      p.itemHoldT = (p.itemHoldT || 0) + dt;
-      if (p.itemHoldT >= FIELD_DROP_HOLD) {
-        p.itemHoldT = 0;
-        dropFieldWeapon(g, p);
-      }
-    } else {
-      p.itemHoldT = 0;
     }
 
     // --- movement (dash overrides stick input; stim grants +30% speed) ---
@@ -3983,9 +4023,27 @@ export function step(g, inputs, dt) {
     }
     return;
   }
+  // Quest maps hold the field open while the MAIN story is unfinished: an
+  // incomplete main quest (hidden, active or unsatisfied) blocks the
+  // extermination auto-clear — secondaries never block anything. A main
+  // 'reach' quest counts complete the moment it trips: the finale fires at
+  // the ring, not after a walk back to the giver.
+  const mainDone = q => q.state === 'done'
+    || (q.kind === 'reach' && q.state === 'active' && q.progress >= q.count);
+  const mains = g.quests.filter(q => q.main);
+  const mainsLeft = mains.some(q => !mainDone(q));
+  // A main chain that carries a 'reach' finale (ch7's helm launch) clears the
+  // chapter outright once the whole chain is settled — those maps field no
+  // exit tiles and no gate; the reach IS the extraction.
+  if (!g.mode && !mainsLeft && mains.some(q => q.kind === 'reach')) {
+    for (const p of g.players) if (p.state === 'active') extractPlayer(g, p);
+    g.status = 'cleared';
+    g.events.push({ type: 'clear', x: g.w * TILE / 2, y: g.h * TILE / 2, points: Math.round(g.score) });
+    return;
+  }
   // Mode missions (bastion/ctf/br) never auto-clear on an empty field —
   // bastion waits for the final dawn, pvp modes have no AI enemies at all.
-  if (g.enemies.length === 0 && !g.mode) {
+  if (g.enemies.length === 0 && !g.mode && !mainsLeft) {
     for (const p of g.players) if (p.state === 'active') extractPlayer(g, p);
     g.status = 'cleared';
     g.events.push({ type: 'clear', x: g.w * TILE / 2, y: g.h * TILE / 2, points: Math.round(g.score) });
@@ -4026,6 +4084,14 @@ export function serializeGame(g) {
 export function restoreGame(data, charMap) {
   const g = JSON.parse(JSON.stringify(data));
   g.charMap = charMap;
+  // legacy beacons (pre p.lythseal) parked the seal in the item slot —
+  // migrate it to its own field so the restored run can't lose it to loot
+  for (const p of g.players || []) {
+    if (p.item && p.item.kind === 'lythseal') {
+      p.lythseal = true;
+      p.item = null;
+    }
+  }
   return g;
 }
 
@@ -4104,9 +4170,10 @@ export function snapshot(g, full = true) {
       ...(p.dmgBonus ? { dmgBonus: p.dmgBonus } : {}),
       ...(p.fieldWeapon ? { fieldWeapon: { kind: p.fieldWeapon.kind, ammo: p.fieldWeapon.ammo } } : {}),
       ...(p.stunT > 0 ? { stunT: p.stunT } : {}),
-      // lythseal carrier: opens sealLock doors on touch; the renderer drops
-      // Classical Phantom transparency within 6 tiles of this seat
-      ...(p.item && p.item.kind === 'lythseal' ? { hasSeal: true } : {}),
+      // lythseal carrier (own field, never the item slot): opens sealLock
+      // doors on touch; the renderer drops Classical Phantom transparency
+      // within 6 tiles of this seat and rings the bearer in checkpoint gold
+      ...(p.lythseal ? { hasSeal: true, lythseal: true } : {}),
       ...(p.channelT > 0 ? { channelT: p.channelT } : {}),
       // on-the-spot leveling (non-arcade seats only; arcade never gains keys)
       ...(p.level !== undefined ? { xp: p.xp, level: p.level } : {}),

@@ -693,6 +693,29 @@ export function drawWeaponIcon(canvas, chOrWeapon) {
   ctx.restore();
 }
 
+// HUD silhouette for a held FIELD weapon (the client probes for this export
+// and passes the held kind — a string or a {kind} object). Each of the four
+// field kinds reads as its own silhouette (flamer = thrower, railcannon =
+// long rail, stormgun = arc emitter, mortarMk2 = launcher tube); the amber
+// corner braces mark it as field issue rather than a character's own arm.
+export function drawFieldWeaponIcon(canvas, fieldWeapon) {
+  const kind = typeof fieldWeapon === 'string' ? fieldWeapon : (fieldWeapon?.kind ?? '');
+  drawWeaponIcon(canvas, { kind });
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.save();
+  ctx.strokeStyle = PAL.lythAmber;
+  ctx.lineWidth = 1.6;
+  for (const [cx, cy, dx, dy] of [[3, 3, 1, 1], [W - 3, 3, -1, 1], [3, H - 3, 1, -1], [W - 3, H - 3, -1, -1]]) {
+    ctx.beginPath();
+    ctx.moveTo(cx + dx * 7, cy);
+    ctx.lineTo(cx, cy);
+    ctx.lineTo(cx, cy + dy * 7);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 // ============================== EVENT FX ==============================
 function burstAt(x, y, n, color, speed = 120, life = 0.4) {
   for (let i = 0; i < n; i++) {
@@ -4999,8 +5022,10 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
   const doors = snap.doors ?? []; // sliding bulkheads
   const teleports = snap.teleports ?? []; // settled corridor pads
   const quests = snap.quests ?? null; // for npc quest markers
-  // lythseal bearers light up Classical Phantoms within 6 tiles (drawEnemy)
-  sealCarriers = (snap.players ?? []).filter(p => p.state === 'active' && (p.hasSeal || p.seal));
+  // lythseal bearers light up Classical Phantoms within 6 tiles (drawEnemy);
+  // the seal rides its own snapshot field now (hasSeal/lythseal), never the
+  // item slot — every alias is honored for older snapshots
+  sealCarriers = (snap.players ?? []).filter(p => p.state === 'active' && (p.hasSeal || p.lythseal || p.seal));
   const lights = []; // per-frame light pools (campfires, LYTH, pylons...)
   // night grade: story dark missions are full night; bastion maps breathe
   // through a smooth dusk/dawn tint driven by the cycle clock (last 6s).
@@ -5393,7 +5418,7 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
       && snap.grid?.[Math.floor(p.y / TILE)]?.[Math.floor(p.x / TILE)] === '~';
     if (swim) drawSwimWake(ctx, p, t);
     // a carried lythseal rings the bearer in checkpoint gold (under the body)
-    if (p.hasSeal || p.seal) drawSealAura(ctx, p.x, p.y + yOff, t, lights);
+    if (p.hasSeal || p.lythseal || p.seal) drawSealAura(ctx, p.x, p.y + yOff, t, lights);
     // a picked-up field weapon overrides the character silhouette for FIRE
     drawSoldier(ctx, p.x, p.y + yOff, p.fx, p.fy, col, t, focus.has(p.pid), p.invuln,
       { key: 'p' + p.pid, dt, weapon: p.fieldWeapon?.kind ?? ch?.weapon?.kind, swim });

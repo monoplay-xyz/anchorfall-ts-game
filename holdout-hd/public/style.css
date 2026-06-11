@@ -111,6 +111,8 @@ body {
 #minimap { display: block; width: 100%; }
 #wIcon { display: block; margin: 4px auto; }
 #wStats { text-align: center; }
+/* a held FIELD weapon reads relay-cyan in the panel (character arms stay amber) */
+.ptitle.fieldweapon { color: var(--relay); text-shadow: 0 0 8px rgba(111, 216, 242, 0.45); }
 #missionName { font-weight: 700; font-size: 15px; letter-spacing: 1px; margin-bottom: 3px; }
 
 /* --- overlays --- */

@@ -109,9 +109,9 @@ function planRoute(g, p, gx, gy, allowExit = false) {
       if (d < bestScore) { bestScore = d; best = i; }
     }
   }
-  if (best === -1) return [];
+  if (best === -1 || !Number.isFinite(best)) return [];
   const rev = [];
-  for (let i = best; i !== -1; i = prev[i]) { rev.push({ i, pad: via[i] === 1 }); }
+  for (let i = best; i >= 0; i = prev[i]) { rev.push({ i, pad: via[i] === 1 }); }
   rev.reverse();
   const wps = [];
   for (let k = 1; k < rev.length; k++) {
@@ -138,14 +138,28 @@ function losShot(g, ax, ay, bx, by) {
 // --- bot chassis ---------------------------------------------------------------
 function makeBot(pid, tasks) {
   return {
-    pid, tasks, ti: 0, path: [], repath: 0, mem: {}, lastPos: { x: 0, y: 0, f: 0 },
-    stuck: 0, doorsKey: '', combat: true,
+    pid, tasks, ti: 0, path: [], repath: 0, mem: {}, stuck: 0, doorsKey: '',
   };
+}
+
+function weaponRange(g, p) {
+  if (p.fieldWeapon) return { flamer: 4, railcannon: 13, stormgun: 7, mortarMk2: 8 }[p.fieldWeapon.kind] ?? 6;
+  const ch = charMap[p.charId];
+  return ch?.weapon?.range ?? 5;
 }
 
 function onPadTile(g, p) {
   const tx = Math.floor(p.x / TILE), ty = Math.floor(p.y / TILE);
   return g.teleports.some(t => t.twin != null && Math.floor(t.x / TILE) === tx && Math.floor(t.y / TILE) === ty);
+}
+
+// idle bots must never camp a live pad (0.8s of standing = an accidental blink)
+function sidestepPad(g, p, inp) {
+  const tx = Math.floor(p.x / TILE), ty = Math.floor(p.y / TILE);
+  if (!blockedTile(g, tx, ty + 1, false)) inp.down = true;
+  else if (!blockedTile(g, tx + 1, ty, false)) inp.right = true;
+  else if (!blockedTile(g, tx - 1, ty, false)) inp.left = true;
+  else inp.up = true;
 }
 
 function aimAt(p, x, y, inp) {
@@ -178,12 +192,9 @@ function combatReflex(g, bot, p, inp, engageT) {
     if (uy < -0.3) inp.up = true; else if (uy > 0.3) inp.down = true;
     return true;
   }
+  if (bd > weaponRange(g, p) * TILE) return false; // out of reach: keep tasking
   // never stand-and-fight ON a live pad — sidestep first
-  if (onPadTile(g, p) && !bot.mem.padWait) {
-    const tx = Math.floor(p.x / TILE) * TILE + TILE / 2;
-    if (p.x <= tx) inp.right = true; else inp.left = true;
-    return true;
-  }
+  if (onPadTile(g, p) && !bot.mem.padWait) { sidestepPad(g, p, inp); return true; }
   aimAt(p, tgt.x, tgt.y, inp);
   return true;
 }
@@ -198,7 +209,7 @@ function walkTo(g, bot, p, gx, gy, inp, allowExit = false) {
     bot.doorsKey = doorsKey;
     bot.repath = 24;
   }
-  // pad jump pending? stand on the pad and wait out the channel
+  // pad jump pending? stand on the source pad and wait out the channel
   if (bot.path.length && bot.path[0].jump) {
     const padWp = bot.mem.padFrom;
     if (padWp && Math.hypot(p.x - bot.path[0].x, p.y - bot.path[0].y) < TILE * 1.5) {
@@ -206,9 +217,8 @@ function walkTo(g, bot, p, gx, gy, inp, allowExit = false) {
       bot.path.shift();
       bot.mem.padFrom = null;
       bot.mem.padWait = false;
-      return true;
+      return false;
     }
-    // not yet across: stand centered on the source pad
     const src = padWp || { x: Math.floor(p.x / TILE) * TILE + TILE / 2, y: Math.floor(p.y / TILE) * TILE + TILE / 2 };
     bot.mem.padFrom = src;
     bot.mem.padWait = true;
@@ -224,13 +234,11 @@ function walkTo(g, bot, p, gx, gy, inp, allowExit = false) {
     if (bot.path.length && bot.path[0].jump) bot.mem.padFrom = wp; // next leg channels HERE
   }
   const wp = bot.path[0];
-  if (process.env.CH8_TRACE && bot.pid === +process.env.CH8_TRACE) {
-    console.log(`TRACE p=(${p.x.toFixed(0)},${p.y.toFixed(0)}) goal=(${gx.toFixed(0)},${gy.toFixed(0)}) path=${bot.path.length} wp=${wp ? `${wp.x},${wp.y}${wp.jump ? 'J' : ''}` : '-'}`);
-  }
   if (!wp) {
     const d = Math.hypot(gx - p.x, gy - p.y);
     if (d < TILE * 1.45) { bot.stuck = 0; return true; } // nearest-reachable arrival
     bot.stuck++;
+    bot.repath = 0;
     return bot.stuck > 240; // truly unreachable: give up rather than hang the run
   }
   if (wp.jump) return false; // handled next frame
@@ -252,42 +260,56 @@ function think(g, bot, flags, frame) {
   if (p.hp <= 1 && p.item && p.item.kind === 'medkit' && p.item.count > 0 && !bot.mem.itemPrev) inp.item = true;
   bot.mem.itemPrev = !!inp.item;
 
-  const task = bot.tasks[bot.ti];
-  if (!task) { combatReflex(g, bot, p, inp, bot.engageT || 6.5); return inp; }
+  let task = bot.tasks[bot.ti];
+  while (task && task.skipIf && task.skipIf(g, flags)) { task = bot.tasks[++bot.ti]; }
+  if (!task) {
+    if (combatReflex(g, bot, p, inp, bot.engageT || 6.5)) return inp;
+    if (onPadTile(g, p)) sidestepPad(g, p, inp);
+    return inp;
+  }
 
   // combat first, except where a task must own the seat's hands
   const quiet = task.t === 'act' || task.t === 'holdact';
-  if (!quiet && bot.combat && combatReflex(g, bot, p, inp, bot.engageT || 6.5)) {
+  if (!quiet && combatReflex(g, bot, p, inp, bot.engageT || 6.5)) {
     if (task.t !== 'walk' || !bot.mem.padWait) return inp;
   }
 
   switch (task.t) {
     case 'walk': {
-      if (walkTo(g, bot, p, task.x * TILE, task.y * TILE, inp, task.allowExit)) bot.ti++;
+      if (walkTo(g, bot, p, task.x * TILE, task.y * TILE, inp, task.allowExit)) { bot.ti++; bot.mem.actT = 0; }
       break;
     }
     case 'wait': {
       if (task.until(g, flags)) bot.ti++;
+      else if (onPadTile(g, p)) sidestepPad(g, p, inp);
       break;
     }
-    case 'act': { // single edge press (chest, switch, talk, mount...)
-      if (!bot.mem.actHeld) { inp.act = true; bot.mem.actHeld = 1; }
-      else { bot.mem.actHeld = 0; bot.ti++; }
+    case 'act': { // edge press, optionally verified + retried
+      bot.mem.actT = (bot.mem.actT || 0) + 1;
+      if (!task.check) { // fire-and-forget: one press, move on
+        if (bot.mem.actT === 1) inp.act = true;
+        else { bot.ti++; bot.mem.actT = 0; }
+        break;
+      }
+      if (task.check(g, flags)) { bot.ti++; bot.mem.actT = 0; break; }
+      if (bot.mem.actT % 16 === 1) inp.act = true; // press, settle, re-check
+      if (bot.mem.actT > 16 * 12) { bot.ti++; bot.mem.actT = 0; flags.actWhiffs.push(`pid${bot.pid}@task${bot.ti}`); }
       break;
     }
     case 'holdact': { // forge mint / structure build
       inp.act = true;
-      if (task.until(g, flags)) { bot.ti++; bot.mem.actHeld = 0; }
+      if (task.until(g, flags)) { bot.ti++; }
       break;
     }
     case 'shoot': { // stand off and pour fire until the condition clears
       if (task.until(g, flags)) { bot.ti++; break; }
       const tx = task.x * TILE, ty = task.y * TILE;
+      const standoff = Math.min(task.range ?? 7, weaponRange(g, p) - 0.8);
       const d = Math.hypot(tx - p.x, ty - p.y);
-      if (d > (task.range ?? 7) * TILE || !losShot(g, p.x, p.y, tx, ty)) {
+      if (d > standoff * TILE || !losShot(g, p.x, p.y, tx, ty)) {
         walkTo(g, bot, p, tx, ty, inp);
       } else if (onPadTile(g, p)) {
-        inp.down = true; // never camp a pad
+        sidestepPad(g, p, inp);
       } else {
         aimAt(p, tx, ty, inp);
       }
@@ -304,12 +326,33 @@ function think(g, bot, flags, frame) {
 }
 
 // --- mission script ---------------------------------------------------------------
-const W = id => g0 => undefined; // placeholder (unused)
 const PILL = id => g => !g.pillars.some(pl => pl.id === id);
+const SW = id => g => !!g.switches.find(s => s.id === id)?.on;
+const CHEST = (tx, ty) => g => !!g.chests.find(c => Math.floor(c.x / TILE) === tx && Math.floor(c.y / TILE) === ty)?.opened;
 const at = (g, pid, tx, ty, r = 3) => {
   const p = g.players[pid];
   return p && p.state === 'active' && Math.hypot(p.x - (tx + 0.5) * TILE, p.y - (ty + 0.5) * TILE) < r * TILE;
 };
+const VAULT_BOSS = { x: 69.5, y: 46.5 };
+const CORE_BOSS = { x: 86.5, y: 32.5 };
+const MUSTER = { x: 57.5, y: 37.5 };
+const vaultAssault = [
+  { t: 'walk', x: MUSTER.x, y: MUSTER.y },
+  { t: 'wait', until: (g, f) => f.muster },
+  { t: 'shoot', x: VAULT_BOSS.x, y: VAULT_BOSS.y, range: 9, until: (g, f) => f.vaultBossDead },
+];
+const coreAssault = pid => [
+  { t: 'wait', until: (g, f) => f.coreOpen },
+  { t: 'walk', x: 78.5, y: 31.5 + (pid % 2) },
+  { t: 'shoot', x: CORE_BOSS.x, y: CORE_BOSS.y, range: 9, until: (g, f) => f.coreBossDead || g.elapsed > f.coreOpenT + 120 },
+];
+
+// after their own success throw, each outer bot backs up a missing voice
+const backup = (pid, sx, standX, standY) => ([
+  { t: 'wait', until: (g, f) => f.quorum || g.elapsed > f.goSuccessT + 25 + pid * 18 },
+  { t: 'walk', x: standX, y: standY, skipIf: (g, f) => f.quorum },
+  { t: 'act', check: g => SW(sx)(g), skipIf: (g, f) => f.quorum },
+]);
 
 function buildBots() {
   // pid 0 LANCE (sniper): NW pillar row, then the eastern colonnade with the railcannon
@@ -317,64 +360,60 @@ function buildBots() {
     { t: 'wait', until: (g, f) => f.questsActive },
     { t: 'walk', x: 14.5, y: 22.5 }, // pad route W into the forge quarter
     { t: 'walk', x: 17.5, y: 12.5 },
-    { t: 'shoot', x: 20.5, y: 8.5, range: 7, until: PILL('pl0') },
-    { t: 'shoot', x: 23.5, y: 8.5, range: 7, until: PILL('pl1') },
-    { t: 'shoot', x: 26.5, y: 8.5, range: 7, until: PILL('pl2') },
-    { t: 'walk', x: 29.5, y: 12.5 }, { t: 'act' }, // medkit chest
+    { t: 'shoot', x: 20.5, y: 8.5, range: 9, until: PILL('pl0') },
+    { t: 'shoot', x: 23.5, y: 8.5, range: 9, until: PILL('pl1') },
+    { t: 'shoot', x: 26.5, y: 8.5, range: 9, until: PILL('pl2') },
+    { t: 'walk', x: 29.5, y: 13.6 }, { t: 'act', check: CHEST(29, 12) }, // medkit chest
     { t: 'walk', x: 42.5, y: 4.5 },  // north pad -> archive strip
-    { t: 'walk', x: 50.5, y: 3.5 }, { t: 'act' },  // shard chest +10
-    { t: 'walk', x: 55.5, y: 6.5 }, { t: 'act' },  // railcannon pickup
+    { t: 'walk', x: 50.5, y: 4.4 }, { t: 'act', check: CHEST(50, 3) },   // shard chest +10
+    { t: 'walk', x: 55.5, y: 6.5 }, { t: 'act', check: g => g.players[0].fieldWeapon?.kind === 'railcannon' }, // railcannon
     { t: 'walk', x: 84.5, y: 17.5 }, // east pad pair down into the array floor
     { t: 'walk', x: 70.5, y: 19.5 },
-    { t: 'shoot', x: 64.5, y: 22.5, range: 9, until: PILL('pl5') },
-    { t: 'shoot', x: 61.5, y: 22.5, range: 9, until: PILL('pl4') },
-    { t: 'shoot', x: 58.5, y: 22.5, range: 9, until: PILL('pl3') },
-    { t: 'walk', x: 66.5, y: 38.5 }, // vault approach muster
-    { t: 'wait', until: (g, f) => f.vaultBossDead },
-    { t: 'walk', x: 60.5, y: 36.5 }, // stage OFF sw4 for the deliberate fail
+    { t: 'shoot', x: 64.5, y: 22.5, range: 11, until: PILL('pl5') },
+    { t: 'shoot', x: 61.5, y: 22.5, range: 11, until: PILL('pl4') },
+    { t: 'shoot', x: 58.5, y: 22.5, range: 11, until: PILL('pl3') },
+    ...vaultAssault,
+    { t: 'walk', x: 60.5, y: 36.5 }, // hold OFF sw4 through the deliberate fail
     { t: 'wait', until: (g, f) => f.switchReset },
-    { t: 'walk', x: 60.5, y: 38.3 },
+    { t: 'walk', x: 60.5, y: 39.6 },
     { t: 'wait', until: (g, f) => f.goSuccess },
-    { t: 'act' }, // sw4
-    { t: 'wait', until: (g, f) => f.coreOpen },
-    { t: 'walk', x: 82.5, y: 31.5 },
-    { t: 'wait', until: (g, f) => f.coreBossDead || g.elapsed > f.coreOpenT + 90 },
+    { t: 'act', check: SW('voice-4') }, // sw4 at (60,38)
+    ...backup(0, 'voice-2', 72.5, 27.6), // sw2 (72,26) if the quorum hangs
+    ...coreAssault(0),
+    { t: 'walk', x: 85.5, y: 31.5 },
     { t: 'walk', x: 88.5, y: 31.5, allowExit: true }, // extract
   ]);
   lance.engageT = 10;
 
   // pid 1 RUNNER (scout): quest giver, fragment, forge, vault, the inner four relays
   const runner = makeBot(1, [
-    { t: 'walk', x: 10.5, y: 44.2 }, { t: 'act' }, // sel-brakka: activate the chapter
+    { t: 'walk', x: 10.5, y: 44.4 }, { t: 'act', check: (g, f) => f.questsActive }, // sel-brakka
     { t: 'walk', x: 14.5, y: 22.5 }, // west pad pair
-    { t: 'walk', x: 12.5, y: 17.2 }, { t: 'act' }, // hask: q-seal active
+    { t: 'walk', x: 12.5, y: 17.3 }, { t: 'act', check: g => g.quests.find(q => q.id === 'q-seal').state !== 'hidden' }, // hask
     { t: 'walk', x: 4.5, y: 4.5 },   // proof fragment (touch-scoop)
     { t: 'walk', x: 9.5, y: 12.5 },
     { t: 'wait', until: g => g.shards >= 20 },
     { t: 'walk', x: 8.6, y: 12.5 },
     { t: 'holdact', until: (g, f) => f.sealForged },
-    { t: 'walk', x: 12.5, y: 17.2 }, { t: 'act' }, // hask settles q-seal (+8)
-    { t: 'walk', x: 14.5, y: 33.5 }, // pads home, then south pair east
-    { t: 'walk', x: 60.5, y: 44.5 }, // travel with the squad zone
-    { t: 'wait', until: (g, f) => f.vaultBossDead },
+    { t: 'walk', x: 12.5, y: 17.3 }, { t: 'act', check: g => g.quests.find(q => q.id === 'q-seal').state === 'done' }, // settle q-seal
+    ...vaultAssault,
     { t: 'touchdoor', id: 'vault' },
-    { t: 'walk', x: 74.5, y: 42.8 }, // inner cluster: stand by sw5
+    { t: 'walk', x: 74.5, y: 42.6 }, // inner cluster: stand by sw5
     { t: 'wait', until: (g, f) => f.goFail },
-    { t: 'walk', x: 74.5, y: 41.4 }, { t: 'act' }, // sw5
-    { t: 'walk', x: 78.5, y: 41.4 }, { t: 'act' }, // sw6
-    { t: 'walk', x: 74.5, y: 47.4 }, { t: 'act' }, // sw7
-    { t: 'walk', x: 78.5, y: 47.4 }, { t: 'act' }, // sw8  (6th throw -> window runs out)
-    { t: 'walk', x: 80.5, y: 48.4 }, { t: 'act' }, // vault chest (token) while waiting
+    { t: 'act', check: SW('voice-5') },                                  // sw5 (74,41)
+    { t: 'walk', x: 78.5, y: 42.6 }, { t: 'act', check: SW('voice-6') }, // sw6 (78,41)
+    { t: 'walk', x: 74.5, y: 46.4 }, { t: 'act', check: SW('voice-7') }, // sw7 (74,47)
+    { t: 'walk', x: 78.5, y: 46.4 }, { t: 'act', check: SW('voice-8') }, // sw8 (78,47) = 6th throw
+    { t: 'walk', x: 80.5, y: 49.6 }, { t: 'act', check: CHEST(80, 48) }, // vault token chest
     { t: 'wait', until: (g, f) => f.switchReset },
-    { t: 'walk', x: 74.5, y: 42.0 },
+    { t: 'walk', x: 74.5, y: 42.6 },
     { t: 'wait', until: (g, f) => f.goSuccess },
-    { t: 'walk', x: 74.5, y: 41.4 }, { t: 'act' },
-    { t: 'walk', x: 78.5, y: 41.4 }, { t: 'act' },
-    { t: 'walk', x: 74.5, y: 47.4 }, { t: 'act' },
-    { t: 'walk', x: 78.5, y: 47.4 }, { t: 'act' },
-    { t: 'wait', until: (g, f) => f.coreOpen },
+    { t: 'act', check: SW('voice-5') },
+    { t: 'walk', x: 78.5, y: 42.6 }, { t: 'act', check: SW('voice-6') },
+    { t: 'walk', x: 74.5, y: 46.4 }, { t: 'act', check: SW('voice-7') },
+    { t: 'walk', x: 78.5, y: 46.4 }, { t: 'act', check: SW('voice-8') },
+    ...coreAssault(1),
     { t: 'walk', x: 85.5, y: 32.5 }, // the Array core: q-core 'reach'
-    { t: 'wait', until: (g, f) => f.coreBossDead || g.elapsed > f.coreOpenT + 90 },
     { t: 'walk', x: 88.5, y: 32.5, allowExit: true },
   ]);
 
@@ -382,20 +421,20 @@ function buildBots() {
   const ghost = makeBot(2, [
     { t: 'wait', until: (g, f) => f.questsActive },
     { t: 'shoot', x: 14.5, y: 36.5, range: 6, until: g => !g.crystals.some(c => Math.floor(c.x / TILE) === 14 && Math.floor(c.y / TILE) === 36) },
-    { t: 'walk', x: 24.5, y: 42.4 }, { t: 'act' }, // chest +8
+    { t: 'walk', x: 24.5, y: 43.6 }, { t: 'act', check: CHEST(24, 42) }, // chest +8
     { t: 'walk', x: 42.5, y: 52.5 }, // south pads east
-    { t: 'walk', x: 40.5, y: 56.6 }, { t: 'act' }, // chest +9
-    { t: 'walk', x: 56.5, y: 41.5 }, // squad muster south of the vault
-    { t: 'walk', x: 66.5, y: 41.5 },
-    { t: 'wait', until: (g, f) => f.vaultBossDead },
-    { t: 'walk', x: 43.5, y: 33.4 }, // stage at sw3
+    { t: 'walk', x: 40.5, y: 55.4 }, { t: 'act', check: CHEST(40, 57) }, // chest +9
+    ...vaultAssault,
+    { t: 'walk', x: 43.5, y: 34.6 }, // stage at sw3 (43,34)
     { t: 'wait', until: (g, f) => f.goFail },
-    { t: 'act' }, // sw3
+    { t: 'act', check: SW('voice-3') },
     { t: 'wait', until: (g, f) => f.switchReset },
+    { t: 'walk', x: 43.5, y: 34.6 },
     { t: 'wait', until: (g, f) => f.goSuccess },
-    { t: 'walk', x: 43.5, y: 33.4 }, { t: 'act' }, // sw3 again
+    { t: 'act', check: SW('voice-3') },
+    ...backup(2, 'voice-1', 46.5, 19.6), // sw1 (46,18) if the quorum hangs
     { t: 'wait', until: (g, f) => f.reachDone },
-    { t: 'walk', x: 10.5, y: 44.2 }, { t: 'act' }, // sel-brakka settles destroy/switch/reach
+    { t: 'walk', x: 10.5, y: 44.4 }, { t: 'act', check: g => g.quests.find(q => q.id === 'q-migration').state === 'done' },
     { t: 'walk', x: 85.5, y: 31.5 },
     { t: 'walk', x: 88.5, y: 31.5, allowExit: true },
   ]);
@@ -405,22 +444,20 @@ function buildBots() {
     { t: 'wait', until: (g, f) => f.questsActive },
     { t: 'walk', x: 28.5, y: 50.5 }, // south pad east with GHOST
     { t: 'walk', x: 50.5, y: 44.5 },
-    { t: 'walk', x: 56.5, y: 30.4 }, { t: 'act' }, // stormgun pickup
-    { t: 'walk', x: 56.5, y: 41.5 },
+    { t: 'walk', x: 56.5, y: 31.6 }, { t: 'act', check: g => g.players[3].fieldWeapon?.kind === 'stormgun' }, // stormgun
     { t: 'wait', until: (g, f) => f.sealForged && g.shards >= 12 },
     { t: 'walk', x: 45.5, y: 50.4 },
     { t: 'holdact', until: (g, f) => f.beaconBuilt },
-    { t: 'walk', x: 66.5, y: 44.5 }, // join the vault push
-    { t: 'wait', until: (g, f) => f.vaultBossDead },
-    { t: 'walk', x: 50.5, y: 49.4 }, // stage at sw9
+    ...vaultAssault,
+    { t: 'walk', x: 50.5, y: 49.4 }, // stage at sw9 (50,50)
     { t: 'wait', until: (g, f) => f.goFail },
-    { t: 'act' }, // sw9
+    { t: 'act', check: SW('voice-9') },
     { t: 'wait', until: (g, f) => f.switchReset },
+    { t: 'walk', x: 50.5, y: 49.4 },
     { t: 'wait', until: (g, f) => f.goSuccess },
-    { t: 'walk', x: 50.5, y: 49.4 }, { t: 'act' }, // sw9 again
-    { t: 'wait', until: (g, f) => f.coreOpen },
-    { t: 'walk', x: 82.5, y: 32.5 },
-    { t: 'wait', until: (g, f) => f.coreBossDead || g.elapsed > f.coreOpenT + 90 },
+    { t: 'act', check: SW('voice-9') },
+    ...coreAssault(3),
+    { t: 'walk', x: 85.5, y: 33.0 },
     { t: 'walk', x: 89.5, y: 32.5, allowExit: true },
   ]);
   spark.engageT = 7;
@@ -441,12 +478,13 @@ function fnv(h, s) { for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); 
 function runChapter(capSeconds) {
   const g = createGame(def, PARTY, charMap, ROSTER);
   const bots = buildBots();
-  const flags = { coreOpenT: Infinity };
+  const flags = { coreOpenT: Infinity, goSuccessT: Infinity, actWhiffs: [] };
   const log = [];
   let hash = 2166136261;
   const vaultBossId = g.enemies.find(e => e.kind === 'boss' && Math.floor(e.x / TILE) === 69)?.id;
   const coreBossId = g.enemies.find(e => e.kind === 'boss' && Math.floor(e.x / TILE) === 86)?.id;
   let beacon = null; // { frame, data }
+  let tailFrames = 0; // frames stepped since the beacon was lit
   const tail = { inputs: [], hashes: [] }; // post-beacon replay material
   const phantom = { seen: false, minD: Infinity, acoAlive: 0, noSealOk: true, t: 0 };
   let timeLeftDrift = false;
@@ -458,26 +496,47 @@ function runChapter(capSeconds) {
     // mission control: derive squad-level flags from live state
     flags.vaultBossDead = !g.enemies.some(e => e.id === vaultBossId);
     flags.coreBossDead = !g.enemies.some(e => e.id === coreBossId);
-    const onCount = g.switches.filter(s => s.on).length;
-    if (!flags.switchReset) {
-      // throwers in position for the deliberate six?
-      flags.goFail = flags.goFail
-        || (flags.vaultOpen && at(g, 1, 74, 42, 4) && at(g, 2, 43, 33, 3) && at(g, 3, 50, 49, 3));
-    } else {
-      flags.goSuccess = flags.goSuccess
-        || (at(g, 1, 74, 42, 4) && at(g, 2, 43, 33, 3) && at(g, 3, 50, 49, 3) && at(g, 0, 60, 38, 3));
+    if (!flags.muster) {
+      let near = 0;
+      for (const p of g.players) {
+        if (p.state === 'active' && Math.hypot(p.x - MUSTER.x * TILE, p.y - MUSTER.y * TILE) < 9 * TILE) near++;
+      }
+      flags.muster = near >= 3 || g.elapsed > 420;
     }
+    if (!flags.switchReset) {
+      flags.goFail = flags.goFail
+        || (flags.vaultOpen && at(g, 1, 74, 42, 4) && at(g, 2, 43, 34, 3) && at(g, 3, 50, 49, 3));
+    } else if (!flags.goSuccess) {
+      flags.goSuccess = (at(g, 1, 74, 42, 4) && at(g, 2, 43, 34, 3) && at(g, 3, 50, 49, 3) && at(g, 0, 60, 39, 3))
+        || g.elapsed > (flags.switchResetT ?? Infinity) + 200;
+      if (flags.goSuccess) flags.goSuccessT = g.elapsed;
+    }
+    // door state is read straight off the sim so a drained event can never
+    // stall the script (events drive the verdicts, state drives the bots)
+    if (g.doors.find(d => d.id === 'vault')?.open) flags.vaultOpen = true;
+    if (g.doors.find(d => d.id === 'core-gate')?.open && !flags.coreOpen) { flags.coreOpen = true; flags.coreOpenT = g.elapsed; }
     const inputs = {};
     for (const bot of bots) inputs[bot.pid] = think(g, bot, flags, frame);
-    if (beacon && tail.inputs.length < 1500) tail.inputs.push(JSON.stringify(inputs));
-    step(g, inputs, DT);
-    if (beacon && tail.inputs.length <= 1500 && tail.inputs.length % 30 === 0) {
-      tail.hashes.push(fnv(2166136261, JSON.stringify(snapshot(g, false))));
+    if (beacon && tail.inputs.length < 1500) {
+      // record facing too: bots aim by writing p.fx/fy (twin-stick style), so
+      // a faithful replay must restore the same pre-step facing
+      tail.inputs.push(JSON.stringify({ inputs, facing: g.players.map(p => [p.fx, p.fy]) }));
     }
+    step(g, inputs, DT);
     if (g.timeLeft !== def.time) timeLeftDrift = true;
+    // harvest events FIRST: snapshot() drains g.events (the server ships them
+    // per tick), so every sampler below must run on the harvested copy
+    const evs = g.events.splice(0);
 
+    if (beacon) {
+      tailFrames++;
+      if (tailFrames % 30 === 0 && tailFrames <= 1500) {
+        tail.hashes.push(fnv(2166136261, JSON.stringify(snapshot(g, false))));
+      }
+    }
     // phantom reveal sampling: carrier + acolyte within the 6-tile reveal ring
-    const carrier = g.players.find(pp => pp.state === 'active' && pp.item && pp.item.kind === 'lythseal');
+    // (the seal rides its own p.lythseal field now, never the item slot)
+    const carrier = g.players.find(pp => pp.state === 'active' && pp.lythseal);
     if (carrier && !phantom.seen) {
       for (const e of g.enemies) {
         if (e.dead || e.kind !== 'acolyte') continue;
@@ -495,7 +554,7 @@ function runChapter(capSeconds) {
       }
     }
 
-    for (const ev of g.events) {
+    for (const ev of evs) {
       const rec = { ...ev, t: g.elapsed };
       log.push(rec);
       if (ev.type === 'pillarDown') {
@@ -507,20 +566,20 @@ function runChapter(capSeconds) {
       if (ev.type === 'sealForged') { flags.sealForged = true; rec.shardsAfter = g.shards; }
       if (ev.type === 'doorOpen' && ev.id === 'vault') flags.vaultOpen = true;
       if (ev.type === 'doorOpen' && ev.id === 'core-gate') { flags.coreOpen = true; flags.coreOpenT = g.elapsed; }
-      if (ev.type === 'switchReset') { flags.switchReset = true; rec.onAfter = g.switches.filter(s => s.on).length; }
-      if (ev.type === 'quorum') rec.onAt = g.switches.filter(s => s.on).length;
+      if (ev.type === 'switchReset') { flags.switchReset = true; flags.switchResetT = g.elapsed; rec.onAfter = g.switches.filter(s => s.on).length; }
+      if (ev.type === 'quorum') { flags.quorum = true; rec.onAt = g.switches.filter(s => s.on).length; }
       if (ev.type === 'questProgress' && ev.id === 'q-core') flags.reachDone = true;
+      if (ev.type === 'built' && ev.kind === 'beacon') flags.beaconBuilt = true;
       if (ev.type === 'beacon' && !beacon) beacon = { frame, data: serializeGame(g), elapsed: g.elapsed };
       if (ev.type !== 'shoot' && ev.type !== 'hitWall' && ev.type !== 'build' && ev.type !== 'aim') {
         hash = fnv(hash, `${ev.type}:${ev.pid ?? ev.id ?? ''}:${Math.round(ev.x ?? 0)},${Math.round(ev.y ?? 0)};`);
       }
-      if (DEBUG && !['shoot', 'hitWall', 'build', 'aim', 'shard', 'die', 'spawnEnemy', 'playerHit', 'pillarHit'].includes(ev.type)) {
-        console.log('  EV t=' + g.elapsed.toFixed(1), JSON.stringify(rec).slice(0, 160));
+      if (DEBUG && !['shoot', 'hitWall', 'build', 'aim', 'shard', 'die', 'spawnEnemy', 'playerHit', 'pillarHit', 'hit', 'alert', 'patch', 'pyreBurst', 'shield', 'shieldPop', 'enemyShield', 'levelUp', 'heal'].includes(ev.type)) {
+        console.log('  EV t=' + g.elapsed.toFixed(1), JSON.stringify(rec).slice(0, 150));
       }
     }
-    g.events.length = 0;
     if (DEBUG && frame % (30 * 15) === 0) {
-      console.log(`t=${g.elapsed.toFixed(0)} shards=${g.shards.toFixed(0)} pillars=${g.pillars.length} on=${onCount} `
+      console.log(`t=${g.elapsed.toFixed(0)} shards=${g.shards.toFixed(0)} pillars=${g.pillars.length} on=${g.switches.filter(s => s.on).length} `
         + g.players.map(p => `${p.pid}:${p.state[0]}${p.hp ?? ''}@${(p.x / TILE).toFixed(0)},${(p.y / TILE).toFixed(0)}${bots[p.pid] ? '#' + bots[p.pid].ti : ''}`).join(' '));
     }
   }
@@ -550,17 +609,13 @@ check('pillars fell under guard pressure (awake enemies within 8 tiles)',
   A.pillarPressure.map(pp => `${pp.id}:${pp.guards} guards`).join(', '));
 const qMig = A.g.quests.find(q => q.id === 'q-migration');
 check('destroy quest counted all six and settled at sel-brakka',
-  qMig.progress === 6 && qMig.state === 'done');
+  qMig.progress === 6 && qMig.state === 'done', `progress ${qMig.progress}/6, state ${qMig.state}`);
 
 // fragment + forge
 const qp = ev('qitemPickup');
 const sf = ev('sealForged');
-const shardsBeforeForge = (() => {
-  // pool delta proof rides the event record (shardsAfter) + the forge cost constant
-  return sf.length ? sf[0].shardsAfter : NaN;
-})();
 check('proof fragment fetched (qitemPickup) and seal forged', qp.length >= 1 && sf.length === 1,
-  `fragment ${qp[0]?.id} @${qp[0]?.t.toFixed(0)}s; sealForged @${sf[0]?.t.toFixed(0)}s by pid${sf[0]?.pid}, pool after=${shardsBeforeForge}`);
+  `fragment ${qp[0]?.id} @${qp[0]?.t.toFixed(0)}s; sealForged @${sf[0]?.t.toFixed(0)}s by pid${sf[0]?.pid}, pool after=${sf[0]?.shardsAfter}`);
 check('forge consumed the fragment + 20 shards',
   sf.length === 1 && !A.g.qitems.some(it => it.id === 'frag-keeper') && A.g.qitems.length === 1,
   `qitems left on field: ${A.g.qitems.map(i => i.id).join(', ') || 'none'}`);
@@ -578,18 +633,17 @@ check('Phantom reveal: snapshot hasSeal on the carrier within 6 tiles of an acol
 const swEv = ev('switch');
 const reset = ev('switchReset');
 const quorum = ev('quorum');
-const firstSix = swEv.slice(0, 6);
+const preReset = reset.length ? swEv.filter(e => e.t < reset[0].t) : [];
 check('deliberate fail: exactly 6 thrown, 120s window expires, switchReset wipes the cluster',
-  reset.length === 1 && firstSix.length === 6 && swEv.filter(e => e.t < reset[0].t).length === 6
-  && reset[0].onAfter === 0
-  && Math.abs(reset[0].t - firstSix[0].t - 120) < 1.5,
-  reset.length ? `6 on by ${firstSix[5].t.toFixed(0)}s, reset @${reset[0].t.toFixed(0)}s (${(reset[0].t - firstSix[0].t).toFixed(1)}s after first throw), relays on after reset: ${reset[0].onAfter}` : 'no reset fired');
+  reset.length === 1 && preReset.length === 6 && reset[0].onAfter === 0
+  && Math.abs(reset[0].t - preReset[0]?.t - 120) < 1.5,
+  reset.length ? `6 on by ${preReset[5]?.t.toFixed(0)}s, reset @${reset[0].t.toFixed(0)}s (${(reset[0].t - preReset[0]?.t).toFixed(1)}s after first throw), relays on after reset: ${reset[0].onAfter}` : 'no reset fired');
 check('second attempt: 7-of-10 inside the window fires the quorum and opens the core gate',
   quorum.length === 1 && quorum[0].onAt === 7 && reset.length === 1 && quorum[0].t > reset[0].t
   && ev('doorOpen').some(e => e.id === 'core-gate'),
-  quorum.length ? `quorum @${quorum[0].t.toFixed(0)}s with ${quorum[0].onAt} relays on (window ${(quorum[0].t - swEv.find(e => e.t > reset[0].t).t).toFixed(1)}s)` : 'no quorum');
+  quorum.length ? `quorum @${quorum[0].t.toFixed(0)}s with ${quorum[0].onAt} relays on (${(quorum[0].t - swEv.find(e => e.t > reset[0].t)?.t).toFixed(1)}s after the window opened)` : 'no quorum');
 const qQuorum = A.g.quests.find(q => q.id === 'q-quorum');
-check('switch quest (group 0) settled', qQuorum.state === 'done');
+check('switch quest (group 0) settled', qQuorum.state === 'done', `state ${qQuorum.state}`);
 
 // reach + finale
 const reach = ev('questProgress').find(e => e.id === 'q-core');
@@ -604,8 +658,7 @@ const tp = ev('teleport');
 const padPairs = [...new Set(tp.map(e => e.from + '->' + e.to))];
 check('teleport network traversal: pads used across the run', tp.length >= 8 && padPairs.length >= 5,
   `${tp.length} blinks over ${padPairs.length} distinct pad routes`);
-const carrierBlinks = tp.filter(e => e.pid === 1).length;
-note(`carrier (Runner) used pads ${carrierBlinks}x; routes: ${padPairs.join(', ')}`);
+note(`pad routes: ${padPairs.join(', ')}`);
 
 // beacon -> serialize/restore resume determinism
 check('save beacon built (cost 10) and beacon event fired', !!A.beacon && ev('beacon').length === 1,
@@ -615,7 +668,14 @@ if (A.beacon) {
   const runTail = (gr) => {
     const hashes = [];
     for (let i = 0; i < replayInputs.length; i++) {
-      step(gr, replayInputs[i], DT);
+      // restore the recorded pre-step facings: bots aim by writing p.fx/fy
+      // directly (twin-stick style), which step() never sees in the inputs
+      const { inputs, facing } = replayInputs[i];
+      gr.players.forEach((p2, k) => {
+        const f = facing[k];
+        if (f) { p2.fx = f[0]; p2.fy = f[1]; }
+      });
+      step(gr, inputs, DT);
       gr.events.length = 0;
       if ((i + 1) % 30 === 0) hashes.push(fnv(2166136261, JSON.stringify(snapshot(gr, false))));
     }
@@ -635,12 +695,13 @@ const downs = ev('down').length;
 const waves = ev('wave');
 note(`waves survived: ${waves.length} (${waves.map(w => w.count + '@' + w.t.toFixed(0) + 's').join(', ')}); downs: ${downs}; kills: ${A.g.kills}; pool end: ${A.g.shards.toFixed(0)} shards`);
 note(`field weapons: ${ev('fieldPickup').map(e => e.kind + '->pid' + e.pid).join(', ') || 'none'}; empties: ${ev('fieldEmpty').map(e => e.kind).join(', ') || 'none'}`);
+if (A.flags.actWhiffs.length) note('act whiffs (task gave up): ' + A.flags.actWhiffs.join(', '));
 for (const p of A.g.players) {
-  note(`${PARTY[p.pid].name.padEnd(7)} ${p.state.padEnd(10)} hp=${p.hp ?? '-'} item=${p.item ? p.item.kind + 'x' + p.item.count : '-'} xp=${p.xp?.toFixed(0) ?? '-'} L${p.level ?? '-'}`);
+  note(`${PARTY[p.pid].name.padEnd(7)} ${p.state.padEnd(10)} char=${p.charId ?? '-'} hp=${p.hp ?? '-'} item=${p.item ? p.item.kind + 'x' + p.item.count : '-'} xp=${p.xp?.toFixed(0) ?? '-'} L${p.level ?? '-'}`);
 }
 
 // ---------------- determinism: full second run ----------------
-const B = runChapter(2400);
+const B = runChapter(CAP);
 check('full-chapter determinism: rerun matches event hash, status and clear time',
   B.hash === A.hash && B.g.status === A.g.status && Math.abs(B.g.elapsed - A.g.elapsed) < 0.001,
   `hashes ${A.hash.toString(16)} / ${B.hash.toString(16)}, t=${A.g.elapsed.toFixed(1)} / ${B.g.elapsed.toFixed(1)}`);

@@ -63,6 +63,21 @@ function testLevelsParse() {
     const parsed = parseLevel(level);
     assert.ok(parsed.spawns.length > 0, `level ${idx + 1} parses spawns`);
     if (!pvp) assert.ok(parsed.enemies.length > 0, `level ${idx + 1} parses enemies`);
+    // EVERY level (story, stronghold, classic alike): each openDoor reward id
+    // referenced by quests/switchGroups/glyphGroups must name a real door in
+    // def.doors — a phantom id would park forever and soft-lock the puzzle
+    const doorIds = new Set((level.doors || []).map((d, i) => d.id || 'door' + i));
+    const wantsDoor = (id, src) =>
+      assert.ok(doorIds.has(id), `level ${idx + 1} (${level.name}): ${src} openDoor reward '${id}' exists in def.doors`);
+    for (const q of level.quests || []) {
+      if (q.reward && q.reward.openDoor) wantsDoor(q.reward.openDoor, `quest '${q.id}'`);
+    }
+    for (const sg of level.switchGroups || []) {
+      if (sg.reward && sg.reward.openDoor) wantsDoor(sg.reward.openDoor, `switch group '${sg.group}'`);
+    }
+    for (const gg of level.glyphGroups || []) {
+      if (gg.reward && gg.reward.openDoor) wantsDoor(gg.reward.openDoor, `glyph group '${gg.group}'`);
+    }
   }
   for (const ch of characters) {
     if (!ch.starting) assert.ok(captiveIds.has(ch.id), `${ch.id} is obtainable as a captive`);
@@ -1448,7 +1463,7 @@ function testBastionCycleWavesAndWin() {
   assert.equal(g.cycle.phase, 'night');
   const wave1 = g.enemies.slice();
   assert.equal(wave1.length, 5, 'night 1 solo wave is 5 enemies (base 6 x 0.8)');
-  assert.deepEqual(wave1.map(e => e.letter), ['g', 'g', 'w', 'g', 'g'], 'night 1 is grunts and skitters');
+  assert.deepEqual(wave1.map(e => e.letter), ['z', 'z', 'w', 'z', 'z'], 'night 1 is husk fodder and skitters');
   for (const e of wave1) {
     assert.equal(e.awake, true, 'wave enemy spawns awake');
     assert.equal(e.targetCore, true, 'wave enemy targets the core');
@@ -1461,9 +1476,9 @@ function testBastionCycleWavesAndWin() {
     ['feral', 'bulk', 'volatile', 'split', undefined],
     'night 1 mutations follow the deterministic roll'
   );
-  assert.equal(wave1[0].speed, 1.25 * TILE * 1.5, 'feral runs +50% faster');
-  assert.equal(wave1[1].hp, 4, 'bulk doubles hp');
-  assert.equal(wave1[1].speed, 1.25 * TILE * 0.75, 'bulk lumbers at -25% speed');
+  assert.equal(wave1[0].speed, 1.0 * TILE * 1.5, 'feral runs +50% faster');
+  assert.equal(wave1[1].hp, 2, 'bulk doubles hp');
+  assert.equal(wave1[1].speed, 1.0 * TILE * 0.75, 'bulk lumbers at -25% speed');
   const snapEn = snapshot(g, false).enemies;
   assert.equal(snapEn.filter(e => e.mutation).length, 4, 'snapshot exposes mutations');
   assert.ok(snapEn.some(e => !('mutation' in e)), 'unmutated wave enemies ship no mutation key');
@@ -1491,7 +1506,11 @@ function testBastionCycleWavesAndWin() {
   assert.ok(wave2.some(e => e.x > 38 * TILE), 'first blood edge is east');
   assert.ok(wave2.some(e => e.x < 2 * TILE), 'second blood edge is west');
   assert.ok(wave2.every(e => e.mutation), 'every blood moon enemy is mutated');
-  assert.ok(wave2.filter(e => e.mutation !== 'bulk').every(e => e.hp === (e.letter === 'w' ? 2 : 3)), 'blood moon adds +1 hp');
+  // night 2 blends z z w u (+ one trailing f per edge); +1 hp on base stats
+  const bloodHp = { z: 2, w: 2, u: 3, f: 4 };
+  assert.ok(wave2.filter(e => e.mutation !== 'bulk').every(e => e.hp === bloodHp[e.letter]), 'blood moon adds +1 hp');
+  assert.ok(wave2.some(e => e.letter === 'u') && wave2.some(e => e.letter === 'f'),
+    'night 2 mixes in Pyre Beetles and a Fork Alpha');
   assert.equal(g.events.filter(ev => ev.type === 'wave').length, 2, 'one wave event per blood-moon entry edge');
   // final dawn wins the mission outright
   run(g, () => ({ 0: {} }), 4.5);
@@ -3774,36 +3793,47 @@ function testBloodMoonAndLateNightBuffs() {
   // nights 1+2 (5 + 7 spawns) carry no hp buff
   run(g, () => ({ 0: {} }), 6.5);
   assert.equal(g.enemies.length, 12, 'nights 1+2 spawned 5 + 7');
-  assert.ok(g.enemies.filter(e => !e.mutation && e.letter === 'g').every(e => e.hp === 2),
-    'early-night plain grunts keep base 2 hp');
-  // night 3 (normal): +15% hp rounded up, applied after mutation
+  assert.ok(g.enemies.filter(e => !e.mutation && e.letter === 'z').every(e => e.hp === 1),
+    'early-night plain husks keep base 1 hp');
+  // night 3 (normal): +15% hp rounded up, applied after mutation.
+  // Composition (solo size 8): z g w u r z q f (cycle zgwur, q/f trailing).
   run(g, () => ({ 0: {} }), 4);
   const wave3 = g.enemies.slice(12);
   assert.equal(wave3.length, 8, 'night 3 solo wave is 8 (base 10 x 0.8)');
+  assert.deepEqual(wave3.map(e => e.letter), ['z', 'g', 'w', 'u', 'r', 'z', 'q', 'f'],
+    'night 3 blends the frontier roster plus one acolyte and one alpha');
   const plainSkitter3 = wave3[2]; // 'w', mutation roll (3*31+2)%5 = 0 -> none
   assert.equal(plainSkitter3.letter, 'w');
   assert.equal(plainSkitter3.mutation, undefined);
   assert.equal(plainSkitter3.hp, 2, 'night 3 skitter: ceil(1 * 1.15) = 2');
-  const plainCharger3 = wave3[7]; // 'r', roll (3*31+7)%5 = 0 -> none
-  assert.equal(plainCharger3.letter, 'r');
-  assert.equal(plainCharger3.hp, 4, 'night 3 charger: ceil(3 * 1.15) = 4');
-  const bulk3 = wave3[4]; // 'g', roll (3*31+4)%5 = 2 -> bulk
+  const plainAlpha3 = wave3[7]; // 'f', roll (3*31+7)%5 = 0 -> none
+  assert.equal(plainAlpha3.letter, 'f');
+  assert.equal(plainAlpha3.hp, 4, 'night 3 fork alpha: ceil(3 * 1.15) = 4');
+  const bulk3 = wave3[4]; // 'r', roll (3*31+4)%5 = 2 -> bulk
+  assert.equal(bulk3.letter, 'r');
   assert.equal(bulk3.mutation, 'bulk');
-  assert.equal(bulk3.hp, 5, 'night 3 bulk grunt: ceil(2*2 * 1.15) = 5');
-  assert.equal(bulk3.speed, 1.25 * TILE * 0.75, 'normal-night buff never touches speed');
-  // night 4 (blood moon): full mutation, +1 hp, +25% speed — no 15% stacking
+  assert.equal(bulk3.hp, 7, 'night 3 bulk charger: ceil(3*2 * 1.15) = 7');
+  assert.equal(bulk3.speed, 1.0 * TILE * 0.75, 'normal-night buff never touches speed');
+  // night 4 (blood moon): full mutation, +1 hp, +25% speed — no 15% stacking.
+  // Composition (solo size 10): z g w u s v g w q f — wraiths join from n4.
   run(g, () => ({ 0: {} }), 4);
   const wave4 = g.enemies.slice(20);
   assert.equal(wave4.length, 20, 'blood moon pours 10 per edge from two edges');
   assert.ok(wave4.every(e => e.mutation), 'every blood moon enemy is mutated');
+  assert.ok(wave4.some(e => e.letter === 'v') && wave4.some(e => e.letter === 's'),
+    'night 4 anchors bulwarks and stalks in Volt Wraiths');
   const feral4 = wave4[2]; // 'w', roll (4*31+2)%5 = 1 -> feral
   assert.equal(feral4.mutation, 'feral');
   assert.equal(feral4.hp, 2, 'blood skitter: 1 + 1 hp (no 15% on blood nights)');
   assert.equal(feral4.speed, 2.0 * TILE * 1.5 * 1.25, 'blood feral skitter: base x1.5 feral x1.25 blood');
-  const split4 = wave4[0]; // 'g', roll (4*31)%5 = 4 -> split
+  const split4 = wave4[0]; // 'z', roll (4*31)%5 = 4 -> split
+  assert.equal(split4.letter, 'z');
   assert.equal(split4.mutation, 'split');
-  assert.equal(split4.hp, 3, 'blood grunt: 2 + 1 hp');
-  assert.equal(split4.speed, 1.25 * TILE * 1.25, 'blood grunt pace: base x1.25');
+  assert.equal(split4.hp, 2, 'blood husk: 1 + 1 hp');
+  assert.equal(split4.speed, 1.0 * TILE * 1.25, 'blood husk pace: base x1.25');
+  const wraith4 = wave4[5]; // 'v', roll (4*31+5)%5 = 4 -> split
+  assert.equal(wraith4.letter, 'v');
+  assert.equal(wraith4.hp, 4, 'blood wraith: rebalanced 3 + 1 hp');
 }
 
 // ===== SIM-D: frontier III — new roster, field weapons, quests ==============
@@ -4102,6 +4132,33 @@ function testFieldWeaponDropShareAndDownedDrop() {
   assert.deepEqual(p0.fieldWeapon, { kind: 'stormgun', ammo: 7 }, 'the new weapon is in hand');
   assert.deepEqual(g.pickups.map(w => ({ kind: w.kind, ammo: w.ammo })), [{ kind: 'flamer', ammo: 5 }],
     'the old weapon swapped out at the feet');
+  // --- ITEM tap vs hold: with a weapon in hand a TAP (<0.3s, on release)
+  // uses the item slot; a HOLD >=0.8s drops the weapon and never uses ---
+  p0.item = { kind: 'medkit', count: 2 };
+  p0.hp = 1;
+  run(g, () => ({ 0: { item: true } }), 4 / 30); // 0.13s and still held...
+  assert.equal(p0.hp, 1, 'a press in flight does nothing yet (tap-use waits for the release)');
+  run(g, () => ({ 0: {} }), 0.2); // ...released inside the 0.3s tap window
+  assert.equal(p0.hp, 2, 'the tap used the medkit on release');
+  assert.equal(p0.item.count, 1, 'one medkit spent');
+  assert.deepEqual(p0.fieldWeapon, { kind: 'stormgun', ammo: 7 }, 'the tap never dropped the weapon');
+  // a mid-length press (0.3s..0.8s) is neither tap nor drop
+  run(g, () => ({ 0: { item: true } }), 0.5);
+  run(g, () => ({ 0: {} }), 0.2);
+  assert.equal(p0.hp, 2, 'a 0.5s press is no tap: the item is preserved');
+  assert.deepEqual(p0.fieldWeapon, { kind: 'stormgun', ammo: 7 }, 'and no drop either');
+  // a full 0.8s hold drops the weapon; the closing release never tap-uses
+  const drops0 = g.pickups.length;
+  run(g, () => ({ 0: { item: true } }), 0.9);
+  assert.equal(p0.fieldWeapon, null, 'the 0.8s hold dropped the weapon');
+  assert.equal(g.pickups.length, drops0 + 1, 'it lies as a pickup');
+  run(g, () => ({ 0: {} }), 0.2);
+  assert.equal(p0.hp, 2, 'the release closing a fired hold uses nothing');
+  assert.equal(p0.item.count, 1, 'the medkit is untouched');
+  // empty-handed (no field weapon) the press edge uses the item immediately
+  step(g, { 0: { item: true } }, 1 / 30);
+  assert.equal(p0.hp, 3, 'without a field weapon the press edge heals at once');
+  assert.equal(p0.item, null, 'the last medkit is spent');
 }
 
 // --- quests: fetch lifecycle — hidden, active, carried fragment, done ---
@@ -4236,6 +4293,54 @@ function testQuestKillBuildReachAndRewards() {
   assert.equal(g.events.filter(ev => ev.type === 'quest' && ev.state === 'done').length, 4, 'four done events');
   const s = snapshot(g, false);
   assert.ok(s.quests.every(q => q.state === 'done'), 'snapshot tracks quest completion');
+
+  // --- main-quest gate + binary 'reach' finale (fresh field) ---------------
+  // The extermination auto-clear must hold while a MAIN quest is in flight,
+  // and a count-3 reach quest must complete in ONE tick (binary), with the
+  // settled main chain's reach finale clearing the chapter at the ring.
+  let rm = '#' + '.'.repeat(38) + '#';
+  rm = put(put(put(rm, 4, 'P'), 8, 'N'), 12, 'z');
+  const level2 = bigEmptyLevel([[5, rm]]);
+  level2.npcs = [{ id: 'brakka', name: 'Sel Brakka', lines: ['Walk in and prove it.'] }];
+  level2.quests = [
+    { id: 'm-cull', main: true, title: 'Cull the Husk', giver: 'brakka', kind: 'kill', target: 'z', count: 1 },
+    { id: 'm-core', main: true, title: 'Reach the Core', giver: 'brakka', kind: 'reach', target: { x: 30, y: 5 }, count: 3 },
+  ];
+  const g2 = createGame(level2, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const p2 = g2.players[0];
+  const npc2 = g2.npcs[0];
+  p2.invuln = 999;
+  g2.graceT = 0;
+  const talk2 = () => {
+    step(g2, { 0: {} }, 1 / 30);
+    step(g2, { 0: { act: true } }, 1 / 30);
+  };
+  p2.x = npc2.x + TILE;
+  p2.y = npc2.y;
+  talk2();
+  assert.ok(g2.quests.every(q => q.state === 'active'), 'both main quests are active');
+  // exterminate the field: the auto-clear must NOT fire past unfinished mains
+  for (let i = 0; i < 600 && g2.enemies.length; i++) step(g2, { 0: aimAtNearest(g2, p2) }, 1 / 30);
+  assert.equal(g2.enemies.length, 0, 'the field is empty');
+  run(g2, () => ({ 0: {} }), 0.5);
+  assert.equal(g2.status, 'play', 'an empty field never auto-clears past an unfinished MAIN quest');
+  // settle the kill quest at the giver; the reach finale still holds the field
+  p2.x = npc2.x + TILE;
+  p2.y = npc2.y;
+  talk2();
+  assert.equal(g2.quests.find(q => q.id === 'm-cull').state, 'done', 'the kill main settled');
+  run(g2, () => ({ 0: {} }), 0.5);
+  assert.equal(g2.status, 'play', 'the un-tripped reach finale still holds the field open');
+  // step into the ring: count 3 completes in ONE tick, and the finale clears
+  p2.x = (30 + 0.5) * TILE;
+  p2.y = (5 + 0.5) * TILE;
+  step(g2, { 0: {} }, 1 / 30);
+  const mq = g2.quests.find(q => q.id === 'm-core');
+  assert.equal(mq.progress, 3, 'reach quests are binary: progress jumps straight to count');
+  assert.equal(g2.events.filter(ev => ev.type === 'questProgress' && ev.id === 'm-core').length, 1,
+    'one progress event total — never 1 per tick');
+  assert.equal(g2.status, 'cleared', "the settled main chain's reach finale clears the chapter at the ring");
+  assert.ok(g2.events.some(ev => ev.type === 'clear'), 'clear event fired');
 }
 
 // --- untimed story: no countdown, no lowTime, waves keep riding elapsed ---
@@ -4503,15 +4608,17 @@ function testPillarDestructionAndQuest() {
 }
 
 // --- seal forge: 20 shards + a carried fragment mint a lythseal; the seal
-// opens sealLock doors on touch and flags hasSeal for the phantom reveal ---
+// rides its OWN field (never the item slot), opens sealLock doors on touch
+// and flags hasSeal for the phantom reveal; item-slot writes can't kill it ---
 function testSealForgeAndLythsealDoors() {
   const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
-  r = put(put(put(r, 4, 'P'), 8, 'Z'), 12, 'I');
+  r = put(put(put(put(r, 4, 'P'), 8, 'Z'), 12, 'I'), 16, 'C');
   // a wall line at y=10 with a floor gap at x=20, sealed by a sealLock door
   const wall = '#'.repeat(20) + '.' + '#'.repeat(19);
   const level = bigEmptyLevel([[5, r], [10, wall], [17, '#....................................g#']]);
   level.qitems = [{ id: 'proof1', kind: 'fragment' }];
+  level.chests = [{ loot: 'controller' }]; // an item-slot loot: the seal's old killer
   level.doors = [{ id: 'sealgate', x: 20, y: 10, sealLock: true }];
   const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   const p = g.players[0];
@@ -4527,7 +4634,7 @@ function testSealForgeAndLythsealDoors() {
   p.x = forge.x - TILE;
   p.y = forge.y;
   run(g, () => ({ 0: { act: true } }), 1.5);
-  assert.equal(p.item, null, 'no fragment, no seal');
+  assert.ok(!p.lythseal, 'no fragment, no seal');
   assert.equal(g.shards, 25, 'no shards spent');
   // scoop the fragment, then hold at the anvil
   p.x = g.qitems[0].x;
@@ -4537,16 +4644,29 @@ function testSealForgeAndLythsealDoors() {
   p.x = forge.x - TILE;
   p.y = forge.y;
   run(g, () => ({ 0: { act: true } }), 1.5);
-  assert.deepEqual(p.item, { kind: 'lythseal', count: 1 }, 'the forge minted a lythseal into the item slot');
+  assert.equal(p.lythseal, true, 'the forge minted a lythseal onto its own field');
+  assert.equal(p.item, null, 'the item slot stays free — the seal never occupies it');
   assert.equal(g.shards, 5, 'the forge consumed 20 shards');
   assert.equal(g.qitems.length, 0, 'the proof fragment was consumed');
   assert.ok(g.events.some(ev => ev.type === 'sealForged' && ev.pid === 0), 'sealForged event fired');
   assert.equal(g.quests.find(q => q.id === 'cq').progress, 1, "forging drove the 'craft' quest");
-  assert.equal(snapshot(g, false).players[0].hasSeal, true, 'snapshot flags the carrier for the phantom reveal');
+  const sp = snapshot(g, false).players[0];
+  assert.equal(sp.hasSeal, true, 'snapshot flags the carrier for the phantom reveal');
+  assert.equal(sp.lythseal, true, 'snapshot ships the lythseal field for the HUD');
   // the ITEM button never spends a lythseal (it is a key, not a consumable)
   step(g, { 0: {} }, 1 / 30);
   step(g, { 0: { item: true } }, 1 / 30);
-  assert.deepEqual(p.item, { kind: 'lythseal', count: 1 }, 'the seal is not consumable');
+  assert.equal(p.lythseal, true, 'the seal is not consumable');
+  // item-slot writes (chest loot, shop buys, quest rewards) coexist with the
+  // carried seal — opening a chest used to destroy it silently
+  p.x = g.chests[0].x;
+  p.y = g.chests[0].y;
+  step(g, { 0: {} }, 1 / 30);
+  step(g, { 0: { act: true } }, 1 / 30);
+  assert.equal(g.chests[0].opened, true, 'the chest opened');
+  assert.deepEqual(p.item, { kind: 'controller', count: 1 }, 'the loot filled the item slot');
+  assert.equal(p.lythseal, true, 'the carried seal SURVIVED the item-slot write');
+  assert.equal(snapshot(g, false).players[0].hasSeal, true, 'the phantom-reveal flag survived too');
   // the sealed gate blocks until the carrier touches it
   const doorX = (20 + 0.5) * TILE;
   p.x = doorX;
@@ -4557,6 +4677,13 @@ function testSealForgeAndLythsealDoors() {
   assert.ok(g.events.some(ev => ev.type === 'doorOpen' && ev.id === 'sealgate'), 'doorOpen event fired');
   run(g, () => ({ 0: { down: true } }), 2.5);
   assert.ok(p.y > 11 * TILE, 'the opened gate lets the carrier through');
+  // a legacy beacon (seal parked in the item slot) migrates on restore
+  const legacy = serializeGame(g);
+  legacy.players[0].lythseal = undefined;
+  legacy.players[0].item = { kind: 'lythseal', count: 1 };
+  const lg = restoreGame(JSON.parse(JSON.stringify(legacy)), charMap);
+  assert.equal(lg.players[0].lythseal, true, 'restoreGame migrates a legacy item-slot seal');
+  assert.equal(lg.players[0].item, null, 'the migrated slot is freed');
 }
 
 // --- doors: closed rects block movement, sight, shots and A*; openers work ---
@@ -4622,9 +4749,11 @@ function testTeleportPads() {
   const level = bigEmptyLevel([[5, r5], [15, r15], [17, r17]]);
   level.captiveChars = ['sniper'];
   level.qitems = [{ id: 'frag1', kind: 'fragment' }];
+  // a closed door squats on tp3 (tile 20,17): its twin tp2 must refuse to channel
+  level.doors = [{ id: 'dgate', x: 20, y: 17 }];
   const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   const p = g.players[0];
-  const [padA, padB, padC] = g.teleports;
+  const [padA, padB, padC, padD] = g.teleports;
   assert.equal(padA.twin, 'tp1', 'pads pair consecutively');
   const sleeper = g.enemies[0];
   p.invuln = 999;
@@ -4665,6 +4794,23 @@ function testTeleportPads() {
   // enemies never use pads: the grunt slept on tp2 the whole time
   assert.equal(sleeper.x, padC.x, 'an enemy parked on a pad never teleports');
   assert.equal(sleeper.y, padC.y, 'it never even shuffled');
+  // a twin pad sitting inside a CLOSED door rect refuses the channel outright
+  // — blinking into the sealed rect would trap the player with no way out
+  sleeper.x += 3 * TILE; // clear the pad for the operative
+  p.teleCool = 0;
+  p.x = padC.x;
+  p.y = padC.y;
+  const trips = g.events.filter(ev => ev.type === 'teleport').length;
+  run(g, () => ({ 0: {} }), 1.2);
+  assert.equal(g.events.filter(ev => ev.type === 'teleport').length, trips,
+    'the channel refuses while the twin sits inside a closed door');
+  assert.ok(!(p.channelT > 0), 'the hold never even charges');
+  // the moment the door opens, the pad answers again
+  g.pendingDoorOpens.push('dgate');
+  run(g, () => ({ 0: {} }), 1);
+  assert.equal(g.events.filter(ev => ev.type === 'teleport').length, trips + 1,
+    'an opened door re-allows the channel');
+  assert.ok(Math.hypot(p.x - padD.x, p.y - padD.y) < TILE, 'the blink lands on the freed twin');
 }
 
 // --- save beacons: cost-10 build sites that announce themselves when raised ---

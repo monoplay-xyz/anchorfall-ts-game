@@ -180,17 +180,41 @@ function hideBanner() {
   $('spectateTag').hidden = true;
 }
 // ---------- loot toast (small popup over the field; chest pickups) ----------
+// One #toast element used to drop same-tick messages (the newest overwrote
+// the rest). A small queue plays them through instead: the visible toast
+// holds for ~2s, then the next waiting one shows. At most 3 wait in line —
+// a full line drops its OLDEST waiting entry, so the newest is never lost.
 let toastTimer = 0;
-function showToast(text, dur = 2600) {
+const toastQueue = [];
+let toastShowing = false;
+function pumpToasts() {
+  const next = toastQueue.shift();
+  if (!next) {
+    toastShowing = false;
+    $('toast').hidden = true;
+    return;
+  }
+  toastShowing = true;
   const el = $('toast');
-  el.textContent = text;
+  el.textContent = next.text;
+  // 'front' lifts system notices (corrupt beacon) above the screen overlays;
+  // ordinary loot toasts stay beneath open menus as designed
+  el.classList.toggle('front', !!next.front);
   el.hidden = false;
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { el.hidden = true; }, dur);
+  toastTimer = setTimeout(pumpToasts, next.dur);
+}
+function showToast(text, dur = 2000, front = false) {
+  toastQueue.push({ text, dur, front });
+  while (toastQueue.length > 3) toastQueue.shift(); // oldest waiting drops first
+  if (!toastShowing) pumpToasts();
 }
 function hideToast() {
   clearTimeout(toastTimer);
-  $('toast').hidden = true;
+  toastQueue.length = 0;
+  toastShowing = false;
+  const el = $('toast');
+  el.classList.remove('front');
+  el.hidden = true;
 }
 // Per-loot toast text; chest events only carry `amount` for some loots, so
 // every count read is guarded. Unknown future loots fall back to their name.
@@ -590,9 +614,15 @@ function updateItemSlot(me) {
   if (!me || me.maxHp == null) { el.hidden = true; return; }
   el.hidden = false;
   const it = me.item;
-  $('wItemLabel').textContent = it?.kind
+  const itemText = it?.kind
     ? `${ITEM_ICON[it.kind] ?? ''}${(ITEM_LABEL[it.kind] ?? it.kind).toUpperCase()}${(it.count ?? 1) > 1 ? ' ×' + it.count : ''}`
     : '—';
+  // the carried LythiumSeal rides its OWN field (never the item slot), so it
+  // reads as a badge beside whatever the slot holds
+  const seal = me.lythseal || me.hasSeal;
+  $('wItemLabel').textContent = seal
+    ? `${ITEM_ICON.lythseal}${ITEM_LABEL.lythseal}${it?.kind ? ' · ' + itemText : ''}`
+    : itemText;
 }
 
 // Bastion (day/night + core) and PvP (ctf score / br zone) mission readouts.
@@ -711,6 +741,8 @@ function updateHUD(snap) {
     || snap.players.find(p => p.pid === session?.primaryPid());
   const ch = me?.charId ? charMap[me.charId] : null;
   const fw = me?.fieldWeapon;
+  // field pickups read relay-cyan in the panel; character weapons keep amber
+  $('wName').classList.toggle('fieldweapon', !!fw?.kind);
   if (fw?.kind) {
     // a field pickup overrides the character weapon: name + ammo replace the
     // stat line (special is unchanged, so the special row stays as-is below)
@@ -1097,7 +1129,23 @@ class LocalSession {
     if (b && typeof gameMod.restoreGame === 'function') {
       try { g = gameMod.restoreGame(b.data, charMap); } catch {}
     }
-    if (!g) { clearBeacon(); return this.lobby(); } // unreadable beacon: regroup in the lobby
+    // a beacon must round-trip into a live, steppable game: status 'play', a
+    // populated players array, numeric bounds and a row-per-tile string grid.
+    // Anything else is corrupt/stale storage — resuming it would soft-lock
+    // the chapter, so the beacon is discarded with a toast instead.
+    const valid = !!g && g.status === 'play'
+      && Array.isArray(g.players) && g.players.length > 0
+      && typeof g.w === 'number' && Number.isFinite(g.w) && g.w > 0
+      && typeof g.h === 'number' && Number.isFinite(g.h) && g.h > 0
+      && Array.isArray(g.grid) && g.grid.length === g.h
+      && g.grid.every(row => typeof row === 'string' && row.length === g.w);
+    if (!valid) {
+      clearBeacon(); // unreadable/corrupt beacon: regroup in the lobby
+      this.lobby();
+      // after lobby(): showing a screen wipes the toast queue first
+      showToast('SAVE BEACON CORRUPT — CHECKPOINT DISCARDED', 3200, true);
+      return;
+    }
     this.game = g;
     this.snap = null;
     this.paused = false;

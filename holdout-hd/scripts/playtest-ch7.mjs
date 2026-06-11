@@ -134,7 +134,10 @@ function losClear(g, ax, ay, bx, by) {
 
 // --- bot chassis ---------------------------------------------------------------
 function makeBot(pid) {
-  return { pid, path: [], repath: 0, relAct: 0, relFire: 0, relItem: 0, relSpec: 0, mem: { gx: -1, gy: -1 } };
+  return {
+    pid, path: [], repath: 0, relAct: 0, relFire: 0, relItem: 0, relSpec: 0,
+    mem: { gx: -1, gy: -1 }, frame: 0, tgtId: null, tgtHold: 0, avoid: new Map(),
+  };
 }
 function moveAlong(bot, p, inp) {
   while (bot.path.length && Math.hypot(bot.path[0].x - p.x, bot.path[0].y - p.y) < 12) bot.path.shift();
@@ -168,10 +171,11 @@ function actAt(g, bot, p, x, y, inp, reach = 1.1) {
 }
 function weaponRange(p) {
   if (p.fieldWeapon) return { flamer: 2.6, railcannon: 13, stormgun: 7, mortarMk2: 9 }[p.fieldWeapon.kind] ?? 5;
-  return charMap[p.charId].weapon.range ?? 5;
+  return charMap[p.charId]?.weapon.range ?? 5;
 }
 // Combat reflex. Returns true when it owns this bot's frame.
 function combat(g, bot, p, inp, opts = {}) {
+  if (p.state !== 'active') return true; // downed/picking seats sit the frame out
   const engage = (opts.engage ?? 6.5) * TILE;
   // hostile burn patch underfoot: step out first
   for (const pa of g.patches) {
@@ -183,16 +187,30 @@ function combat(g, bot, p, inp, opts = {}) {
       return true;
     }
   }
-  let tgt = null, bd = Infinity;
-  for (const e of g.enemies) {
-    if (e.dead || e.convertedT > 0) continue;
-    const d = Math.hypot(e.x - p.x, e.y - p.y);
-    const sniperish = e.kind === 'sniper' || e.kind === 'archer';
-    const maxR = sniperish && e.awake ? 11.5 * TILE : (e.awake ? engage : Math.min(engage, 5.5 * TILE));
-    if (opts.zone && !opts.zone(e)) continue;
-    if (d > maxR || !losClear(g, p.x, p.y, e.x, e.y)) continue;
-    const score = d - (sniperish ? 3 * TILE : 0) - (e.kind === 'spawner' ? 2 * TILE : 0);
-    if (score < bd) { bd = score; tgt = e; }
+  // target commitment: a picked target is held for 1s so one-frame LoS
+  // flicker (snipers through the depot mouth) can't paralyze the bot
+  let tgt = null;
+  if (bot.tgtId != null) {
+    const e0 = g.enemies.find(e => e.id === bot.tgtId);
+    if (e0 && !e0.dead && bot.tgtHold > 0 && Math.hypot(e0.x - p.x, e0.y - p.y) < 13 * TILE) {
+      tgt = e0; bot.tgtHold--;
+    } else { bot.tgtId = null; }
+  }
+  if (!tgt) {
+    let bd = Infinity;
+    for (const e of g.enemies) {
+      if (e.dead || e.convertedT > 0) continue;
+      const until = bot.avoid.get(e.id);
+      if (until !== undefined && bot.frame < until) continue; // unreachable: shelved
+      const d = Math.hypot(e.x - p.x, e.y - p.y);
+      const sniperish = e.kind === 'sniper' || e.kind === 'archer';
+      const maxR = sniperish && e.awake ? 11.5 * TILE : (e.awake ? engage : Math.min(engage, 5.5 * TILE));
+      if (opts.zone && !opts.zone(e)) continue;
+      if (d > maxR || !losClear(g, p.x, p.y, e.x, e.y)) continue;
+      const score = d - (sniperish ? 3 * TILE : 0) - (e.kind === 'spawner' ? 2 * TILE : 0);
+      if (score < bd) { bd = score; tgt = e; }
+    }
+    if (tgt) { bot.tgtId = tgt.id; bot.tgtHold = 30; }
   }
   bot.dbg = tgt ? `${tgt.kind}@${tx(tgt.x)},${tx(tgt.y)} d=${(Math.hypot(tgt.x - p.x, tgt.y - p.y) / TILE).toFixed(1)} awake=${tgt.awake} hp=${tgt.hp}` : null;
   if (!tgt) {
@@ -221,7 +239,7 @@ function combat(g, bot, p, inp, opts = {}) {
       const qq = Math.hypot(tgt.x - q.x, tgt.y - q.y);
       if (qq < nd) { nd = qq; nearestPid = q.pid; }
     }
-    if (nearestPid === p.pid && d < 3.2 * TILE) kite = true;
+    if (nearestPid === p.pid && d < 2.4 * TILE) kite = true;
   }
   if (kite) {
     const ux = (p.x - tgt.x) / (d || 1), uy = (p.y - tgt.y) / (d || 1);
@@ -229,7 +247,17 @@ function combat(g, bot, p, inp, opts = {}) {
     if (uy < -0.3) inp.up = true; else if (uy > 0.3) inp.down = true;
     return true;
   }
-  if (d > range) { goTo(g, bot, p, tgt.x, tgt.y, inp); return true; }
+  if (d > range || !losClear(g, p.x, p.y, tgt.x, tgt.y)) {
+    const moving = goTo(g, bot, p, tgt.x, tgt.y, inp);
+    if (!moving) {
+      // can't path to it (sniper across the swamp, archer behind a wall):
+      // shelve the target for 20s and get back to the mission
+      bot.avoid.set(tgt.id, bot.frame + 600);
+      bot.tgtId = null;
+      return false;
+    }
+    return true;
+  }
   // stand and deliver (facing set directly, like the test-suite bots)
   inp.left = inp.right = inp.up = inp.down = false;
   p.fx = (tgt.x - p.x) / (d || 1);
@@ -303,6 +331,29 @@ function runMission(quiet = false) {
   const nestZone = e => e.x < 27 * TILE && e.y < 22 * TILE;
   let beaconChecked = false;
 
+  // fetch hand-in: whoever trails the item talks to the giver; a dropped item
+  // (downs drop holdings) is re-scooped first; the other operative escorts
+  function deliverStage(name, kind, giver, questId, budget, escortRun = null) {
+    return {
+      name, budget,
+      run(iR, iE) {
+        const it = qi(kind);
+        const c = carrierOf(kind) || R;
+        const cb = bots[c.pid], ci = c.pid === 0 ? iR : iE;
+        const o = g.players[1 - c.pid], ob = bots[1 - c.pid], oi = c.pid === 0 ? iE : iR;
+        if (!combat(g, cb, c, ci)) {
+          if (it && it.carrier == null) goTo(g, cb, c, it.x, it.y, ci); // re-scoop
+          else actAt(g, cb, c, giver.x, giver.y, ci);
+        }
+        if (!combat(g, ob, o, oi)) {
+          if (escortRun) escortRun(ob, o, oi, c);
+          else follow(ob, o, c, oi);
+        }
+      },
+      done: () => quest(questId).state === 'done',
+    };
+  }
+
   const stages = [
     {
       name: 'talk-sefa', budget: 90,
@@ -349,17 +400,7 @@ function runMission(quiet = false) {
       },
       done: () => quest('husk-nest').progress >= 12 && (!qi('fragment') || qi('fragment').carrier != null),
     },
-    {
-      name: 'deliver-fragment', budget: 150,
-      run(iR, iE) {
-        const c = carrierOf('fragment') || R;
-        const cb = bots[c.pid], ci = c.pid === 0 ? iR : iE;
-        const ob = bots[1 - c.pid], o = g.players[1 - c.pid], oi = c.pid === 0 ? iE : iR;
-        if (!combat(g, cb, c, ci)) actAt(g, cb, c, hask.x, hask.y, ci);
-        if (!combat(g, ob, o, oi)) follow(ob, o, c, oi);
-      },
-      done: () => quest('keepers-fragment').state === 'done',
-    },
+    deliverStage('deliver-fragment', 'fragment', hask, 'keepers-fragment', 150),
     {
       name: 'depot-plating', budget: 300,
       run(iR, iE) {
@@ -377,18 +418,11 @@ function runMission(quiet = false) {
       done() { const p2 = qi('plating'); return !!(p2 && p2.carrier != null && (E.fieldWeapon || this.t > 200)); },
     },
     {
-      name: 'deliver-plating', budget: 200,
-      run(iR, iE) {
-        const c = carrierOf('plating') || R;
-        const cb = bots[c.pid], ci = c.pid === 0 ? iR : iE;
-        const o = g.players[1 - c.pid], ob = bots[1 - c.pid], oi = c.pid === 0 ? iE : iR;
-        if (!combat(g, cb, c, ci)) actAt(g, cb, c, sefa.x, sefa.y, ci);
-        // settle the husk-nest bounty at the warden on the same trip
-        if (!combat(g, ob, o, oi)) {
-          if (quest('husk-nest').state !== 'done') actAt(g, ob, o, warden.x, warden.y, oi);
-          else follow(ob, o, c, oi);
-        }
-      },
+      // settle the husk-nest bounty at the warden on the same trip home
+      ...deliverStage('deliver-plating', 'plating', sefa, 'hull-plating', 240, (ob, o, oi, c) => {
+        if (quest('husk-nest').state !== 'done') actAt(g, ob, o, warden.x, warden.y, oi);
+        else follow(ob, o, c, oi);
+      }),
       done: () => quest('hull-plating').state === 'done' && quest('husk-nest').state === 'done',
     },
     {
@@ -397,8 +431,9 @@ function runMission(quiet = false) {
         const m = bots[0].mem;
         m.sail = m.sail ?? 'toSkiff';
         const coil = qi('coil');
-        // escort holds the shore junction and thins the lurkers
-        if (!combat(g, bots[1], E, iE, { engage: 7 })) goTo(g, bots[1], E, T(47), T(48), iE);
+        // escort holds the mooring shore and thins the lurkers (incl. the
+        // far-shore sniper that otherwise plinks the sailor)
+        if (!combat(g, bots[1], E, iE, { engage: 7 })) goTo(g, bots[1], E, T(38), T(48), iE);
         if (m.sail === 'toSkiff') {
           if (R.riding) { m.sail = 'sail1'; return; }
           if (!combat(g, bots[0], R, iR)) actAt(g, bots[0], R, skiff.x, skiff.y, iR);
@@ -431,17 +466,7 @@ function runMission(quiet = false) {
       },
       done: () => { const c = qi('coil'); return c && c.carrier != null && !R.riding && tx(R.x) < 41; },
     },
-    {
-      name: 'deliver-coil', budget: 200,
-      run(iR, iE) {
-        const c = carrierOf('coil') || R;
-        const cb = bots[c.pid], ci = c.pid === 0 ? iR : iE;
-        const o = g.players[1 - c.pid], ob = bots[1 - c.pid], oi = c.pid === 0 ? iE : iR;
-        if (!combat(g, cb, c, ci)) actAt(g, cb, c, sefa.x, sefa.y, ci);
-        if (!combat(g, ob, o, oi)) follow(ob, o, c, oi);
-      },
-      done: () => quest('wave-coil').state === 'done',
-    },
+    deliverStage('deliver-coil', 'coil', sefa, 'wave-coil', 240),
     {
       name: 'vault-regulator', budget: 360,
       run(iR, iE) {
@@ -461,17 +486,7 @@ function runMission(quiet = false) {
       },
       done: () => { const r2 = qi('regulator'); return r2 && r2.carrier != null && tx(R.y) <= 51; },
     },
-    {
-      name: 'deliver-regulator', budget: 240,
-      run(iR, iE) {
-        const c = carrierOf('regulator') || R;
-        const cb = bots[c.pid], ci = c.pid === 0 ? iR : iE;
-        const o = g.players[1 - c.pid], ob = bots[1 - c.pid], oi = c.pid === 0 ? iE : iR;
-        if (!combat(g, cb, c, ci)) actAt(g, cb, c, sefa.x, sefa.y, ci);
-        if (!combat(g, ob, o, oi)) follow(ob, o, c, oi);
-      },
-      done: () => quest('burn-regulator').state === 'done',
-    },
+    deliverStage('deliver-regulator', 'regulator', sefa, 'burn-regulator', 240),
     {
       name: 'beacon-checkpoint', budget: 150,
       run(iR, iE) {
@@ -605,7 +620,7 @@ function runMission(quiet = false) {
     const iR = {}, iE = {};
     // downed/pick handling first
     for (const [bot, p, inp] of [[bots[0], R, iR], [bots[1], E, iE]]) {
-      bot.relAct--; bot.relFire--; bot.relItem--; bot.relSpec--;
+      bot.relAct--; bot.relFire--; bot.relItem--; bot.relSpec--; bot.frame++;
       if (p.state === 'pick') {
         if (bot.relFire <= 0) { inp.fire = true; bot.relFire = 8; }
       }
@@ -614,7 +629,7 @@ function runMission(quiet = false) {
     step(g, { 0: R.state === 'active' || R.state === 'pick' ? iR : {}, 1: E.state === 'active' || E.state === 'pick' ? iE : {} }, DT);
     stageT += DT;
 
-    if (process.env.CH7_DEBUG && f % 90 === 0 && g.elapsed >= +process.env.CH7_DEBUG && g.elapsed < +process.env.CH7_DEBUG + (+process.env.CH7_DEBUG_SPAN || 120)) {
+    if (process.env.CH7_DEBUG && f % (+process.env.CH7_DEBUG_EVERY || 90) === 0 && g.elapsed >= +process.env.CH7_DEBUG && g.elapsed < +process.env.CH7_DEBUG + (+process.env.CH7_DEBUG_SPAN || 120)) {
       const wp0 = bots[0].path[0], wp1 = bots[1].path[0];
       console.log(`t=${g.elapsed.toFixed(0)} st=${st.name}/${bots[0].mem.sail ?? ''} R=${R.x.toFixed(0)},${R.y.toFixed(0)}(${R.state},hp${R.hp})[${bots[0].dbg ?? 'free'}|path${bots[0].path.length}|wp=${wp0 ? wp0.x + ',' + wp0.y : '-'}|in=${JSON.stringify(iR)}] E=${E.x.toFixed(0)},${E.y.toFixed(0)}[${bots[1].dbg ?? 'free'}|path${bots[1].path.length}|wp=${wp1 ? wp1.x + ',' + wp1.y : '-'}|in=${JSON.stringify(iE)}]`);
     }
@@ -736,8 +751,9 @@ const nestHits = A.log.filter(e => e.type === 'playerHit' && e.stage === 'husk-n
 check('husk swarm survivable: nobody eliminated, mission never failed',
   ev('eliminated').length === 0 && A.g.status !== 'failed',
   `${downs.length} downs total (${Object.entries(A.downsByStage).map(([k, v]) => k + ':' + v).join(' ') || 'none'}), ${nestHits.length} hits taken in the nest`);
-check('waves fired on the untimed elapsed clock', A.waveTimes.length >= 3,
-  `waves at t=${A.waveTimes.join('/')}s (def: 180/360/600/840)`);
+const wavesDue = def.modifiers.waves.filter(w => w.at <= A.g.elapsed).length;
+check('every due wave fired on the untimed elapsed clock', A.waveTimes.length === wavesDue,
+  `waves at t=${A.waveTimes.join('/')}s (${wavesDue} due of 180/360/600/840 by t=${A.g.elapsed.toFixed(0)}s)`);
 
 // 7. THE HEADLINE: does reaching the helm clear the chapter?
 const launchAt = progEvs.find(e => e.id === 'launch');
