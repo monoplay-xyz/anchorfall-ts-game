@@ -9,15 +9,21 @@ const CAPTIVE_R = 12;
 const RESPAWN_DELAY = 2;
 
 const ENEMY_STATS = {
-  g: { kind: 'grunt', hp: 2, speed: 1.25, score: 100 },
-  a: { kind: 'archer', hp: 1, speed: 0, range: 7, cool: 1, score: 125 },
-  r: { kind: 'charger', hp: 3, speed: 1.0, range: 4.2, cool: 1.2, score: 175 },
-  s: { kind: 'bulwark', hp: 5, speed: 0.7, score: 225 },
-  m: { kind: 'spawner', hp: 5, speed: 0, range: 6, cool: 1.5, spawnCool: 2.4, score: 250 },
-  n: { kind: 'sniper', hp: 2, speed: 0, range: 10.5, cool: 1.4, score: 200 },
-  w: { kind: 'skitter', hp: 1, speed: 2.0, score: 50 },
-  b: { kind: 'boss', hp: 24, speed: 0.55, range: 8.5, cool: 1.1, spawnCool: 3.2, score: 1200 },
+  g: { kind: 'grunt', hp: 2, speed: 1.25, score: 100, aggro: 9 },
+  a: { kind: 'archer', hp: 1, speed: 0, range: 7, cool: 1, score: 125, aggro: 9.5 },
+  r: { kind: 'charger', hp: 3, speed: 1.0, range: 4.2, cool: 1.2, score: 175, aggro: 9 },
+  s: { kind: 'bulwark', hp: 5, speed: 0.7, score: 225, aggro: 8.5 },
+  m: { kind: 'spawner', hp: 5, speed: 0, range: 6, cool: 1.5, spawnCool: 2.4, score: 250, aggro: 9 },
+  n: { kind: 'sniper', hp: 2, speed: 0, range: 10.5, cool: 1.4, score: 200, aggro: 12.5 },
+  w: { kind: 'skitter', hp: 1, speed: 2.0, score: 50, aggro: 10.5 },
+  b: { kind: 'boss', hp: 24, speed: 0.55, range: 8.5, cool: 1.1, spawnCool: 3.2, score: 1200, aggro: 12 },
 };
+
+// Maps at or below this tile count play arcade-style: every enemy is awake
+// from the start, exactly like the original single-screen levels.
+const ARCADE_MAP_TILES = 600;
+// A waking enemy alerts sleeping allies within this radius.
+const ALERT_RIPPLE = 3.5;
 
 // Enemies hold position for this long at level start so players get their bearings.
 const START_GRACE = 2.5;
@@ -42,6 +48,7 @@ function makeEnemy(letter, x, y, id) {
     maxHp: def.hp,
     speed: def.speed * TILE,
     range: (def.range || 0) * TILE,
+    aggro: (def.aggro || 8) * TILE,
     cool: (def.cool || 0) + (id % 3) * 0.25,
     spawnCool: def.spawnCool || 0,
     score: def.score,
@@ -52,6 +59,10 @@ function makeEnemy(letter, x, y, id) {
     aimT: 0,
     aimX: x,
     aimY: y,
+    awake: false,
+    repathT: (id % 5) * 0.1,
+    path: null,
+    pathI: 0,
   };
 }
 
@@ -87,6 +98,11 @@ export function parseLevel(def) {
 
 export function createGame(def, party, charMap, roster) {
   const lvl = parseLevel(def);
+  // Arcade maps (the classic single-screen levels) keep the original behavior
+  // exactly: every enemy awake, straight-line steering, fire on range without
+  // sight checks, global spawn caps, respawn at the level spawn point.
+  const arcade = lvl.w * lvl.h <= ARCADE_MAP_TILES;
+  if (arcade) for (const e of lvl.enemies) e.awake = true;
   const players = party.map((p, i) => {
     const s = lvl.spawns[i % lvl.spawns.length] || { x: TILE * 2, y: TILE * 2 };
     return spawnPlayer(p.pid, p.name, p.charId, s.x + (i * 10), s.y);
@@ -95,6 +111,7 @@ export function createGame(def, party, charMap, roster) {
     name: def.name || 'Untitled',
     objective: def.objective || '',
     grid: lvl.grid, w: lvl.w, h: lvl.h,
+    arcade,
     spawns: lvl.spawns,
     timeLeft: def.time || 90,
     players,
@@ -151,6 +168,182 @@ function dist2(a, b) {
 function norm(dx, dy) {
   const d = Math.hypot(dx, dy) || 1;
   return [dx / d, dy / d, d];
+}
+
+// Sight only stops at walls — shots fly over water and sandbags, so enemies
+// must be able to see (and shoot) across them too. Movement blocks on all three.
+function blocksSight(c) { return c === '#'; }
+
+// True when the straight segment between two points crosses no blocking tile.
+function hasLoS(g, ax, ay, bx, by, blocks = blocksMove) {
+  const dx = bx - ax, dy = by - ay;
+  const d = Math.hypot(dx, dy);
+  const steps = Math.max(1, Math.ceil(d / (TILE / 3)));
+  for (let i = 1; i < steps; i++) {
+    if (blocks(tileAt(g, ax + (dx * i) / steps, ay + (dy * i) / steps))) return false;
+  }
+  return true;
+}
+
+function canSee(g, e, tgt) {
+  return hasLoS(g, e.x, e.y, tgt.x, tgt.y, blocksSight);
+}
+
+function tileBlocked(g, tx, ty) {
+  if (tx < 0 || ty < 0 || tx >= g.w || ty >= g.h) return true;
+  return blocksMove(g.grid[ty][tx]);
+}
+
+// Deterministic A* over the tile grid. Diagonals allowed unless they cut a corner.
+// Returns pixel-space waypoints (excluding the start tile), or null when no route
+// exists within the expansion budget.
+function findPath(g, sx, sy, gx, gy, maxExpand = 2400) {
+  if (sx === gx && sy === gy) return [];
+  if (tileBlocked(g, gx, gy)) return null;
+  const W = g.w;
+  const heap = [];
+  let seq = 0;
+  const push = n => {
+    heap.push(n);
+    let i = heap.length - 1;
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (heap[p].f < n.f || (heap[p].f === n.f && heap[p].seq < n.seq)) break;
+      heap[i] = heap[p]; i = p;
+    }
+    heap[i] = n;
+  };
+  const pop = () => {
+    const top = heap[0];
+    const last = heap.pop();
+    if (heap.length) {
+      let i = 0;
+      for (;;) {
+        const l = i * 2 + 1, r = l + 1;
+        let m = i;
+        if (l < heap.length && (heap[l].f < last.f || (heap[l].f === last.f && heap[l].seq < last.seq))) m = l;
+        const mb = m === i ? last : heap[m];
+        if (r < heap.length && (heap[r].f < mb.f || (heap[r].f === mb.f && heap[r].seq < mb.seq))) m = r;
+        if (m === i) break;
+        heap[i] = heap[m]; i = m;
+      }
+      heap[i] = last;
+    }
+    return top;
+  };
+  const oct = (x, y) => {
+    const ax = Math.abs(x - gx), ay = Math.abs(y - gy);
+    return ax + ay - 0.5858 * Math.min(ax, ay);
+  };
+  const gScore = new Map();
+  const came = new Map();
+  const start = sy * W + sx;
+  gScore.set(start, 0);
+  push({ x: sx, y: sy, f: oct(sx, sy), seq: seq++ });
+  const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+  let expanded = 0;
+  while (heap.length && expanded < maxExpand) {
+    const cur = pop();
+    const ck = cur.y * W + cur.x;
+    expanded++;
+    if (cur.x === gx && cur.y === gy) {
+      const path = [];
+      let k = ck;
+      while (k !== start) {
+        path.push({ x: (k % W + 0.5) * TILE, y: (Math.floor(k / W) + 0.5) * TILE });
+        k = came.get(k);
+      }
+      return path.reverse();
+    }
+    const cg = gScore.get(ck);
+    for (const [dx, dy] of DIRS) {
+      const nx = cur.x + dx, ny = cur.y + dy;
+      if (tileBlocked(g, nx, ny)) continue;
+      if (dx && dy && (tileBlocked(g, cur.x + dx, cur.y) || tileBlocked(g, cur.x, cur.y + dy))) continue;
+      const nk = ny * W + nx;
+      const ng = cg + (dx && dy ? 1.4142 : 1);
+      if (ng < (gScore.get(nk) ?? Infinity)) {
+        gScore.set(nk, ng);
+        came.set(nk, ck);
+        push({ x: nx, y: ny, f: ng + oct(nx, ny), seq: seq++ });
+      }
+    }
+  }
+  return null;
+}
+
+function wakeEnemy(g, e, ripple = true) {
+  if (e.dead || e.awake) return;
+  e.awake = true;
+  g.events.push({ type: 'alert', x: e.x, y: e.y, kind: e.kind });
+  if (ripple) {
+    const r2 = (TILE * ALERT_RIPPLE) ** 2;
+    for (const o of g.enemies) {
+      if (!o.awake && !o.dead && dist2(e, o) < r2) wakeEnemy(g, o, false);
+    }
+  }
+}
+
+// Steer toward the target: straight when walkable in a straight line,
+// A* waypoints when not. A failed search respects the repath cooldown so a
+// stranded enemy can't burn a full A* budget every tick.
+function moveToward(g, e, tgt, dt, speed = e.speed, r = ENEMY_R) {
+  if (hasLoS(g, e.x, e.y, tgt.x, tgt.y)) {
+    e.path = null;
+    e.repathT = 0;
+    const [fx, fy] = norm(tgt.x - e.x, tgt.y - e.y);
+    e.fx = fx; e.fy = fy;
+    moveCircle(g, e, fx * speed * dt, fy * speed * dt, r);
+    return;
+  }
+  e.repathT -= dt;
+  if (e.repathT <= 0 || (e.path && e.pathI >= e.path.length)) {
+    e.path = findPath(
+      g,
+      Math.floor(e.x / TILE), Math.floor(e.y / TILE),
+      Math.floor(tgt.x / TILE), Math.floor(tgt.y / TILE)
+    );
+    e.pathI = 0;
+    e.repathT = 0.6 + (e.id % 5) * 0.08;
+  }
+  let wp = e.path && e.path[e.pathI];
+  while (wp && Math.hypot(wp.x - e.x, wp.y - e.y) < TILE * 0.45) {
+    e.pathI++;
+    wp = e.path[e.pathI];
+  }
+  const aim = wp || tgt;
+  const [fx, fy] = norm(aim.x - e.x, aim.y - e.y);
+  e.fx = fx; e.fy = fy;
+  moveCircle(g, e, fx * speed * dt, fy * speed * dt, r);
+}
+
+function countNear(g, e, r) {
+  const r2 = r * r;
+  let n = 0;
+  for (const o of g.enemies) if (!o.dead && dist2(e, o) < r2) n++;
+  return n;
+}
+
+// On big maps, respawn beside a living teammate instead of trekking back from
+// the level start. Deterministic: first active player in pid order, nearest
+// open tile in ring-scan order.
+function respawnSpot(g) {
+  const fallback = g.spawns[0] || { x: TILE * 2, y: TILE * 2 };
+  if (g.arcade) return fallback;
+  const ally = g.players.find(q => q.state === 'active');
+  if (!ally) return fallback;
+  for (let r = 1; r <= 4; r++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        const x = ally.x + dx * TILE, y = ally.y + dy * TILE;
+        if (x > TILE && y > TILE && x < (g.w - 1) * TILE && y < (g.h - 1) * TILE && !collides(g, x, y, PLAYER_R)) {
+          return { x, y };
+        }
+      }
+    }
+  }
+  return { x: ally.x, y: ally.y };
 }
 
 function fireWeapon(g, shooter, weapon, who, target = null) {
@@ -244,6 +437,7 @@ function killEnemy(g, e) {
 
 function damageEnemy(g, e, dmg, x, y, cause) {
   if (e.dead) return false;
+  wakeEnemy(g, e);
   e.hp -= dmg;
   e.hurt = 0.14;
   g.events.push({ type: 'hit', x: x ?? e.x, y: y ?? e.y, kind: e.kind, hp: Math.max(0, e.hp), cause });
@@ -300,6 +494,7 @@ function spawnSkitter(g, e, tgt) {
     const y = e.y + Math.sin(a) * TILE * 0.75;
     if (!collides(g, x, y, ENEMY_R)) {
       const sk = makeEnemy('w', x, y, g.nextEnemyId++);
+      sk.awake = true;
       if (tgt) {
         [sk.fx, sk.fy] = norm(tgt.x - x, tgt.y - y);
       }
@@ -315,12 +510,26 @@ function stepEnemy(g, e, dt) {
   if (e.hurt > 0) e.hurt -= dt;
   const [tgt, best] = nearestTarget(g, e);
   if (!tgt) return;
+
+  // Sleeping enemies hold their post until a player is seen inside aggro
+  // range, bumps into them, or damages them (handled in damageEnemy).
+  if (!e.awake) {
+    if (best < e.aggro * e.aggro && canSee(g, e, tgt)) wakeEnemy(g, e);
+    else if (best < (TILE * 2.2) ** 2) wakeEnemy(g, e);
+    else return;
+  }
+
   const [fx, fy, d] = norm(tgt.x - e.x, tgt.y - e.y);
   e.fx = fx; e.fy = fy;
 
   if (e.kind === 'grunt' || e.kind === 'skitter' || e.kind === 'bulwark') {
-    moveCircle(g, e, e.fx * e.speed * dt, e.fy * e.speed * dt, ENEMY_R);
-    contactPlayer(g, e, best, tgt);
+    if (g.arcade) {
+      moveCircle(g, e, e.fx * e.speed * dt, e.fy * e.speed * dt, ENEMY_R);
+      contactPlayer(g, e, best, tgt);
+    } else {
+      moveToward(g, e, tgt, dt);
+      contactPlayer(g, e, dist2(e, tgt), tgt);
+    }
     return;
   }
 
@@ -346,15 +555,17 @@ function stepEnemy(g, e, dt) {
       return;
     }
     e.cool -= dt;
-    if (d < e.range && e.cool <= 0) {
+    if (d < e.range && e.cool <= 0 && (g.arcade || canSee(g, e, tgt))) {
       e.state = 'windup';
       e.windup = 0.55;
       e.chargeFx = e.fx;
       e.chargeFy = e.fy;
       e.cool = 2.2;
       g.events.push({ type: 'telegraph', x: e.x, y: e.y, tx: tgt.x, ty: tgt.y, kind: e.kind });
-    } else {
+    } else if (g.arcade) {
       moveCircle(g, e, e.fx * e.speed * dt, e.fy * e.speed * dt, ENEMY_R);
+    } else {
+      moveToward(g, e, tgt, dt);
     }
     contactPlayer(g, e, dist2(e, tgt), tgt);
     return;
@@ -362,13 +573,16 @@ function stepEnemy(g, e, dt) {
 
   if (e.kind === 'archer' || e.kind === 'spawner') {
     e.cool -= dt;
-    if (e.cool <= 0 && d < (e.range || 7 * TILE)) {
+    if (e.cool <= 0 && d < (e.range || 7 * TILE) && (g.arcade || canSee(g, e, tgt))) {
       fireWeapon(g, e, enemyWeapon(e.kind), 'e', tgt);
       e.cool = e.kind === 'spawner' ? 2.1 : 2.0;
     }
     if (e.kind === 'spawner') {
       e.spawnCool -= dt;
-      if (e.spawnCool <= 0 && g.enemies.length < 36) {
+      const spawnOk = g.arcade
+        ? g.enemies.length < 36
+        : g.enemies.length < 160 && countNear(g, e, TILE * 8) < 12;
+      if (e.spawnCool <= 0 && spawnOk) {
         spawnSkitter(g, e, tgt);
         e.spawnCool = 3.0;
       }
@@ -388,7 +602,7 @@ function stepEnemy(g, e, dt) {
       return;
     }
     e.cool -= dt;
-    if (e.cool <= 0 && d < e.range) {
+    if (e.cool <= 0 && d < e.range && (g.arcade || canSee(g, e, tgt))) {
       e.aimT = 0.9;
       e.aimX = tgt.x;
       e.aimY = tgt.y;
@@ -402,13 +616,20 @@ function stepEnemy(g, e, dt) {
     e.spawnCool -= dt;
     const phase = e.hp <= e.maxHp * 0.5 ? 2 : 1;
     const chase = phase === 2 ? 0.8 : 0.5;
-    moveCircle(g, e, e.fx * TILE * chase * dt, e.fy * TILE * chase * dt, ENEMY_R + 6);
+    if (g.arcade) {
+      moveCircle(g, e, e.fx * TILE * chase * dt, e.fy * TILE * chase * dt, ENEMY_R + 6);
+    } else {
+      moveToward(g, e, tgt, dt, TILE * chase, ENEMY_R + 6);
+    }
     contactPlayer(g, e, dist2(e, tgt), tgt);
     if (e.cool <= 0 && d < e.range) {
       fireWeapon(g, e, enemyWeapon(e.kind), 'e', tgt);
       e.cool = phase === 2 ? 0.75 : 1.25;
     }
-    if (e.spawnCool <= 0 && g.enemies.length < 34) {
+    const spawnOk = g.arcade
+      ? g.enemies.length < 34
+      : g.enemies.length < 160 && countNear(g, e, TILE * 9) < 14;
+    if (e.spawnCool <= 0 && spawnOk) {
       spawnSkitter(g, e, tgt);
       e.spawnCool = phase === 2 ? 2.2 : 3.8;
     }
@@ -434,7 +655,7 @@ export function step(g, inputs, dt) {
       if (p.respawn <= 0) {
         const free = freeChars(g);
         if (free.length) {
-          const s = g.spawns[0] || { x: TILE * 2, y: TILE * 2 };
+          const s = respawnSpot(g);
           p.charId = free[0];
           p.x = s.x; p.y = s.y; p.fx = 0; p.fy = -1; p.cool = 0;
           p.invuln = 3.5;
@@ -467,7 +688,8 @@ export function step(g, inputs, dt) {
     }
 
     for (const c of g.captives) {
-      if (!c.owner && dist2(p, c) < (PLAYER_R + CAPTIVE_R) ** 2) {
+      // == null, not falsy: local couch players start at pid 0
+      if (c.owner == null && dist2(p, c) < (PLAYER_R + CAPTIVE_R) ** 2) {
         c.owner = p.pid;
         g.events.push({ type: 'pickup', x: c.x, y: c.y, charId: c.charId });
       }
@@ -570,11 +792,13 @@ export function applyResults(roster, g) {
   return { roster: next, gained, lost };
 }
 
-export function snapshot(g) {
+// Pass full=false to omit the static tile grid (the server sends the grid once
+// at levelStart and lite snapshots every tick; clients re-attach the cached grid).
+export function snapshot(g, full = true) {
   return {
     name: g.name,
     objective: g.objective,
-    grid: g.grid, w: g.w, h: g.h,
+    ...(full ? { grid: g.grid } : {}), w: g.w, h: g.h,
     timeLeft: g.timeLeft,
     status: g.status,
     players: g.players.map(p => ({ pid: p.pid, name: p.name, charId: p.charId, x: p.x, y: p.y, fx: p.fx, fy: p.fy, state: p.state, invuln: p.invuln })),
@@ -592,6 +816,7 @@ export function snapshot(g) {
       aimT: e.aimT,
       aimX: e.aimX,
       aimY: e.aimY,
+      awake: e.awake,
     })),
     captives: g.captives.map(c => ({ charId: c.charId, x: c.x, y: c.y, owner: c.owner, fromPlayer: c.fromPlayer })),
     shots: g.shots.map(s => ({ x: s.x, y: s.y, vx: s.vx, vy: s.vy, who: s.who, kind: s.kind })),

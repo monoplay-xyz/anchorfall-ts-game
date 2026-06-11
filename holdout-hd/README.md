@@ -4,10 +4,35 @@ The HD remaster of HOLDOUT: same simulation and co-op netcode as v1, with a full
 
 ```sh
 npm install
-npm start          # http://localhost:3001
+npm start              # http://localhost:3001
 npm test
-npm run gen-assets # rebuild public/assets/*.png from shared/characters.json
+npm run gen-assets     # rebuild public/assets/*.png from shared/characters.json
+npm run gen-expedition # regenerate levels/level11.json (deterministic)
 ```
+
+## Couch co-op (local multiplayer)
+
+The game is built for one screen and a sofa. In a Local Game lobby, every input
+device joins by pressing FIRE: up to four players from gamepads (stick/d-pad +
+A to fire, Start to pause) plus two keyboard seats (WASD + Space, Arrows +
+Enter). Each player steers their own cursor in the character select and locks
+in with FIRE. One shared dynamic camera follows the squad and zooms out as you
+spread; offscreen teammates, rescues, and the exit get edge arrows.
+
+## Big maps
+
+Maps are no longer bound to one screen. Levels of any size work: the camera,
+minimap (with viewport rectangle), and renderer culling handle the rest. On
+maps larger than ~600 tiles, enemies start asleep at their posts and wake when
+they see a player inside aggro range, take damage, or an ally nearby raises
+the alarm — and they pathfind (A*) around walls and water instead of hugging
+the nearest wall. Small classic maps keep the original everyone-attacks
+arcade behavior.
+
+`levels/level11.json` — **The Long Crossing** (96×64) — is the first
+expedition map: a west-to-east journey through a meadow, river fords, deep
+forest, a fortified village, a sniper ridge over a swamp, and a boss gate.
+Mark a level with `"expedition": true` to get a menu shortcut to it.
 
 ## Art pipeline (drop-in PNG overrides)
 

@@ -23,7 +23,9 @@ const levels = fs.readdirSync(levelsDir).filter(f => f.endsWith('.json')).sort()
     if (!def.tiles.every(r => r.length === w)) throw new Error(`Level ${f}: all tile rows must be the same width`);
     return def;
   });
-console.log(`Loaded ${levels.length} levels, ${characters.length} characters`);
+// Expedition maps are local-couch shortcuts; the online campaign skips them.
+const campaignLevels = levels.filter(l => !l.expedition);
+console.log(`Loaded ${levels.length} levels (${campaignLevels.length} campaign), ${characters.length} characters`);
 
 const savesDir = path.join(__dirname, 'saves');
 fs.mkdirSync(savesDir, { recursive: true });
@@ -64,8 +66,8 @@ function lobbyState(room) {
     t: 'lobby',
     room: room.code,
     levelIdx: room.levelIdx,
-    levelName: levels[room.levelIdx]?.name || null,
-    totalLevels: levels.length,
+    levelName: campaignLevels[room.levelIdx]?.name || null,
+    totalLevels: campaignLevels.length,
     roster: room.roster,
     players: [...room.players.values()].map(p => ({ pid: p.pid, name: p.name, charId: p.charId, isHost: p.pid === room.hostPid })),
   };
@@ -85,24 +87,28 @@ function endLevel(room) {
   let victory = false;
   if (g.status === 'cleared') {
     room.levelIdx++;
-    victory = room.levelIdx >= levels.length;
+    victory = room.levelIdx >= campaignLevels.length;
     fs.writeFileSync(savePath(room.code), JSON.stringify({ levelIdx: room.levelIdx, roster: room.roster }));
   }
   for (const p of room.players.values()) p.charId = null;
   broadcast(room, { t: 'levelEnd', status: g.status, gained: res.gained, lost: res.lost, roster: room.roster, victory });
   room.game = null;
+  // picks were cleared — push the fresh lobby so Deploy can't act on stale state
+  broadcast(room, lobbyState(room));
 }
 
 function startLevel(room) {
   const party = [...room.players.values()].filter(p => p.charId).map(p => ({ pid: p.pid, name: p.name, charId: p.charId }));
   if (!party.length) return;
-  room.game = createGame(levels[room.levelIdx], party, charMap, room.roster);
-  broadcast(room, { t: 'levelStart' });
+  for (const p of room.players.values()) p.input = {};
+  room.game = createGame(campaignLevels[room.levelIdx], party, charMap, room.roster);
+  // The static grid rides along once here; per-tick snapshots omit it.
+  broadcast(room, { t: 'levelStart', s: snapshot(room.game, true) });
   room.timer = setInterval(() => {
     const inputs = {};
     for (const p of room.players.values()) inputs[p.pid] = p.input;
     step(room.game, inputs, TICK);
-    broadcast(room, { t: 'state', s: snapshot(room.game) });
+    broadcast(room, { t: 'state', s: snapshot(room.game, false) });
     if (room.game.status !== 'play') endLevel(room);
   }, TICK * 1000);
 }
@@ -124,7 +130,7 @@ wss.on('connection', ws => {
         try {
           const save = JSON.parse(fs.readFileSync(savePath(resume), 'utf8'));
           code = resume;
-          levelIdx = Math.min(save.levelIdx, levels.length - 1);
+          levelIdx = Math.min(save.levelIdx, campaignLevels.length - 1);
           roster = save.roster;
         } catch { /* corrupt save: start fresh */ }
       }
@@ -138,6 +144,7 @@ wss.on('connection', ws => {
       const r = rooms.get(String(m.room || '').toUpperCase().trim());
       if (!r) return sendTo(me, { t: 'error', error: 'Room not found' });
       if (r.game) return sendTo(me, { t: 'error', error: 'Game in progress, wait for the level to end' });
+      if (r.players.size >= 8) return sendTo(me, { t: 'error', error: 'Room is full' });
       me.name = String(m.name || 'Player').slice(0, 12);
       r.players.set(me.pid, me);
       me.room = r;
@@ -151,7 +158,7 @@ wss.on('connection', ws => {
       broadcast(room, lobbyState(room));
     }
     else if (m.t === 'start' && room && me.pid === room.hostPid && !room.game) {
-      if (room.levelIdx >= levels.length) return;
+      if (room.levelIdx >= campaignLevels.length) return;
       startLevel(room);
     }
     else if (m.t === 'input' && room) {
@@ -170,7 +177,8 @@ wss.on('connection', ws => {
     if (!room.players.size || me.pid === room.hostPid) {
       broadcast(room, { t: 'error', error: 'Host left — room closed' });
       destroyRoom(room);
-    } else {
+    } else if (!room.game) {
+      // mid-level the lobby update waits for levelEnd (don't stomp the game view)
       broadcast(room, lobbyState(room));
     }
   });
