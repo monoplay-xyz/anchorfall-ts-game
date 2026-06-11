@@ -28,6 +28,12 @@
     .hbar i { display: block; height: 100%; width: 100%; background: linear-gradient(90deg, #E04848, #FFD98A); transition: width .2s; }
     #coreLabel { margin-top: 4px; }
     #wItem .srow em { font-style: normal; font-size: 10px; color: #5E6B8C; letter-spacing: 0; margin-left: 4px; }
+    /* loot toast: small transient popup over the field (chest pickups) */
+    #toast { position: absolute; bottom: 12%; left: 50%; transform: translateX(-50%); padding: 6px 16px; font-size: 13px; font-weight: 800; letter-spacing: 2px; color: #ffe9b0; background: rgba(8,10,18,.82); border: 1px solid var(--panel-edge); border-left: 3px solid var(--amber); pointer-events: none; text-transform: uppercase; white-space: nowrap; }
+    #toast[hidden] { display: none; }
+    /* per-mission XP readout in the weapon panel (non-arcade missions only) */
+    #wXp .xpbar { height: 3px; margin-top: 2px; background: rgba(255,255,255,.08); border-radius: 2px; overflow: hidden; }
+    #wXp .xpbar i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, var(--relay), var(--amber)); transition: width .2s; }
   </style>
 </head>
 <body>
@@ -46,6 +52,7 @@
       <!-- event banner + spectate tag sit below the .screen overlays in DOM order,
            so open menus/dialogs always paint over them -->
       <div id="banner" hidden></div>
+      <div id="toast" hidden></div>
       <div id="spectateTag" hidden>ELIMINATED &mdash; SPECTATING</div>
 
       <div id="menu" class="screen">
@@ -74,6 +81,8 @@
         Keyboard fits two: WASD &middot; Space fire &middot; E talk/build &middot; F special &middot; Q item &nbsp;|&nbsp; Arrows &middot; Enter fire &middot; / talk/build &middot; RShift special &middot; . item<br>
         Gamepad: stick/d-pad &middot; A/RT fire &middot; X talk/build &middot; B/RB special &middot; Y item &middot; Start pauses<br>
         Hold E on a build site to construct &mdash; LYTH shards drop from fallen Entropy<br>
+        New turrets ask for a type: stand close, hold E/X &mdash; LEFT/RIGHT cycles Gun &middot; Prism &middot; Tesla &middot; Toxin, FIRE confirms<br>
+        Selkie swims: water is open to her &mdash; slower afloat, harpoon cooldown +50% on water<br>
         Walk into stranded allies to pick them up &mdash; carry them to the exit to recruit them.<br>
         Online rooms now fit four couch players per machine &mdash; press FIRE to add a seat.</p>
       </div>
@@ -135,6 +144,10 @@
         </div>
         <div id="wItem" hidden>
           <div class="srow"><span>ITEM <em>Q&hairsp;/&hairsp;.&hairsp;/&hairsp;Y</em></span><b id="wItemLabel" class="amber">—</b></div>
+        </div>
+        <div id="wXp" hidden>
+          <div class="srow"><span>LVL</span><b id="wLvl" class="amber">1</b></div>
+          <div class="xpbar"><i id="wXpFill"></i></div>
         </div>
       </div>
     </aside>

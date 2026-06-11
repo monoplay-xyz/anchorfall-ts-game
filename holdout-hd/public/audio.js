@@ -147,6 +147,10 @@ function shot(kind, who) {
   else if (kind === 'flame') { noise(0.11, 0.1, 520); tone(260, 0.05, 'sawtooth', 0.05, 0.85); }
   else if (kind === 'disc' || kind === 'helix') { tone(420, 0.1, 'triangle', 0.1, 1.35); }
   else if (kind === 'blade') { tone(760, 0.04, 'triangle', 0.08, 0.8); }
+  else if (kind === 'harpoon') { tone(880, 0.08, 'square', 0.1, 0.45); noise(0.06, 0.05, 1600); } // line twang
+  else if (kind === 'riptide') { noise(0.16, 0.11, 460); tone(290, 0.12, 'sine', 0.07, 0.65); } // water burst
+  else if (kind === 'toxin') { tone(220, 0.06, 'sine', 0.07, 0.6); noise(0.1, 0.04, 800); } // glob lob
+  else if (kind === 'tornado') { noise(0.18, 0.07, 380); tone(160, 0.14, 'triangle', 0.05, 1.3); } // wind-up
   else { tone(520, 0.05, 'square', 0.1, 1.15); }
 }
 
@@ -310,6 +314,47 @@ export function playEvent(ev) {
     tone(55, 1.4, 'sine', 0.14, 1.5);
     tone(110, 1.2, 'sine', 0.07, 1.5);
     noise(0.8, 0.03, 90);
+  }
+  // --- combat depth: xp, evolutions, tower types, followers ---
+  else if (ev.type === 'levelUp') {
+    // on-the-spot leveling — quick rising gold arpeggio
+    tone(523.25, 0.09, 'triangle', 0.09, 1.05);
+    setTimeout(() => tone(659.25, 0.09, 'triangle', 0.08, 1.05), 80);
+    setTimeout(() => tone(784, 0.1, 'triangle', 0.08, 1.04), 160);
+    setTimeout(() => tone(1046.5, 0.2, 'triangle', 0.07, 1.0), 240);
+  }
+  else if (ev.type === 'prismBeam') {
+    // charge hum, then the beam snaps
+    tone(196, 0.22, 'sine', 0.06, 2.2);
+    setTimeout(() => { tone(1318, 0.12, 'sawtooth', 0.08, 1.3); noise(0.06, 0.04, 3400); }, 60);
+  }
+  else if (ev.type === 'teslaZap') {
+    // the crack of the coil
+    noise(0.09, 0.16, 4200);
+    tone(70, 0.12, 'square', 0.1, 0.5);
+    setTimeout(() => noise(0.05, 0.07, 2600), 40);
+  }
+  else if (ev.type === 'converted') {
+    // psychic warble — pitch bending up then settling back
+    tone(440, 0.45, 'sine', 0.08, 1.7);
+    setTimeout(() => tone(740, 0.35, 'sine', 0.06, 0.55), 140);
+    setTimeout(() => tone(560, 0.3, 'triangle', 0.05, 1.25), 300);
+  }
+  else if (ev.type === 'toxin' || ev.type === 'toxinOut' || ev.type === 'toxinPatch') {
+    // chem hiss as the slick spreads
+    noise(0.45, 0.08, 700);
+    setTimeout(() => noise(0.3, 0.04, 1700), 120);
+  }
+  else if (ev.type === 'bark' || ev.type === 'followerEngage') {
+    // attack dog barks onto a target
+    tone(180, 0.07, 'sawtooth', 0.13, 0.55);
+    noise(0.04, 0.05, 900);
+    setTimeout(() => { tone(160, 0.09, 'sawtooth', 0.11, 0.5); noise(0.05, 0.04, 800); }, 120);
+  }
+  else if (ev.type === 'followerDown') {
+    // a hire falls — short falling whimper
+    tone(420, 0.16, 'sine', 0.07, 0.5);
+    setTimeout(() => tone(260, 0.18, 'sine', 0.05, 0.55), 110);
   }
   // unknown event types stay silent, never throw
 }

@@ -1764,6 +1764,10 @@ function testShopCarousel() {
   assert.deepEqual(p.item, { kind: 'medkit', count: 1 }, 'different-kind purchase swaps the slot');
   assert.equal(g.shards, 12, 'medkit costs 10');
   // token: unaffordable at 12 shards -> nothing happens
+  // (carousel now holds 5 offers — the toxin canister sits between medkit and the wrap)
+  step(g, { 0: { act: true } }, 1 / 30);
+  step(g, { 0: { act: true, right: true } }, 1 / 30);
+  assert.equal(p.shopIdx, 4, 'toxin canister is the fifth offer');
   step(g, { 0: { act: true } }, 1 / 30);
   step(g, { 0: { act: true, right: true } }, 1 / 30);
   assert.equal(p.shopIdx, 0, 'carousel wraps back to the token');

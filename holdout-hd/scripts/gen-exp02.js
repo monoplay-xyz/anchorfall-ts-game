@@ -166,9 +166,13 @@ place('m', 64, 46);
 place('n', 48, 55); place('a', 40, 55);
 
 // --- captives at landmarks (ids bound in row-major scan order) ---
+// The seal sits on a hummock at the south mouth of the eastern fourth-band
+// causeway — any character reaches her by land, and once rescued her swimming
+// turns every channel in the basin into a shortcut.
 const captivePlan = [
   ['engineer', 48, 28],  // central refinery floor — she never left the works
   ['volt', 20, 46],      // lower swamp islet, ringed by leech dens
+  ['seal', 70, 48],      // causeway-end hummock in leech country, water on three sides
 ];
 const placedCaptives = [];
 for (const [id, x, y] of captivePlan) {

@@ -36,7 +36,9 @@ const PCOLORS = ['#4fc3f7', '#ffb74d', '#f06292', '#aed581'];
 // CTF team identity (badge color sets) + display names.
 const TEAMC = ['#5ea7ff', '#ff7a6a'];
 const TEAM_NAME = ['TEAM A', 'TEAM B'];
-const ITEM_ICON = { cracker: '✷ ', medkit: '✚ ', shield: '⬡ ' };
+const ITEM_ICON = { cracker: '✷ ', medkit: '✚ ', shield: '⬡ ', toxin: '☣ ', controller: '◉ ' };
+// item-slot display name overrides (default: kind.toUpperCase())
+const ITEM_LABEL = { controller: 'MIND LINK' };
 
 let session = null;
 setupAudioToggle($('btnAudio'));
@@ -160,6 +162,36 @@ function hideBanner() {
   $('banner').hidden = true;
   $('spectateTag').hidden = true;
 }
+// ---------- loot toast (small popup over the field; chest pickups) ----------
+let toastTimer = 0;
+function showToast(text, dur = 2600) {
+  const el = $('toast');
+  el.textContent = text;
+  el.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.hidden = true; }, dur);
+}
+function hideToast() {
+  clearTimeout(toastTimer);
+  $('toast').hidden = true;
+}
+// Per-loot toast text; chest events only carry `amount` for some loots, so
+// every count read is guarded. Unknown future loots fall back to their name.
+const LOOT_TOAST = {
+  shards: ev => `+${ev.amount ?? 0}◆ SHARDS`,
+  cracker: ev => `CRACKER${(ev.amount ?? 1) > 1 ? ' ×' + ev.amount : ''}`,
+  medkit: ev => `MEDKIT${(ev.amount ?? 1) > 1 ? ' ×' + ev.amount : ''}`,
+  shield: () => 'SHIELD +2',
+  token: () => 'WEAPON TOKEN — DMG UP',
+  toxin: ev => `TOXIN${(ev.amount ?? 1) > 1 ? ' ×' + ev.amount : ''}`,
+  controller: () => 'MIND LINK',
+};
+function chestToast(ev) {
+  const text = (LOOT_TOAST[ev.loot] ?? (() => String(ev.loot).toUpperCase()))(ev);
+  // a remote opener's loot is still worth a toast, but named so it reads right
+  const focus = session?.focusPids?.() ?? new Set();
+  return ev.pid == null || focus.has(ev.pid) ? text : `${playerName(ev.pid)} — ${text}`;
+}
 const playerName = pid =>
   session?.snap?.players?.find(p => p.pid === pid)?.name ?? 'P' + ((pid ?? 0) + 1);
 // Returns { text, blood } for events that deserve a banner; null otherwise.
@@ -179,6 +211,13 @@ function bannerFor(ev) {
     case 'eliminated': return {
       text: `${playerName(ev.pid)} ELIMINATED${ev.remaining != null ? ` — ${ev.remaining} REMAIN` : ''}`,
     };
+    case 'levelUp': {
+      // {pid, level, perk} — local seats get the bare callout, remote players
+      // are named so an online squad can read whose weapon just evolved
+      const perk = ev.perk != null ? String(ev.perk).toUpperCase() : `LEVEL ${ev.level ?? '?'}`;
+      const mine = (session?.focusPids?.() ?? new Set()).has(ev.pid);
+      return { text: mine ? `LVL UP — ${perk}` : `${playerName(ev.pid)} LVL UP — ${perk}` };
+    }
     case 'matchEnd': {
       if (ev.winner == null) return { text: 'MATCH OVER' };
       const ctf = session?.versusMode?.() === 'ctf';
@@ -192,6 +231,7 @@ function handleEvent(ev) {
   addEventFX(ev);
   playEvent(ev);
   if (ev.type === 'talk') showDialogue(ev);
+  if (ev.type === 'chest' && ev.loot) showToast(chestToast(ev));
   const b = bannerFor(ev);
   if (b) showBanner(b.text, b.blood);
 }
@@ -200,6 +240,7 @@ function handleEvent(ev) {
 function show(id) {
   hideDialogue();
   hideBanner();
+  hideToast();
   for (const s of ['menu', 'lobby', 'msg']) $(s).hidden = s !== id;
 }
 function hideAll() {
@@ -464,7 +505,7 @@ function updateItemSlot(me) {
   el.hidden = false;
   const it = me.item;
   $('wItemLabel').textContent = it?.kind
-    ? `${ITEM_ICON[it.kind] ?? ''}${it.kind.toUpperCase()}${(it.count ?? 1) > 1 ? ' ×' + it.count : ''}`
+    ? `${ITEM_ICON[it.kind] ?? ''}${(ITEM_LABEL[it.kind] ?? it.kind).toUpperCase()}${(it.count ?? 1) > 1 ? ' ×' + it.count : ''}`
     : '—';
 }
 
@@ -570,8 +611,12 @@ function updateHUD(snap) {
     card.querySelector('.bar i').style.width = pct + '%';
   }
   const sleeping = snap.enemies.filter(e => e.awake === false).length;
+  // followers (combat hires/dogs) ship only on maps with hire posts; the
+  // squad cap is 5 (2 per player) so the count reads against the pool
+  const followers = snap.followers?.length ?? 0;
   $('squadStatusBody').textContent =
-    `Hostiles: ${snap.enemies.length}${sleeping ? ` (${sleeping} unaware)` : ''} · Rescued: ${snap.rescued.length}`;
+    `Hostiles: ${snap.enemies.length}${sleeping ? ` (${sleeping} unaware)` : ''} · Rescued: ${snap.rescued.length}`
+    + (followers ? ` · Followers: ${followers}/5` : '');
 
   const focus = session?.focusPids() ?? new Set();
   const me = snap.players.find(p => focus.has(p.pid) && p.state === 'active' && p.charId)
@@ -591,6 +636,20 @@ function updateHUD(snap) {
     $('wSpecialFill').style.width = Math.round(pct * 100) + '%';
   } else {
     $('wSpecial').hidden = true;
+  }
+  // per-mission XP/level (non-arcade snapshots only; classic players carry
+  // neither field so the row stays hidden). Thresholds are cumulative: a bar
+  // shows progress from this level's floor to the next; L4 (max) pins full.
+  const XP_T = [0, 12, 34, 70];
+  if (me?.level != null) {
+    $('wXp').hidden = false;
+    const lvl = Math.max(1, Math.min(4, me.level));
+    $('wLvl').textContent = lvl >= 4 ? lvl + ' MAX' : String(lvl);
+    const prev = XP_T[lvl - 1], next = XP_T[lvl];
+    const pct = lvl >= 4 ? 1 : Math.max(0, Math.min(1, ((me.xp ?? 0) - prev) / (next - prev)));
+    $('wXpFill').style.width = Math.round(pct * 100) + '%';
+  } else {
+    $('wXp').hidden = true;
   }
   updateItemSlot(me);
   updateHearts(snap);

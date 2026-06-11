@@ -326,3 +326,31 @@ button.ghost.navfocus { color: #eaf6ff; }
 .brinfo { font-size: 12px; letter-spacing: 1px; color: #8A98B8; }
 .brinfo b { color: var(--relay); font-variant-numeric: tabular-nums; }
 .brinfo .zonet { color: var(--amber); }
+
+/* --- combat depth: mission XP + followers (markup is client-managed) ---
+   level badge: <span class="lvlbadge">LVL 3</span> (add .max at level 4)
+   xp bar:      <div class="xpbar"><i style="width:40%"></i></div>
+   follower:    <span class="followchip">HOUND</span> (.down while lost) */
+.lvlbadge {
+  display: inline-block; min-width: 30px; padding: 1px 6px;
+  border-radius: 3px; text-align: center;
+  font-size: 10px; font-weight: 800; letter-spacing: 1px;
+  color: var(--amber); background: rgba(240, 169, 60, .12);
+  border: 1px solid rgba(240, 169, 60, .5);
+  font-variant-numeric: tabular-nums;
+}
+.lvlbadge.max {
+  color: #FFEFC2;
+  box-shadow: 0 0 8px rgba(255, 217, 138, .45);
+  border-color: rgba(255, 239, 194, .7);
+}
+.xpbar { height: 4px; margin-top: 4px; background: rgba(255, 255, 255, .08); border-radius: 2px; overflow: hidden; }
+.xpbar i { display: block; height: 100%; background: linear-gradient(90deg, #F0A93C, #FFD98A); transition: width .25s; }
+.followchip {
+  display: inline-block; margin-right: 4px; padding: 1px 7px;
+  border-radius: 8px; font-size: 9px; font-weight: 800;
+  letter-spacing: 1px; text-transform: uppercase;
+  color: var(--teal); background: rgba(54, 160, 138, .14);
+  border: 1px solid rgba(54, 160, 138, .55);
+}
+.followchip.down { opacity: .35; text-decoration: line-through; }

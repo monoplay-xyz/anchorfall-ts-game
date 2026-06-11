@@ -11,6 +11,9 @@ const popups = [];
 const rings = [];
 const edgePulses = []; // nightwave warnings: violet bleed from a map edge
 const crackers = []; // landed lure crackers: 'crackerOut' -> 'crackerBoom'/timeout
+const beams = []; // prism tower shots: 'prismBeam' {x,y,tx,ty,dmg,feeders?}
+const zaps = []; // tesla chain lightning: 'teslaZap' {x,y,targets:[{x,y}]}
+const pendingLevelUps = []; // coordless 'levelUp' events resolved to player pos
 let coreAlarmT = 0; // base-core alarm glow, armed by 'coreHit'/'coreDown'
 let shake = 0;
 let darkWorld = false; // set per-frame from snap.dark (story night missions)
@@ -569,6 +572,7 @@ function weaponClass(kind) {
     case 'twin': case 'blade': return 'blades';
     case 'flame': return 'thrower';
     case 'disc': case 'helix': return 'arc';
+    case 'harpoon': return 'spear'; // the Selkie's barbed harpoon
     default: return 'smg'; // smg, needle, spark, unknown future kinds
   }
 }
@@ -652,6 +656,25 @@ export function drawWeaponIcon(canvas, chOrWeapon) {
     ctx.shadowBlur = 0;
     ctx.strokeStyle = dk; ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.arc(74, 0, 6, 0, Math.PI * 2); ctx.stroke();
+  } else if (cls === 'spear') {
+    // harpoon: long shaft, barbed head, coiled retrieval line at the butt
+    ctx.fillStyle = '#4A4232'; ctx.fillRect(0, -1.8, 110, 3.6); // shaft
+    ctx.fillStyle = hi; ctx.fillRect(0, -1.8, 110, 1.1);
+    ctx.fillStyle = gm; ctx.fillRect(34, -3.5, 18, 7); // grip wrap
+    ctx.fillStyle = PAL.anchor; // barbed head
+    ctx.shadowColor = PAL.relay; ctx.shadowBlur = 7;
+    ctx.beginPath();
+    ctx.moveTo(132, 0); ctx.lineTo(110, -5); ctx.lineTo(116, 0); ctx.lineTo(110, 5);
+    ctx.closePath(); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = PAL.coldHi; ctx.lineWidth = 1.4; // back-swept barbs
+    ctx.beginPath();
+    ctx.moveTo(116, -3); ctx.lineTo(109, -8);
+    ctx.moveTo(116, 3); ctx.lineTo(109, 8);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(111,216,242,0.7)'; ctx.lineWidth = 1.5; // line coil
+    ctx.beginPath(); ctx.arc(-6, 4, 6, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(-6, 4, 3.2, 0, Math.PI * 2); ctx.stroke();
   } else { // smg / carbine
     ctx.fillStyle = dk; ctx.fillRect(0, -4, 80, 8);
     ctx.fillStyle = gm; ctx.fillRect(10, -6, 28, 11);
@@ -665,21 +688,40 @@ export function drawWeaponIcon(canvas, chOrWeapon) {
 }
 
 // ============================== EVENT FX ==============================
+function burstAt(x, y, n, color, speed = 120, life = 0.4) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const v = speed * (0.4 + Math.random() * 0.6);
+    particles.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life, max: life, color });
+  }
+}
+
+// On-the-spot leveling: gold flare + floating LVL banner at the operator.
+function levelUpFX(x, y, level) {
+  rings.push({ x, y, r0: 6, r1: 42, life: 0.6, max: 0.6, color: PAL.lythGold, w: 2.5 });
+  burstAt(x, y, 14, PAL.lythGold, 160, 0.55);
+  burstAt(x, y, 6, PAL.lythPale, 210, 0.4);
+  popups.push({ x, y: y - 28, text: `LVL ${level ?? 2}`, life: 1.2, max: 1.2, color: PAL.lythGold });
+}
+
 export function addEventFX(ev) {
-  const burst = (n, color, speed = 120, life = 0.4) => {
-    for (let i = 0; i < n; i++) {
-      const a = Math.random() * Math.PI * 2;
-      const v = speed * (0.4 + Math.random() * 0.6);
-      particles.push({ x: ev.x, y: ev.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life, max: life, color });
-    }
-  };
+  const burst = (n, color, speed = 120, life = 0.4) => burstAt(ev.x, ev.y, n, color, speed, life);
   const ring = (r1, color, life = 0.5, w = 3, r0 = 5) =>
     rings.push({ x: ev.x, y: ev.y, r0, r1, life, max: life, color, w });
 
-  if (ev.type === 'shoot') flashes.push({ x: ev.x, y: ev.y, life: 0.07, who: ev.who });
+  // shoot flashes carry the shooter's weapon evolution when the sim ships it
+  // (ev.evo); otherwise render() resolves it from the nearest leveled player.
+  if (ev.type === 'shoot') flashes.push({ x: ev.x, y: ev.y, life: 0.07, who: ev.who, evo: ev.evo });
   else if (ev.type === 'hit') { burst(4, '#ffd9d2', 110, 0.3); burst(3, PAL.red, 90, 0.3); }
   else if (ev.type === 'hitWall' || ev.type === 'shield') burst(5, PAL.steel, 90, 0.25);
-  else if (ev.type === 'explode') { burst(22, PAL.lythAmber, 240, 0.6); burst(8, PAL.ember, 150, 0.5); shake = Math.max(shake, 8); }
+  else if (ev.type === 'explode') {
+    // scaled by aoe radius so blast-evolved rounds visibly hit harder
+    const rk = Math.max(0.8, Math.min(2.2, (ev.radius ?? TILE) / TILE));
+    burst(Math.round(22 * rk), PAL.lythAmber, 240 * rk, 0.6);
+    burst(Math.round(8 * rk), PAL.ember, 150 * rk, 0.5);
+    if (rk > 1.3) rings.push({ x: ev.x, y: ev.y, r0: 6, r1: ev.radius, life: 0.4, max: 0.4, color: PAL.lythAmber, w: 2.5 });
+    shake = Math.max(shake, 8 * Math.min(1.4, rk));
+  }
   else if (ev.type === 'die') {
     // the Entropy unravels: violet static + one cyan eye-spark
     burst(15, PAL.glitch, 180, 0.55); burst(5, PAL.eye, 220, 0.3);
@@ -832,6 +874,46 @@ export function addEventFX(ev) {
   else if (ev.type === 'chest') { if (ev.x != null) { burst(10, PAL.lythGold, 120, 0.5); ring(26, PAL.lythGold, 0.45, 2); } }
   else if (ev.type === 'heal') { if (ev.x != null) burst(8, '#5fd2b4', 90, 0.45); }
   else if (ev.type === 'mount' || ev.type === 'dismount') { if (ev.x != null) burst(6, PAL.steel, 80, 0.3); }
+  // --- combat depth: xp, evolutions, tower types, followers ---
+  else if (ev.type === 'levelUp') {
+    if (ev.x != null) levelUpFX(ev.x, ev.y, ev.level);
+    else if (ev.pid != null) pendingLevelUps.push({ pid: ev.pid, level: ev.level });
+  }
+  else if (ev.type === 'prismBeam') {
+    if (ev.x != null && ev.tx != null) {
+      beams.push({
+        x: ev.x, y: ev.y, tx: ev.tx, ty: ev.ty, dmg: ev.dmg ?? 2,
+        feeders: Array.isArray(ev.feeders) ? ev.feeders.slice(0, 4) : null,
+        life: 0.22, max: 0.22,
+      });
+      burstAt(ev.tx, ev.ty, 6, PAL.anchor, 130, 0.3);
+      burstAt(ev.tx, ev.ty, 3, PAL.relay, 90, 0.35);
+    }
+  }
+  else if (ev.type === 'teslaZap') {
+    if (ev.x != null) {
+      const targets = Array.isArray(ev.targets) ? ev.targets.slice(0, 4) : [];
+      zaps.push({ x: ev.x, y: ev.y, targets, life: 0.18, max: 0.18 });
+      for (const tg of targets) burstAt(tg.x, tg.y, 4, PAL.eye, 130, 0.25);
+      shake = Math.max(shake, 2);
+    }
+  }
+  else if (ev.type === 'converted') {
+    if (ev.x != null) {
+      ring(30, PAL.relay, 0.6, 2);
+      burst(10, PAL.relay, 130, 0.5);
+      burst(4, PAL.eye, 170, 0.35);
+      popups.push({ x: ev.x, y: ev.y - 22, text: 'CONVERTED', life: 1, max: 1, color: PAL.relay });
+    }
+  }
+  else if (ev.type === 'toxin' || ev.type === 'toxinOut' || ev.type === 'toxinPatch') {
+    // a toxin charge bursts: green splash; the lingering pool rides g.patches
+    if (ev.x != null) { burst(12, '#8CC850', 130, 0.5); ring(TILE * 1.2, 'rgba(150,210,90,0.8)', 0.45, 2); }
+  }
+  else if (ev.type === 'bark' || ev.type === 'followerEngage') {
+    if (ev.x != null) popups.push({ x: ev.x, y: ev.y - 18, text: '!', life: 0.5, max: 0.5, color: PAL.teal });
+  }
+  else if (ev.type === 'followerDown') { if (ev.x != null) { burst(8, PAL.teal, 130, 0.45); burst(4, PAL.steel, 90, 0.35); } }
   // unknown event types are ignored gracefully
 }
 
@@ -840,16 +922,17 @@ export function addEventFX(ev) {
 // how far an entity actually moved (works for local sim AND net snapshots).
 const pose = new Map();
 function poseFor(key, x, y, dt) {
-  if (!key) return { ph: 0, amp: 0 };
+  if (!key) return { ph: 0, amp: 0, fx: 0, fy: 1 };
   if (pose.size > 900) pose.clear(); // long expeditions: ids keep growing
   let st = pose.get(key);
-  if (!st) { st = { x, y, ph: 0, sp: 0 }; pose.set(key, st); }
+  if (!st) { st = { x, y, ph: 0, sp: 0, fx: 0, fy: 1 }; pose.set(key, st); }
   const d = Math.hypot(x - st.x, y - st.y);
   const v = dt > 0 ? Math.min(400, d / dt) : 0;
   st.sp += (v - st.sp) * 0.25;
   st.ph += d * 0.22;
+  if (d > 0.4) { st.fx = (x - st.x) / d; st.fy = (y - st.y) / d; } // movement facing
   st.x = x; st.y = y;
-  return { ph: st.ph, amp: Math.max(0, Math.min(1, st.sp / 70)) };
+  return { ph: st.ph, amp: Math.max(0, Math.min(1, st.sp / 70)), fx: st.fx, fy: st.fy };
 }
 
 // Standard Moonsteel rim light, cast from the upper-left, screen-fixed.
@@ -919,6 +1002,18 @@ function drawHeldWeapon(ctx, cls) {
     ctx.lineWidth = 1.6;
     ctx.beginPath(); ctx.arc(5.6, -15.5, 4.4, 0, Math.PI * 2); ctx.stroke();
     ctx.shadowBlur = 0;
+  } else if (cls === 'spear') {
+    // harpoon held at the shoulder: the longest thin line after the rail
+    ctx.fillStyle = '#4A4232'; ctx.fillRect(4.4, -26, 2.2, 30); // shaft
+    ctx.fillStyle = hi; ctx.fillRect(4.4, -26, 0.9, 30);
+    ctx.fillStyle = PAL.anchor; // barbed head
+    ctx.shadowColor = PAL.relay; ctx.shadowBlur = 4;
+    ctx.beginPath();
+    ctx.moveTo(5.5, -31); ctx.lineTo(3.2, -25); ctx.lineTo(5.5, -26.6); ctx.lineTo(7.8, -25);
+    ctx.closePath(); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = 'rgba(111,216,242,0.6)'; ctx.lineWidth = 1; // line coil at hip
+    ctx.beginPath(); ctx.arc(7.4, 2.5, 2.6, 0, Math.PI * 2); ctx.stroke();
   } else { // smg / compact carbine
     ctx.fillStyle = dk; ctx.fillRect(3.6, -18, 3.6, 13);
     ctx.fillStyle = gm; ctx.fillRect(2.8, -11, 5, 6);
@@ -935,16 +1030,18 @@ function drawHeldWeapon(ctx, cls) {
 function drawSoldier(ctx, x, y, fx, fy, color, t, isMe, invuln, opts = {}) {
   const ang = Math.atan2(fy, fx);
   const { ph, amp } = poseFor(opts.key, x, y, opts.dt || 0.016);
+  const swim = !!opts.swim; // half-submerged crawl: the Selkie crossing water
+  if (swim) y += Math.sin(t * 2.3 + x * 0.05) * 1.2; // gentle bob on the swell
   ctx.save();
   // compose with the caller's alpha (sleeping enemies arrive dimmed)
   const base = ctx.globalAlpha;
   const blink = invuln > 0 ? 0.5 + 0.3 * Math.sin(t * 16) : 1;
   ctx.globalAlpha = base * blink;
-  shadowBlob(ctx, x, y + 11, 12, 5);
+  if (!swim) shadowBlob(ctx, x, y + 11, 12, 5); // no ground shadow on water
   // focus ring
   ctx.save();
   ctx.strokeStyle = color;
-  ctx.globalAlpha *= isMe ? 0.95 : 0.5;
+  ctx.globalAlpha *= (isMe ? 0.95 : 0.5) * (swim ? 0.6 : 1);
   ctx.lineWidth = isMe ? 2.5 : 1.2;
   ctx.shadowColor = color;
   ctx.shadowBlur = isMe ? 10 : 4;
@@ -954,19 +1051,27 @@ function drawSoldier(ctx, x, y, fx, fy, color, t, isMe, invuln, opts = {}) {
   ctx.restore();
   ctx.translate(x, y);
   ctx.rotate(ang + Math.PI / 2);
-  // animated boots (walk cycle from position deltas)
-  const lo = Math.sin(ph) * 4 * amp;
-  ctx.fillStyle = '#232533';
-  ctx.fillRect(-6.5, -2 + lo, 5, 7);
-  ctx.fillRect(1.5, -2 - lo, 5, 7);
-  ctx.fillStyle = PAL.teal; // squad boot caps
-  ctx.fillRect(-6.5, 3.6 + lo, 5, 1.5);
-  ctx.fillRect(1.5, 3.6 - lo, 5, 1.5);
-  // backpack rig with char-color stripe
-  ctx.fillStyle = PAL.graphDark;
-  ctx.fillRect(-6, 4.5, 12, 7.5);
-  ctx.fillStyle = color;
-  ctx.fillRect(-1.2, 5, 2.4, 6.5);
+  if (!swim) {
+    // animated boots (walk cycle from position deltas)
+    const lo = Math.sin(ph) * 4 * amp;
+    ctx.fillStyle = '#232533';
+    ctx.fillRect(-6.5, -2 + lo, 5, 7);
+    ctx.fillRect(1.5, -2 - lo, 5, 7);
+    ctx.fillStyle = PAL.teal; // squad boot caps
+    ctx.fillRect(-6.5, 3.6 + lo, 5, 1.5);
+    ctx.fillRect(1.5, 3.6 - lo, 5, 1.5);
+    // backpack rig with char-color stripe
+    ctx.fillStyle = PAL.graphDark;
+    ctx.fillRect(-6, 4.5, 12, 7.5);
+    ctx.fillStyle = color;
+    ctx.fillRect(-1.2, 5, 2.4, 6.5);
+  } else {
+    // kick splash where the boots would be
+    const ko = Math.sin(ph * 1.3) * 3 * Math.max(0.25, amp);
+    ctx.fillStyle = 'rgba(191,208,232,0.35)';
+    ctx.fillRect(-5 + ko, 8, 3.5, 2);
+    ctx.fillRect(2 - ko, 9, 3.5, 2);
+  }
   // torso: dark underlayer + graphite plate
   ctx.fillStyle = '#232533';
   ctx.beginPath(); ctx.ellipse(0, 0, 10, 11.5, 0, 0, Math.PI * 2); ctx.fill();
@@ -1010,9 +1115,41 @@ function drawSoldier(ctx, x, y, fx, fy, color, t, isMe, invuln, opts = {}) {
   ctx.shadowBlur = 4;
   ctx.beginPath(); ctx.arc(0, -1.4, 1.4, 0, Math.PI * 2); ctx.fill();
   ctx.shadowBlur = 0;
+  if (swim) {
+    // cold water swallows the trailing half of the body; foam at the line
+    ctx.fillStyle = 'rgba(16,26,46,0.78)';
+    ctx.fillRect(-13, 3, 26, 12);
+    ctx.fillStyle = 'rgba(191,208,232,0.35)';
+    ctx.fillRect(-11, 3, 22, 1.4);
+  }
   ctx.rotate(-(ang + Math.PI / 2));
   // screen-fixed Moonsteel rim light from the upper-left
   rimArc(ctx, 0, -1, 9.5);
+  ctx.restore();
+}
+
+// Ripple wake peeling off a swimmer; drawn under the operator.
+function drawSwimWake(ctx, p, t) {
+  ctx.save();
+  const base = ctx.globalAlpha;
+  ctx.strokeStyle = 'rgba(94,107,140,0.55)';
+  ctx.lineWidth = 1.4;
+  const ba = Math.atan2(-p.fy, -p.fx); // arcs open behind the swimmer
+  for (let i = 0; i < 3; i++) {
+    const pr = fract(t * 0.7 + i / 3 + (p.x + p.y) * 0.003);
+    ctx.globalAlpha = base * (1 - pr * 0.6);
+    ctx.beginPath();
+    ctx.arc(p.x - p.fx * 5, p.y - p.fy * 5, 8 + pr * 15, ba - 0.75, ba + 0.75);
+    ctx.stroke();
+  }
+  // stray foam flecks
+  ctx.fillStyle = 'rgba(191,208,232,0.4)';
+  for (let i = 0; i < 2; i++) {
+    const pr = fract(t * 0.9 + i * 0.5 + p.x * 0.01);
+    ctx.globalAlpha = base * (1 - pr);
+    ctx.fillRect(p.x - p.fx * (12 + pr * 16) + (flick(i * 7.7 + Math.floor(t)) - 0.5) * 8,
+      p.y - p.fy * (12 + pr * 16) + (flick(i * 3.1 + Math.floor(t)) - 0.5) * 8, 1.6, 1.6);
+  }
   ctx.restore();
 }
 
@@ -2327,6 +2464,369 @@ function drawMutation(ctx, e, t, lights) {
   }
 }
 
+// ============================== STATUS EFFECTS ==============================
+// Reads enemy status from named timers (stunT/burnT/toxT/convertedT), lite
+// booleans (stun/burn/tox/conv[erted]) or a packed numeric e.st
+// (1 stun | 2 burn | 4 tox | 8 converted). All optional — classic snapshots
+// carry none of these and skip the overlay entirely.
+function enemyStatus(e) {
+  const packed = typeof e.st === 'number' ? e.st : 0;
+  return {
+    stun: (e.stunT ?? 0) > 0 || !!e.stun || !!(packed & 1),
+    burn: (e.burnT ?? 0) > 0 || !!e.burn || !!(packed & 2),
+    tox: (e.toxT ?? 0) > 0 || !!e.tox || !!(packed & 4),
+    conv: (e.convertedT ?? 0) > 0 || !!e.converted || !!e.conv || !!(packed & 8),
+  };
+}
+
+function drawStatusFX(ctx, e, st, t, lights) {
+  const r = KIND_R[e.kind] || 13;
+  const seed = e.id * 7.31;
+  if (st.burn) {
+    // aflame: tongues licking off the body + rising embers
+    const j = flick(Math.floor(t * 9) + seed);
+    for (let i = 0; i < 3; i++) {
+      const ox = (flick(seed + i * 2.7) - 0.5) * r * 1.3;
+      const oy = (flick(seed + i * 4.3) - 0.5) * r * 0.9 - 2;
+      const fl = 0.7 + flick(Math.floor(t * 8) + seed + i * 13) * 0.5;
+      ctx.fillStyle = PAL.ember;
+      tear(ctx, e.x + ox, e.y + oy, 2.6 * fl, 6.5 * fl);
+      ctx.fillStyle = PAL.lythAmber;
+      tear(ctx, e.x + ox, e.y + oy + 1, 1.7 * fl, 4.4 * fl);
+      if (i === 1) { ctx.fillStyle = PAL.lythGold; tear(ctx, e.x + ox, e.y + oy + 1.6, 1 * fl, 2.6); }
+    }
+    ctx.save();
+    const ba = ctx.globalAlpha;
+    ctx.fillStyle = '#E07B39';
+    for (let i = 0; i < 3; i++) {
+      const pr = fract(t * 0.8 + i * 0.33 + flick(seed + i * 9.1));
+      ctx.globalAlpha = ba * (1 - pr) * 0.9;
+      ctx.fillRect(e.x + (flick(seed + i * 3.7) - 0.5) * r + Math.sin(pr * 6 + i) * 3, e.y - 4 - pr * (r + 16), 1.6, 1.6);
+    }
+    ctx.restore();
+    lights.push({ x: e.x, y: e.y - 2, r: r + 22, rgb: '240,169,60', a: 0.1 + j * 0.04 });
+  }
+  if (st.tox) {
+    // poisoned: sickly green sheen + drips sliding off the carapace
+    ctx.save();
+    const ba = ctx.globalAlpha;
+    ctx.fillStyle = 'rgba(120,180,70,0.18)';
+    ctx.beginPath(); ctx.ellipse(e.x, e.y, r + 1, r * 0.85, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#8CC850';
+    for (let i = 0; i < 3; i++) {
+      const pr = fract(t * 1.1 + i * 0.37 + flick(seed + i * 5.3));
+      const dx = e.x + (flick(seed + i * 1.9) - 0.5) * r * 1.5;
+      ctx.globalAlpha = ba * (1 - pr) * 0.85;
+      ctx.beginPath();
+      ctx.ellipse(dx, e.y + r * 0.4 + pr * 9, 1.2, 2.2, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+  if (st.stun) {
+    // stunned: white-gold sparks orbiting where a head would be
+    const oy = e.y - r - 7;
+    ctx.save();
+    ctx.strokeStyle = `rgba(255,239,194,${0.65 + 0.3 * Math.sin(t * 14 + seed)})`;
+    ctx.lineWidth = 1.4;
+    for (let i = 0; i < 3; i++) {
+      const a = t * 5 + (i / 3) * Math.PI * 2;
+      const sx = e.x + Math.cos(a) * 8, sy = oy + Math.sin(a) * 3;
+      ctx.beginPath();
+      ctx.moveTo(sx - 2.4, sy); ctx.lineTo(sx + 2.4, sy);
+      ctx.moveTo(sx, sy - 2.4); ctx.lineTo(sx, sy + 2.4);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+  if (st.conv) {
+    // mind-controlled: friendly-cyan eye + teal leash ring while it fights for us
+    const pulse = 0.5 + 0.5 * Math.sin(t * 6 + seed);
+    ctx.save();
+    ctx.strokeStyle = `rgba(54,160,138,${0.35 + 0.35 * pulse})`;
+    ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.arc(e.x, e.y, r + 4 + pulse * 2, 0, Math.PI * 2); ctx.stroke();
+    // the eye reads ally: relay-cyan, overdrawn at the facing point
+    ctx.fillStyle = PAL.relay;
+    ctx.shadowColor = PAL.relay;
+    ctx.shadowBlur = 9;
+    ctx.beginPath();
+    ctx.arc(e.x + (e.fx || 0) * 7, e.y + (e.fy || 0) * 7, 2.6, 0, Math.PI * 2);
+    ctx.fill();
+    // control diamond hovering above
+    ctx.fillStyle = `rgba(111,216,242,${0.6 + 0.4 * pulse})`;
+    ctx.translate(e.x, e.y - r - 10 + Math.sin(t * 3) * 1.2);
+    ctx.rotate(Math.PI / 4);
+    ctx.fillRect(-2.2, -2.2, 4.4, 4.4);
+    ctx.restore();
+    lights.push({ x: e.x, y: e.y, r: r + 18, rgb: '111,216,242', a: 0.07 + 0.05 * pulse });
+  }
+}
+
+// ============================== GROUND PATCHES ==============================
+// g.patches [{x,y,kind:'burn'|'toxin',r(px),ttl}] — lingering area effects.
+// Burn: flickering flame pool. Toxin: bubbling green slick that slows.
+function drawPatch(ctx, pa, t, lights) {
+  const r = pa.r || TILE * 1.2;
+  const fade = pa.ttl != null ? Math.max(0, Math.min(1, pa.ttl / 0.8)) : 1;
+  if (fade <= 0) return;
+  const seed = pa.x * 0.37 + pa.y * 0.61;
+  ctx.save();
+  ctx.globalAlpha *= fade;
+  if (pa.kind === 'toxin') {
+    // bubbling slick
+    const g = ctx.createRadialGradient(pa.x, pa.y, 0, pa.x, pa.y, r);
+    g.addColorStop(0, 'rgba(86,122,46,0.42)');
+    g.addColorStop(0.65, 'rgba(64,94,36,0.3)');
+    g.addColorStop(1, 'rgba(52,80,32,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(pa.x - r, pa.y - r, r * 2, r * 2);
+    ctx.fillStyle = 'rgba(46,66,28,0.5)';
+    ctx.beginPath(); ctx.ellipse(pa.x, pa.y, r * 0.85, r * 0.6, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = `rgba(140,200,80,${0.3 + 0.18 * Math.sin(t * 2.2 + seed)})`;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.ellipse(pa.x, pa.y, r * 0.85, r * 0.6, 0, 0, Math.PI * 2); ctx.stroke();
+    // bubbles swell then pop into little rings
+    for (let i = 0; i < 7; i++) {
+      const bx = pa.x + (flick(seed + i * 3.1) - 0.5) * r * 1.3;
+      const by = pa.y + (flick(seed + i * 5.7) - 0.5) * r * 0.85;
+      const cyc = fract(t * (0.45 + flick(seed + i) * 0.6) + flick(seed + i * 7.7));
+      if (cyc < 0.75) {
+        const br = 1 + (cyc / 0.75) * 3;
+        ctx.fillStyle = 'rgba(150,210,90,0.5)';
+        ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = 'rgba(220,255,180,0.55)';
+        ctx.fillRect(bx - br * 0.4, by - br * 0.5, 1.2, 1.2);
+      } else {
+        const k = (cyc - 0.75) / 0.25;
+        ctx.strokeStyle = `rgba(170,230,110,${(1 - k) * 0.55})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(bx, by, 3 + k * 4, 0, Math.PI * 2); ctx.stroke();
+      }
+    }
+    lights.push({ x: pa.x, y: pa.y, r: r * 1.25, rgb: '120,190,70', a: 0.07 * fade });
+  } else {
+    // burn pool: scorched ground under a low carpet of flame
+    ctx.fillStyle = 'rgba(23,20,26,0.6)';
+    ctx.beginPath(); ctx.ellipse(pa.x, pa.y, r * 0.9, r * 0.65, 0, 0, Math.PI * 2); ctx.fill();
+    const j = flick(Math.floor(t * 9) + seed);
+    const eg = ctx.createRadialGradient(pa.x, pa.y, 0, pa.x, pa.y, r * 0.7);
+    eg.addColorStop(0, `rgba(199,91,34,${0.34 + j * 0.12})`);
+    eg.addColorStop(1, 'rgba(199,91,34,0)');
+    ctx.fillStyle = eg;
+    ctx.fillRect(pa.x - r, pa.y - r, r * 2, r * 2);
+    for (let i = 0; i < 6; i++) {
+      const fx2 = pa.x + (flick(seed + i * 2.3) - 0.5) * r * 1.25;
+      const fy2 = pa.y + (flick(seed + i * 4.9) - 0.5) * r * 0.8;
+      const fl = 0.7 + flick(Math.floor(t * 8) + seed + i * 13) * 0.5;
+      ctx.fillStyle = PAL.ember;
+      tear(ctx, fx2, fy2, 2.6 * fl, 6 * fl);
+      ctx.fillStyle = PAL.lythAmber;
+      tear(ctx, fx2, fy2 + 0.5, 1.7 * fl, 4 * fl);
+      if (i % 2 === 0) { ctx.fillStyle = PAL.lythGold; tear(ctx, fx2, fy2 + 1, 1 * fl, 2.6); }
+    }
+    // sparks lifting off the pool
+    const sb = ctx.globalAlpha;
+    ctx.fillStyle = '#E07B39';
+    for (let i = 0; i < 4; i++) {
+      const pr = fract(t * 0.7 + i * 0.25 + flick(seed + i * 9.1));
+      ctx.globalAlpha = sb * (1 - pr) * 0.9;
+      ctx.fillRect(pa.x + (flick(seed + i * 3.7) - 0.5) * r + Math.sin(pr * 6 + i) * 3, pa.y - pr * 22, 1.6, 1.6);
+    }
+    ctx.globalAlpha = sb;
+    lights.push({ x: pa.x, y: pa.y, r: r * 1.5, rgb: '240,169,60', a: (0.1 + j * 0.04) * fade });
+  }
+  ctx.restore();
+}
+
+// ============================== FOLLOWERS ==============================
+// Combat hires bound to an operator: hound / archer / caster. They wear one
+// strip of their owner's char color so squads can tell whose dog that is.
+
+function drawHound(ctx, fo, t, dt, col) {
+  const { ph, amp, fx, fy } = poseFor('f' + fo.id, fo.x, fo.y, dt);
+  const a = Math.atan2(fy, fx);
+  shadowBlob(ctx, fo.x, fo.y + 6, 10, 4);
+  ctx.save();
+  ctx.translate(fo.x, fo.y);
+  ctx.rotate(a + Math.PI / 2);
+  // four legs, diagonal pairs in phase (a real trot)
+  ctx.strokeStyle = '#241F1C';
+  ctx.lineWidth = 2;
+  for (const [lx, ly, phs] of [[-4, -4, 0], [4, -4, Math.PI], [-4, 5, Math.PI], [4, 5, 0]]) {
+    const stride = Math.sin(ph * 1.4 + phs) * 4.5 * Math.max(0.15, amp);
+    ctx.beginPath();
+    ctx.moveTo(lx, ly);
+    ctx.lineTo(lx * 1.6, ly + stride);
+    ctx.stroke();
+  }
+  // lean body
+  ctx.fillStyle = '#3A332C';
+  ctx.beginPath(); ctx.ellipse(0, 0.5, 5.5, 9, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#2A2520'; // saddle shading along the spine
+  ctx.beginPath(); ctx.ellipse(0, 2.5, 3.4, 5.5, 0, 0, Math.PI * 2); ctx.fill();
+  // tail wag (faster when running)
+  ctx.strokeStyle = '#2A2520';
+  ctx.lineWidth = 1.8;
+  ctx.beginPath();
+  ctx.moveTo(0, 9);
+  ctx.lineTo(Math.sin(t * (6 + amp * 8)) * 3, 13.5);
+  ctx.stroke();
+  // head + snout + pricked ears
+  ctx.fillStyle = '#3A332C';
+  ctx.beginPath(); ctx.ellipse(0, -10, 4.4, 5, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#2A2520';
+  ctx.beginPath(); ctx.ellipse(0, -14.2, 2.2, 2.8, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#241F1C';
+  ctx.beginPath();
+  ctx.moveTo(-3.6, -11.5); ctx.lineTo(-2.2, -7.5); ctx.lineTo(-4.8, -8);
+  ctx.closePath(); ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(3.6, -11.5); ctx.lineTo(2.2, -7.5); ctx.lineTo(4.8, -8);
+  ctx.closePath(); ctx.fill();
+  // owner-color collar
+  ctx.fillStyle = col;
+  ctx.shadowColor = col;
+  ctx.shadowBlur = 4;
+  ctx.fillRect(-4, -7.2, 8, 1.8);
+  ctx.shadowBlur = 0;
+  // hunting eyes
+  ctx.fillStyle = PAL.eye;
+  ctx.fillRect(-2.2, -12.2, 1.3, 1.3);
+  ctx.fillRect(0.9, -12.2, 1.3, 1.3);
+  ctx.restore();
+  rimArc(ctx, fo.x, fo.y - 3, 7, 0.35);
+}
+
+function drawArcherFollower(ctx, fo, t, dt, col) {
+  const { ph, amp, fx, fy } = poseFor('f' + fo.id, fo.x, fo.y, dt);
+  const a = Math.atan2(fy, fx);
+  shadowBlob(ctx, fo.x, fo.y + 8, 9, 3.6);
+  ctx.save();
+  ctx.translate(fo.x, fo.y);
+  ctx.rotate(a + Math.PI / 2);
+  // small boots
+  const lo = Math.sin(ph) * 3 * amp;
+  ctx.fillStyle = '#232533';
+  ctx.fillRect(-4.6, -1 + lo, 3.6, 5);
+  ctx.fillRect(1, -1 - lo, 3.6, 5);
+  // quiver across the back, fletching showing
+  ctx.fillStyle = '#4A4232';
+  ctx.fillRect(-5.4, 3, 4, 7);
+  ctx.strokeStyle = PAL.lythGold;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(-4.4, 3); ctx.lineTo(-4.4, 1);
+  ctx.moveTo(-2.6, 3); ctx.lineTo(-2.6, 1.4);
+  ctx.stroke();
+  // hooded cloak body
+  ctx.fillStyle = '#2C3148';
+  ctx.beginPath(); ctx.ellipse(0, 0.5, 6.6, 8, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = 'rgba(11,10,20,0.35)';
+  ctx.beginPath(); ctx.ellipse(0, 3.5, 5.4, 4.4, 0, 0, Math.PI); ctx.fill();
+  // bow held ahead: stave crescent + string
+  ctx.strokeStyle = '#6E5A3A';
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(0, -8.5, 7, Math.PI * 1.18, Math.PI * 1.82); ctx.stroke();
+  ctx.strokeStyle = 'rgba(191,208,232,0.65)';
+  ctx.lineWidth = 0.8;
+  ctx.beginPath();
+  ctx.moveTo(Math.cos(Math.PI * 1.18) * 7, -8.5 + Math.sin(Math.PI * 1.18) * 7);
+  ctx.lineTo(Math.cos(Math.PI * 1.82) * 7, -8.5 + Math.sin(Math.PI * 1.82) * 7);
+  ctx.stroke();
+  // owner-color armband
+  ctx.fillStyle = col;
+  ctx.shadowColor = col;
+  ctx.shadowBlur = 4;
+  ctx.fillRect(-7.4, -1.6, 2.4, 3.2);
+  ctx.shadowBlur = 0;
+  // hood, interior dark, one visor glint
+  ctx.fillStyle = '#2C3148';
+  ctx.beginPath(); ctx.arc(0, -3.5, 4.4, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = PAL.voidNight;
+  ctx.beginPath(); ctx.arc(0, -4, 2.8, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = 'rgba(191,208,232,0.8)';
+  ctx.fillRect(-1.6, -5.4, 3.2, 1.1);
+  ctx.restore();
+  rimArc(ctx, fo.x, fo.y - 4, 6.5, 0.35);
+}
+
+function drawCasterFollower(ctx, fo, t, dt, col, lights) {
+  const { ph, amp, fx, fy } = poseFor('f' + fo.id, fo.x, fo.y, dt);
+  const a = Math.atan2(fy, fx);
+  const bob = Math.sin(t * 1.7 + fo.id) * 0.8;
+  shadowBlob(ctx, fo.x, fo.y + 8, 9, 3.6);
+  ctx.save();
+  ctx.translate(fo.x, fo.y + bob);
+  ctx.rotate(a + Math.PI / 2);
+  // robe hem swishes with the stride
+  const sw = Math.sin(ph * 0.8) * 1.6 * amp;
+  ctx.fillStyle = '#243A40'; // deep-teal weather robe
+  ctx.beginPath();
+  ctx.moveTo(0, -9);
+  ctx.quadraticCurveTo(7, -2, 6 + sw, 9);
+  ctx.lineTo(-6 + sw, 9);
+  ctx.quadraticCurveTo(-7, -2, 0, -9);
+  ctx.fill();
+  ctx.strokeStyle = '#17282c';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(-2.5, -4); ctx.lineTo(-3 + sw, 8);
+  ctx.moveTo(2.5, -4); ctx.lineTo(3 + sw, 8);
+  ctx.stroke();
+  // owner-color sash
+  ctx.fillStyle = col;
+  ctx.shadowColor = col;
+  ctx.shadowBlur = 4;
+  ctx.fillRect(-4.5, -1, 9, 1.8);
+  ctx.shadowBlur = 0;
+  // storm staff out to the right, swirl charging at its tip
+  ctx.strokeStyle = '#4A4232';
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(6, 5); ctx.lineTo(9.5, -10); ctx.stroke();
+  // hood
+  ctx.fillStyle = '#243A40';
+  ctx.beginPath(); ctx.arc(0, -7, 4.4, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = PAL.voidNight;
+  ctx.beginPath(); ctx.arc(0, -7.5, 2.8, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = 'rgba(111,216,242,0.85)';
+  ctx.fillRect(-1.6, -8.6, 3.2, 1.1);
+  // wind spiral around the staff head
+  ctx.strokeStyle = `rgba(138,152,184,${0.5 + 0.3 * Math.sin(t * 5)})`;
+  ctx.lineWidth = 1.2;
+  for (let i = 0; i < 2; i++) {
+    const sa = t * 4 + i * Math.PI;
+    ctx.beginPath();
+    ctx.ellipse(9.5, -12, 4 - i, 1.6 - i * 0.4, 0, sa, sa + Math.PI * 1.4);
+    ctx.stroke();
+  }
+  ctx.restore();
+  rimArc(ctx, fo.x, fo.y - 4, 6.5, 0.35);
+  lights.push({ x: fo.x, y: fo.y - 10, r: 18, rgb: '138,152,184', a: 0.05 });
+}
+
+function drawFollower(ctx, fo, t, dt, col, lights) {
+  if (fo.kind === 'hound') drawHound(ctx, fo, t, dt, col);
+  else if (fo.kind === 'caster') drawCasterFollower(ctx, fo, t, dt, col, lights);
+  else drawArcherFollower(ctx, fo, t, dt, col); // archer + unknown future hires
+  const maxHp = fo.maxHp ?? 2;
+  if (fo.hp != null && fo.hp < maxHp) drawHeartPips(ctx, fo.x, fo.y - 22, fo.hp, maxHp);
+}
+
+// Jagged lightning path appended to the current path (no stroke here).
+function jagPath(ctx, x0, y0, x1, y1, segs, mag, seed) {
+  ctx.moveTo(x0, y0);
+  const dx = x1 - x0, dy = y1 - y0;
+  const len = Math.hypot(dx, dy) || 1;
+  const px = -dy / len, py = dx / len; // perpendicular
+  for (let i = 1; i < segs; i++) {
+    const k = i / segs;
+    const off = (flick(seed + i * 7.3) - 0.5) * 2 * mag;
+    ctx.lineTo(x0 + dx * k + px * off, y0 + dy * k + py * off);
+  }
+  ctx.lineTo(x1, y1);
+}
+
 // Gold service chevrons under an upgraded structure (level 2-3).
 function drawLevelPips(ctx, x, y, level) {
   const lvl = level ?? 1;
@@ -2357,6 +2857,24 @@ function drawHeartPips(ctx, x, y, hp, maxHp) {
     ctx.fill();
     ctx.beginPath();
     ctx.moveTo(cx - 2.6, y - 0.2); ctx.lineTo(cx, y + 2.8); ctx.lineTo(cx + 2.6, y - 0.2);
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+}
+
+// Mission-XP level pips: one small gold diamond per level-up (levels 2-4),
+// drawn beside the operator's name. Absent on classic snapshots (no p.level).
+function drawLevelDiamonds(ctx, x, y, level) {
+  const n = Math.max(0, Math.min(4, level ?? 1) - 1);
+  if (!n) return;
+  ctx.save();
+  ctx.fillStyle = PAL.lythGold;
+  ctx.shadowColor = PAL.lythGold;
+  ctx.shadowBlur = 3;
+  for (let i = 0; i < n; i++) {
+    const cx = x + i * 7;
+    ctx.beginPath();
+    ctx.moveTo(cx, y - 3); ctx.lineTo(cx + 2.6, y); ctx.lineTo(cx, y + 3); ctx.lineTo(cx - 2.6, y);
     ctx.closePath(); ctx.fill();
   }
   ctx.restore();
@@ -2422,6 +2940,47 @@ function drawItemDrop(ctx, d, t, lights) {
     ctx.fillStyle = PAL.graphDark;
     ctx.fillRect(-5.4, -2.6, 1.4, 5.2);
     ctx.fillRect(4, -2.6, 1.4, 5.2);
+  } else if (d.kind === 'toxin') {
+    // stoppered flask of green sludge (desolator vintage)
+    ctx.fillStyle = '#26301A'; // glass body
+    ctx.beginPath();
+    ctx.moveTo(-1.6, -5); ctx.lineTo(-1.6, -1.5);
+    ctx.quadraticCurveTo(-4.5, 0, -4.5, 2.2);
+    ctx.quadraticCurveTo(-4.5, 5, 0, 5);
+    ctx.quadraticCurveTo(4.5, 5, 4.5, 2.2);
+    ctx.quadraticCurveTo(4.5, 0, 1.6, -1.5);
+    ctx.lineTo(1.6, -5);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(150,210,90,0.85)'; // sludge fill, lapping
+    ctx.beginPath();
+    ctx.ellipse(0, 2.4 + Math.sin(t * 2.4 + d.x * 0.05) * 0.4, 3.6, 2.2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(220,255,180,0.7)'; // rising bubble
+    const bpr = fract(t * 0.8 + d.x * 0.03);
+    if (bpr < 0.6) ctx.fillRect(-0.8, 3 - bpr * 4, 1.2, 1.2);
+    ctx.fillStyle = '#4A4232'; // cork
+    ctx.fillRect(-2.2, -6.6, 4.4, 2.2);
+    lights.push({ x: d.x, y, r: 18, rgb: '120,190,70', a: 0.1 * a2 });
+  } else if (d.kind === 'controller') {
+    // mind-control orb: a dark sphere with one waking relay iris
+    ctx.fillStyle = PAL.voidNight;
+    ctx.beginPath(); ctx.arc(0, 0, 5, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = PAL.relay;
+    ctx.lineWidth = 1.2;
+    ctx.shadowColor = PAL.relay;
+    ctx.shadowBlur = 7;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    const ip = 0.5 + 0.5 * Math.sin(t * 4 + d.x * 0.07);
+    ctx.fillStyle = `rgba(191,251,255,${0.5 + 0.5 * ip})`; // the iris
+    ctx.beginPath(); ctx.arc(0, 0, 1.6 + ip * 0.8, 0, Math.PI * 2); ctx.fill();
+    ctx.save(); // psychic orbit ring
+    ctx.rotate(t * 1.2);
+    ctx.strokeStyle = 'rgba(111,216,242,0.55)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.ellipse(0, 0, 7.4, 2.4, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+    lights.push({ x: d.x, y, r: 20, rgb: '111,216,242', a: 0.12 * a2 });
   } else { // weapon token + future kinds — a slowly turning gold cog
     ctx.fillStyle = PAL.lythGold;
     ctx.strokeStyle = PAL.lythAmber;
@@ -2554,16 +3113,8 @@ function drawBarricade(ctx, b, t) {
   }
 }
 
-function drawTurret(ctx, b, t, snap, lights) {
-  const { x, y } = b;
-  // pick a visual target: nearest awake enemy within 5 tiles
-  let ta = t * 0.6, best = (TILE * 5) ** 2;
-  for (const e of snap.enemies || []) {
-    if (e.awake === false) continue;
-    const d = (e.x - x) ** 2 + (e.y - y) ** 2;
-    if (d < best) { best = d; ta = Math.atan2(e.y - y, e.x - x); }
-  }
-  // tripod
+// Shared tripod + ring base for every turret type.
+function turretBase(ctx, x, y) {
   ctx.strokeStyle = PAL.graphPlate;
   ctx.lineWidth = 3;
   for (const la of [-Math.PI / 2, Math.PI / 6, Math.PI * 5 / 6]) {
@@ -2577,6 +3128,160 @@ function drawTurret(ctx, b, t, snap, lights) {
   ctx.strokeStyle = PAL.graphDark;
   ctx.lineWidth = 1;
   ctx.stroke();
+}
+
+// Visual target: nearest awake enemy within `tiles` of the turret.
+function turretAim(snap, x, y, t, tiles = 5) {
+  let ta = t * 0.6, best = (TILE * tiles) ** 2;
+  for (const e of snap.enemies || []) {
+    if (e.awake === false) continue;
+    const d = (e.x - x) ** 2 + (e.y - y) ** 2;
+    if (d < best) { best = d; ta = Math.atan2(e.y - y, e.x - x); }
+  }
+  return ta;
+}
+
+// PRISM — faceted crystal head; nearby prisms feed it charge (RA2 homage).
+// The killing beam itself arrives via the 'prismBeam' event.
+function drawPrismTower(ctx, b, t, snap, lights) {
+  const { x, y } = b;
+  turretBase(ctx, x, y);
+  // feeder filaments from other built prisms within 4 tiles (cap 3, like the sim)
+  let nLinks = 0;
+  for (const o of snap.builds ?? []) {
+    if (o === b || !o.built || o.kind !== 'turret' || (o.ttype || 'gun') !== 'prism') continue;
+    if ((o.x - x) ** 2 + (o.y - y) ** 2 > (TILE * 4) ** 2) continue;
+    nLinks++;
+    ctx.save();
+    ctx.strokeStyle = `rgba(111,216,242,${0.22 + 0.16 * Math.sin(t * 3 + nLinks * 2.1)})`;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 5]);
+    ctx.lineDashOffset = -t * 16;
+    ctx.beginPath();
+    ctx.moveTo(o.x, o.y - 14); ctx.lineTo(x, y - 14);
+    ctx.stroke();
+    ctx.restore();
+    if (nLinks >= 3) break;
+  }
+  // mount post
+  ctx.fillStyle = PAL.graphDark;
+  ctx.fillRect(x - 2, y - 9, 4, 9);
+  // crystal: tall diamond, charge shimmer scales with feeders
+  const chg = 0.55 + 0.45 * Math.sin(t * (2 + nLinks * 1.5) + x * 0.05);
+  ctx.save();
+  ctx.translate(x, y - 16);
+  ctx.shadowColor = PAL.relay;
+  ctx.shadowBlur = (4 + nLinks * 3) * chg + 3;
+  const cg = ctx.createLinearGradient(0, 9, 0, -9);
+  cg.addColorStop(0, PAL.pylonBlue);
+  cg.addColorStop(0.55, PAL.relay);
+  cg.addColorStop(1, PAL.anchor);
+  ctx.fillStyle = cg;
+  ctx.beginPath();
+  ctx.moveTo(0, -9); ctx.lineTo(5.5, 0); ctx.lineTo(0, 9); ctx.lineTo(-5.5, 0);
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = `rgba(223,243,255,${0.5 + 0.4 * chg})`; // facet lines
+  ctx.lineWidth = 1;
+  ctx.shadowBlur = 0;
+  ctx.beginPath();
+  ctx.moveTo(0, -9); ctx.lineTo(0, 9);
+  ctx.moveTo(-5.5, 0); ctx.lineTo(5.5, 0);
+  ctx.stroke();
+  ctx.restore();
+  rimArc(ctx, x, y - 16, 8, 0.45);
+  lights.push({ x, y: y - 16, r: 28 + nLinks * 8, rgb: '111,216,242', a: 0.08 + nLinks * 0.025 });
+}
+
+// TESLA — graphite coil stack, relay orb crawling with idle arcs.
+// Chain zaps arrive via the 'teslaZap' event.
+function drawTeslaTower(ctx, b, t, lights) {
+  const { x, y } = b;
+  turretBase(ctx, x, y);
+  for (let i = 0; i < 4; i++) {
+    const w = 12 - i * 2.2;
+    ctx.fillStyle = i % 2 ? PAL.graphDark : '#4A5060';
+    ctx.fillRect(x - w / 2, y - 8 - i * 4.4, w, 3.4);
+  }
+  ctx.strokeStyle = '#6E5A3A'; // copper winding hints
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x - 5, y - 10); ctx.lineTo(x + 5, y - 11.5);
+  ctx.moveTo(x - 4, y - 19); ctx.lineTo(x + 4, y - 20.2);
+  ctx.stroke();
+  const frame = Math.floor(t * 16);
+  const live = flick(frame + x * 0.7) > 0.45;
+  ctx.save();
+  ctx.fillStyle = PAL.relay;
+  ctx.shadowColor = PAL.relay;
+  ctx.shadowBlur = live ? 12 : 6;
+  ctx.beginPath(); ctx.arc(x, y - 27, 4, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = PAL.eye;
+  ctx.beginPath(); ctx.arc(x, y - 27, 1.8, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+  if (live) {
+    // idle micro-arcs licking off the orb
+    ctx.save();
+    ctx.strokeStyle = `rgba(191,251,255,${0.45 + 0.3 * flick(frame * 3.1)})`;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let i = 0; i < 2; i++) {
+      const aa = flick(frame + i * 7.7) * Math.PI * 2;
+      jagPath(ctx, x, y - 27, x + Math.cos(aa) * 9, y - 27 + Math.sin(aa) * 7, 3, 2.5, frame + i * 31);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+  rimArc(ctx, x, y - 18, 8, 0.5);
+  lights.push({ x, y: y - 26, r: 30, rgb: '111,216,242', a: live ? 0.12 : 0.07 });
+}
+
+// TOXIN — squat sludge vat with a sprayer nozzle; lobs globs at the swarm.
+function drawToxinTurret(ctx, b, t, snap, lights) {
+  const { x, y } = b;
+  turretBase(ctx, x, y);
+  // vat dome with a sludge window
+  ctx.fillStyle = '#2E3A22';
+  ctx.beginPath(); ctx.ellipse(x, y - 6, 8.5, 6.5, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#4E5A30';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+  const slosh = Math.sin(t * 2.1 + x * 0.04) * 0.6;
+  ctx.fillStyle = 'rgba(140,200,80,0.55)';
+  ctx.beginPath(); ctx.ellipse(x, y - 5 + slosh * 0.4, 4.6, 2.6 + slosh, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = 'rgba(220,255,180,0.5)'; // bubble winking in the window
+  if (fract(t * 0.8 + x * 0.02) < 0.4) ctx.fillRect(x - 1 + slosh, y - 6, 1.4, 1.4);
+  // hazard ticks on the rim
+  ctx.fillStyle = PAL.lythAmber;
+  ctx.fillRect(x - 7.5, y - 1.5, 3, 1.6);
+  ctx.fillRect(x + 4.5, y - 1.5, 3, 1.6);
+  // sprayer tracks the nearest enemy in its 5-tile pool range
+  const ta = turretAim(snap, x, y, t, 5);
+  ctx.save();
+  ctx.translate(x, y - 9);
+  ctx.rotate(ta);
+  ctx.fillStyle = PAL.graphDark;
+  ctx.fillRect(3, -1.7, 9.5, 3.4);
+  ctx.fillStyle = '#8CC850'; // dripping tip
+  ctx.fillRect(12, -2.3, 2.4, 4.6);
+  ctx.restore();
+  // slow drip off the nozzle
+  const pr = fract(t * 0.9 + x * 0.013);
+  ctx.fillStyle = `rgba(150,210,90,${0.8 * (1 - pr)})`;
+  ctx.fillRect(x + Math.cos(ta) * 13 - 1, y - 9 + Math.sin(ta) * 13 + pr * 8, 2, 3);
+  rimArc(ctx, x, y - 8, 8, 0.45);
+  lights.push({ x, y: y - 6, r: 24, rgb: '120,190,70', a: 0.08 });
+}
+
+function drawTurret(ctx, b, t, snap, lights) {
+  // RA2-style type selection: b.ttype rides the snapshot ('gun' when absent,
+  // so pre-combat-depth snapshots keep the classic gun turret).
+  const ttype = b.ttype || 'gun';
+  if (ttype === 'prism') return drawPrismTower(ctx, b, t, snap, lights);
+  if (ttype === 'tesla') return drawTeslaTower(ctx, b, t, lights);
+  if (ttype === 'toxin') return drawToxinTurret(ctx, b, t, snap, lights);
+  const { x, y } = b;
+  const ta = turretAim(snap, x, y, t, 5);
+  turretBase(ctx, x, y);
   // rotating head capsule
   ctx.save();
   ctx.translate(x, y - 3);
@@ -2596,6 +3301,53 @@ function drawTurret(ctx, b, t, snap, lights) {
   ctx.restore();
   rimArc(ctx, x, y - 4, 7, 0.6);
   lights.push({ x, y: y - 3, r: 26, rgb: '111,216,242', a: 0.07 });
+}
+
+// Turret type carousel: shown while a fresh turret waits in typeSelect.
+// Mirrors the shop UX — left/right cycles, fire confirms, gun auto-confirms.
+const TTYPE_OFFERS = [
+  ['gun', 'GUN — LEAD SLINGER'],
+  ['prism', 'PRISM — CHAINED BEAM'],
+  ['tesla', 'TESLA — CHAIN STUN'],
+  ['toxin', 'TOXIN — AREA DENIAL'],
+];
+function drawTypeSelect(ctx, b, t) {
+  const { x, y } = b;
+  const selIdx = Math.max(0, TTYPE_OFFERS.findIndex(([id]) => id === (b.ttype || 'gun')));
+  // typeSelect may be a boolean or the remaining auto-confirm seconds
+  const cd = typeof b.typeSelect === 'number' ? Math.ceil(b.typeSelect)
+    : typeof b.typeSelectT === 'number' ? Math.ceil(b.typeSelectT) : null;
+  const pw = 196, phh = 16 + TTYPE_OFFERS.length * 14 + 14;
+  const px = x - pw / 2, py = y - 34 - phh;
+  ctx.save();
+  ctx.fillStyle = 'rgba(13,14,24,0.92)';
+  ctx.strokeStyle = 'rgba(23,74,74,0.9)';
+  ctx.lineWidth = 1.5;
+  ctx.fillRect(px, py, pw, phh);
+  ctx.strokeRect(px, py, pw, phh);
+  ctx.font = 'bold 9px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillStyle = PAL.teal;
+  ctx.fillText(cd != null ? `TURRET TYPE — ${cd}s` : 'TURRET TYPE', px + 8, py + 11);
+  TTYPE_OFFERS.forEach(([, label], i) => {
+    const ry = py + 16 + i * 14;
+    if (i === selIdx) {
+      ctx.fillStyle = 'rgba(111,216,242,0.14)';
+      ctx.fillRect(px + 3, ry - 2, pw - 6, 13);
+      ctx.fillStyle = PAL.relay;
+      ctx.fillText('▶', px + 6, ry + 8);
+    }
+    ctx.fillStyle = i === selIdx ? PAL.anchor : 'rgba(191,208,232,0.75)';
+    ctx.fillText(label, px + 16, ry + 8);
+  });
+  ctx.fillStyle = 'rgba(94,107,140,0.9)';
+  ctx.fillText('◄ ► CYCLE · FIRE = CONFIRM', px + 8, py + phh - 5);
+  // relay marker over the waiting turret
+  ctx.fillStyle = `rgba(111,216,242,${0.5 + 0.4 * Math.sin(t * 4)})`;
+  ctx.beginPath();
+  ctx.moveTo(x, y - 30); ctx.lineTo(x - 4, y - 37); ctx.lineTo(x + 4, y - 37);
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
 }
 
 function drawPylon(ctx, b, t, lights) {
@@ -2653,6 +3405,8 @@ function drawBuild(ctx, b, t, snap, lights) {
     else drawPylon(ctx, b, t, lights);
     if (b.maxHp && b.hp != null && b.hp < b.maxHp) drawHpPips(ctx, x, y - 28, b.hp / b.maxHp);
     if (b.kind !== 'farm') drawLevelPips(ctx, x, y + 14, b.level);
+    // fresh turret awaiting its type pick (builder holds act + cycles)
+    if (b.kind === 'turret' && b.typeSelect) drawTypeSelect(ctx, b, t);
     // upgrade underway: same relay progress ring as a fresh build
     if (b.progress != null && b.progress > 0 && b.progress < 1) {
       ctx.save();
@@ -2991,6 +3745,8 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
   const core = snap.core ?? null;
   const cycle = snap.cycle ?? null;
   const zone = snap.zone ?? null;
+  const patches = snap.patches ?? []; // burn/toxin ground pools
+  const followers = snap.followers ?? []; // combat hires (hound/archer/caster)
   const lights = []; // per-frame light pools (campfires, LYTH, pylons...)
   // night grade: story dark missions are full night; bastion maps breathe
   // through a smooth dusk/dawn tint driven by the cycle clock (last 6s).
@@ -3032,6 +3788,20 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
   for (let i = crackers.length - 1; i >= 0; i--) {
     crackers[i].life -= dt;
     if (crackers[i].life <= 0) crackers.splice(i, 1); // boom event missed: time out
+  }
+  for (let i = beams.length - 1; i >= 0; i--) {
+    beams[i].life -= dt;
+    if (beams[i].life <= 0) beams.splice(i, 1);
+  }
+  for (let i = zaps.length - 1; i >= 0; i--) {
+    zaps[i].life -= dt;
+    if (zaps[i].life <= 0) zaps.splice(i, 1);
+  }
+  // coordless levelUp events: anchor the flare to the player this frame
+  while (pendingLevelUps.length) {
+    const lu = pendingLevelUps.pop();
+    const p = snap.players.find(pl => pl.pid === lu.pid && pl.state === 'active');
+    if (p) levelUpFX(p.x, p.y, lu.level);
   }
 
   cam.vw = ctx.canvas.width;
@@ -3101,6 +3871,11 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
         drawCampfire(ctx, px, py, x, y, t, lights);
       }
     }
+  }
+
+  // --- ground patches: lingering burn pools / toxin slicks on the floor ---
+  for (const pa of patches) {
+    if (inView(pa.x, pa.y, (pa.r || TILE) + 24)) drawPatch(ctx, pa, t, lights);
   }
 
   // --- tall pass: rock walls + trees (pseudo-3D, painter's order by row) ---
@@ -3173,6 +3948,18 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
   for (const c of snap.captives) {
     if (!inView(c.x, c.y)) continue;
     const col = charMap[c.charId]?.color || '#fff';
+    // towed across water by a swimmer: they float, rings spreading
+    if (snap.grid?.[Math.floor(c.y / TILE)]?.[Math.floor(c.x / TILE)] === '~') {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(94,107,140,0.45)';
+      ctx.lineWidth = 1.2;
+      const pr = fract(t * 0.8 + (c.x + c.y) * 0.01);
+      ctx.globalAlpha *= 1 - pr;
+      ctx.beginPath();
+      ctx.ellipse(c.x, c.y + 4, 10 + pr * 10, (10 + pr * 10) * 0.45, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
     drawCaptive(ctx, c, col, t);
     if (!c.owner) {
       const pulse = 0.5 + 0.5 * Math.sin(t * 4);
@@ -3237,6 +4024,19 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
       ctx.fillStyle = PAL.red;
       ctx.fillRect(e.x - w / 2 + 1, e.y - yo + 1, (w - 2) * (e.hp / maxHp), 2);
     }
+    // status overlays: stun sparks / flame / toxin drip / mind-control read
+    const st = enemyStatus(e);
+    if (st.stun || st.burn || st.tox || st.conv) drawStatusFX(ctx, e, st, t, lights);
+  }
+
+  // --- followers: hired hounds, archers, casters trailing their operators ---
+  if (followers.length) {
+    const ownerCol = new Map();
+    for (const p of snap.players) ownerCol.set(p.pid, charMap[p.charId]?.color || PAL.teal);
+    for (const fo of followers) {
+      if (!inView(fo.x, fo.y)) continue;
+      drawFollower(ctx, fo, t, dt, ownerCol.get(fo.owner) ?? PAL.teal, lights);
+    }
   }
 
   // --- operators ---
@@ -3248,8 +4048,12 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
     const col = ch?.color || '#fff';
     // raised when manning a tower platform or in the saddle
     const yOff = p.towerId != null ? -24 : (p.riding != null ? -7 : 0);
+    // swimmers (char.swims, e.g. the Selkie) half-submerge on water tiles
+    const swim = !!ch?.swims && yOff === 0
+      && snap.grid?.[Math.floor(p.y / TILE)]?.[Math.floor(p.x / TILE)] === '~';
+    if (swim) drawSwimWake(ctx, p, t);
     drawSoldier(ctx, p.x, p.y + yOff, p.fx, p.fy, col, t, focus.has(p.pid), p.invuln,
-      { key: 'p' + p.pid, dt, weapon: ch?.weapon?.kind });
+      { key: 'p' + p.pid, dt, weapon: ch?.weapon?.kind, swim });
     const fcar = flagByCarrier.get(p.pid);
     if (fcar) drawCarriedFlag(ctx, p.x, p.y + yOff, fcar, t);
     if ((p.shield ?? 0) > 0) drawShieldBubble(ctx, p.x, p.y + yOff, p.shield, t);
@@ -3258,7 +4062,13 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
       ? TEAM_COL[p.team % 2] : 'rgba(223,243,255,0.85)';
     ctx.font = 'bold 10px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText(p.name.toUpperCase(), p.x, p.y + yOff - 26);
+    const label = p.name.toUpperCase();
+    ctx.fillText(label, p.x, p.y + yOff - 26);
+    // mission level pips beside the name (one gold diamond per level-up)
+    if ((p.level ?? 1) > 1) {
+      const nw = ctx.measureText(label).width;
+      drawLevelDiamonds(ctx, p.x + nw / 2 + 8, p.y + yOff - 29.5, p.level);
+    }
     // survival hearts, shown only while hurt
     if (p.maxHp != null && p.hp != null && p.hp < p.maxHp) {
       drawHeartPips(ctx, p.x, p.y + yOff - 37, p.hp, p.maxHp);
@@ -3388,10 +4198,19 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
   for (const c of promptOthers) drawPrompt(ctx, c.x, c.py, c.text, t);
 
   // --- shots ---
+  // weapon evolutions (L3+): per-pid lookup so shot trails read evolved.
+  // Shots may also carry an explicit s.evo / s.ownerPid from the sim.
+  let pidEvo = null;
+  for (const p of snap.players) {
+    if ((p.level ?? 1) < 3) continue;
+    const evo = charMap[p.charId]?.evolution;
+    if (evo) (pidEvo ??= new Map()).set(p.pid, evo);
+  }
   for (const s of snap.shots) {
     if (!inView(s.x, s.y)) continue;
     const sp = Math.hypot(s.vx, s.vy) || 1;
     const nx = s.vx / sp, ny = s.vy / sp;
+    const evo = s.evo ?? (s.who === 'p' && pidEvo ? pidEvo.get(s.ownerPid ?? s.pid) : null);
     ctx.save();
     if (s.kind === 'cracker') {
       // a lobbed lure mid-arc: tumbling red charge, fuse sparking
@@ -3407,6 +4226,76 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
         ctx.shadowBlur = 7;
         ctx.fillRect(3.4, -4.4, 2, 2);
       }
+    } else if (s.kind === 'harpoon') {
+      // the Selkie's barbed harpoon: a thrown spear, line trailing
+      ctx.translate(s.x, s.y);
+      ctx.rotate(Math.atan2(ny, nx));
+      ctx.strokeStyle = 'rgba(191,208,232,0.25)'; // retrieval line
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(-14, 0); ctx.lineTo(-28, 0); ctx.stroke();
+      ctx.fillStyle = '#4A4232'; // shaft
+      ctx.fillRect(-14, -1.1, 16, 2.2);
+      ctx.fillStyle = PAL.moonsteel;
+      ctx.fillRect(-14, -1.1, 16, 0.8);
+      ctx.fillStyle = PAL.anchor; // barbed head
+      ctx.shadowColor = PAL.relay;
+      ctx.shadowBlur = 7;
+      ctx.beginPath();
+      ctx.moveTo(8, 0); ctx.lineTo(1, -3); ctx.lineTo(3, 0); ctx.lineTo(1, 3);
+      ctx.closePath(); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = PAL.coldHi; // back-swept barbs
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(2, -2.4); ctx.lineTo(-2, -4.6);
+      ctx.moveTo(2, 2.4); ctx.lineTo(-2, 4.6);
+      ctx.stroke();
+    } else if (s.kind === 'riptide') {
+      // riptide nova droplet: cold water ring + froth
+      const rg = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, 7);
+      rg.addColorStop(0, 'rgba(223,243,255,0.9)');
+      rg.addColorStop(0.5, 'rgba(111,216,242,0.55)');
+      rg.addColorStop(1, 'rgba(62,143,224,0)');
+      ctx.fillStyle = rg;
+      ctx.fillRect(s.x - 7, s.y - 7, 14, 14);
+      ctx.strokeStyle = 'rgba(111,216,242,0.6)';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.arc(s.x - nx * 6, s.y - ny * 6, 4 + fract(t * 2 + s.x * 0.05) * 3, 0, Math.PI * 2);
+      ctx.stroke();
+    } else if (s.kind === 'tornado') {
+      // the caster's pocket storm: stacked swirling rings + flung debris
+      ctx.translate(s.x, s.y);
+      for (let i = 0; i < 3; i++) {
+        const wob = Math.sin(t * 9 + i * 1.7) * 1.3;
+        ctx.strokeStyle = `rgba(138,152,184,${0.8 - i * 0.18})`;
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.ellipse(wob, -i * 4.2, 3 + i * 2.6, (3 + i * 2.6) * 0.45, 0, t * 7 + i, t * 7 + i + Math.PI * 1.5);
+        ctx.stroke();
+      }
+      ctx.fillStyle = 'rgba(191,208,232,0.7)'; // debris caught in the funnel
+      for (let i = 0; i < 2; i++) {
+        const da = t * 8 + i * Math.PI;
+        ctx.fillRect(Math.cos(da) * 6 - 1, -4 + Math.sin(da) * 2.4 - 1, 2, 2);
+      }
+    } else if (s.kind === 'toxin') {
+      // lobbed toxin glob, dripping as it tumbles
+      ctx.strokeStyle = 'rgba(140,200,80,0.4)'; // drip trail
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(s.x - nx * 6, s.y - ny * 6);
+      ctx.lineTo(s.x - nx * 16, s.y - ny * 16);
+      ctx.stroke();
+      ctx.translate(s.x, s.y);
+      ctx.rotate(t * 7);
+      ctx.fillStyle = '#3E5A22';
+      ctx.shadowColor = '#8CC850';
+      ctx.shadowBlur = 7;
+      ctx.beginPath(); ctx.arc(0, 0, 4, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = 'rgba(190,240,120,0.85)';
+      ctx.fillRect(-1.6, -2.2, 1.6, 1.6);
     } else if (s.who === 'e' && s.kind !== 'sniper') {
       // dark Entropy bolt trailed in violet
       ctx.strokeStyle = 'rgba(142,79,209,0.7)';
@@ -3435,6 +4324,81 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
       ctx.beginPath();
       ctx.moveTo(s.x - nx * (hairline ? 20 : 12), s.y - ny * (hairline ? 20 : 12));
       ctx.lineTo(s.x, s.y);
+      ctx.stroke();
+      // evolved rounds wear their element on the trail
+      if (s.who === 'p' && evo === 'burn') {
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = 'rgba(240,169,60,0.85)';
+        const seed = s.x * 0.7 + s.y * 1.3;
+        for (let i = 1; i <= 3; i++) {
+          ctx.globalAlpha = 0.75 - i * 0.18;
+          ctx.fillRect(
+            s.x - nx * (8 + i * 7) + (flick(seed + i * 5.1) - 0.5) * 5,
+            s.y - ny * (8 + i * 7) + (flick(seed + i * 8.7) - 0.5) * 5, 2, 2);
+        }
+      } else if (s.who === 'p' && evo === 'shock') {
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = 'rgba(191,251,255,0.7)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        jagPath(ctx, s.x - nx * 14 - ny * 4, s.y - ny * 14 + nx * 4,
+          s.x - ny * -3, s.y + nx * -3, 4, 3.5, Math.floor(t * 30) + s.x);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  // --- prism beams + tesla chain lightning (event-driven, short-lived) ---
+  for (const bm of beams) {
+    if (!inView(bm.x, bm.y, 600) && !inView(bm.tx, bm.ty, 100)) continue;
+    const k = Math.max(0, bm.life / bm.max);
+    const sy = bm.y - 16; // beam leaves the crystal head
+    ctx.save();
+    ctx.globalAlpha = k;
+    // feeder flashes from contributing prisms
+    for (const fd of bm.feeders ?? []) {
+      ctx.strokeStyle = 'rgba(111,216,242,0.65)';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(fd.x, (fd.y ?? bm.y) - 16);
+      ctx.lineTo(bm.x, sy);
+      ctx.stroke();
+    }
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = 'rgba(111,216,242,0.55)'; // wide glow pass
+    ctx.shadowColor = PAL.relay;
+    ctx.shadowBlur = 12;
+    ctx.lineWidth = 5.5 + (bm.dmg - 2) * 1.2; // chained prisms hit visibly harder
+    ctx.beginPath(); ctx.moveTo(bm.x, sy); ctx.lineTo(bm.tx, bm.ty); ctx.stroke();
+    ctx.strokeStyle = PAL.anchor; // hot core
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(bm.x, sy); ctx.lineTo(bm.tx, bm.ty); ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = `rgba(223,243,255,${0.85 * k})`; // impact flare
+    ctx.beginPath(); ctx.arc(bm.tx, bm.ty, 4 + (1 - k) * 6, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+  for (const zp of zaps) {
+    if (!inView(zp.x, zp.y, 300)) continue;
+    const k = Math.max(0, zp.life / zp.max);
+    const frame = Math.floor(t * 30);
+    ctx.save();
+    ctx.globalAlpha = k;
+    ctx.lineCap = 'round';
+    // glow pass then hot core, both jagged, chaining target to target
+    for (const [w2, col2, mag] of [[4, 'rgba(111,216,242,0.5)', 8], [1.6, PAL.eye, 7]]) {
+      ctx.strokeStyle = col2;
+      ctx.shadowColor = PAL.relay;
+      ctx.shadowBlur = w2 > 2 ? 10 : 0;
+      ctx.lineWidth = w2;
+      let sx0 = zp.x, sy0 = zp.y - 27; // arcs leap from the coil orb
+      ctx.beginPath();
+      for (let i = 0; i < zp.targets.length; i++) {
+        const tg = zp.targets[i];
+        jagPath(ctx, sx0, sy0, tg.x, tg.y, 5, mag, frame + i * 13 + w2);
+        sx0 = tg.x; sy0 = tg.y;
+      }
       ctx.stroke();
     }
     ctx.restore();
@@ -3480,12 +4444,42 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
   for (const f of flashes) {
     if (!inView(f.x, f.y)) continue;
     const a = Math.max(0, f.life / 0.07);
-    const rgb = f.who === 'p' ? '223,243,255' : '142,79,209';
-    const fg = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, 32);
+    // evolved muzzle (L3+): resolve from the nearest leveled operator once,
+    // unless the shoot event already carried ev.evo from the sim.
+    if (f.evo === undefined && f.who === 'p') {
+      f.evo = null;
+      for (const p of snap.players) {
+        if (p.state !== 'active' || (p.level ?? 1) < 3) continue;
+        if ((p.x - f.x) ** 2 + (p.y - f.y) ** 2 < 30 ** 2) {
+          f.evo = charMap[p.charId]?.evolution ?? null;
+          break;
+        }
+      }
+    }
+    let rgb = f.who === 'p' ? '223,243,255' : '142,79,209';
+    let rad = 32;
+    if (f.evo === 'multi') rad = 48; // wider fan flash
+    else if (f.evo === 'blast') { rad = 44; rgb = '255,217,138'; } // heavy warm muzzle
+    else if (f.evo === 'burn') rgb = '240,169,60'; // ember-hot muzzle
+    const fg = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, rad);
     fg.addColorStop(0, `rgba(${rgb},${0.45 * Math.min(1, a)})`);
     fg.addColorStop(1, `rgba(${rgb},0)`);
     ctx.fillStyle = fg;
-    ctx.fillRect(f.x - 32, f.y - 32, 64, 64);
+    ctx.fillRect(f.x - rad, f.y - rad, rad * 2, rad * 2);
+    if (f.evo === 'shock') {
+      // blue crackle forking off the muzzle
+      const frame = Math.floor(t * 40);
+      ctx.save();
+      ctx.strokeStyle = `rgba(191,251,255,${0.7 * Math.min(1, a)})`;
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      for (let i = 0; i < 3; i++) {
+        const aa = flick(frame + i * 9.3 + f.x) * Math.PI * 2;
+        jagPath(ctx, f.x, f.y, f.x + Math.cos(aa) * 14, f.y + Math.sin(aa) * 14, 3, 3, frame + i * 17);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
   }
   for (const L of lights) {
     if (!inView(L.x, L.y, L.r)) continue;
@@ -3654,6 +4648,13 @@ export function renderMinimap(ctx, snap, focusPids) {
     ctx.globalAlpha = 1;
   }
   // frontier entities (all optional)
+  for (const pa of snap.patches ?? []) {
+    ctx.fillStyle = pa.kind === 'toxin' ? 'rgba(140,200,80,0.45)' : 'rgba(240,140,40,0.45)';
+    ctx.beginPath();
+    ctx.arc(pa.x * sx, pa.y * sy, Math.max(1.5, (pa.r || TILE) * sx), 0, Math.PI * 2);
+    ctx.fill();
+  }
+  for (const fo of snap.followers ?? []) dot(fo.x, fo.y, PAL.teal, 1.6);
   for (const c of snap.chests ?? []) if (!c.opened) dot(c.x, c.y, PAL.lythGold, 1.8);
   for (const tw of snap.towers ?? []) if ((tw.hp ?? 1) > 0) dot(tw.x, tw.y, PAL.moonsteel, 2);
   for (const v of snap.vehicles ?? []) dot(v.x, v.y, '#A9C4CE', 2);

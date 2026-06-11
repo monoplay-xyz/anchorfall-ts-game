@@ -54,7 +54,7 @@ const CRACKER_FUSE = 3.0; // seconds of lure after landing
 const CRACKER_LURE = 9; // tiles, enemies inside re-target the cracker
 const CRACKER_AOE = 1.6; // tiles
 const CRACKER_DMG = 3;
-const CHEST_LOOTS = ['shards', 'cracker', 'medkit', 'shield', 'token'];
+const CHEST_LOOTS = ['shards', 'cracker', 'medkit', 'shield', 'token', 'toxin', 'controller'];
 const HIRE_JOBS = ['farmer', 'engineer', 'smith'];
 const MUTATIONS = ['feral', 'bulk', 'volatile', 'split'];
 const WAVE_EDGES = ['n', 'e', 's', 'w'];
@@ -80,6 +80,7 @@ const SHOP_OFFERS = [
   { what: 'shield', cost: 12 },
   { what: 'cracker', cost: 8, amount: 2 },
   { what: 'medkit', cost: 10, amount: 1 },
+  { what: 'toxin', cost: 10, amount: 1 },
 ];
 const STAG_SPEED = 2.2; // land mount speed multiplier
 const FLAG_REACH = 0.6; // tiles, flag touch radius
@@ -90,6 +91,46 @@ const CARRY_SLOW = 0.85; // flag carrier speed multiplier
 const ZONE_TICK = 2; // seconds between 1-damage zone ticks
 const ZONE_SHRINK_T = 10; // seconds a scheduled shrink takes to close
 const FARM_REPLANT_T = 10; // seconds for a hired farmer to replant a trample
+
+// --- combat depth: xp/evolutions, status effects, turret types, followers ---
+// Per-mission seat xp. Levels 2/3/4 unlock at these cumulative totals.
+const XP_THRESH = [12, 34, 70];
+const XP_DIV = 25; // xp per kill = enemy base score / 25
+const TURRET_TYPES = ['gun', 'prism', 'tesla', 'toxin'];
+const TYPE_SELECT_T = 8; // seconds before an unattended carousel confirms 'gun'
+const PRISM_DMG = [2, 3, 4]; // beam damage by turret level
+const PRISM_RANGE = [7, 7.5, 8]; // tiles
+const PRISM_PERIOD = 1.2;
+const PRISM_LINK_R = 4; // tiles: each OTHER built prism inside feeds +1 dmg (cap +3)
+const TESLA_DMG = [[2, 1, 1], [3, 2, 1], [4, 2, 2]]; // chain damage by level
+const TESLA_RANGE = [4, 4.5, 5]; // tiles
+const TESLA_PERIOD = 1.5;
+const TESLA_STUN = 0.4;
+const TOXIN_TURRET_RANGE = [5, 5.5, 6]; // tiles
+const TOXIN_TURRET_R = [1.6, 1.8, 2.0]; // sprayed patch radius (tiles) by level
+const TOXIN_TURRET_PERIOD = 3;
+const TOXIN_PATCH_R = 1.6; // tiles, thrown toxin lob patch
+const TOXIN_PATCH_TTL = 6;
+const BURN_PATCH_R = 1; // tiles, L4 burn-evolution death patch
+const BURN_PATCH_TTL = 3;
+const BURN_T = 3; // seconds ignited, 1 dmg per second
+const TOX_T = 2; // seconds intoxicated, 0.5 dmg per second
+const TOXIN_SLOW = 0.6; // player speed multiplier inside a toxin patch (everyone)
+const STUN_T = 0.4; // shock-evolution stun
+const FOLLOWER_JOBS = new Set(['hound', 'archer', 'caster']);
+const FOLLOWER_STATS = { hound: { hp: 2, speed: 2.6 }, archer: { hp: 2, speed: 3.0 }, caster: { hp: 2, speed: 3.0 } };
+const FOLLOWER_R = 12;
+const FOLLOWER_ENGAGE = 5; // tiles from the OWNER inside which followers engage
+const FOLLOWER_ADRIFT = 12; // tiles adrift before teleporting back to the owner
+const FOLLOWER_ARROW = { kind: 'arrow', damage: 1, projSpeed: 9, range: 6, count: 1 };
+const FOLLOWER_TORNADO = { kind: 'tornado', damage: 2, projSpeed: 3.5, range: 7, count: 1, pierce: 2, knockback: 1, radius: 10 };
+const MAX_FOLLOWERS_PER_PLAYER = 2;
+const MAX_FOLLOWERS_PER_SQUAD = 5;
+const POST_RESTOCK_T = 20; // seconds before a post whose follower died restocks
+const CONTROLLER_RANGE = 4; // tiles, mind-control reach
+const CONTROLLER_T = 10; // seconds of mind control before the husk burns out
+const SWIM_SLOW = 0.7; // swimmer speed multiplier on water
+const SWIM_FIRE_MULT = 1.5; // swimmer fire cooldown multiplier on water
 
 function buildMaxHp(kind) {
   if (kind === 'barricade') return 14;
@@ -271,6 +312,9 @@ export function createGame(def, party, charMap, roster) {
       p.maxHp = PLAYER_MAX_HP;
       p.shield = 0;
       p.item = null;
+      // on-the-spot leveling: per-mission seat xp, levels 1..4
+      p.xp = 0;
+      p.level = 1;
     }
   }
   // PvP team assignment. CTF: party entries may carry a team (online lobbies);
@@ -318,6 +362,11 @@ export function createGame(def, party, charMap, roster) {
     flags: lvl.flags,
     core: lvl.core,
     crackers: [],
+    // ground patches (burn/toxin) and hired combat followers. Always present;
+    // snapshots only ship them when populated, so classics never gain a key.
+    patches: [],
+    followers: [],
+    nextFollowerId: 1,
     // Mode missions (bastion/ctf/br) replace the classic end conditions;
     // classic defs carry no mode so nothing changes for them.
     mode: def.mode || null,
@@ -389,6 +438,10 @@ function tileAt(g, x, y) {
 // New floor letters (',' ':' ';' '_') and the campfire '*' are all passable.
 function blocksMove(c) { return c === '#' || c === 'T' || c === '~' || c === 'o'; }
 
+// Swimmers (char.swims, the seal) treat water as open ground — everything
+// else that blocks movement still blocks them.
+function blocksMoveSwim(c) { return c === '#' || c === 'T' || c === 'o'; }
+
 function collides(g, x, y, r) {
   for (const [ox, oy] of [[-r, -r], [r, -r], [-r, r], [r, r]]) {
     if (blocksMove(tileAt(g, x + ox, y + oy))) return true;
@@ -410,9 +463,9 @@ function collides(g, x, y, r) {
 // Like collides, but escape-friendly for build circles: a structure completing
 // around someone must never entomb them — moves that increase distance from
 // the structure's center are always allowed, only inward moves are blocked.
-function moveBlocked(g, fromX, fromY, x, y, r) {
+function moveBlocked(g, fromX, fromY, x, y, r, blocks = blocksMove) {
   for (const [ox, oy] of [[-r, -r], [r, -r], [-r, r], [r, r]]) {
-    if (blocksMove(tileAt(g, x + ox, y + oy))) return true;
+    if (blocks(tileAt(g, x + ox, y + oy))) return true;
   }
   if (g.builds) {
     for (const b of g.builds) {
@@ -428,9 +481,9 @@ function moveBlocked(g, fromX, fromY, x, y, r) {
   return false;
 }
 
-function moveCircle(g, e, dx, dy, r) {
-  if (dx && !moveBlocked(g, e.x, e.y, e.x + dx, e.y, r)) e.x += dx;
-  if (dy && !moveBlocked(g, e.x, e.y, e.x, e.y + dy, r)) e.y += dy;
+function moveCircle(g, e, dx, dy, r, blocks = blocksMove) {
+  if (dx && !moveBlocked(g, e.x, e.y, e.x + dx, e.y, r, blocks)) e.x += dx;
+  if (dy && !moveBlocked(g, e.x, e.y, e.x, e.y + dy, r, blocks)) e.y += dy;
 }
 
 function dist2(a, b) {
@@ -730,10 +783,83 @@ function fireWeapon(g, shooter, weapon, who, target = null) {
       // pvp bookkeeping: who fired, and for which team (friendly fire is off)
       pid: shooter.pid,
       team: shooter.team,
+      // xp bookkeeping: kill credit flows to this seat. Turrets, followers
+      // and mind-controlled enemies carry no pid, so their kills pay nobody.
+      ownerPid: shooter.pid,
+      // evolution payloads (status effects ride the shot; absent on classics)
+      ...(weapon.stun ? { stun: weapon.stun } : {}),
+      ...(weapon.ignite ? { ignite: true } : {}),
+      ...(weapon.ignitePatch ? { ignitePatch: true } : {}),
+      ...(weapon.shockArc ? { shockArc: true } : {}),
+      ...(weapon.knockback ? { knockback: weapon.knockback } : {}),
       hits: [],
     });
   }
   g.events.push({ type: 'shoot', x: shooter.x, y: shooter.y, who, weapon: weapon.kind || weapon.name || 'shot' });
+}
+
+// --- on-the-spot leveling: weapon evolutions -------------------------------
+// L3 unlocks the character's evolution (char.evolution in characters.json);
+// L4 intensifies it. Applied at FIRE time to a clone — character defs are
+// shared across games and must never mutate. Evolutions cover the main weapon
+// AND weapon-kind specials; shop dmgBonus stacks separately in fireWeapon.
+function applyEvolution(weapon, evo, level) {
+  if (!level || level < 3) return weapon;
+  evo = evo || 'multi';
+  const w = { ...weapon };
+  if (evo === 'multi') {
+    const base = w.count || 1;
+    w.count = base + (level >= 4 ? 2 : 1); // L3 +1 shot, L4 another +1
+    if (base === 1) w.spreadDeg = (w.spreadDeg || 0) + 6; // single-shots fan out
+  } else if (evo === 'blast') {
+    w.aoeRadius = (w.aoeRadius || 0) + 0.6 + (level >= 4 ? 0.5 : 0);
+    if (level >= 4) w.pierce = Math.max(w.pierce === true ? 99 : (w.pierce || 0), 1);
+  } else if (evo === 'shock') {
+    w.stun = STUN_T; // hits stun
+    if (level >= 4) w.shockArc = true; // arc to the nearest enemy within 2 tiles
+  } else if (evo === 'burn') {
+    w.ignite = true; // hits ignite
+    if (level >= 4) w.ignitePatch = true; // ignited enemies leave a death patch
+  }
+  return w;
+}
+
+// Kill credit: the owning seat's fielded character earns score/25 xp.
+// Levels 2..4 land at 12/34/70 xp — automatic, deterministic, evented.
+function awardXp(g, pid, e) {
+  if (pid === undefined || pid === null) return;
+  const p = g.players.find(q => q.pid === pid);
+  if (!p || p.level === undefined) return; // arcade seats never level
+  p.xp += (e.score || 100) / XP_DIV;
+  while (p.level < 4 && p.xp >= XP_THRESH[p.level - 1]) {
+    p.level++;
+    let perk = 'hp';
+    if (p.level === 2) {
+      p.maxHp += 1; // L2: +1 max hp, and heal 1 on the spot
+      p.hp = Math.min(p.maxHp, p.hp + 1);
+    } else {
+      perk = (g.charMap[p.charId] || {}).evolution || 'multi';
+    }
+    g.events.push({ type: 'levelUp', pid, level: p.level, perk, x: p.x, y: p.y });
+  }
+}
+
+// --- status effects --------------------------------------------------------
+// Ignite: 1 dmg/s for 3s. Fresh ignitions reset the tick clock; re-touching
+// fire pins the timer at 3. patchFlag marks L4-burn ignitions whose corpse
+// leaves a ground burn patch.
+function igniteEnemy(g, e, owner, patchFlag = false) {
+  if (e.dead) return;
+  if (!(e.burnT > 0)) { e.burnTick = 0; e.burnOwner = owner; }
+  e.burnT = Math.max(e.burnT || 0, BURN_T);
+  if (patchFlag) e.burnPatch = true;
+}
+
+// Toxin: 0.5 dmg/s for 2s, same shape as ignite.
+function toxEnemy(g, e, owner) {
+  if (e.dead) return;
+  if (!(e.toxT > 0)) { e.toxTick = 0; e.toxOwner = owner; }
+  e.toxT = Math.max(e.toxT || 0, TOX_T);
 }
 
 function enemyWeapon(kind) {
@@ -935,10 +1061,16 @@ function splitSpawn(g, e, k) {
   }
 }
 
-function killEnemy(g, e) {
+function killEnemy(g, e, ownerPid) {
   if (e.dead) return;
   e.dead = true;
   addKillScore(g, e);
+  awardXp(g, ownerPid, e); // kill credit -> the owning seat levels up
+  // L4 burn: an enemy that dies ignited leaves a 3s ground burn patch.
+  if (e.burnT > 0 && e.burnPatch) {
+    g.patches.push({ x: e.x, y: e.y, kind: 'burn', r: BURN_PATCH_R * TILE, ttl: BURN_PATCH_TTL, pid: e.burnOwner });
+    g.events.push({ type: 'patch', x: e.x, y: e.y, kind: 'burn', r: BURN_PATCH_R * TILE });
+  }
   // Every kill drops a shard pickup at the corpse. Deterministic, always.
   g.drops.push({ x: e.x, y: e.y, amount: SHARD_DROPS[e.kind] || 1, ttl: DROP_TTL });
   // Mutant deaths: volatile pops, split twins out.
@@ -954,7 +1086,7 @@ function killEnemy(g, e) {
   }
 }
 
-function damageEnemy(g, e, dmg, x, y, cause) {
+function damageEnemy(g, e, dmg, x, y, cause, ownerPid) {
   if (e.dead) return false;
   wakeEnemy(g, e);
   e.returning = false; // a hit always re-engages an enemy walking home
@@ -962,7 +1094,7 @@ function damageEnemy(g, e, dmg, x, y, cause) {
   e.hurt = 0.14;
   g.events.push({ type: 'hit', x: x ?? e.x, y: y ?? e.y, kind: e.kind, hp: Math.max(0, e.hp), cause });
   if (e.hp <= 0) {
-    killEnemy(g, e);
+    killEnemy(g, e, ownerPid);
     return true;
   }
   return false;
@@ -983,8 +1115,8 @@ function explode(g, s, skipEnemy = null) {
   const r2 = s.aoeRadius * s.aoeRadius;
   if (s.who === 'p') {
     for (const e of g.enemies) {
-      if (e.dead || e === skipEnemy) continue;
-      if (dist2(s, e) <= r2) damageEnemy(g, e, s.dmg, e.x, e.y, s.kind);
+      if (e.dead || e === skipEnemy || e.convertedT > 0) continue;
+      if (dist2(s, e) <= r2) damageEnemy(g, e, s.dmg, e.x, e.y, s.kind, s.ownerPid);
     }
     // pvp only: player AoE wounds OTHER-team operatives caught in the blast
     // (never same-team; invuln/shield rules ride damagePlayer as usual)
@@ -1021,17 +1153,28 @@ function nearestTarget(g, e) {
   if (e.targetCore && g.core && g.core.hp > 0) {
     return [{ x: g.core.x, y: g.core.y, nonPlayer: true }, dist2(e, g.core)];
   }
-  let tgt = null, best = Infinity;
+  let tgt = null, best = Infinity, eff = Infinity;
   for (const p of g.players) {
     if (p.state !== 'active') continue;
     const d = dist2(e, p);
-    if (d < best) { best = d; tgt = p; }
+    if (d < eff) { eff = d; best = d; tgt = p; }
+  }
+  // Followers are valid prey at 1.5x distance weighting (2.25x squared):
+  // an enemy picks the dog only when it is meaningfully closer than a player.
+  for (const f of g.followers) {
+    if (f.dead) continue;
+    const d = dist2(e, f);
+    if (d * 2.25 < eff) { eff = d * 2.25; best = d; tgt = f; }
   }
   return [tgt, best];
 }
 
 function contactPlayer(g, e, best, tgt) {
   if (!tgt) return;
+  if (tgt.isFollower) {
+    if (best < (FOLLOWER_R + ENEMY_R) ** 2) damageFollower(g, tgt, 1);
+    return;
+  }
   const rr = (PLAYER_R + ENEMY_R) ** 2;
   if (tgt.nonPlayer) {
     // marching on a lure or the core: melee still clips any player en route
@@ -1135,10 +1278,215 @@ function attackCore(g, e, dt) {
   return true;
 }
 
+// --- followers: hired combat hands (hound/archer/caster) -------------------
+function damageFollower(g, f, dmg = 1) {
+  if (f.dead || f.invulnT > 0) return;
+  f.hp -= dmg;
+  f.invulnT = 0.5; // brief grace so contact doesn't shred a dog in one tick
+  g.events.push({ type: 'followerHit', x: f.x, y: f.y, kind: f.kind, hp: Math.max(0, f.hp) });
+  if (f.hp <= 0) {
+    f.dead = true; // downed followers are gone; their post restocks in 20s
+    const h = g.hires[f.post];
+    if (h) h.restockT = POST_RESTOCK_T;
+    g.events.push({ type: 'followerDown', x: f.x, y: f.y, kind: f.kind, owner: f.owner });
+  }
+}
+
+// Followers hold a formation slot behind/flanking their owner (recomputed
+// from the owner's facing every tick — pure math, no randomness), engage
+// enemies within 5 tiles of the owner, and teleport home when 12+ tiles
+// adrift. Follower kills credit no seat (no xp).
+function stepFollowers(g, dt) {
+  if (!g.followers.length) return;
+  for (const f of g.followers) {
+    if (f.dead) continue;
+    if (f.invulnT > 0) f.invulnT -= dt;
+    if (f.cool > 0) f.cool -= dt;
+    const o = g.players.find(q => q.pid === f.owner);
+    if (!o || o.state !== 'active') continue; // owner down: hold position
+    if (dist2(f, o) > (TILE * FOLLOWER_ADRIFT) ** 2) {
+      f.x = o.x;
+      f.y = o.y;
+      f.path = null;
+      f.repathT = 0;
+    }
+    const st = FOLLOWER_STATS[f.kind];
+    // engage the nearest (to the follower) enemy within 5 tiles of the owner
+    let tgt = null, best = Infinity;
+    const er2 = (TILE * FOLLOWER_ENGAGE) ** 2;
+    for (const e of g.enemies) {
+      if (e.dead || e.convertedT > 0) continue;
+      if (dist2(o, e) >= er2) continue;
+      const d = dist2(f, e);
+      if (d < best) { best = d; tgt = e; }
+    }
+    if (tgt) {
+      if (f.kind === 'hound') {
+        if (best < (FOLLOWER_R + ENEMY_R + 2) ** 2) {
+          const [fx, fy] = norm(tgt.x - f.x, tgt.y - f.y);
+          f.fx = fx; f.fy = fy;
+          if (f.cool <= 0) {
+            f.cool = 0.8;
+            damageEnemy(g, tgt, 1, tgt.x, tgt.y, 'bite');
+          }
+        } else {
+          moveToward(g, f, tgt, dt, st.speed * TILE, FOLLOWER_R);
+        }
+      } else {
+        const w = f.kind === 'archer' ? FOLLOWER_ARROW : FOLLOWER_TORNADO;
+        if (best < (w.range * TILE) ** 2 && hasLoS(g, f.x, f.y, tgt.x, tgt.y, blocksSight)) {
+          const [fx, fy] = norm(tgt.x - f.x, tgt.y - f.y);
+          f.fx = fx; f.fy = fy;
+          if (f.cool <= 0) {
+            f.cool = f.kind === 'archer' ? 1.6 : 4;
+            fireWeapon(g, f, w, 'p', tgt);
+          }
+        } else {
+          moveToward(g, f, tgt, dt, st.speed * TILE, FOLLOWER_R);
+        }
+      }
+      continue;
+    }
+    // formation: 1.1 tiles behind the owner, flanked 0.8 tiles per slot side
+    const side = f.slot % 2 === 0 ? -1 : 1;
+    const sx = o.x - o.fx * TILE * 1.1 - o.fy * TILE * 0.8 * side;
+    const sy = o.y - o.fy * TILE * 1.1 + o.fx * TILE * 0.8 * side;
+    if (Math.hypot(sx - f.x, sy - f.y) > TILE * 0.3) {
+      moveToward(g, f, { x: sx, y: sy }, dt, st.speed * TILE, FOLLOWER_R);
+    }
+  }
+}
+
+// --- ground patches: enemies inside catch the status. Patches have no team:
+// burn patches (always player-made) never hurt players at all (PvE clarity);
+// toxin slows EVERYONE (handled in the player movement block). ---
+function stepPatches(g, dt) {
+  if (!g.patches.length) return;
+  for (let i = g.patches.length - 1; i >= 0; i--) {
+    const pa = g.patches[i];
+    pa.ttl -= dt;
+    if (pa.ttl <= 0) { g.patches.splice(i, 1); continue; }
+    const r2 = pa.r * pa.r;
+    for (const e of g.enemies) {
+      if (e.dead || dist2(pa, e) >= r2) continue;
+      if (pa.kind === 'burn') igniteEnemy(g, e, pa.pid, false);
+      else toxEnemy(g, e, pa.pid);
+    }
+  }
+}
+
+// --- per-enemy status clocks: stun decay, burn/toxin dot ticks and contact
+// spread chains, mind-control burnout. Runs every tick (grace included). ---
+function stepStatuses(g, dt) {
+  for (const e of g.enemies) {
+    if (e.dead) continue;
+    if (e.stunT > 0) e.stunT = Math.max(0, e.stunT - dt);
+    if (e.convertedT > 0) {
+      e.convertedT -= dt;
+      if (e.convertedT <= 0) {
+        // mind control burns out: the husk dies quietly (no score, no drop)
+        e.convertedT = 0;
+        e.dead = true;
+        g.events.push({ type: 'die', x: e.x, y: e.y, kind: e.kind, points: 0, combo: 1 });
+        continue;
+      }
+    }
+    if (e.burnT > 0) {
+      e.burnT -= dt;
+      e.burnTick = (e.burnTick || 0) + dt;
+      while (e.burnTick >= 1 && !e.dead) {
+        e.burnTick -= 1;
+        damageEnemy(g, e, 1, e.x, e.y, 'burn', e.burnOwner);
+      }
+      if (e.burnT <= 0) { e.burnT = 0; e.burnTick = 0; }
+      // spread: contact ignites a non-burning enemy ONCE (chain, no ping-pong)
+      if (!e.dead && e.burnT > 0) {
+        const rr = (ENEMY_R * 2) ** 2;
+        for (const o of g.enemies) {
+          if (o === e || o.dead || o.burnT > 0 || o.chainBurned) continue;
+          if (dist2(e, o) < rr) {
+            o.chainBurned = true;
+            igniteEnemy(g, o, e.burnOwner, e.burnPatch);
+          }
+        }
+      }
+    }
+    if (!e.dead && e.toxT > 0) {
+      e.toxT -= dt;
+      e.toxTick = (e.toxTick || 0) + dt;
+      while (e.toxTick >= 1 && !e.dead) {
+        e.toxTick -= 1;
+        damageEnemy(g, e, 0.5, e.x, e.y, 'toxin', e.toxOwner);
+      }
+      if (e.toxT <= 0) { e.toxT = 0; e.toxTick = 0; }
+      if (!e.dead && e.toxT > 0) {
+        const rr = (ENEMY_R * 2) ** 2;
+        for (const o of g.enemies) {
+          if (o === e || o.dead || o.toxT > 0 || o.chainToxed) continue;
+          if (dist2(e, o) < rr) {
+            o.chainToxed = true;
+            toxEnemy(g, o, e.toxOwner);
+          }
+        }
+      }
+    }
+  }
+}
+
+// --- mind control: a converted enemy fights its own for 10s. Its shots count
+// as player fire with a null owner (no seat earns the xp). ---
+function stepConverted(g, e, dt) {
+  let tgt = null, best = Infinity;
+  for (const o of g.enemies) {
+    if (o === e || o.dead || o.convertedT > 0) continue;
+    const d = dist2(e, o);
+    if (d < best) { best = d; tgt = o; }
+  }
+  if (!tgt) return;
+  const [fx, fy, d] = norm(tgt.x - e.x, tgt.y - e.y);
+  e.fx = fx; e.fy = fy;
+  if (STATIONARY_KINDS.has(e.kind)) {
+    e.cool -= dt;
+    if (e.cool <= 0 && d < (e.range || 6 * TILE) && canSee(g, e, tgt)) {
+      const n0 = g.shots.length;
+      fireWeapon(g, e, enemyWeapon(e.kind), 'p', tgt);
+      // never shoot itself: the muzzle overlaps its own hit circle
+      for (let i = n0; i < g.shots.length; i++) g.shots[i].hits.push(e.id);
+      e.cool = 2;
+    }
+    return;
+  }
+  if (d < ENEMY_R * 2 + 2) {
+    if (e.hitCool <= 0) {
+      e.hitCool = 0.9;
+      damageEnemy(g, tgt, 1, tgt.x, tgt.y, 'converted');
+    }
+    return;
+  }
+  moveToward(g, e, tgt, dt);
+}
+
+// Confirm a turret's chosen type (player fire, or the 8s unattended default).
+function confirmTurretType(g, b) {
+  b.typeSelect = false;
+  b.ttype = TURRET_TYPES[b.tsIdx || 0];
+  b.selT = 0;
+  b.cool = 0;
+  g.events.push({ type: 'turretType', x: b.x, y: b.y, ttype: b.ttype });
+}
+
 function stepEnemy(g, e, dt) {
   if (e.dead) return;
   if (e.hurt > 0) e.hurt -= dt;
   if (e.hitCool > 0) e.hitCool -= dt;
+  // Mind-controlled enemies fight for the squad; stunned ones do nothing at
+  // all (no actions, no movement — the clocks tick in stepStatuses).
+  if (e.convertedT > 0) {
+    if (e.stunT > 0) return;
+    stepConverted(g, e, dt);
+    return;
+  }
+  if (e.stunT > 0) return;
   const [tgt, best] = nearestTarget(g, e);
   if (!tgt) return;
 

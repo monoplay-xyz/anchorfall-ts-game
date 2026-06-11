@@ -5,6 +5,7 @@
     "color": "#4fc3f7",
     "speed": 4.4,
     "starting": true,
+    "evolution": "multi",
     "weapon": { "name": "Pulse SMG", "kind": "smg", "damage": 1, "projSpeed": 11, "range": 6, "cooldown": 0.2, "count": 1, "spreadDeg": 0, "overWalls": false },
     "special": { "name": "Flank Volley", "kind": "weapon", "damage": 2, "projSpeed": 14, "range": 7, "cooldown": 3, "count": 2, "spreadDeg": 180, "overWalls": false, "pierce": 0, "aoeRadius": 0, "curve": 0 }
   },
@@ -14,6 +15,7 @@
     "color": "#aed581",
     "speed": 3.2,
     "starting": true,
+    "evolution": "burn",
     "weapon": { "name": "Scatter Rifle", "kind": "scatter", "damage": 1, "projSpeed": 9, "range": 4.6, "cooldown": 0.52, "count": 4, "spreadDeg": 28, "overWalls": false },
     "special": { "name": "Deadeye Slug", "kind": "weapon", "damage": 4, "projSpeed": 16, "range": 10, "cooldown": 4, "count": 1, "spreadDeg": 0, "overWalls": false, "pierce": 1, "aoeRadius": 0, "curve": 0 }
   },
@@ -23,6 +25,7 @@
     "color": "#ffb74d",
     "speed": 2.6,
     "starting": true,
+    "evolution": "blast",
     "weapon": { "name": "Arc Mortar", "kind": "mortar", "damage": 2, "projSpeed": 6.4, "range": 7.5, "cooldown": 0.9, "count": 1, "spreadDeg": 0, "overWalls": true, "aoeRadius": 1.05 },
     "special": { "name": "Grenade Halo", "kind": "weapon", "damage": 3, "projSpeed": 8, "range": 4, "cooldown": 6, "count": 8, "spreadDeg": 360, "overWalls": true, "pierce": 0, "aoeRadius": 1.2, "curve": 0 }
   },
@@ -32,6 +35,7 @@
     "color": "#80cbc4",
     "speed": 3.7,
     "starting": true,
+    "evolution": "shock",
     "weapon": { "name": "Needle Burst", "kind": "needle", "damage": 1, "projSpeed": 12, "range": 5.5, "cooldown": 0.28, "count": 2, "spreadDeg": 8, "overWalls": false },
     "special": { "name": "Tide Ward", "kind": "stim", "cooldown": 8 }
   },
@@ -41,6 +45,7 @@
     "color": "#ce93d8",
     "speed": 2.5,
     "starting": false,
+    "evolution": "shock",
     "weapon": { "name": "Rail Lance", "kind": "rail", "damage": 3, "projSpeed": 18, "range": 12, "cooldown": 1.05, "count": 1, "spreadDeg": 0, "overWalls": false, "pierce": 3 },
     "special": { "name": "Parallax Rail", "kind": "weapon", "damage": 3, "projSpeed": 18, "range": 12, "cooldown": 5, "count": 2, "spreadDeg": 180, "overWalls": false, "pierce": 3, "aoeRadius": 0, "curve": 0 }
   },
@@ -50,6 +55,7 @@
     "color": "#ff8a80",
     "speed": 4.7,
     "starting": false,
+    "evolution": "burn",
     "weapon": { "name": "Twin Fangs", "kind": "twin", "damage": 1, "projSpeed": 10, "range": 3.6, "cooldown": 0.26, "count": 2, "spreadDeg": 14, "overWalls": false },
     "special": { "name": "Sky Fang", "kind": "weapon", "damage": 3, "projSpeed": 9, "range": 5, "cooldown": 4, "count": 1, "spreadDeg": 0, "overWalls": true, "pierce": 0, "aoeRadius": 0, "curve": 0 }
   },
@@ -59,6 +65,7 @@
     "color": "#ffd54f",
     "speed": 3.0,
     "starting": false,
+    "evolution": "burn",
     "weapon": { "name": "Ember Fan", "kind": "flame", "damage": 1, "projSpeed": 7, "range": 3.2, "cooldown": 0.34, "count": 7, "spreadDeg": 58, "overWalls": false, "pierce": 1 },
     "special": { "name": "Hellsphere", "kind": "weapon", "damage": 5, "projSpeed": 5, "range": 4, "cooldown": 6, "count": 1, "spreadDeg": 0, "overWalls": false, "pierce": 2, "aoeRadius": 1.5, "curve": 0 }
   },
@@ -68,6 +75,7 @@
     "color": "#90a4ae",
     "speed": 2.0,
     "starting": false,
+    "evolution": "blast",
     "weapon": { "name": "Siege Cannon", "kind": "cannon", "damage": 4, "projSpeed": 8, "range": 7, "cooldown": 1.1, "count": 1, "spreadDeg": 0, "overWalls": false, "aoeRadius": 0.75 },
     "special": { "name": "Fusion Beam", "kind": "weapon", "damage": 4, "projSpeed": 20, "range": 12, "cooldown": 5, "count": 1, "spreadDeg": 0, "overWalls": false, "pierce": 6, "aoeRadius": 0, "curve": 0 }
   },
@@ -77,6 +85,7 @@
     "color": "#b0bec5",
     "speed": 3.1,
     "starting": false,
+    "evolution": "blast",
     "weapon": { "name": "Rivet Mine", "kind": "rivet", "damage": 2, "projSpeed": 5.5, "range": 5.8, "cooldown": 0.7, "count": 1, "spreadDeg": 0, "overWalls": true, "aoeRadius": 0.65 },
     "special": { "name": "Skyhammer", "kind": "weapon", "damage": 3, "projSpeed": 10, "range": 11, "cooldown": 5, "count": 1, "spreadDeg": 0, "overWalls": true, "pierce": 0, "aoeRadius": 1.2, "curve": 0 }
   },
@@ -86,6 +95,7 @@
     "color": "#f06292",
     "speed": 5.0,
     "starting": false,
+    "evolution": "burn",
     "weapon": { "name": "Blade Shredder", "kind": "blade", "damage": 1, "projSpeed": 13, "range": 1.7, "cooldown": 0.12, "count": 3, "spreadDeg": 38, "overWalls": false, "pierce": 1 },
     "special": { "name": "Lunge Step", "kind": "dash", "cooldown": 3 }
   },
@@ -95,6 +105,7 @@
     "color": "#4dd0e1",
     "speed": 3.6,
     "starting": false,
+    "evolution": "multi",
     "weapon": { "name": "Chain Spark", "kind": "spark", "damage": 1, "projSpeed": 14, "range": 6.2, "cooldown": 0.42, "count": 1, "spreadDeg": 0, "overWalls": false, "pierce": 2 },
     "special": { "name": "Tempest Orb", "kind": "weapon", "damage": 2, "projSpeed": 6, "range": 8, "cooldown": 6, "count": 1, "spreadDeg": 0, "overWalls": false, "pierce": 8, "aoeRadius": 0, "curve": 0.8 }
   },
@@ -104,6 +115,7 @@
     "color": "#ffcc80",
     "speed": 3.4,
     "starting": false,
+    "evolution": "blast",
     "weapon": { "name": "Gyro Disc", "kind": "disc", "damage": 2, "projSpeed": 8, "range": 6.5, "cooldown": 0.62, "count": 1, "spreadDeg": 0, "overWalls": false, "pierce": 2, "curve": 1.8, "radius": 8 },
     "special": { "name": "Disc Cyclone", "kind": "weapon", "damage": 2, "projSpeed": 9, "range": 6, "cooldown": 6, "count": 8, "spreadDeg": 360, "overWalls": false, "pierce": 2, "aoeRadius": 0, "curve": 0.6 }
   },
@@ -113,6 +125,7 @@
     "color": "#81c784",
     "speed": 2.8,
     "starting": false,
+    "evolution": "shock",
     "weapon": { "name": "Buckler Slugs", "kind": "slug", "damage": 2, "projSpeed": 9.5, "range": 5.5, "cooldown": 0.5, "count": 2, "spreadDeg": 10, "overWalls": false },
     "special": { "name": "Aegis Orbit", "kind": "weapon", "damage": 2, "projSpeed": 6, "range": 2.2, "cooldown": 7, "count": 3, "spreadDeg": 360, "overWalls": false, "pierce": 6, "aoeRadius": 0, "curve": 2.4, "radius": 14 }
   },
@@ -122,6 +135,7 @@
     "color": "#7986cb",
     "speed": 4.1,
     "starting": false,
+    "evolution": "multi",
     "weapon": { "name": "Ghost Carbine", "kind": "ghost", "damage": 1, "projSpeed": 16, "range": 8, "cooldown": 0.24, "count": 1, "spreadDeg": 0, "overWalls": false, "pierce": 1 },
     "special": { "name": "Phantom Arrow", "kind": "weapon", "damage": 3, "projSpeed": 9, "range": 8, "cooldown": 4, "count": 1, "spreadDeg": 0, "overWalls": true, "pierce": 0, "aoeRadius": 0, "curve": 0 }
   },
@@ -131,6 +145,7 @@
     "color": "#ba68c8",
     "speed": 3.3,
     "starting": false,
+    "evolution": "shock",
     "weapon": { "name": "Tri-Arc", "kind": "helix", "damage": 1, "projSpeed": 9, "range": 6.3, "cooldown": 0.48, "count": 3, "spreadDeg": 18, "overWalls": false, "pierce": 1, "curve": 1.25 },
     "special": { "name": "Missile Fan", "kind": "weapon", "damage": 2, "projSpeed": 11, "range": 11, "cooldown": 5, "count": 5, "spreadDeg": 36, "overWalls": false, "pierce": 0, "aoeRadius": 0.8, "curve": 0 }
   },
@@ -140,7 +155,19 @@
     "color": "#ffab91",
     "speed": 1.9,
     "starting": false,
+    "evolution": "blast",
     "weapon": { "name": "Comet Mortar", "kind": "comet", "damage": 5, "projSpeed": 5.2, "range": 8.5, "cooldown": 1.35, "count": 1, "spreadDeg": 0, "overWalls": true, "aoeRadius": 1.35 },
     "special": { "name": "Flame Curtain", "kind": "weapon", "damage": 2, "projSpeed": 7, "range": 3, "cooldown": 5, "count": 12, "spreadDeg": 360, "overWalls": false, "pierce": 1, "aoeRadius": 0, "curve": 0 }
+  },
+  {
+    "id": "seal",
+    "name": "Selkie",
+    "color": "#7fd4c1",
+    "speed": 3.8,
+    "starting": false,
+    "swims": true,
+    "evolution": "multi",
+    "weapon": { "name": "Harpoon", "kind": "harpoon", "damage": 2, "projSpeed": 11, "range": 6, "cooldown": 0.55, "count": 1, "spreadDeg": 0, "overWalls": false, "pierce": 2 },
+    "special": { "name": "Riptide", "kind": "weapon", "damage": 2, "projSpeed": 7, "range": 3, "cooldown": 6, "count": 8, "spreadDeg": 360, "overWalls": false, "pierce": 0, "aoeRadius": 0, "curve": 0 }
   }
 ]
