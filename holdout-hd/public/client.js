@@ -398,6 +398,55 @@ function updateHUD(snap) {
   renderMinimap(mmCtx, snap, session?.focusPids() ?? new Set());
 }
 
+// ---------- cutscene slide player (shared by Local and Net sessions) ----------
+// Owns sess.cutscene = { slides, idx, t, done, hold, holdHint, waiting, fired }.
+// The frame loop draws sess.cutscene; any local device (or a mouse click)
+// advances OUR slides. hold: online intros — the last slide stays up (done
+// fires once, e.g. to send cutsceneDone) until levelStart tears it down, so
+// the host paces the whole room.
+function startSlides(sess, slides, done, opts = {}) {
+  if (demoMode || !slides?.length || typeof renderMod.drawCutscene !== 'function') return done();
+  hideAll();
+  hideDialogue();
+  playUi('cutscene');
+  canvas.classList.add('cutscene');
+  canvas.onclick = () => { sess.cutsceneClick = true; }; // mouse can advance too
+  sess.cutscene = { slides, idx: 0, t: 0, done, hold: !!opts.hold, holdHint: opts.holdHint || '', waiting: false, fired: false };
+}
+function slidesTick(sess, polled, dt) {
+  const cs = sess.cutscene;
+  cs.t += dt;
+  let adv = cs.t >= 12 || sess.cutsceneClick; // idle couch still auto-advances
+  sess.cutsceneClick = false;
+  for (const st of Object.values(polled)) {
+    if (st.fireJust || st.startJust) { st.fireJust = st.startJust = false; adv = true; }
+  }
+  if (!adv) return;
+  if (cs.hold && cs.idx + 1 >= cs.slides.length) {
+    // finished, but the level starts on the host's say-so — hold the last slide
+    cs.waiting = true;
+    if (!cs.fired) { cs.fired = true; cs.done(); }
+    return;
+  }
+  cs.idx++;
+  cs.t = 0;
+  if (cs.idx >= cs.slides.length) {
+    endSlides(sess);
+    cs.done();
+  } else {
+    playUi('cutscene');
+  }
+}
+function endSlides(sess) {
+  sess.cutscene = null;
+  canvas.classList.remove('cutscene');
+  canvas.onclick = null;
+  // a button still held from the dismissing press must not fire into the
+  // sim's first frames — squelch each device's fire until it is released
+  // (prevDev mirrors this frame's raw device state)
+  sess.fireSquelch = new Set(DEVICES.filter(d => prevDev[d]?.fire));
+}
+
 // ---------- local couch session (1-4 players, one screen) ----------
 class LocalSession {
   constructor(save, opts = {}) {
@@ -537,43 +586,12 @@ class LocalSession {
     if (this.story) this.startCutscene(lvl.intro, begin);
     else begin();
   }
-  // Cutscenes are client-owned: render.drawCutscene draws, this advances.
-  // If the renderer doesn't ship cutscenes (yet), or we're in demo/attract
-  // mode (bots can't press FIRE, &warp needs the sim immediately), skip.
-  startCutscene(slides, done) {
-    if (demoMode || !slides?.length || typeof renderMod.drawCutscene !== 'function') return done();
-    hideAll();
-    hideDialogue();
-    playUi('cutscene');
-    canvas.classList.add('cutscene');
-    canvas.onclick = () => { this.cutsceneClick = true; }; // mouse can advance too
-    this.cutscene = { slides, idx: 0, t: 0, done };
-  }
-  cutsceneTick(polled, dt) {
-    const cs = this.cutscene;
-    cs.t += dt;
-    let adv = cs.t >= 12 || this.cutsceneClick; // idle couch still auto-advances
-    this.cutsceneClick = false;
-    for (const st of Object.values(polled)) {
-      if (st.fireJust || st.startJust) { st.fireJust = st.startJust = false; adv = true; }
-    }
-    if (!adv) return;
-    cs.idx++;
-    cs.t = 0;
-    if (cs.idx >= cs.slides.length) {
-      this.cutscene = null;
-      canvas.classList.remove('cutscene');
-      canvas.onclick = null;
-      // a button still held from the dismissing press must not fire into the
-      // sim's first frames — squelch each device's fire until it is released
-      this.fireSquelch = new Set(
-        Object.entries(polled).filter(([, st]) => st.fire).map(([dev]) => dev)
-      );
-      cs.done();
-    } else {
-      playUi('cutscene');
-    }
-  }
+  // Cutscenes are client-owned: render.drawCutscene draws, the shared slide
+  // player advances. If the renderer doesn't ship cutscenes (yet), or we're in
+  // demo/attract mode (bots can't press FIRE, &warp needs the sim immediately),
+  // startSlides skips straight to done().
+  startCutscene(slides, done) { startSlides(this, slides, done); }
+  cutsceneTick(polled, dt) { slidesTick(this, polled, dt); }
   togglePause() {
     if (!this.game || this.game.status !== 'play') return;
     this.paused = !this.paused;
@@ -722,19 +740,34 @@ class LocalSession {
 }
 
 // ---------- online co-op session ----------
+// One WebSocket = one machine, but up to 4 couch seats ride on it: this.seats
+// maps an input device to a server pid. The primary pid (from 'joined') stays
+// unbound until the first device presses FIRE in the lobby; further devices
+// request extra pids with addLocal. A machine with no bound seat keeps the
+// classic mouse flow (legacy single-input form, primary pid).
 class NetSession {
-  constructor(mode, code) {
+  constructor(mode, code, hostMode = 'classic') {
     this.myPid = null;
     this.myPick = null;
     this.snap = null;
     this.grid = null;
     this.lobbyData = null;
+    this.cutscene = null;
+    this.seats = new Map();        // device -> pid (insertion order = seat order)
+    this.pendingSeats = new Map(); // device -> request time, awaiting localAdded
+    this.cursors = {};             // device -> roster pick cursor
+    this.missingT = {};            // device -> seconds a bound pad has been gone
     this.name = $('nameInput').value.trim() || 'Player';
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     this.ws = new WebSocket(`${proto}://${location.host}`);
     this.ws.onopen = () => {
-      if (mode === 'host') this.ws.send(JSON.stringify({ t: 'host', name: this.name, resume: code }));
-      else this.ws.send(JSON.stringify({ t: 'join', room: code, name: this.name }));
+      if (mode === 'host') {
+        const msg = { t: 'host', name: this.name, resume: code };
+        if (hostMode === 'story') msg.mode = 'story'; // classic hosting stays byte-identical
+        this.ws.send(JSON.stringify(msg));
+      } else {
+        this.ws.send(JSON.stringify({ t: 'join', room: code, name: this.name }));
+      }
     };
     this.ws.onmessage = e => this.onMsg(JSON.parse(e.data));
     this.ws.onclose = () => {
@@ -745,26 +778,73 @@ class NetSession {
       }
     };
     this.inputTimer = setInterval(() => {
-      if (this.ws.readyState === 1 && this.snap?.status === 'play') {
-        this.ws.send(JSON.stringify({ t: 'input', input: mergedInput() }));
+      if (this.ws.readyState !== 1 || this.snap?.status !== 'play') return;
+      if (this.seats.size) {
+        const inputs = {};
+        for (const [dev, pid] of this.seats) inputs[pid] = this.deviceInput(dev);
+        this.ws.send(JSON.stringify({ t: 'input', inputs }));
+      } else {
+        // mouse-only machine: any device drives the primary (legacy form)
+        const o = mergedInput();
+        if (this.fireSquelch?.size) {
+          for (const dev of [...this.fireSquelch]) if (!readDevice(dev)?.fire) this.fireSquelch.delete(dev);
+          if (this.fireSquelch.size) o.fire = false;
+        }
+        this.ws.send(JSON.stringify({ t: 'input', input: o }));
       }
     }, 50);
   }
-  focusPids() { return new Set([this.myPid]); }
+  get story() { return this.lobbyData?.mode === 'story'; }
+  isHost() { return !!this.lobbyData?.players.find(p => p.pid === this.myPid)?.isHost; }
+  pickOf(pid) { return this.lobbyData?.players.find(p => p.pid === pid)?.charId || null; }
+  focusPids() { return this.seats.size ? new Set(this.seats.values()) : new Set([this.myPid]); }
   primaryPid() { return this.myPid; }
   levelIdxView() { return this.lobbyData?.levelIdx ?? 0; }
-  levelList() { return campaign; }
+  levelList() { return this.story ? storyLevels : campaign; }
+  // navTick: a bound device's dpad drives its pick cursor, not the focus ring
+  deviceOf(dev) { return this.seats.has(dev) ? dev : null; }
+  deviceInput(dev) {
+    const c = readDevice(dev);
+    if (!c) return {};
+    let fire = c.fire;
+    if (this.fireSquelch?.has(dev)) {
+      if (fire) fire = false; // held since a cutscene was dismissed
+      else this.fireSquelch.delete(dev);
+    }
+    return { up: c.up, down: c.down, left: c.left, right: c.right, fire, special: c.special, act: c.act };
+  }
   onMsg(m) {
     if (m.t === 'joined') this.myPid = m.you;
+    else if (m.t === 'localAdded') {
+      this.pendingSeats.delete(m.tag);
+      if (m.tag != null && m.pid != null && !this.seats.has(m.tag)) {
+        this.seats.set(m.tag, m.pid);
+        this.cursors[m.tag] = 0;
+      }
+    }
     else if (m.t === 'lobby') {
       this.lobbyData = m;
+      // a seat whose pid the server no longer lists is dead — unbind it
+      for (const [dev, pid] of [...this.seats]) {
+        if (!m.players.some(p => p.pid === pid)) this.unbindSeat(dev);
+      }
       const me = m.players.find(p => p.pid === this.myPid);
       this.myPick = me?.charId || null;
-      // never stomp a live game or an open dialog — renderLobby runs on dismiss
-      if (this.snap?.status === 'play' || !$('msg').hidden) return;
+      // never stomp a live game, an open dialog or a playing cutscene —
+      // renderLobby runs when they dismiss
+      if (this.snap?.status === 'play' || !$('msg').hidden || this.cutscene) return;
       this.renderLobby();
     }
+    else if (m.t === 'cutscene') {
+      // story intro: everyone plays the slides; the host's finish starts the
+      // level for the whole room, so non-hosts hold on their last slide
+      const host = this.isHost();
+      startSlides(this, m.slides, () => {
+        if (host && this.ws.readyState === 1) this.ws.send(JSON.stringify({ t: 'cutsceneDone' }));
+      }, { hold: true, holdHint: host ? '' : 'waiting for the host…' });
+    }
     else if (m.t === 'levelStart') {
+      if (this.cutscene) endSlides(this); // the host moved on — drop our slides
       // Full snapshot rides along once; later 'state' ticks omit the grid.
       if (m.s?.grid) this.grid = m.s.grid;
       this.snap = m.s || null;
@@ -781,14 +861,25 @@ class NetSession {
     else if (m.t === 'levelEnd') {
       this.myPick = null;
       if (this.lobbyData) this.lobbyData.roster = m.roster;
-      if (m.victory) {
-        showMsg('Campaign Complete!', resultText(m) + `Final roster: ${m.roster.map(id => charMap[id].name).join(', ')}`, 'OK', () => this.leave());
-      } else if (m.status === 'cleared') {
-        if (this.lobbyData) this.lobbyData.levelIdx++;
-        showMsg('Mission Cleared', resultText(m) || 'Nicely done.', 'To Lobby', () => this.renderLobby());
-      } else {
-        showMsg('Mission Failed', 'No one is lost on a failed run — regroup and retry.', 'To Lobby', () => this.renderLobby());
-      }
+      const story = this.story;
+      const results = () => {
+        if (m.victory) {
+          showMsg(story ? 'The Crossing Holds' : 'Campaign Complete!',
+            resultText(m) + `Final roster: ${m.roster.map(id => charMap[id].name).join(', ')}`,
+            'OK', () => this.leave());
+        } else if (m.status === 'cleared') {
+          if (this.lobbyData) this.lobbyData.levelIdx++;
+          showMsg(story ? 'Chapter Cleared' : 'Mission Cleared',
+            (resultText(m) || 'Nicely done.') + (m.nextTitle ? `\nNext: ${m.nextTitle}` : ''),
+            'To Lobby', () => this.renderLobby());
+        } else {
+          showMsg(story ? 'Chapter Failed' : 'Mission Failed',
+            'No one is lost on a failed run — regroup and retry.', 'To Lobby', () => this.renderLobby());
+        }
+      };
+      // story outro plays first (cleared runs only), then the results dialog
+      if (m.status === 'cleared' && m.outro?.length) startSlides(this, m.outro, results);
+      else results();
     }
     else if (m.t === 'error') {
       this.close();
@@ -798,26 +889,122 @@ class NetSession {
   renderLobby() {
     const m = this.lobbyData;
     if (!m) return;
-    const isHost = m.players.find(p => p.pid === this.myPid)?.isHost;
     const allPicked = m.players.every(p => p.charId);
+    const story = m.mode === 'story';
+    const seatNo = new Map([...this.seats.values()].map((pid, i) => [pid, i]));
     renderLobby({
-      title: `Mission ${m.levelIdx + 1} / ${m.totalLevels} — ${m.levelName || ''}`,
-      info: `Room code: <b>${m.room}</b> — friends join with this code`,
-      hint: 'Online co-op: one player per machine. Any controller or keyboard works in the field.',
-      players: m.players.map(p => ({ ...p, me: p.pid === this.myPid })),
+      title: (story && m.levelTitle)
+        ? m.levelTitle
+        : `${story ? 'Chapter' : 'Mission'} ${m.levelIdx + 1} / ${m.totalLevels} — ${m.levelName || ''}`,
+      info: m.lan
+        ? `Room <b>${m.room}</b> — friends: ${m.lan} (or this machine's address)`
+        : `Room code: <b>${m.room}</b> — friends join with this code`,
+      hint: 'Press FIRE to claim a seat — up to 4 couch players per machine, 8 per room. '
+        + 'Move your cursor with LEFT/RIGHT, FIRE to lock in; START on an unpicked extra seat hands it back. '
+        + 'The mouse picks for the first seat.',
+      players: m.players.map(p => ({
+        ...p,
+        me: p.pid === this.myPid,
+        badge: seatNo.has(p.pid) ? 'P' + (seatNo.get(p.pid) + 1) : undefined,
+        color: seatNo.has(p.pid) ? PCOLORS[seatNo.get(p.pid)] : undefined,
+      })),
       roster: m.roster,
-      canStart: isHost && allPicked,
+      canStart: this.isHost() && allPicked,
+      cursors: [...this.seats.entries()].map(([dev, pid], i) => ({
+        idx: this.cursors[dev] ?? 0,
+        color: PCOLORS[i],
+        badge: 'P' + (i + 1),
+        picked: !!this.pickOf(pid),
+      })),
       onCard: id => this.pickChar(id),
     });
   }
+  // mouse click — picks for the primary seat (legacy form, no pid)
   pickChar(id) { this.ws.send(JSON.stringify({ t: 'select', charId: id })); }
   start() { this.ws.send(JSON.stringify({ t: 'start' })); }
-  tick(polled) {
+  unbindSeat(dev) {
+    this.seats.delete(dev);
+    delete this.cursors[dev];
+    delete this.missingT[dev];
+  }
+  dropSeat(dev) { // START on an unpicked extra seat / dead pad: hand the pid back
+    const pid = this.seats.get(dev);
+    if (pid == null) return;
+    this.unbindSeat(dev);
+    if (pid !== this.myPid) this.ws.send(JSON.stringify({ t: 'removeLocal', pid }));
+    this.renderLobby(); // server re-broadcasts, but reflect the unbind now
+  }
+  claimSeat(dev) {
+    if (this.myPid == null) return;
+    if (![...this.seats.values()].includes(this.myPid)) {
+      // first FIRE binds that device to the primary pid
+      this.seats.set(dev, this.myPid);
+      this.cursors[dev] = 0;
+      this.renderLobby();
+      return;
+    }
+    if (this.seats.size + this.pendingSeats.size >= 4) return;                       // per-connection cap
+    if ((this.lobbyData?.players.length ?? 0) + this.pendingSeats.size >= 8) return; // room cap
+    if (this.pendingSeats.has(dev)) return; // double FIRE before localAdded returns
+    this.pendingSeats.set(dev, performance.now());
+    this.ws.send(JSON.stringify({ t: 'addLocal', name: 'P' + (this.seats.size + this.pendingSeats.size), tag: dev }));
+  }
+  lobbyTick(polled, dt) {
+    const m = this.lobbyData;
+    if (!m) return;
+    // a request the server never answered (room filled meanwhile) must not
+    // wedge that device — let it retry after a beat
+    for (const [dev, t0] of [...this.pendingSeats]) {
+      if (performance.now() - t0 > 2000) this.pendingSeats.delete(dev);
+    }
+    // a bound gamepad that vanished before picking (battery died) would block
+    // Deploy forever — hand its pid back after a grace period
+    for (const [dev, pid] of [...this.seats]) {
+      if (dev.startsWith('gp') && !polled[dev] && !this.pickOf(pid)) {
+        this.missingT[dev] = (this.missingT[dev] || 0) + dt;
+        if (this.missingT[dev] > 3) this.dropSeat(dev);
+      } else this.missingT[dev] = 0;
+    }
+    let moved = false;
+    for (const [dev, st] of Object.entries(polled)) {
+      const pid = this.seats.get(dev);
+      if (pid == null) {
+        if (st.fireJust) this.claimSeat(dev);
+        continue;
+      }
+      const picked = this.pickOf(pid);
+      if (st.startJust) {
+        if (pid === this.myPid) {
+          // primary START deploys when the button would (host + all picked);
+          // the primary seat never removeLocals — it Leaves via the ring
+          if (!$('btnStart').disabled) { this.start(); continue; }
+        } else if (!picked) { this.dropSeat(dev); continue; }
+      }
+      const n = m.roster.length;
+      if (!picked && n) {
+        if (st.leftJust) { this.cursors[dev] = mod((this.cursors[dev] ?? 0) - 1, n); moved = true; }
+        if (st.rightJust) { this.cursors[dev] = mod((this.cursors[dev] ?? 0) + 1, n); moved = true; }
+        if (st.upJust) { this.cursors[dev] = mod((this.cursors[dev] ?? 0) - 5, n); moved = true; }
+        if (st.downJust) { this.cursors[dev] = mod((this.cursors[dev] ?? 0) + 5, n); moved = true; }
+      }
+      if (st.fireJust) {
+        // FIRE locks the cursor pick, or unlocks the current one (server toggles)
+        const id = picked ?? m.roster[this.cursors[dev] ?? 0];
+        if (id) this.ws.send(JSON.stringify({ t: 'select', charId: id, pid }));
+      }
+    }
+    if (moved) this.renderLobby();
+  }
+  tick(polled, dt) {
+    if (this.cutscene) return slidesTick(this, polled, dt);
     if (!$('msg').hidden) {
+      // mission-end dialog: fire/start on any device clicks through
       for (const st of Object.values(polled)) {
         if (st.fireJust || st.startJust) { $('btnMsgOk').click(); break; }
       }
+      return;
     }
+    if (!$('lobby').hidden) this.lobbyTick(polled, dt);
   }
   close() {
     clearInterval(this.inputTimer);
@@ -833,6 +1020,7 @@ function refreshContinue() {
   $('btnContinue').hidden = !localStorage.getItem(SAVE_KEY);
   $('btnStory').hidden = !storyLevels.length;
   $('btnStoryContinue').hidden = !storyLevels.length || !localStorage.getItem(STORY_KEY);
+  $('btnHostStory').hidden = !storyLevels.length;
 }
 refreshContinue();
 $('nameInput').value = localStorage.getItem('holdout.name') || '';
@@ -870,6 +1058,12 @@ $('btnHost').onclick = e => {
   e.currentTarget.blur();
   if (session) return;
   session = new NetSession('host', $('joinCode').value.trim().toUpperCase());
+};
+$('btnHostStory').onclick = e => {
+  e.currentTarget.blur();
+  if (session) return;
+  // a resumed save's stored mode wins over this button (server rule)
+  session = new NetSession('host', $('joinCode').value.trim().toUpperCase(), 'story');
 };
 $('btnJoin').onclick = e => {
   e.currentTarget.blur();
@@ -921,6 +1115,30 @@ if (demoMode) {
   }
 }
 
+// ---------- fill the screen: scale the whole stage to the window ----------
+// The stage (canvas + side panels) has a fixed natural size; scaling the box
+// to the viewport removes the dark borders on TVs and laptops alike.
+const stageEl = document.getElementById('stage');
+let stageNatW = 0, stageNatH = 0;
+function fitStage() {
+  if (!stageNatW) {
+    const r = stageEl.getBoundingClientRect();
+    stageNatW = r.width; stageNatH = r.height;
+    if (!stageNatW || !stageNatH) return;
+  }
+  const s = Math.min(innerWidth / stageNatW, innerHeight / stageNatH);
+  stageEl.style.transform = `scale(${s.toFixed(4)})`;
+}
+addEventListener('resize', fitStage);
+fitStage();
+
+$('btnFullscreen').onclick = e => {
+  e.currentTarget.blur();
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen?.({ navigationUI: 'hide' })?.catch?.(() => {});
+};
+document.addEventListener('fullscreenchange', () => { fitStage(); });
+
 // ---------- main loop ----------
 let last = performance.now();
 function frame(now) {
@@ -933,6 +1151,16 @@ function frame(now) {
     const cs = session.cutscene;
     if (cs) {
       renderMod.drawCutscene?.(ctx, cs.slides[cs.idx], now / 1000, cs.t);
+      if (cs.waiting && cs.holdHint) {
+        // online intro: our slides are done, the host hasn't moved on yet
+        ctx.save();
+        ctx.font = 'bold 15px ui-monospace, Menlo, monospace';
+        ctx.textAlign = 'left';
+        ctx.fillStyle = `rgba(200,212,230,${(0.45 + 0.25 * Math.sin(now / 320)).toFixed(3)})`;
+        ctx.fillText(cs.holdHint, Math.round(canvas.width * 0.045),
+          canvas.height - Math.round(canvas.height * 0.04) - Math.round(canvas.height * 0.028));
+        ctx.restore();
+      }
     } else {
       const snap = session.snap;
       if (snap) {

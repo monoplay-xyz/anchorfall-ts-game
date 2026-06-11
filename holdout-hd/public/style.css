@@ -12,6 +12,7 @@
 }
 
 body {
+  overflow: hidden;
   min-height: 100vh;
   display: flex;
   align-items: center;
@@ -25,6 +26,7 @@ body {
 }
 
 #stage {
+  transform-origin: center center; /* scaled by fitStage() to fill the window */
   display: flex;
   gap: 12px;
   align-items: stretch;
@@ -48,8 +50,6 @@ body {
   border-radius: 6px;
   box-shadow: 0 24px 70px rgba(0,0,0,.75), 0 0 0 1px rgba(54, 160, 138, .22);
   background: #0B0A14;
-  max-width: calc(100vw - 490px);
-  max-height: 94vh;
 }
 
 /* --- sci-fi panels --- */
