@@ -4,6 +4,7 @@
 // placeholder PNGs no longer apply); if missing, a procedural canvas is baked.
 // The world reads as cold moonlit frontier; warm LYTH light = safety/value.
 import { TILE } from '/shared/game.js';
+import { playEvent } from './audio.js'; // render-detected cues (hound engage bark)
 
 const particles = [];
 const flashes = [];
@@ -14,6 +15,7 @@ const crackers = []; // landed lure crackers: 'crackerOut' -> 'crackerBoom'/time
 const beams = []; // prism tower shots: 'prismBeam' {x,y,tx,ty,dmg,feeders?}
 const zaps = []; // tesla chain lightning: 'teslaZap' {x,y,targets:[{x,y}]}
 const pendingLevelUps = []; // coordless 'levelUp' events resolved to player pos
+const houndMood = new Map(); // follower id -> {engaged,lastBark}: bark on engage edge
 let coreAlarmT = 0; // base-core alarm glow, armed by 'coreHit'/'coreDown'
 let shake = 0;
 let darkWorld = false; // set per-frame from snap.dark (story night missions)
@@ -906,13 +908,32 @@ export function addEventFX(ev) {
       popups.push({ x: ev.x, y: ev.y - 22, text: 'CONVERTED', life: 1, max: 1, color: PAL.relay });
     }
   }
-  else if (ev.type === 'toxin' || ev.type === 'toxinOut' || ev.type === 'toxinPatch') {
+  else if (ev.type === 'toxin' || ev.type === 'toxinOut' || ev.type === 'toxinPatch'
+    || (ev.type === 'patch' && ev.kind === 'toxin')) {
     // a toxin charge bursts: green splash; the lingering pool rides g.patches
-    if (ev.x != null) { burst(12, '#8CC850', 130, 0.5); ring(TILE * 1.2, 'rgba(150,210,90,0.8)', 0.45, 2); }
+    if (ev.x != null) { burst(12, '#8CC850', 130, 0.5); ring(ev.r ?? TILE * 1.2, 'rgba(150,210,90,0.8)', 0.45, 2); }
+  }
+  else if (ev.type === 'patch') {
+    // a burning enemy falls and its fire pours onto the ground (L4 burn)
+    if (ev.x != null) {
+      burst(10, PAL.ember, 130, 0.5);
+      burst(4, PAL.lythAmber, 90, 0.4);
+      ring(ev.r ?? TILE * 1.2, 'rgba(240,169,60,0.8)', 0.45, 2);
+    }
+  }
+  else if (ev.type === 'turretType') {
+    // RA2 carousel confirm: the turret comes online wearing its type colors
+    if (ev.x != null) {
+      const col = { prism: PAL.relay, tesla: PAL.eye, toxin: '#8CC850' }[ev.ttype] || PAL.teal;
+      ring(36, col, 0.5, 2.5);
+      burst(10, col, 130, 0.45);
+      popups.push({ x: ev.x, y: ev.y - 30, text: `${String(ev.ttype || 'gun').toUpperCase()} ONLINE`, life: 1, max: 1, color: col });
+    }
   }
   else if (ev.type === 'bark' || ev.type === 'followerEngage') {
     if (ev.x != null) popups.push({ x: ev.x, y: ev.y - 18, text: '!', life: 0.5, max: 0.5, color: PAL.teal });
   }
+  else if (ev.type === 'followerHit') { if (ev.x != null) burst(5, '#ffd9d2', 100, 0.3); }
   else if (ev.type === 'followerDown') { if (ev.x != null) { burst(8, PAL.teal, 130, 0.45); burst(4, PAL.steel, 90, 0.35); } }
   // unknown event types are ignored gracefully
 }
@@ -2143,14 +2164,16 @@ function drawShop(ctx, s, t, snap, lights) {
   ctx.fillRect(x + 9, y - 18, 4, 5);
   ctx.restore();
   lights.push({ x: x + 11, y: y - 15, r: 52, rgb: '255,217,138', a: 0.12 + j * 0.03 });
-  // world-space carousel while any operator stands at the counter
-  let inUse = false;
+  // world-space carousel only while an operator is actually browsing (the
+  // sim ships p.shop on the shopper). Players driving a turret typeSelect
+  // never count — the two panels must not stack.
+  let shopper = null;
   for (const p of snap.players ?? []) {
-    if (p.state !== 'active') continue;
-    if ((p.x - x) ** 2 + (p.y - y) ** 2 < (TILE * 1.5) ** 2) { inUse = true; break; }
+    if (p.state !== 'active' || p.selecting || !p.shop) continue;
+    if ((p.x - x) ** 2 + (p.y - y) ** 2 < (TILE * 1.5) ** 2) { shopper = p; break; }
   }
-  if (!inUse) return;
-  const sel = Math.max(0, Math.min(SHOP_OFFERS.length - 1, s.sel ?? s.idx ?? 0));
+  if (!shopper) return;
+  const sel = Math.max(0, Math.min(SHOP_OFFERS.length - 1, shopper.shop.idx ?? 0));
   const pw = 172, phh = 16 + SHOP_OFFERS.length * 14 + 14;
   const px = x - pw / 2, py = y - 36 - phh;
   ctx.save();
@@ -3313,7 +3336,8 @@ const TTYPE_OFFERS = [
 ];
 function drawTypeSelect(ctx, b, t) {
   const { x, y } = b;
-  const selIdx = Math.max(0, TTYPE_OFFERS.findIndex(([id]) => id === (b.ttype || 'gun')));
+  // the live carousel cursor ships as tsIdx (ttype only exists once confirmed)
+  const selIdx = Math.max(0, Math.min(TTYPE_OFFERS.length - 1, b.tsIdx ?? 0));
   // typeSelect may be a boolean or the remaining auto-confirm seconds
   const cd = typeof b.typeSelect === 'number' ? Math.ceil(b.typeSelect)
     : typeof b.typeSelectT === 'number' ? Math.ceil(b.typeSelectT) : null;
@@ -3728,6 +3752,8 @@ function drawEdgeArrow(ctx, wx, wy, color, label) {
 
 // ============================== MAIN RENDER ==============================
 export function render(ctx, snap, charMap, focusPids, t, dt) {
+  // a lite snapshot can arrive before levelStart re-attaches the cached grid
+  if (!snap.grid) return;
   const focus = focusPids instanceof Set ? focusPids
     : new Set(Array.isArray(focusPids) ? focusPids : [focusPids]);
   // new snapshot fields are optional: classic levels must keep rendering
@@ -4033,7 +4059,27 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
   if (followers.length) {
     const ownerCol = new Map();
     for (const p of snap.players) ownerCol.set(p.pid, charMap[p.charId]?.color || PAL.teal);
+    if (houndMood.size > 200) houndMood.clear(); // ids keep growing on long runs
     for (const fo of followers) {
+      // the sim ships no engage event: detect the hound closing on prey here
+      // (rising edge of an awake, unconverted enemy within 3 tiles) and bark.
+      if (fo.kind === 'hound') {
+        let near = false;
+        const r2 = (TILE * 3) ** 2;
+        for (const e of snap.enemies) {
+          if (e.awake === false || enemyStatus(e).conv) continue;
+          if ((e.x - fo.x) ** 2 + (e.y - fo.y) ** 2 < r2) { near = true; break; }
+        }
+        const key = fo.id ?? `${fo.owner}:${fo.slot ?? 0}`;
+        let hm = houndMood.get(key);
+        if (!hm) { hm = { engaged: near, lastBark: -10 }; houndMood.set(key, hm); }
+        else if (near && !hm.engaged && t - hm.lastBark > 2.5) {
+          hm.lastBark = t;
+          addEventFX({ type: 'bark', x: fo.x, y: fo.y });
+          playEvent({ type: 'bark' });
+        }
+        hm.engaged = near;
+      }
       if (!inView(fo.x, fo.y)) continue;
       drawFollower(ctx, fo, t, dt, ownerCol.get(fo.owner) ?? PAL.teal, lights);
     }
@@ -4172,15 +4218,18 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
       continue;
     }
     if (b.kind === 'pylon' || b.level == null) continue; // pylons keep classic semantics
+    if (b.typeSelect) continue; // the carousel owns this turret's prompt space
     if (b.hp != null && b.maxHp && b.hp < b.maxHp) cands.push({ x: b.x, y: b.y, py: b.y - 30, text: '[hold E/X] REPAIR 1◆/3HP' });
     else if (b.level < 3) cands.push({ x: b.x, y: b.y, py: b.y - 30, text: `[hold E/X] UPGRADE ${b.level * 8}◆` });
     else cands.push({ x: b.x, y: b.y, py: b.y - 30, text: '[hold E/X] DISMANTLE' });
   }
   for (const s of shops) {
-    // once someone stands at the counter the carousel takes over
+    // once someone is BROWSING (p.shop ships from the sim) the carousel takes
+    // over; anyone merely standing near still gets the hold prompt
     let busy = false;
     for (const p of snap.players) {
-      if (p.state === 'active' && (p.x - s.x) ** 2 + (p.y - s.y) ** 2 < R2) { busy = true; break; }
+      if (p.state === 'active' && p.shop && !p.selecting
+        && (p.x - s.x) ** 2 + (p.y - s.y) ** 2 < R2) { busy = true; break; }
     }
     if (!busy) cands.push({ x: s.x, y: s.y, py: s.y - 40, text: '[hold E/X] SHOP' });
   }
@@ -4500,10 +4549,26 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
   ctx.restore();
   ctx.restore();
 
-  // --- vignette (screen space, Void Night; deeper on dark missions) ---
-  const vg = ctx.createRadialGradient(VW / 2, VH / 2, VH * (darkWorld ? 0.24 : 0.32), VW / 2, VH / 2, VH * 0.85);
+  // --- bastion daylight: day must read unmistakably sunlit — a warm
+  // additive sun wash plus a cool skylight lift over the whole frame.
+  // Night and blood moon keep their full grade untouched; the dusk/dawn
+  // ramp (nightK) blends day out smoothly over the cycle's last 6s. ---
+  const dayK = cycle ? 1 - nightK : 0;
+  if (dayK > 0.01) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = `rgba(255,209,130,${0.13 * dayK})`; // warm sun tone
+    ctx.fillRect(0, 0, VW, VH);
+    ctx.fillStyle = `rgba(126,150,184,${0.07 * dayK})`; // ambient sky lift
+    ctx.fillRect(0, 0, VW, VH);
+    ctx.restore();
+  }
+
+  // --- vignette (screen space, Void Night; deeper on dark missions, pulled
+  // far back under the bastion's daylight) ---
+  const vg = ctx.createRadialGradient(VW / 2, VH / 2, VH * (darkWorld ? 0.24 : 0.32 + 0.18 * dayK), VW / 2, VH / 2, VH * 0.85);
   vg.addColorStop(0, 'rgba(11,10,20,0)');
-  vg.addColorStop(1, `rgba(11,10,20,${darkWorld ? 0.8 : 0.62})`);
+  vg.addColorStop(1, `rgba(11,10,20,${darkWorld ? 0.8 : 0.62 - 0.38 * dayK})`);
   ctx.fillStyle = vg;
   ctx.fillRect(0, 0, VW, VH);
 

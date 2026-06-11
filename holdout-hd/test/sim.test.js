@@ -1018,11 +1018,11 @@ function testStructureRepairUpgradeDismantle() {
   assert.equal(site.level, 1, 'dismantled structure loses its levels');
 }
 
-// --- turret levels: damage 1/2/3, targeting range 5/5.5/6 tiles ---
+// --- turret levels: damage 1/2/3, targeting range 5.5/6/6.5 tiles, 0.55s cadence ---
 function testTurretLevels() {
   const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
-  r = put(put(put(r, 2, 'P'), 10, 'B'), 15, 'g'); // grunt exactly 5 tiles from the turret
+  r = put(put(put(r, 2, 'P'), 10, 'B'), 16, 'g'); // grunt exactly 6 tiles from the turret
   const level = bigEmptyLevel([[5, r], [17, '#....................................g#']]);
   level.builds = [{ kind: 'turret', cost: 5 }];
   const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
@@ -1035,6 +1035,13 @@ function testTurretLevels() {
   p.x = b.x - TILE; p.y = b.y;
   run(g, () => ({ 0: { act: !b.built } }), 5);
   assert.ok(b.built, 'turret built');
+  // a fresh turret waits in type select and holds its fire until confirmed
+  assert.equal(b.typeSelect, true, 'a finished turret enters type select');
+  step(g, { 0: { act: true } }, 1 / 30); // engage the carousel
+  step(g, { 0: { act: true, fire: true } }, 1 / 30); // fire-edge confirms 'gun'
+  step(g, { 0: {} }, 1 / 30); // release
+  assert.equal(b.typeSelect, false, 'fire confirms the carousel');
+  assert.equal(b.ttype, 'gun', 'default selection is the gun');
   e.awake = true;
   e.hp = 50; // survives the volleys so every level has a standing target
   let seen = null;
@@ -1045,16 +1052,23 @@ function testTurretLevels() {
   };
   run(g, watch, 1.5);
   assert.ok(!seen && !g.events.some(ev => ev.type === 'shoot' && ev.weapon === 'turret'),
-    'level 1 turret (5-tile reach) cannot touch a grunt 5 tiles out');
+    'level 1 turret (5.5-tile reach) cannot touch a grunt 6 tiles out');
   b.level = 2; // upgrade path is covered by the barricade chain test
+  e.x = b.x + TILE * 5.7; // inside L2's 6-tile reach, outside L1's 5.5
+  const shots0 = g.events.filter(ev => ev.type === 'shoot' && ev.weapon === 'turret').length;
   run(g, watch, 1.5);
-  assert.ok(seen, 'level 2 turret (5.5-tile reach) fires');
+  assert.ok(seen, 'level 2 turret (6-tile reach) fires');
   assert.equal(seen.dmg, 2, 'level 2 turret deals 2 damage');
+  const volleys = g.events.filter(ev => ev.type === 'shoot' && ev.weapon === 'turret').length - shots0;
+  assert.ok(volleys >= 3, `0.55s cadence lands >= 3 shots in 1.5s (saw ${volleys})`);
   seen = null;
   b.level = 3;
   b.cool = 0;
+  e.x = b.x + TILE * 6.3; // beyond L2's reach, inside L3's 6.5
+  const hp0 = e.hp;
   run(g, watch, 1.5);
-  assert.ok(seen && seen.dmg === 3, 'level 3 turret deals 3 damage');
+  assert.ok(seen && seen.dmg === 3, 'level 3 turret deals 3 damage at 6.3 tiles');
+  assert.ok(e.hp < hp0, 'the +0.5-tile flight buffer carries the round to an edge-of-range target');
 }
 
 function testGateTimeLock() {
@@ -1096,10 +1110,11 @@ function enemyShotAt(g, p) {
   });
 }
 
-function playerShotAt(g, e, dmg = 1) {
+function playerShotAt(g, e, dmg = 1, extra = {}) {
   g.shots.push({
     id: g.nextShotId++, x: e.x, y: e.y, vx: 0, vy: 0, ttl: 0.5, dmg,
     who: 'p', overWalls: true, pierce: 0, aoeRadius: 0, curve: 0, radius: 5, kind: 'test', hits: [],
+    ...extra,
   });
 }
 
@@ -2572,6 +2587,764 @@ function testActPriorityMountShopAndNearestVehicle() {
   assert.equal(g2.chests[0].opened, true, 'chests still open when no stall claims the press');
 }
 
+// ===== combat depth (xp/evolutions, statuses, turret types, followers, seal) =====
+
+// --- xp: kill credit pays score/25 to the owning seat; levels at 12/34/70 ---
+function testXpThresholdsAndLevelUps() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  let r = '#' + '.'.repeat(38) + '#';
+  r = put(put(put(put(put(put(r, 4, 'P'), 12, 'g'), 16, 'g'), 20, 'g'), 24, 'g'), 28, 'g');
+  const level = bigEmptyLevel([[5, r]]);
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
+  const p = g.players[0];
+  const [e0, e1, e2, e3, e4] = g.enemies;
+  p.invuln = 999;
+  g.graceT = 1e9;
+  assert.equal(p.xp, 0, 'fresh seat starts at 0 xp');
+  assert.equal(p.level, 1, 'fresh seat starts at level 1');
+  e0.score = 275; // 11 xp: one short of the L2 threshold
+  playerShotAt(g, e0, 99, { ownerPid: 0 });
+  step(g, { 0: {} }, 1 / 30);
+  assert.equal(p.xp, 11, 'kill credit pays enemy score / 25 xp');
+  assert.equal(p.level, 1, '11 xp stays below the 12-xp L2 threshold');
+  const hp0 = p.hp;
+  e1.score = 25; // +1 -> 12: L2 exactly at the threshold
+  playerShotAt(g, e1, 99, { ownerPid: 0 });
+  step(g, { 0: {} }, 1 / 30);
+  assert.equal(p.level, 2, '12 xp reaches L2');
+  assert.equal(p.maxHp, 4, 'L2 grants +1 max hp');
+  assert.equal(p.hp, hp0 + 1, 'L2 heals 1 on the spot');
+  assert.ok(g.events.some(ev => ev.type === 'levelUp' && ev.pid === 0 && ev.level === 2 && ev.perk === 'hp'),
+    'levelUp event carries pid/level/perk');
+  e2.score = 550; // +22 -> 34: L3 unlocks the evolution
+  playerShotAt(g, e2, 99, { ownerPid: 0 });
+  step(g, { 0: {} }, 1 / 30);
+  assert.equal(p.level, 3, '34 xp reaches L3');
+  assert.ok(g.events.some(ev => ev.type === 'levelUp' && ev.level === 3 && ev.perk === 'multi'),
+    'L3 levelUp names the character evolution');
+  e3.score = 900; // +36 -> 70: L4 intensifies it
+  playerShotAt(g, e3, 99, { ownerPid: 0 });
+  step(g, { 0: {} }, 1 / 30);
+  assert.equal(p.level, 4, '70 xp reaches L4 (the cap)');
+  const snap = snapshot(g, false);
+  assert.equal(snap.players[0].level, 4, 'snapshot carries the level');
+  assert.equal(snap.players[0].xp, 70, 'snapshot carries the xp');
+  // ownerless kills (turrets, followers, mind control) pay nobody
+  playerShotAt(g, e4, 99);
+  step(g, { 0: {} }, 1 / 30);
+  assert.equal(p.xp, 70, 'a kill without an owner pays no xp');
+}
+
+// --- evolutions: every branch at L3 and L4, stacking with shop dmgBonus ---
+function testEvolutionBranchesAndDmgBonusStack() {
+  const evoGame = charId => {
+    const level = bigEmptyLevel([[17, '#....................................g#']]);
+    const g = createGame(level, [{ pid: 0, name: 'T', charId }], charMap, [charId]);
+    g.players[0].invuln = 999;
+    g.players[0].x = 10 * TILE;
+    g.players[0].y = 10 * TILE;
+    g.graceT = 1e9;
+    return g;
+  };
+  const fireOnce = (g, btn = 'fire') => {
+    const p = g.players[0];
+    p.cool = 0;
+    p.specialCool = 0;
+    p.specialPrev = false;
+    g.shots.length = 0;
+    step(g, { 0: { [btn]: true } }, 1 / 30);
+    return g.shots;
+  };
+  // multi: +1 shot at L3 (singles fan 6deg), another +1 at L4
+  let g = evoGame('scout');
+  assert.equal(fireOnce(g).length, 1, 'L1 scout fires its base single shot');
+  g.players[0].level = 3;
+  assert.equal(fireOnce(g).length, 2, 'L3 multi adds a shot');
+  g.players[0].level = 4;
+  assert.equal(fireOnce(g).length, 3, 'L4 multi adds another');
+  // multi covers the special too (Flank Volley count 2 -> 3 at L3)
+  g.players[0].level = 3;
+  assert.equal(fireOnce(g, 'special').length, 3, 'evolution applies to weapon-kind specials');
+  // dmgBonus from the shop stacks separately on top
+  g.players[0].level = 3;
+  g.players[0].dmgBonus = 2;
+  assert.equal(fireOnce(g)[0].dmg, 3, 'shop dmgBonus stacks on an evolved weapon');
+  // blast: +0.6 aoe at L3; +0.5 more and pierce 1 at L4
+  g = evoGame('grenadier');
+  let s = fireOnce(g)[0];
+  assert.ok(Math.abs(s.aoeRadius - 1.05 * TILE) < 0.01, 'L1 mortar keeps its base aoe');
+  g.players[0].level = 3;
+  s = fireOnce(g)[0];
+  assert.ok(Math.abs(s.aoeRadius - (1.05 + 0.6) * TILE) < 0.01, 'L3 blast widens the aoe by 0.6 tiles');
+  assert.equal(s.pierce, 0, 'L3 blast does not pierce yet');
+  g.players[0].level = 4;
+  s = fireOnce(g)[0];
+  assert.ok(Math.abs(s.aoeRadius - (1.05 + 1.1) * TILE) < 0.01, 'L4 blast widens by another 0.5');
+  assert.equal(s.pierce, 1, 'L4 blast shots pierce 1');
+  // shock: hits stun at L3; L4 arcs (arc behavior tested with live enemies below)
+  g = evoGame('medic');
+  g.players[0].level = 3;
+  s = fireOnce(g)[0];
+  assert.equal(s.stun, 0.4, 'L3 shock shots carry the 0.4s stun');
+  assert.ok(!s.shockArc, 'no arc at L3');
+  g.players[0].level = 4;
+  s = fireOnce(g)[0];
+  assert.ok(s.shockArc, 'L4 shock shots arc');
+  // burn: hits ignite at L3; L4 marks the death-patch flag
+  g = evoGame('soldier');
+  g.players[0].level = 3;
+  s = fireOnce(g)[0];
+  assert.ok(s.ignite && !s.ignitePatch, 'L3 burn ignites, no patch');
+  g.players[0].level = 4;
+  s = fireOnce(g)[0];
+  assert.ok(s.ignite && s.ignitePatch, 'L4 burn leaves death patches');
+  // arcade seats never level: classic fire is byte-identical
+  const ga = createGame(levels[0], [{ pid: 0, name: 'T', charId: 'scout' }], charMap, startingRoster);
+  ga.players[0].invuln = 999;
+  ga.players[0].cool = 0;
+  ga.shots.length = 0;
+  step(ga, { 0: { fire: true } }, 1 / 30);
+  assert.equal(ga.shots.length, 1, 'arcade scout still fires exactly one shot');
+  assert.equal(ga.players[0].level, undefined, 'arcade seats carry no level');
+}
+
+// --- burn: 1 dmg/s for 3s, contact chains once, L4 corpses pool fire ---
+function testBurnSpreadChainAndGroundPatches() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  let r = '#' + '.'.repeat(38) + '#';
+  r = put(put(put(r, 10, 'g'), 14, 'g'), 18, 'g');
+  const level = bigEmptyLevel([[5, r], [2, '#P....................................#']]);
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
+  const p = g.players[0];
+  const [a, b, c] = g.enemies;
+  p.invuln = 999;
+  g.graceT = 1e9;
+  // chain spacing: A-B and B-C inside the 2-radius contact ring (28px)
+  b.x = a.x + 25; b.y = a.y;
+  c.x = a.x + 50; c.y = a.y;
+  playerShotAt(g, a, 1, { ignite: true, ownerPid: 0 });
+  step(g, { 0: {} }, 1 / 30);
+  assert.ok(a.burnT > 2.9, 'the hit ignited A for ~3s');
+  assert.equal(a.hp, 1, 'the shot itself dealt its 1 damage');
+  run(g, () => ({ 0: {} }), 0.2);
+  assert.ok(b.burnT > 0 && b.chainBurned, 'contact chained the burn to B once');
+  assert.ok(c.burnT > 0 && c.chainBurned, 'and on to C — a spread chain');
+  // dot: 1 dmg/s — A (1 hp left) dies at the first tick, crediting the igniter
+  run(g, () => ({ 0: {} }), 1.0);
+  assert.ok(a.dead || !g.enemies.includes(a), 'burn damage killed A');
+  assert.equal(p.xp, 4, 'burn kills credit the igniting seat');
+  assert.equal(g.patches.length, 0, 'L3 burn corpses leave no patch');
+  // L4: an ignited corpse pools fire where it dies; the pool ignites others
+  const g2 = createGame(level, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
+  g2.players[0].invuln = 999;
+  g2.graceT = 1e9;
+  const [a2, b2] = g2.enemies;
+  b2.x = a2.x + 40; b2.y = a2.y; // outside the 28px contact ring, inside the 48px patch
+  playerShotAt(g2, a2, 1, { ignite: true, ignitePatch: true, ownerPid: 0 });
+  run(g2, () => ({ 0: {} }), 1.2);
+  assert.ok(!g2.enemies.includes(a2), 'A2 died ignited');
+  assert.equal(g2.patches.length, 1, 'the L4 corpse left a ground burn patch');
+  assert.equal(g2.patches[0].kind, 'burn');
+  assert.ok(g2.events.some(ev => ev.type === 'patch' && ev.kind === 'burn'), 'patch event fired');
+  assert.equal(snapshot(g2, false).patches.length, 1, 'snapshot ships live patches');
+  step(g2, { 0: {} }, 1 / 30);
+  assert.ok(b2.burnT > 0, 'standing in the burn patch ignites');
+  // players are never hurt by burn patches (PvE clarity)
+  const p2 = g2.players[0];
+  p2.invuln = 0;
+  p2.x = g2.patches[0].x; p2.y = g2.patches[0].y;
+  const hpBefore = p2.hp;
+  run(g2, () => ({ 0: {} }), 1.2);
+  assert.equal(p2.hp, hpBefore, 'burn patches never hurt players');
+  run(g2, () => ({ 0: {} }), 2.2);
+  assert.equal(g2.patches.length, 0, 'burn patches expire after 3s');
+}
+
+// --- toxin: pools slow everyone, dot 0.5/s for 2s, contact spread ---
+function testToxinSlowAndSpread() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  let r = '#' + '.'.repeat(38) + '#';
+  r = put(put(put(r, 4, 'P'), 30, 'g'), 34, 'g');
+  const level = bigEmptyLevel([[5, r]]);
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
+  const p = g.players[0];
+  const [a, b] = g.enemies;
+  p.invuln = 999;
+  g.graceT = 1e9;
+  // throw the toxin item: a 4-tile lob along the facing
+  p.fx = 1; p.fy = 0;
+  p.item = { kind: 'toxin', count: 1 };
+  step(g, { 0: { item: true } }, 1 / 30);
+  assert.equal(g.patches.length, 1, 'toxin lob pools a patch');
+  const pa = g.patches[0];
+  assert.equal(pa.kind, 'toxin');
+  assert.ok(Math.abs(pa.x - (p.x + 4 * TILE)) < 1, 'the lob lands 4 tiles out');
+  assert.ok(Math.abs(pa.r - 1.6 * TILE) < 0.01, 'patch radius is 1.6 tiles');
+  assert.equal(p.item, null, 'the throw consumed the item');
+  // enemies in the pool sicken; contact spreads it once to a clean neighbor
+  a.x = pa.x + 60; a.y = pa.y; // inside the 76.8px pool
+  b.x = pa.x + 85; b.y = pa.y; // outside the pool, 25px from A (contact ring)
+  step(g, { 0: {} }, 1 / 30);
+  assert.ok(a.toxT > 0, 'the pool intoxicates enemies inside');
+  run(g, () => ({ 0: {} }), 0.2);
+  assert.ok(b.toxT > 0 && b.chainToxed, 'toxin spreads on contact like burn');
+  const hpA = a.hp;
+  run(g, () => ({ 0: {} }), 1.1);
+  assert.equal(a.hp, hpA - 0.5, 'toxin ticks 0.5 damage per second');
+  // players wade at x0.6 through toxin (their own pools included)
+  p.x = pa.x - 60; p.y = pa.y;
+  const x0 = p.x;
+  run(g, () => ({ 0: { right: true } }), 0.3);
+  const slowed = p.x - x0;
+  const free = charMap.scout.speed * TILE * 0.3;
+  assert.ok(Math.abs(slowed - free * 0.6) < 4, `toxin slows players to 60% (got ${slowed.toFixed(1)} vs ${(free * 0.6).toFixed(1)})`);
+  // pools dry up after their 6s ttl
+  run(g, () => ({ 0: {} }), 6);
+  assert.equal(g.patches.length, 0, 'toxin pools expire');
+}
+
+// --- stun: a stunned enemy takes no actions and does not move ---
+function testStunHaltsEnemies() {
+  const level = bigEmptyLevel([[10, '#P.........g..........................#']]);
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
+  const p = g.players[0];
+  const e = g.enemies[0];
+  p.invuln = 999;
+  g.graceT = 0;
+  e.awake = true;
+  run(g, () => ({ 0: {} }), 0.2);
+  const moving = e.x;
+  assert.ok(moving < 11.5 * TILE, 'the grunt chases before the stun');
+  playerShotAt(g, e, 0, { stun: 0.4, ownerPid: 0 });
+  step(g, { 0: {} }, 1 / 30);
+  const sx = e.x, sy = e.y;
+  run(g, () => ({ 0: {} }), 0.3);
+  assert.ok(e.x === sx && e.y === sy, 'a stunned enemy holds perfectly still');
+  run(g, () => ({ 0: {} }), 0.5);
+  assert.ok(e.x !== sx || e.y !== sy, 'the chase resumes when the stun decays');
+  // L4 shock arc: the hit jumps to the nearest enemy within 2 tiles at half damage
+  const g2 = createGame(level, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
+  g2.graceT = 1e9;
+  g2.players[0].invuln = 999;
+  const e2 = g2.enemies[0];
+  // clone a second grunt 1.5 tiles away (inside the 2-tile arc reach)
+  g2.enemies.push(Object.assign(JSON.parse(JSON.stringify(e2)), { id: 9999, x: e2.x + TILE * 1.5 }));
+  const buddy = g2.enemies[1];
+  playerShotAt(g2, e2, 1, { stun: 0.4, shockArc: true, ownerPid: 0 });
+  step(g2, { 0: {} }, 1 / 30);
+  assert.equal(e2.hp, 1, 'the direct hit took its full damage');
+  assert.equal(buddy.hp, 1.5, 'the arc dealt half damage to the neighbor');
+  assert.ok(buddy.stunT > 0, 'the arc stuns like a direct shock hit');
+  assert.ok(g2.events.some(ev => ev.type === 'shockArc'), 'shockArc event fired');
+}
+
+// Helper: stamp a parsed turret site as already built with a chosen type.
+function forceTurret(b, ttype) {
+  b.built = true;
+  b.progress = 1;
+  b.hp = b.maxHp;
+  b.invested = b.cost;
+  b.typeSelect = false;
+  b.ttype = ttype;
+}
+
+// --- prism turrets: 2/1.2s beams, +1 dmg per OTHER built prism within 4 tiles (cap +3) ---
+function testPrismTurretAdjacency() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  // lone prism: base damage only
+  let r = '#' + '.'.repeat(38) + '#';
+  r = put(put(put(r, 2, 'P'), 10, 'B'), 15, 'g');
+  let level = bigEmptyLevel([[5, r]]);
+  level.builds = [{ kind: 'turret', cost: 5 }];
+  let g = createGame(level, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
+  g.players[0].invuln = 999;
+  g.graceT = 1e9;
+  forceTurret(g.builds[0], 'prism');
+  g.enemies[0].awake = true;
+  g.enemies[0].hp = 99;
+  step(g, { 0: {} }, 1 / 30);
+  let beam = g.events.find(ev => ev.type === 'prismBeam');
+  assert.ok(beam, 'a lone prism fires its beam');
+  assert.equal(beam.dmg, 2, 'lone level-1 prism deals 2');
+  assert.equal(g.enemies[0].hp, 97, 'the beam damage landed instantly');
+  // five prisms in a row: the firing one links 4 neighbors but caps at +3
+  r = '#' + '.'.repeat(38) + '#';
+  r = put(put(put(put(put(put(put(r, 2, 'P'), 10, 'B'), 11, 'B'), 12, 'B'), 13, 'B'), 14, 'B'), 18, 'g');
+  level = bigEmptyLevel([[5, r]]);
+  level.builds = [1, 2, 3, 4, 5].map(() => ({ kind: 'turret', cost: 5 }));
+  g = createGame(level, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
+  g.players[0].invuln = 999;
+  g.graceT = 1e9;
+  for (const b of g.builds) forceTurret(b, 'prism');
+  g.enemies[0].awake = true;
+  g.enemies[0].hp = 99;
+  step(g, { 0: {} }, 1 / 30);
+  beam = g.events.find(ev => ev.type === 'prismBeam');
+  assert.ok(beam, 'the array fires');
+  assert.equal(beam.dmg, 5, 'four feeders cap at +3: 2 base + 3');
+  assert.ok(g.events.filter(ev => ev.type === 'prismFeed').length >= 3, 'feeder flashes fired');
+}
+
+// --- tesla turrets: 1.5s chain-zap, up to 3 targets for 2/1/1, each stunned ---
+function testTeslaChainAndStun() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  let r = '#' + '.'.repeat(38) + '#';
+  r = put(put(put(put(put(r, 2, 'P'), 10, 'B'), 11, 'g'), 12, 'g'), 13, 'g');
+  const level = bigEmptyLevel([[5, r]]);
+  level.builds = [{ kind: 'turret', cost: 5 }];
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
+  g.players[0].invuln = 999;
+  g.graceT = 1e9;
+  forceTurret(g.builds[0], 'tesla');
+  const [e1, e2, e3] = g.enemies;
+  for (const e of g.enemies) e.awake = true;
+  step(g, { 0: {} }, 1 / 30);
+  const zap = g.events.find(ev => ev.type === 'teslaZap');
+  assert.ok(zap, 'tesla zapped');
+  assert.equal(zap.targets.length, 3, 'the chain hit all three grunts in reach');
+  assert.ok(e1.dead || !g.enemies.includes(e1), 'first target took 2 (a grunt dies)');
+  assert.equal(e2.hp, 1, 'second chain hop took 1');
+  assert.equal(e3.hp, 1, 'third chain hop took 1');
+  assert.ok(e2.stunT > 0 && e3.stunT > 0, 'every zapped enemy is stunned 0.4s');
+  assert.ok(snapshot(g, false).enemies.every(e => e.stunT > 0), 'snapshot ships live stun clocks');
+}
+
+// --- toxin turrets: lob a pool onto the nearest awake enemy every 3s ---
+function testToxinTurretPools() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  let r = '#' + '.'.repeat(38) + '#';
+  r = put(put(put(r, 2, 'P'), 10, 'B'), 14, 'g');
+  const level = bigEmptyLevel([[5, r]]);
+  level.builds = [{ kind: 'turret', cost: 5 }];
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
+  g.players[0].invuln = 999;
+  g.graceT = 1e9;
+  forceTurret(g.builds[0], 'toxin');
+  const e = g.enemies[0];
+  e.awake = true;
+  e.hp = 99;
+  step(g, { 0: {} }, 1 / 30);
+  assert.equal(g.patches.length, 1, 'the turret sprayed a pool at its target');
+  assert.equal(g.patches[0].kind, 'toxin');
+  assert.ok(Math.abs(g.patches[0].x - e.x) < 1, 'the pool lands on the target');
+  step(g, { 0: {} }, 1 / 30);
+  assert.ok(e.toxT > 0, 'the pool intoxicates');
+  run(g, () => ({ 0: {} }), 3.05);
+  assert.equal(g.patches.length, 2, 'another pool every 3 seconds');
+}
+
+// --- turret typeSelect: carousel UX, default after 8s, act priority ---
+function testTurretTypeSelectCarousel() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  let r = '#' + '.'.repeat(38) + '#';
+  r = put(put(put(put(r, 4, 'P'), 10, 'B'), 12, 'C'), 13, 'g');
+  const level = bigEmptyLevel([[5, r], [17, '#....................................g#']]);
+  level.builds = [{ kind: 'turret', cost: 5 }];
+  level.chests = [{ loot: 'shards', amount: 5 }];
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
+  const p = g.players[0];
+  const b = g.builds[0];
+  const chest = g.chests[0];
+  p.invuln = 999;
+  g.graceT = 1e9;
+  g.shards = 10;
+  p.x = b.x - TILE; p.y = b.y;
+  run(g, () => ({ 0: { act: !b.built } }), 5);
+  assert.ok(b.built, 'turret built');
+  assert.equal(b.typeSelect, true, 'a finished turret waits in typeSelect');
+  assert.equal(snapshot(g, false).builds[0].typeSelect, true, 'snapshot ships the select state');
+  // it holds fire while undecided
+  g.enemies[0].awake = true;
+  run(g, () => ({ 0: {} }), 1.2);
+  assert.ok(!g.events.some(ev => ev.type === 'shoot' && ev.weapon === 'turret'), 'no fire during typeSelect');
+  // carousel outranks the chest: stand between both, the press is consumed
+  p.x = b.x + TILE; p.y = b.y; // 1 tile from turret, 1 tile from chest
+  step(g, { 0: {} }, 1 / 30);
+  step(g, { 0: { act: true } }, 1 / 30);
+  assert.equal(p.selecting, true, 'act engaged the carousel');
+  assert.equal(chest.opened, false, 'the engaging press never falls through to the chest');
+  // cycle right twice -> tesla, fire confirms
+  step(g, { 0: { act: true, right: true } }, 1 / 30);
+  step(g, { 0: { act: true } }, 1 / 30);
+  step(g, { 0: { act: true, right: true } }, 1 / 30);
+  assert.equal(b.tsIdx, 2, 'left/right cycle the carousel');
+  step(g, { 0: { act: true, fire: true } }, 1 / 30);
+  assert.equal(b.typeSelect, false, 'fire confirms');
+  assert.equal(b.ttype, 'tesla', 'the chosen type sticks');
+  assert.ok(g.events.some(ev => ev.type === 'turretType' && ev.ttype === 'tesla'), 'turretType event fired');
+  // the confirmed tesla goes straight to work, on the very confirm tick
+  assert.ok(g.events.some(ev => ev.type === 'teslaZap'), 'the confirmed tesla zaps');
+  assert.equal(chest.opened, false, 'confirming never opened the chest either');
+  assert.equal(snapshot(g, false).builds[0].ttype, 'tesla', 'snapshot ships the confirmed type');
+  // away from the turret ring, a fresh press still opens the chest
+  p.x = chest.x + TILE * 0.5; p.y = chest.y;
+  step(g, { 0: {} }, 1 / 30);
+  step(g, { 0: { act: true } }, 1 / 30);
+  assert.equal(chest.opened, true, 'chests open again once no carousel claims the press');
+  // unattended: a neglected carousel confirms 'gun' after 8s
+  const g2 = createGame(level, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
+  g2.players[0].invuln = 999;
+  g2.graceT = 1e9;
+  g2.shards = 10;
+  g2.players[0].x = g2.builds[0].x - TILE; g2.players[0].y = g2.builds[0].y;
+  run(g2, () => ({ 0: { act: !g2.builds[0].built } }), 5);
+  assert.ok(g2.builds[0].built && g2.builds[0].typeSelect, 'second turret waits in typeSelect');
+  g2.players[0].x = TILE * 30; // walk away
+  run(g2, () => ({ 0: {} }), 8.2);
+  assert.equal(g2.builds[0].typeSelect, false, 'an unattended carousel self-confirms after 8s');
+  assert.equal(g2.builds[0].ttype, 'gun', 'the default is the gun');
+  // build sites outrank the carousel: a neighboring open site claims the hold
+  const r3 = put(put(put('#' + '.'.repeat(38) + '#', 4, 'P'), 10, 'B'), 11, 'B');
+  const level3 = bigEmptyLevel([[5, r3], [17, '#....................................g#']]);
+  level3.builds = [{ kind: 'turret', cost: 2 }, { kind: 'barricade', cost: 8 }];
+  const g3 = createGame(level3, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
+  const p3 = g3.players[0];
+  const [tur, barr] = g3.builds;
+  p3.invuln = 999;
+  g3.graceT = 1e9;
+  g3.shards = 50;
+  p3.x = (tur.x + barr.x) / 2; p3.y = tur.y;
+  run(g3, () => ({ 0: { act: true } }), 1.6); // turret (1.2s) completes first
+  assert.ok(tur.built && tur.typeSelect, 'turret done, carousel open');
+  assert.ok(!barr.built && barr.progress > 0, 'barricade still going');
+  assert.equal(p3.selecting ?? false, false, 'the open site outranks the carousel — hold keeps building');
+  assert.equal(tur.tsIdx, 0, 'the carousel was never driven');
+  run(g3, () => ({ 0: { act: true } }), 4);
+  assert.ok(barr.built, 'barricade finished under the same hold');
+  step(g3, { 0: { act: true } }, 1 / 30);
+  assert.equal(p3.selecting, true, 'with no open site left, the held act engages the carousel');
+  assert.ok(tur.typeSelect, 'engaged carousel stopped the unattended clock');
+}
+
+// --- followers: hire, formation, engage, limits, death, restock ---
+function testFollowersLifecycle() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  let r = '#' + '.'.repeat(38) + '#';
+  r = put(put(put(put(r, 4, 'P'), 5, 'P'), 8, 'H'), 12, 'H');
+  let r2 = '#' + '.'.repeat(38) + '#';
+  r2 = put(r2, 16, 'H');
+  const level = bigEmptyLevel([[5, r], [7, r2], [17, '#...........g........................g#']]);
+  level.hires = [
+    { job: 'hound', cost: 6, name: 'Fang' },
+    { job: 'archer', cost: 6, name: 'Fletch' },
+    { job: 'caster', cost: 6, name: 'Gale' },
+  ];
+  const g = createGame(level, [
+    { pid: 0, name: 'A', charId: 'scout' },
+    { pid: 1, name: 'B', charId: 'soldier' },
+  ], charMap, startingRoster);
+  const [p0, p1] = g.players;
+  const [hPost, aPost, cPost] = g.hires;
+  p0.invuln = 999;
+  p1.invuln = 999;
+  g.graceT = 1e9;
+  g.shards = 100;
+  // hire the hound: it binds to the hiring seat
+  p0.x = hPost.x; p0.y = hPost.y + TILE;
+  p1.x = 30 * TILE; p1.y = 15 * TILE;
+  step(g, { 0: {} }, 1 / 30);
+  step(g, { 0: { act: true } }, 1 / 30);
+  assert.equal(g.followers.length, 1, 'hiring a combat job fields a follower');
+  const hound = g.followers[0];
+  assert.deepEqual([hound.kind, hound.owner, hound.slot], ['hound', 0, 0], 'bound to the hiring player');
+  assert.equal(hPost.hired, true, 'the post is taken');
+  assert.equal(g.shards, 94, 'hire cost paid');
+  // formation: it settles into the slot behind/flanking the owner's facing
+  p0.x = 20 * TILE; p0.y = 10 * TILE; p0.fx = 0; p0.fy = -1;
+  run(g, () => ({ 0: {} }), 3);
+  const sx = p0.x - p0.fx * TILE * 1.1 + p0.fy * TILE * 0.8; // slot 0, side -1
+  const sy = p0.y - p0.fy * TILE * 1.1 - p0.fx * TILE * 0.8;
+  assert.ok(Math.hypot(hound.x - sx, hound.y - sy) < TILE * 0.6,
+    `the hound holds its formation slot (off by ${(Math.hypot(hound.x - sx, hound.y - sy) / TILE).toFixed(2)} tiles)`);
+  assert.equal(snapshot(g, false).followers.length, 1, 'snapshot ships followers');
+  // adrift: 12+ tiles from the owner teleports it home
+  hound.x = p0.x + TILE * 13; hound.y = p0.y;
+  step(g, { 0: {} }, 1 / 30);
+  assert.ok(Math.hypot(hound.x - p0.x, hound.y - p0.y) < TILE, 'an adrift follower teleports to its owner');
+  // engage: an enemy within 5 tiles of the OWNER draws the bite
+  const prey = g.enemies[0];
+  prey.x = p0.x + TILE * 3; prey.y = p0.y;
+  prey.hp = 50;
+  prey.awake = true;
+  run(g, () => ({ 0: {} }), 3);
+  assert.ok(prey.hp < 50, 'the hound bit the enemy near its owner');
+  assert.equal(p0.xp, 0, 'follower kills/damage pay no seat xp');
+  // per-player limit: 2 — the third post refuses
+  p0.x = aPost.x; p0.y = aPost.y + TILE;
+  step(g, { 0: {} }, 1 / 30);
+  step(g, { 0: { act: true } }, 1 / 30);
+  assert.equal(g.followers.length, 2, 'second follower hired');
+  p0.x = cPost.x; p0.y = cPost.y + TILE;
+  step(g, { 0: {} }, 1 / 30);
+  step(g, { 0: { act: true } }, 1 / 30);
+  assert.equal(g.followers.length, 2, 'a third is refused: max 2 per player');
+  assert.ok(g.events.some(ev => ev.type === 'followerLimit'), 'the refusal is evented');
+  assert.equal(cPost.hired, false, 'the post stays open');
+  // squad limit: 5 across all seats
+  for (let i = 0; i < 3; i++) {
+    g.followers.push({
+      id: g.nextFollowerId++, kind: 'hound', owner: 99, x: 0, y: 0, hp: 2, slot: 0,
+      post: 0, isFollower: true, fx: 0, fy: 1, cool: 0, invulnT: 0, path: null, pathI: 0, repathT: 0,
+    });
+  }
+  p1.x = cPost.x; p1.y = cPost.y + TILE;
+  step(g, { 0: {}, 1: {} }, 1 / 30);
+  step(g, { 0: {}, 1: { act: true } }, 1 / 30);
+  assert.equal(g.followers.filter(f => f.owner === 1).length, 0, 'squad cap 5 refuses even a fresh seat');
+  g.followers = g.followers.filter(f => f.owner !== 99);
+  step(g, { 0: {}, 1: {} }, 1 / 30);
+  step(g, { 0: {}, 1: { act: true } }, 1 / 30);
+  assert.equal(g.followers.filter(f => f.owner === 1).length, 1, 'under the cap the hire goes through');
+  // the archer actually shoots
+  const mark = g.enemies[1];
+  mark.x = p0.x + TILE * 3; mark.y = p0.y + TILE;
+  mark.hp = 50;
+  mark.awake = true;
+  let sawArrow = false;
+  run(g, () => {
+    if (g.shots.some(s => s.kind === 'arrow')) sawArrow = true;
+    return { 0: {}, 1: {} };
+  }, 2);
+  assert.ok(sawArrow, 'the archer follower fires arrows');
+  // death: enemy fire downs it; the post restocks 20s later
+  const dog = g.followers.find(f => f.kind === 'hound');
+  dog.hp = 1;
+  dog.invulnT = 0;
+  g.shots.push({
+    id: g.nextShotId++, x: dog.x, y: dog.y, vx: 0, vy: 0, ttl: 0.5, dmg: 1,
+    who: 'e', overWalls: true, pierce: 0, aoeRadius: 0, curve: 0, radius: 5, kind: 'arrow', hits: [],
+  });
+  step(g, { 0: {}, 1: {} }, 1 / 30);
+  assert.ok(!g.followers.some(f => f.kind === 'hound' && f.owner === 0), 'enemy shots kill followers');
+  assert.ok(g.events.some(ev => ev.type === 'followerDown'), 'followerDown evented');
+  assert.ok(hPost.restockT > 19, 'the post begins its 20s restock');
+  assert.equal(hPost.hired, true, 'no re-hire until the restock lands');
+  run(g, () => ({ 0: {}, 1: {} }), 20.1);
+  assert.equal(hPost.hired, false, 'the post restocked');
+  p0.x = hPost.x; p0.y = hPost.y + TILE;
+  step(g, { 0: {}, 1: {} }, 1 / 30);
+  step(g, { 0: { act: true }, 1: {} }, 1 / 30);
+  assert.ok(g.followers.some(f => f.kind === 'hound' && f.owner === 0), 're-hired after restock');
+}
+
+// --- mind control: convert the nearest non-boss for 10s, then it burns out ---
+function testControllerConvertAndExpiry() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  let r = '#' + '.'.repeat(38) + '#';
+  r = put(put(put(r, 4, 'P'), 6, 'b'), 7, 'g');
+  const level = bigEmptyLevel([[10, r]]);
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
+  const p = g.players[0];
+  const boss = g.enemies.find(e => e.kind === 'boss');
+  const grunt = g.enemies.find(e => e.kind === 'grunt');
+  p.invuln = 999;
+  g.graceT = 0;
+  p.item = { kind: 'controller', count: 1 };
+  step(g, { 0: { item: true } }, 1 / 30);
+  assert.ok(grunt.convertedT > 9.9, 'the nearest NON-boss converts');
+  assert.ok(!(boss.convertedT > 0), 'bosses cannot be controlled');
+  assert.equal(p.item, null, 'the controller burned its single use');
+  assert.ok(g.events.some(ev => ev.type === 'converted' && ev.kind === 'grunt'), 'converted event fired');
+  // player fire passes over the converted ally
+  playerShotAt(g, grunt, 5, { ownerPid: 0 });
+  step(g, { 0: {} }, 1 / 30);
+  assert.equal(grunt.hp, 2, 'player shots pass through a converted enemy');
+  // it attacks its own: the boss takes melee bites
+  const bossHp = boss.hp;
+  run(g, () => ({ 0: {} }), 3);
+  assert.ok(boss.hp < bossHp, 'the converted grunt fights its own side');
+  assert.equal(p.xp, 0, 'converted kills/damage pay no seat xp');
+  // expiry: the husk burns out and dies quietly (a 0-point death, no drop)
+  run(g, () => ({ 0: {} }), 7.5);
+  assert.ok(!g.enemies.includes(grunt), 'the husk died at the 10s burnout');
+  assert.ok(g.events.some(ev => ev.type === 'die' && ev.kind === 'grunt' && ev.points === 0),
+    'the burnout is a quiet 0-point death');
+  assert.ok(!g.drops.some(d => Math.hypot(d.x - grunt.x, d.y - grunt.y) < 2),
+    'a burned-out husk drops no shards');
+  // no target in reach: the use is refused, the item kept
+  const g2 = createGame(bigEmptyLevel([[17, '#....................................g#']]),
+    [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
+  g2.players[0].invuln = 999;
+  g2.graceT = 1e9;
+  g2.players[0].item = { kind: 'controller', count: 1 };
+  step(g2, { 0: { item: true } }, 1 / 30);
+  assert.deepEqual(g2.players[0].item, { kind: 'controller', count: 1 }, 'no target in 4 tiles: nothing wasted');
+}
+
+// --- the seal: water is open ground (x0.7, +50% fire cooldown), others sink ---
+function testSealSwimsCaptiveTrails() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const tiles = [];
+  tiles.push('#'.repeat(40));
+  for (let y = 1; y < 19; y++) {
+    let row = '#' + '.'.repeat(38) + '#';
+    row = row.slice(0, 20) + '~~~' + row.slice(23);
+    tiles.push(row);
+  }
+  tiles.push('#'.repeat(40));
+  tiles[10] = put(tiles[10], 4, 'P');
+  tiles[10] = put(tiles[10], 17, 'c');
+  const level = { name: 'Channel', time: 90, captiveChars: ['sniper'], tiles: [...tiles] };
+  tiles[17] = put(tiles[17], 36, 'g');
+  level.tiles = tiles;
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: 'seal' }], charMap, ['seal', 'sniper']);
+  const p = g.players[0];
+  p.invuln = 999;
+  g.graceT = 1e9;
+  // land speed baseline
+  let x0 = p.x;
+  run(g, () => ({ 0: { right: true } }), 0.5);
+  const landDx = p.x - x0;
+  assert.ok(Math.abs(landDx - charMap.seal.speed * TILE * 0.5) < 4, 'seal swims at full speed on land');
+  // on water: x0.7
+  p.x = 21.5 * TILE; p.y = 10.5 * TILE; // mid-channel
+  x0 = p.x;
+  run(g, () => ({ 0: { right: true } }), 0.3);
+  const waterDx = p.x - x0;
+  assert.ok(Math.abs(waterDx - charMap.seal.speed * TILE * 0.3 * 0.7) < 4,
+    `water slows the seal to 70% (got ${waterDx.toFixed(1)})`);
+  // the harpooner CAN fire while swimming, at +50% cooldown
+  p.x = 21.5 * TILE; p.y = 10.5 * TILE;
+  p.cool = 0;
+  g.shots.length = 0;
+  step(g, { 0: { fire: true } }, 1 / 30);
+  assert.equal(g.shots.length, 1, 'the seal fires from the water');
+  assert.ok(Math.abs(p.cool - charMap.seal.weapon.cooldown * 1.5) < 0.001, 'swimming fire costs +50% cooldown');
+  p.x = 10 * TILE; p.y = 10.5 * TILE;
+  p.cool = 0;
+  step(g, { 0: { fire: true } }, 1 / 30);
+  assert.ok(Math.abs(p.cool - charMap.seal.weapon.cooldown) < 0.001, 'land fire keeps the base cooldown');
+  // a carried captive floats across behind the swimmer
+  const cap = g.captives[0];
+  p.x = 17.5 * TILE; p.y = 10.5 * TILE;
+  step(g, { 0: {} }, 1 / 30); // touch: pick the captive up
+  assert.equal(cap.owner, 0, 'captive picked up');
+  run(g, () => ({ 0: { right: true } }), 4);
+  assert.ok(p.x > 24 * TILE, 'the seal crossed the channel');
+  assert.ok(cap.x > 22 * TILE, 'the carried captive floated across the water');
+  assert.ok(Math.hypot(cap.x - p.x, cap.y - p.y) < TILE * 2, 'and still trails its owner');
+  // everyone else is blocked at the bank
+  const g2 = createGame(level, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout', 'sniper']);
+  const q = g2.players[0];
+  q.invuln = 999;
+  g2.graceT = 1e9;
+  q.x = 19.4 * TILE; q.y = 10.5 * TILE;
+  run(g2, () => ({ 0: { right: true } }), 1.5);
+  assert.ok(q.x < 20 * TILE, 'non-swimmers cannot enter water');
+}
+
+// --- the seal is recruitable: a captive in chapter 2 (Lythium Basin) ---
+function testSealRecruitableInBasin() {
+  const basin = levels.find(l => l.name === 'Lythium Basin');
+  assert.ok(basin, 'chapter 2 (Lythium Basin) ships');
+  assert.ok((basin.captiveChars || []).includes('seal'), 'the seal is bound as a captive there');
+  const parsed = parseLevel(basin);
+  const cap = parsed.captives.find(c => c.charId === 'seal');
+  assert.ok(cap, 'the seal parses as a rescuable captive');
+  assert.ok(basin.tiles.some(row => row.includes('~')), 'the basin holds water for the swimmer');
+  // land-reachable: at least one neighboring tile is open ground, so any
+  // character can walk up and free the seal (the causeway-end hummock)
+  const tx = Math.floor(cap.x / TILE), ty = Math.floor(cap.y / TILE);
+  const open = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => {
+    const c = parsed.grid[ty + dy]?.[tx + dx];
+    return c !== undefined && !'#T~o'.includes(c);
+  });
+  assert.ok(open, 'the seal captive sits on land reachable by foot');
+}
+
+// --- arcade fidelity: classic levels replay lockstep and gain no new keys ---
+function testArcadeFidelityLockstep() {
+  const party = startingRoster.slice(0, 2).map((id, i) => ({ pid: i, name: id, charId: id }));
+  const runOnce = () => {
+    const g = createGame(levels[0], party, charMap, startingRoster);
+    const dt = 1 / 30;
+    const h = [];
+    for (let i = 0; i < 450 && g.status === 'play'; i++) {
+      const inputs = {};
+      for (const p of g.players) {
+        inputs[p.pid] = {
+          right: (i % 50) < 25, down: (i % 70) < 30, fire: (i % 5) < 2,
+          special: (i % 80) === 15 + p.pid, act: (i % 60) < 5, item: (i % 90) === 40,
+        };
+      }
+      step(g, inputs, dt);
+      if (i % 15 === 0) h.push(JSON.stringify(snapshot(g, false)));
+    }
+    return h;
+  };
+  const a = runOnce();
+  assert.equal(a.join('\n'), runOnce().join('\n'), 'identical arcade runs produce identical snapshot streams');
+  for (const js of a) {
+    const s = JSON.parse(js);
+    assert.equal(s.patches, undefined, 'classic snapshots never gain a patches key');
+    assert.equal(s.followers, undefined, 'classic snapshots never gain a followers key');
+    for (const p of s.players) {
+      assert.equal(p.level, undefined, 'arcade players carry no level');
+      assert.equal(p.xp, undefined, 'arcade players carry no xp');
+    }
+    for (const e of s.enemies) {
+      assert.ok(e.stunT === undefined && e.burnT === undefined && e.toxT === undefined && e.convertedT === undefined,
+        'arcade enemies carry no status keys');
+    }
+  }
+}
+
+// --- pvp: evolutions fire, hire posts are inert, patches slow-all/no burn ---
+function testPvpCombatDepthRules() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const tiles = [];
+  tiles.push('#'.repeat(40));
+  for (let y = 1; y < 19; y++) tiles.push('#' + '.'.repeat(38) + '#');
+  tiles.push('#'.repeat(40));
+  tiles[2] = '#PPPP' + '.'.repeat(34) + '#';
+  tiles[10] = put(put(tiles[10], 2, 'D'), 37, 'D');
+  tiles[12] = put(tiles[12], 20, 'H');
+  const def = {
+    name: 'PvP Depth', time: 120, mode: 'ctf', captiveChars: [],
+    hires: [{ job: 'hound', cost: 5, name: 'Fang' }],
+    tiles,
+  };
+  const party = [0, 1].map(i => ({ pid: i, name: 'P' + i, charId: startingRoster[i] }));
+  const g = createGame(def, party, charMap, startingRoster);
+  const [p0, p1] = g.players;
+  const post = g.hires[0];
+  g.teamShards[0] = 50;
+  p0.invuln = 999;
+  p1.invuln = 999;
+  // hire posts are inert in pvp: no follower, no spend, post stays open
+  p0.x = post.x; p0.y = post.y + TILE;
+  step(g, { 0: {}, 1: {} }, 1 / 30);
+  step(g, { 0: { act: true }, 1: {} }, 1 / 30);
+  assert.equal(post.hired, false, 'pvp hire posts are inert');
+  assert.equal(g.followers.length, 0, 'no followers in pvp');
+  assert.equal(g.teamShards[0], 50, 'no shards spent');
+  // evolutions still work: a L3 scout fires its extra shot
+  p0.x = 10 * TILE; p0.y = 5 * TILE;
+  p0.level = 3;
+  p0.cool = 0;
+  g.shots.length = 0;
+  step(g, { 0: { fire: true }, 1: {} }, 1 / 30);
+  assert.equal(g.shots.length, 2, 'evolutions apply in pvp');
+  g.shots.length = 0;
+  // toxin pools slow BOTH teams (patches carry no team)
+  p0.x = 10 * TILE; p0.y = 8 * TILE;
+  p1.x = 28 * TILE; p1.y = 8 * TILE;
+  g.patches.push({ x: p0.x + 30, y: p0.y, kind: 'toxin', r: 1.6 * TILE, ttl: 30 });
+  g.patches.push({ x: p1.x + 30, y: p1.y, kind: 'toxin', r: 1.6 * TILE, ttl: 30 });
+  const x00 = p0.x, x10 = p1.x;
+  run(g, () => ({ 0: { right: true }, 1: { right: true } }), 0.3);
+  const d0 = p0.x - x00, d1 = p1.x - x10;
+  assert.ok(Math.abs(d0 - charMap[p0.charId].speed * TILE * 0.3 * 0.6) < 4, 'toxin slows team 0');
+  assert.ok(Math.abs(d1 - charMap[p1.charId].speed * TILE * 0.3 * 0.6) < 4, 'toxin slows team 1 just the same');
+  // burn patches never hurt players — either team
+  g.patches.length = 0;
+  g.patches.push({ x: p1.x, y: p1.y, kind: 'burn', r: 1.6 * TILE, ttl: 30, pid: 0 });
+  p1.invuln = 0;
+  const hp1 = p1.hp;
+  run(g, () => ({ 0: {}, 1: {} }), 1.5);
+  assert.equal(p1.hp, hp1, 'burn patches deal no player damage in pvp');
+}
+
 // --- determinism: identical scripted ctf matches replay snapshot-for-snapshot ---
 function testDeterministicCtfRun() {
   const party = [0, 1, 2, 3].map(i => ({ pid: i, name: 'P' + i, charId: startingRoster[i % startingRoster.length] }));
@@ -2599,6 +3372,354 @@ function testDeterministicCtfRun() {
     return h.join('\n');
   };
   assert.ok(runOnce() === runOnce(), 'two identical scripted ctf matches produce identical snapshot streams');
+}
+
+// --- converted allies: squad damage (patches, cracker) passes over them;
+// cracker kills credit the thrower's seat with xp like other items ---
+function testConvertedImmunityAndCrackerXp() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  let r = '#' + '.'.repeat(38) + '#';
+  r = put(put(put(r, 4, 'P'), 12, 'g'), 14, 'g');
+  const level = bigEmptyLevel([[5, r], [17, '#....................................g#']]);
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
+  const p = g.players[0];
+  const [a, b] = g.enemies;
+  p.invuln = 999;
+  g.graceT = 1e9;
+  b.convertedT = 10; // b fights for the squad
+  // a toxin pool covering both only sickens the hostile one
+  const mx = (a.x + b.x) / 2;
+  g.patches.push({ x: mx, y: a.y, kind: 'toxin', r: 1.6 * TILE, ttl: 30, pid: 0 });
+  step(g, { 0: {} }, 1 / 30);
+  assert.ok(a.toxT > 0, 'the pool intoxicates the hostile grunt');
+  assert.ok(!(b.toxT > 0), 'the converted ally is spared by patches');
+  g.patches.length = 0;
+  // a cracker boom centered between them kills only the hostile, paying xp
+  g.crackers.push({ x: mx, y: a.y, landed: true, fuse: 0.01, pid: 0 });
+  step(g, { 0: {} }, 1 / 30);
+  assert.ok(a.dead || !g.enemies.includes(a), 'the cracker killed the hostile grunt');
+  assert.equal(b.hp, 2, 'the converted ally is spared by the boom');
+  assert.equal(p.xp, 4, 'cracker kills credit the thrower (score/25 xp)');
+}
+
+// --- respawnSpot: a swimming ally mid-lake must not strand a walker on '~' ---
+function testRespawnSpotAvoidsWater() {
+  const rows = [];
+  rows.push('#'.repeat(40));
+  for (let y = 1; y < 19; y++) {
+    let r = '#' + '.'.repeat(38) + '#';
+    if (y >= 5 && y <= 15) r = r.slice(0, 20) + '~'.repeat(13) + r.slice(33); // big lake
+    rows.push(r);
+  }
+  rows.push('#'.repeat(40));
+  rows[2] = '#PP' + rows[2].slice(3);
+  rows[17] = rows[17].slice(0, 37) + 'g' + rows[17].slice(38); // keeps the level alive
+  const level = { name: 'Lake Strand', time: 90, captiveChars: [], tiles: rows };
+  const g = createGame(level, [
+    { pid: 0, name: 'A', charId: 'scout' },
+    { pid: 1, name: 'B', charId: 'seal' },
+  ], charMap, ['scout', 'seal', 'soldier']);
+  g.graceT = 1e9;
+  const [a, seal] = g.players;
+  seal.invuln = 999;
+  // the seal swims dead-center: every ring-scan candidate within 4 tiles is water
+  seal.x = 26.5 * TILE;
+  seal.y = 10.5 * TILE;
+  a.charId = null;
+  a.state = 'pick';
+  a.pickIdx = 0;
+  a.pickPrev = { left: false, right: false, fire: false };
+  step(g, { 0: { fire: true }, 1: {} }, 1 / 30);
+  assert.equal(a.state, 'active', 'walker redeployed');
+  const tile = level.tiles[Math.floor(a.y / TILE)][Math.floor(a.x / TILE)];
+  assert.ok(tile !== '~', 'respawn never lands a walker on water');
+  assert.ok(Math.hypot(a.x - g.spawns[0].x, a.y - g.spawns[0].y) < TILE,
+    'with the ally unreachable, the respawn falls back to the level start');
+}
+
+// --- followers wait ashore instead of teleporting onto water after a swimmer ---
+function testFollowerWaitsAshore() {
+  const rows = [];
+  rows.push('#'.repeat(40));
+  for (let y = 1; y < 19; y++) {
+    let r = '#' + '.'.repeat(38) + '#';
+    r = r.slice(0, 9) + '~'.repeat(24) + r.slice(33); // channel cols 9..32
+    rows.push(r);
+  }
+  rows.push('#'.repeat(40));
+  rows[10] = '#P' + rows[10].slice(2);
+  rows[17] = '#'.repeat(40); // no stray enemies needed; keep one alive below
+  rows[17] = rows[17].slice(0, 1) + '.'.repeat(38) + rows[17].slice(39);
+  rows[17] = rows[17].slice(0, 37) + 'g' + rows[17].slice(38);
+  const level = { name: 'Channel Wait', time: 90, captiveChars: [], tiles: rows };
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: 'seal' }], charMap, ['seal']);
+  const p = g.players[0];
+  p.invuln = 999;
+  g.graceT = 1e9;
+  g.followers.push({
+    id: 1, kind: 'hound', owner: 0, x: 5.5 * TILE, y: 10.5 * TILE, hp: 2, slot: 0,
+    post: 0, isFollower: true, fx: 0, fy: 1, cool: 0, invulnT: 0, path: null, pathI: 0, repathT: 0,
+  });
+  const dog = g.followers[0];
+  // the seal swims 20 tiles out: way past the 12-tile adrift teleport
+  p.x = 25.5 * TILE;
+  p.y = 10.5 * TILE;
+  run(g, () => ({ 0: {} }), 2);
+  const tile = level.tiles[Math.floor(dog.y / TILE)][Math.floor(dog.x / TILE)];
+  assert.ok(tile !== '~', 'the adrift hound waits ashore — never teleports onto water');
+  assert.ok(Math.hypot(dog.x - p.x, dog.y - p.y) > TILE * 12, 'it stayed behind, still adrift');
+  // owner back on land: the normal adrift teleport resumes
+  p.x = 35.5 * TILE;
+  step(g, { 0: {} }, 1 / 30);
+  assert.ok(Math.hypot(dog.x - p.x, dog.y - p.y) < TILE, 'a dry owner pulls the teleport as before');
+}
+
+// --- formation slots: a rehire takes the lowest slot a LIVING follower freed ---
+function testFollowerSlotReuseAfterRehire() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  let r = '#' + '.'.repeat(38) + '#';
+  r = put(put(put(r, 4, 'P'), 8, 'H'), 12, 'H');
+  const level = bigEmptyLevel([[5, r], [17, '#....................................g#']]);
+  level.hires = [
+    { job: 'hound', cost: 6, name: 'Fang' },
+    { job: 'archer', cost: 6, name: 'Fletch' },
+  ];
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
+  const p = g.players[0];
+  const [hPost, aPost] = g.hires;
+  p.invuln = 999;
+  g.graceT = 1e9;
+  g.shards = 50;
+  p.x = hPost.x; p.y = hPost.y + TILE;
+  step(g, { 0: {} }, 1 / 30);
+  step(g, { 0: { act: true } }, 1 / 30);
+  p.x = aPost.x; p.y = aPost.y + TILE;
+  step(g, { 0: {} }, 1 / 30);
+  step(g, { 0: { act: true } }, 1 / 30);
+  assert.deepEqual(g.followers.map(f => [f.kind, f.slot]), [['hound', 0], ['archer', 1]], 'first hires take slots 0 and 1');
+  // the hound dies; its post restocks; the rehire must reclaim slot 0
+  const dog = g.followers[0];
+  dog.hp = 1;
+  dog.invulnT = 0;
+  g.shots.push({
+    id: g.nextShotId++, x: dog.x, y: dog.y, vx: 0, vy: 0, ttl: 0.5, dmg: 1,
+    who: 'e', overWalls: true, pierce: 0, aoeRadius: 0, curve: 0, radius: 5, kind: 'arrow', hits: [],
+  });
+  step(g, { 0: {} }, 1 / 30);
+  assert.ok(!g.followers.some(f => f.kind === 'hound'), 'the hound went down');
+  hPost.restockT = 0.01;
+  run(g, () => ({ 0: {} }), 0.1);
+  assert.equal(hPost.hired, false, 'post restocked');
+  p.x = hPost.x; p.y = hPost.y + TILE;
+  step(g, { 0: {} }, 1 / 30);
+  step(g, { 0: { act: true } }, 1 / 30);
+  const rehired = g.followers.find(f => f.kind === 'hound');
+  assert.ok(rehired, 'rehired after restock');
+  assert.equal(rehired.slot, 0, 'the rehire reclaims the freed slot 0 (no flank doubling)');
+}
+
+// --- burnPatch flag clears when a survived burn expires (no stale death patch) ---
+function testStaleBurnPatchCleared() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  let r = '#' + '.'.repeat(38) + '#';
+  r = put(put(r, 4, 'P'), 12, 'g');
+  const level = bigEmptyLevel([[5, r], [17, '#....................................g#']]);
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
+  g.players[0].invuln = 999;
+  g.graceT = 1e9;
+  const a = g.enemies[0];
+  a.hp = 10;
+  playerShotAt(g, a, 1, { ignite: true, ignitePatch: true, ownerPid: 0 });
+  step(g, { 0: {} }, 1 / 30);
+  assert.equal(a.burnPatch, true, 'the L4 ignite marks the patch flag');
+  run(g, () => ({ 0: {} }), 3.2); // the burn runs its 3s and the grunt survives
+  assert.equal(a.burnT, 0, 'burn expired');
+  assert.equal(a.burnPatch, false, 'the expired burn clears its patch flag');
+  // a later PLAIN ignite that kills must not inherit the stale flag
+  playerShotAt(g, a, 1, { ignite: true, ownerPid: 0 });
+  step(g, { 0: {} }, 1 / 30);
+  playerShotAt(g, a, 99, { ownerPid: 0 });
+  step(g, { 0: {} }, 1 / 30);
+  assert.ok(a.dead || !g.enemies.includes(a), 'the plain-burn kill landed');
+  assert.equal(g.patches.length, 0, 'no stale death patch from the earlier L4 ignite');
+}
+
+// --- squad assist xp: other active seats within 8 tiles earn floor(half) ---
+function testSquadAssistXp() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  let r = '#' + '.'.repeat(38) + '#';
+  r = put(put(put(put(put(r, 4, 'P'), 5, 'P'), 6, 'P'), 12, 'g'), 16, 'g');
+  const level = bigEmptyLevel([[5, r], [17, '#....................................g#']]);
+  const g = createGame(level, [
+    { pid: 0, name: 'A', charId: 'scout' },
+    { pid: 1, name: 'B', charId: 'soldier' },
+    { pid: 2, name: 'C', charId: 'medic' },
+  ], charMap, startingRoster);
+  const [p0, p1, p2] = g.players;
+  for (const p of g.players) p.invuln = 999;
+  g.graceT = 1e9;
+  p1.x = p0.x + TILE * 5; p1.y = p0.y; // inside the 8-tile assist ring
+  p2.x = p0.x + TILE * 20; p2.y = p0.y; // far outside
+  const [e0, e1] = g.enemies;
+  playerShotAt(g, e0, 99, { ownerPid: 0 }); // grunt: 100 score -> 4 xp
+  step(g, { 0: {}, 1: {}, 2: {} }, 1 / 30);
+  assert.equal(p0.xp, 4, 'the killer keeps full kill xp');
+  assert.equal(p1.xp, 2, 'a teammate within 8 tiles earns floor(4/2) = 2');
+  assert.equal(p2.xp, 0, 'a seat 20 tiles away earns nothing');
+  e1.score = 125; // 5 xp -> assist floor(2.5) = 2
+  playerShotAt(g, e1, 99, { ownerPid: 0 });
+  step(g, { 0: {}, 1: {}, 2: {} }, 1 / 30);
+  assert.equal(p0.xp, 9, 'killer xp accrues in full');
+  assert.equal(p1.xp, 4, 'odd assist halves floor (2.5 -> 2)');
+}
+
+// --- snapshot ships typeSelectT and player-shot ownerPid (renderer fields) ---
+function testSnapshotTypeSelectTAndShotOwnerPid() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  let r = '#' + '.'.repeat(38) + '#';
+  r = put(put(r, 4, 'P'), 20, 'B');
+  const level = bigEmptyLevel([[5, r], [17, '#....................................g#']]);
+  level.builds = [{ kind: 'turret', cost: 5 }];
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
+  const b = g.builds[0];
+  g.players[0].invuln = 999;
+  g.graceT = 1e9;
+  b.built = true;
+  b.progress = 1;
+  b.hp = b.maxHp;
+  b.typeSelect = true;
+  b.tsIdx = 2;
+  b.selT = 3;
+  const s = snapshot(g, false);
+  assert.equal(s.builds[0].tsIdx, 2, 'snapshot ships the carousel cursor');
+  assert.equal(s.builds[0].typeSelectT, 5, 'snapshot ships the remaining auto-confirm seconds');
+  // player fire carries the seat pid; enemy fire carries no key at all
+  const p = g.players[0];
+  p.cool = 0;
+  step(g, { 0: { fire: true } }, 1 / 30);
+  enemyShotAt(g, { x: p.x + TILE * 5, y: p.y });
+  const s2 = snapshot(g, false);
+  const mine = s2.shots.find(sh => sh.who === 'p');
+  const theirs = s2.shots.find(sh => sh.who === 'e');
+  assert.equal(mine.ownerPid, 0, 'player shots ship ownerPid');
+  assert.ok(theirs && !('ownerPid' in theirs), 'enemy shots gain no ownerPid key');
+}
+
+// --- night waves: marchers engage a player seen within 6 tiles, resume at 9 ---
+function testNightWaveEngageAndResume() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const tiles = [];
+  tiles.push('#'.repeat(40));
+  for (let y = 1; y < 19; y++) tiles.push('#' + '.'.repeat(38) + '#');
+  tiles.push('#'.repeat(40));
+  tiles[10] = put(put(tiles[10], 8, 'g'), 30, 'K');
+  tiles[5] = put(tiles[5], 8, 'P'); // 5 tiles north of the marcher, clear sight
+  const level = { name: 'Engage Test', time: 600, captiveChars: [], tiles };
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
+  const p = g.players[0];
+  const e = g.enemies[0];
+  p.invuln = 999;
+  g.graceT = 0;
+  e.awake = true;
+  e.targetCore = true;
+  e.aggro *= 100; // exactly how spawnNightWave arms its hunters
+  const dCore0 = Math.hypot(e.x - 30.5 * TILE, e.y - 10.5 * TILE);
+  run(g, () => ({ 0: {} }), 1.5);
+  assert.equal(e.engagePid, 0, 'a player seen within 6 tiles is engaged');
+  const dP = Math.hypot(e.x - p.x, e.y - p.y);
+  assert.ok(dP < TILE * 5, `the marcher broke off to fight (now ${(dP / TILE).toFixed(1)} tiles from the player)`);
+  assert.ok(Math.hypot(e.x - 30.5 * TILE, e.y - 10.5 * TILE) >= dCore0 - TILE,
+    'it was not closing on the core while engaged');
+  // the player breaks contact past 9 tiles: the march resumes (no kiting forever)
+  p.x = 2.5 * TILE;
+  p.y = 17.5 * TILE;
+  step(g, { 0: {} }, 1 / 30);
+  assert.equal(e.engagePid, undefined, 'past 9 tiles the engagement drops');
+  const dCore1 = Math.hypot(e.x - 30.5 * TILE, e.y - 10.5 * TILE);
+  run(g, () => ({ 0: {} }), 3);
+  assert.ok(Math.hypot(e.x - 30.5 * TILE, e.y - 10.5 * TILE) < dCore1 - TILE * 2,
+    'the wave resumes its core march after disengaging');
+}
+
+// --- sealed camp: a core-marcher whose A* fails gnaws the blocking barricade ---
+function testSealedCampGnawFallback() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const tiles = [];
+  tiles.push('#'.repeat(40));
+  for (let y = 1; y < 19; y++) tiles.push('#' + '.'.repeat(38) + '#');
+  tiles.push('#'.repeat(40));
+  // a walled cell rows 8..12 x cols 18..24, single gap at (21,8) plugged by a
+  // built barricade; the core inside; the marcher outside to the north
+  for (let x = 18; x <= 24; x++) { tiles[8] = put(tiles[8], x, '#'); tiles[12] = put(tiles[12], x, '#'); }
+  for (let y = 9; y <= 11; y++) { tiles[y] = put(tiles[y], 18, '#'); tiles[y] = put(tiles[y], 24, '#'); }
+  tiles[8] = put(tiles[8], 21, 'B');
+  tiles[10] = put(tiles[10], 21, 'K');
+  tiles[3] = put(tiles[3], 21, 'g');
+  tiles[17] = put(tiles[17], 3, 'P'); // far away: no engagement noise
+  const level = {
+    name: 'Sealed Camp', time: 600, captiveChars: [],
+    builds: [{ kind: 'barricade', cost: 4 }],
+    tiles,
+  };
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
+  const p = g.players[0];
+  const site = g.builds[0];
+  site.built = true;
+  site.progress = 1;
+  site.hp = site.maxHp;
+  site.invested = site.cost;
+  p.invuln = 999;
+  g.graceT = 0;
+  const e = g.enemies[0];
+  e.awake = true;
+  e.targetCore = true;
+  e.aggro *= 100;
+  run(g, () => ({ 0: {} }), 30);
+  assert.ok(g.events.some(ev => ev.type === 'buildHit'), 'the sealed-out marcher gnawed the barricade (no corner pile-up)');
+  assert.ok(g.events.some(ev => ev.type === 'buildDown' && ev.kind === 'barricade'), 'it chewed the barricade down');
+  assert.ok(g.events.some(ev => ev.type === 'coreHit'), 'then resumed the march and reached the core');
+  assert.ok(g.core.hp < 30, 'the core is under siege');
+}
+
+// --- bastion difficulty: night>=3 waves +15% hp; blood moons +1 hp, x1.25 speed ---
+function testBloodMoonAndLateNightBuffs() {
+  const g = createGame(bastionDef({ nights: 4, dayLen: 2, nightLen: 2, bloodMoons: [4] }),
+    [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  g.graceT = 1e9; // freeze the field: this test inspects spawn stats only
+  g.players[0].invuln = 999;
+  // nights 1+2 (5 + 7 spawns) carry no hp buff
+  run(g, () => ({ 0: {} }), 6.5);
+  assert.equal(g.enemies.length, 12, 'nights 1+2 spawned 5 + 7');
+  assert.ok(g.enemies.filter(e => !e.mutation && e.letter === 'g').every(e => e.hp === 2),
+    'early-night plain grunts keep base 2 hp');
+  // night 3 (normal): +15% hp rounded up, applied after mutation
+  run(g, () => ({ 0: {} }), 4);
+  const wave3 = g.enemies.slice(12);
+  assert.equal(wave3.length, 8, 'night 3 solo wave is 8 (base 10 x 0.8)');
+  const plainSkitter3 = wave3[2]; // 'w', mutation roll (3*31+2)%5 = 0 -> none
+  assert.equal(plainSkitter3.letter, 'w');
+  assert.equal(plainSkitter3.mutation, undefined);
+  assert.equal(plainSkitter3.hp, 2, 'night 3 skitter: ceil(1 * 1.15) = 2');
+  const plainCharger3 = wave3[7]; // 'r', roll (3*31+7)%5 = 0 -> none
+  assert.equal(plainCharger3.letter, 'r');
+  assert.equal(plainCharger3.hp, 4, 'night 3 charger: ceil(3 * 1.15) = 4');
+  const bulk3 = wave3[4]; // 'g', roll (3*31+4)%5 = 2 -> bulk
+  assert.equal(bulk3.mutation, 'bulk');
+  assert.equal(bulk3.hp, 5, 'night 3 bulk grunt: ceil(2*2 * 1.15) = 5');
+  assert.equal(bulk3.speed, 1.25 * TILE * 0.75, 'normal-night buff never touches speed');
+  // night 4 (blood moon): full mutation, +1 hp, +25% speed — no 15% stacking
+  run(g, () => ({ 0: {} }), 4);
+  const wave4 = g.enemies.slice(20);
+  assert.equal(wave4.length, 20, 'blood moon pours 10 per edge from two edges');
+  assert.ok(wave4.every(e => e.mutation), 'every blood moon enemy is mutated');
+  const feral4 = wave4[2]; // 'w', roll (4*31+2)%5 = 1 -> feral
+  assert.equal(feral4.mutation, 'feral');
+  assert.equal(feral4.hp, 2, 'blood skitter: 1 + 1 hp (no 15% on blood nights)');
+  assert.equal(feral4.speed, 2.0 * TILE * 1.5 * 1.25, 'blood feral skitter: base x1.5 feral x1.25 blood');
+  const split4 = wave4[0]; // 'g', roll (4*31)%5 = 4 -> split
+  assert.equal(split4.mutation, 'split');
+  assert.equal(split4.hp, 3, 'blood grunt: 2 + 1 hp');
+  assert.equal(split4.speed, 1.25 * TILE * 1.25, 'blood grunt pace: base x1.25');
 }
 
 testRespawnPickFlow();
@@ -2643,6 +3764,31 @@ testBastionWaveScaling();
 testBastionDeepWavePathing();
 testChaseStuckRepathsThenResleeps();
 testActPriorityMountShopAndNearestVehicle();
+testXpThresholdsAndLevelUps();
+testEvolutionBranchesAndDmgBonusStack();
+testBurnSpreadChainAndGroundPatches();
+testToxinSlowAndSpread();
+testStunHaltsEnemies();
+testPrismTurretAdjacency();
+testTeslaChainAndStun();
+testToxinTurretPools();
+testTurretTypeSelectCarousel();
+testFollowersLifecycle();
+testControllerConvertAndExpiry();
+testSealSwimsCaptiveTrails();
+testSealRecruitableInBasin();
+testArcadeFidelityLockstep();
+testPvpCombatDepthRules();
 testDeterministicCtfRun();
+testConvertedImmunityAndCrackerXp();
+testRespawnSpotAvoidsWater();
+testFollowerWaitsAshore();
+testFollowerSlotReuseAfterRehire();
+testStaleBurnPatchCleared();
+testSquadAssistXp();
+testSnapshotTypeSelectTAndShotOwnerPid();
+testNightWaveEngageAndResume();
+testSealedCampGnawFallback();
+testBloodMoonAndLateNightBuffs();
 
 console.log('sim tests passed');

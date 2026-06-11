@@ -340,10 +340,27 @@ export function playEvent(ev) {
     setTimeout(() => tone(740, 0.35, 'sine', 0.06, 0.55), 140);
     setTimeout(() => tone(560, 0.3, 'triangle', 0.05, 1.25), 300);
   }
-  else if (ev.type === 'toxin' || ev.type === 'toxinOut' || ev.type === 'toxinPatch') {
+  else if (ev.type === 'toxin' || ev.type === 'toxinOut' || ev.type === 'toxinPatch'
+    || (ev.type === 'patch' && ev.kind === 'toxin')) {
     // chem hiss as the slick spreads
     noise(0.45, 0.08, 700);
     setTimeout(() => noise(0.3, 0.04, 1700), 120);
+  }
+  else if (ev.type === 'patch') {
+    // ground fire takes hold — low whoomp under a settling crackle
+    tone(90, 0.22, 'sawtooth', 0.08, 0.5);
+    noise(0.3, 0.06, 420);
+    setTimeout(() => noise(0.22, 0.04, 900), 140);
+  }
+  else if (ev.type === 'turretType') {
+    // type confirmed off the carousel — two-step servo chirp
+    tone(620, 0.06, 'square', 0.06, 1.0);
+    setTimeout(() => tone(932, 0.09, 'square', 0.05, 1.02), 70);
+  }
+  else if (ev.type === 'followerHit') {
+    // a hire takes a knock — small dry thud
+    tone(250, 0.05, 'square', 0.06, 0.6);
+    noise(0.04, 0.04, 600);
   }
   else if (ev.type === 'bark' || ev.type === 'followerEngage') {
     // attack dog barks onto a target

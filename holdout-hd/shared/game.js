@@ -62,11 +62,14 @@ const FARM_GROW_T = 25; // seconds per stage (15 with a hired farmer)
 const FARM_GROW_FAST = 15;
 const BASTION_DEFAULTS = { nights: 5, dayLen: 90, nightLen: 75, bloodMoons: [3, 5] };
 const BLOOD_WARN_LEAD = 30; // seconds before a blood-moon dusk
+const WAVE_ENGAGE = 6; // tiles: a core-marcher engages a player it SEES this close
+const WAVE_DISENGAGE = 9; // tiles: it resumes the march once they slip this far
 
 // --- structure levels, towers, shops, hires, vehicles, pvp tuning ---
 const STRUCT_HP = { barricade: [14, 22, 32], turret: [10, 14, 18], tower: [20, 28, 38] };
 const TURRET_DMG = [1, 2, 3];
-const TURRET_RANGE = [5, 5.5, 6]; // tiles, targeting radius by level
+const TURRET_RANGE = [5.5, 6, 6.5]; // tiles, targeting radius by level
+const TURRET_PERIOD = 0.55; // seconds between gun shots (reliable single-target dps)
 const REPAIR_TICK = 0.5; // seconds per hp repaired
 const REPAIR_COST = 1 / 3; // shards per hp (1 shard per 3 hp)
 const UPGRADE_COST = lvl => lvl * 8; // shards to go from lvl to lvl+1
@@ -96,6 +99,7 @@ const FARM_REPLANT_T = 10; // seconds for a hired farmer to replant a trample
 // Per-mission seat xp. Levels 2/3/4 unlock at these cumulative totals.
 const XP_THRESH = [12, 34, 70];
 const XP_DIV = 25; // xp per kill = enemy base score / 25
+const SQUAD_ASSIST_R = 8; // tiles: other seats this close to the killer earn floor(xp/2)
 const TURRET_TYPES = ['gun', 'prism', 'tesla', 'toxin'];
 const TYPE_SELECT_T = 8; // seconds before an unattended carousel confirms 'gun'
 const PRISM_DMG = [2, 3, 4]; // beam damage by turret level
@@ -552,10 +556,12 @@ function segmentHitsBuild(g, ax, ay, bx, by, r) {
 
 // Deterministic A* over the tile grid. Diagonals allowed unless they cut a corner.
 // Returns pixel-space waypoints (excluding the start tile), or null when no route
-// exists within the expansion budget.
-function findPath(g, sx, sy, gx, gy, maxExpand = 2400) {
+// exists within the expansion budget. adjacentOk targets a BLOCKED goal tile
+// (a built structure): the search succeeds on any tile touching it.
+function findPath(g, sx, sy, gx, gy, maxExpand = 2400, adjacentOk = false) {
   if (sx === gx && sy === gy) return [];
-  if (tileBlocked(g, gx, gy)) return null;
+  if (adjacentOk && Math.abs(sx - gx) <= 1 && Math.abs(sy - gy) <= 1) return [];
+  if (tileBlocked(g, gx, gy) && !adjacentOk) return null;
   const W = g.w;
   const heap = [];
   let seq = 0;
@@ -602,7 +608,8 @@ function findPath(g, sx, sy, gx, gy, maxExpand = 2400) {
     const cur = pop();
     const ck = cur.y * W + cur.x;
     expanded++;
-    if (cur.x === gx && cur.y === gy) {
+    if ((cur.x === gx && cur.y === gy)
+        || (adjacentOk && Math.abs(cur.x - gx) <= 1 && Math.abs(cur.y - gy) <= 1)) {
       const path = [];
       let k = ck;
       while (k !== start) {
@@ -652,6 +659,7 @@ function moveToward(g, e, tgt, dt, speed = e.speed, r = ENEMY_R) {
   if (hasLoS(g, e.x, e.y, tgt.x, tgt.y) && !segmentHitsBuild(g, e.x, e.y, tgt.x, tgt.y, r)) {
     e.path = null;
     e.repathT = 0;
+    e.pathFailed = false; // a clear line is a route: the goal is reachable
     // a clear straight line means not wedged: reset the anti-wedge tracker
     e.stuckX = undefined;
     e.stuckY = undefined;
@@ -672,10 +680,14 @@ function moveToward(g, e, tgt, dt, speed = e.speed, r = ENEMY_R) {
       g,
       Math.floor(e.x / TILE), Math.floor(e.y / TILE),
       Math.floor(tgt.x / TILE), Math.floor(tgt.y / TILE),
-      budget
+      budget,
+      !!tgt.adj // gnaw targets sit on blocked tiles: stop beside them
     );
     e.pathI = 0;
     e.repathT = 0.6 + (e.id % 5) * 0.08;
+    // an exhausted search marks the goal sealed (core-marchers retarget the
+    // blocking structure in nearestTarget rather than pinning on a corner)
+    e.pathFailed = !e.path;
   }
   let wp = e.path && e.path[e.pathI];
   while (wp && Math.hypot(wp.x - e.x, wp.y - e.y) < TILE * 0.45) {
@@ -743,6 +755,10 @@ function respawnSpot(g) {
       }
     }
   }
+  // The ally's own spot is only safe when a walker can stand there — a seal
+  // swimming mid-lake would strand a non-swimmer on '~' forever. Collision on
+  // the ally's position sends the respawn back to the level start instead.
+  if (collides(g, ally.x, ally.y, PLAYER_R)) return fallback;
   return { x: ally.x, y: ally.y };
 }
 
@@ -824,13 +840,10 @@ function applyEvolution(weapon, evo, level) {
   return w;
 }
 
-// Kill credit: the owning seat's fielded character earns score/25 xp.
+// Grant xp to one seat and resolve any level-ups it unlocks.
 // Levels 2..4 land at 12/34/70 xp — automatic, deterministic, evented.
-function awardXp(g, pid, e) {
-  if (pid === undefined || pid === null) return;
-  const p = g.players.find(q => q.pid === pid);
-  if (!p || p.level === undefined) return; // arcade seats never level
-  p.xp += (e.score || 100) / XP_DIV;
+function grantXp(g, p, amount) {
+  p.xp += amount;
   while (p.level < 4 && p.xp >= XP_THRESH[p.level - 1]) {
     p.level++;
     let perk = 'hp';
@@ -840,7 +853,27 @@ function awardXp(g, pid, e) {
     } else {
       perk = (g.charMap[p.charId] || {}).evolution || 'multi';
     }
-    g.events.push({ type: 'levelUp', pid, level: p.level, perk, x: p.x, y: p.y });
+    g.events.push({ type: 'levelUp', pid: p.pid, level: p.level, perk, x: p.x, y: p.y });
+  }
+}
+
+// Kill credit: the owning seat's fielded character earns score/25 xp. Squad
+// assist: every OTHER active seat within 8 tiles of the killer earns
+// floor(half) — short-range characters keep leveling in a full couch.
+// Solo play is untouched (no other seats to pay).
+function awardXp(g, pid, e) {
+  if (pid === undefined || pid === null) return;
+  const p = g.players.find(q => q.pid === pid);
+  if (!p || p.level === undefined) return; // arcade seats never level
+  const xp = (e.score || 100) / XP_DIV;
+  grantXp(g, p, xp);
+  const assist = Math.floor(xp / 2);
+  if (assist > 0) {
+    const r2 = (TILE * SQUAD_ASSIST_R) ** 2;
+    for (const q of g.players) {
+      if (q === p || q.state !== 'active' || q.level === undefined) continue;
+      if (dist2(p, q) <= r2) grantXp(g, q, assist);
+    }
   }
 }
 
@@ -1012,7 +1045,7 @@ function openChest(g, c, p) {
     if (p.shield !== undefined) p.shield = Math.min(SHIELD_MAX, p.shield + 2);
   } else if (c.loot === 'token') {
     p.dmgBonus = Math.min(2, (p.dmgBonus || 0) + 1);
-  } else { // cracker | medkit
+  } else { // cracker | medkit | toxin | controller fill the item slot
     if (p.item && p.item.kind === c.loot) p.item.count += c.amount;
     else p.item = { kind: c.loot, count: c.amount };
   }
@@ -1151,6 +1184,63 @@ function nearestTarget(g, e) {
   // Bastion night-wave enemies march on the base core (they still gnaw
   // structures and hit players en route via the existing melee rules).
   if (e.targetCore && g.core && g.core.hp > 0) {
+    // Sighted defender: engage a player SEEN within 6 tiles and fight until
+    // they die or slip 9+ tiles away, then resume the march. The resume
+    // radius keeps the wave honest — nobody kites it across the map forever.
+    if (e.engagePid !== undefined) {
+      const p = g.players.find(q => q.pid === e.engagePid);
+      if (p && p.state === 'active' && dist2(e, p) <= (TILE * WAVE_DISENGAGE) ** 2) {
+        return [p, dist2(e, p)];
+      }
+      e.engagePid = undefined;
+    } else {
+      let seen = null, best = (TILE * WAVE_ENGAGE) ** 2;
+      for (const p of g.players) {
+        if (p.state !== 'active') continue;
+        const d = dist2(e, p);
+        if (d < best && canSee(g, e, p)) { best = d; seen = p; }
+      }
+      if (seen) {
+        e.engagePid = seen.pid;
+        return [seen, best];
+      }
+    }
+    // Sealed approach: when A* to the core failed (every gap barricaded),
+    // gnaw the nearest REACHABLE blocking structure instead of pinning on a
+    // wall corner. adj-pathing stops beside it; contact gnawing does the
+    // rest, and a fallen barricade resumes the core march through the gap.
+    if (e.gnawI !== undefined) {
+      const b = g.builds[e.gnawI];
+      if (b && b.built && b.kind !== 'farm' && b.kind !== 'pylon') {
+        return [{ x: b.x, y: b.y, nonPlayer: true, adj: true }, dist2(e, b)];
+      }
+      e.gnawI = undefined; // chewed through (or dismantled): resume the march
+      e.pathFailed = false;
+      e.path = null;
+      e.repathT = 0;
+    } else if (e.pathFailed && !(e.gnawScanT > 0)) {
+      e.gnawScanT = 1.2; // budget guard: rescan at most every 1.2s
+      const ex = Math.floor(e.x / TILE), ey = Math.floor(e.y / TILE);
+      const cands = [];
+      for (let i = 0; i < g.builds.length; i++) {
+        const b = g.builds[i];
+        // pylons are indestructible and farms are walkable — never gnaw goals
+        if (!b.built || b.kind === 'farm' || b.kind === 'pylon') continue;
+        cands.push([dist2(e, b), i]);
+      }
+      cands.sort((a, b2) => a[0] - b2[0] || a[1] - b2[1]);
+      for (const [, i] of cands) {
+        const b = g.builds[i];
+        const path = findPath(g, ex, ey, Math.floor(b.x / TILE), Math.floor(b.y / TILE), 8000, true);
+        if (path) {
+          e.gnawI = i;
+          e.path = path;
+          e.pathI = 0;
+          e.repathT = 0.6 + (e.id % 5) * 0.08;
+          return [{ x: b.x, y: b.y, nonPlayer: true, adj: true }, dist2(e, b)];
+        }
+      }
+    }
     return [{ x: g.core.x, y: g.core.y, nonPlayer: true }, dist2(e, g.core)];
   }
   let tgt = null, best = Infinity, eff = Infinity;
@@ -1304,11 +1394,21 @@ function stepFollowers(g, dt) {
     if (f.cool > 0) f.cool -= dt;
     const o = g.players.find(q => q.pid === f.owner);
     if (!o || o.state !== 'active') continue; // owner down: hold position
+    // remember the last solid footing — the adrift teleport must never drop
+    // a follower into open water chasing a swimming (or skiff-borne) owner
+    if (tileAt(g, f.x, f.y) !== '~') { f.landX = f.x; f.landY = f.y; }
     if (dist2(f, o) > (TILE * FOLLOWER_ADRIFT) ** 2) {
-      f.x = o.x;
-      f.y = o.y;
-      f.path = null;
-      f.repathT = 0;
+      const v = o.riding ? g.vehicles.find(vv => vv.id === o.riding) : null;
+      const wet = tileAt(g, o.x, o.y) === '~' || (v && v.kind === 'skiff');
+      // a wet owner clamps the teleport ashore: the follower waits there
+      const tx = wet ? (f.landX ?? f.x) : o.x;
+      const ty = wet ? (f.landY ?? f.y) : o.y;
+      if (tx !== f.x || ty !== f.y) {
+        f.x = tx;
+        f.y = ty;
+        f.path = null;
+        f.repathT = 0;
+      }
     }
     const st = FOLLOWER_STATS[f.kind];
     // engage the nearest (to the follower) enemy within 5 tiles of the owner
@@ -1368,7 +1468,9 @@ function stepPatches(g, dt) {
     if (pa.ttl <= 0) { g.patches.splice(i, 1); continue; }
     const r2 = pa.r * pa.r;
     for (const e of g.enemies) {
-      if (e.dead || dist2(pa, e) >= r2) continue;
+      // converted enemies fight for the squad: patches pass over allies
+      // (no convert-then-poison farming for score/xp/shards)
+      if (e.dead || e.convertedT > 0 || dist2(pa, e) >= r2) continue;
       if (pa.kind === 'burn') igniteEnemy(g, e, pa.pid, false);
       else toxEnemy(g, e, pa.pid);
     }
@@ -1398,7 +1500,9 @@ function stepStatuses(g, dt) {
         e.burnTick -= 1;
         damageEnemy(g, e, 1, e.x, e.y, 'burn', e.burnOwner);
       }
-      if (e.burnT <= 0) { e.burnT = 0; e.burnTick = 0; }
+      // a survived burn clears the L4 patch flag too — a later plain ignite
+      // must not inherit a stale death-patch
+      if (e.burnT <= 0) { e.burnT = 0; e.burnTick = 0; e.burnPatch = false; }
       // spread: contact ignites a non-burning enemy ONCE (chain, no ping-pong)
       if (!e.dead && e.burnT > 0) {
         const rr = (ENEMY_R * 2) ** 2;
@@ -1479,6 +1583,7 @@ function stepEnemy(g, e, dt) {
   if (e.dead) return;
   if (e.hurt > 0) e.hurt -= dt;
   if (e.hitCool > 0) e.hitCool -= dt;
+  if (e.gnawScanT > 0) e.gnawScanT -= dt;
   // Mind-controlled enemies fight for the squad; stunned ones do nothing at
   // all (no actions, no movement — the clocks tick in stepStatuses).
   if (e.convertedT > 0) {
@@ -1753,7 +1858,8 @@ function applyMutation(e, mut) {
 }
 
 // One wave per dusk from a rotating cardinal edge; blood moons pour a full
-// wave in from two different edges, mutate every enemy and add +1 hp.
+// wave in from two different edges, mutate every enemy, add +1 hp and +25%
+// speed. Normal waves from night 3 on carry +15% hp (rounded up).
 // Mutation roll is the contract formula (nightNo*31+i)%5 over
 // [none, feral, bulk, volatile, split]; blood moons re-roll 'none' as %4.
 function spawnNightWave(g) {
@@ -1777,7 +1883,16 @@ function spawnNightWave(g) {
       if (g.cycle.bloodMoon && !mut) mut = MUTATIONS[(n * 31 + mi) % 4];
       mi++;
       applyMutation(e, mut);
-      if (g.cycle.bloodMoon) { e.hp += 1; e.maxHp += 1; }
+      if (g.cycle.bloodMoon) {
+        // blood moon: +1 hp on top of the full mutation, and a +25% pace
+        e.hp += 1;
+        e.maxHp += 1;
+        e.speed *= 1.25;
+      } else if (n >= 3) {
+        // late normal nights harden: +15% hp, rounded up
+        e.hp = Math.ceil(e.hp * 1.15);
+        e.maxHp = Math.ceil(e.maxHp * 1.15);
+      }
       g.enemies.push(e);
     }
     const cx = edge === 'w' ? TILE : edge === 'e' ? (g.w - 1) * TILE : g.w * TILE / 2;
@@ -1891,6 +2006,21 @@ function structureInReach(g, p) {
   }
   for (const t of g.towers) if (dist2(p, t) < r2) return true;
   return false;
+}
+
+// A just-built turret waiting in typeSelect claims the act-hold within build
+// reach — unless an OPEN build site shares the radius (build sites outrank
+// the carousel). The nearest such turret wins; null means no carousel here.
+function typeSelectNear(g, p) {
+  const r2 = (TILE * BUILD_REACH) ** 2;
+  let sel = null, best = r2;
+  for (const b of g.builds) {
+    const d = dist2(p, b);
+    if (d >= r2) continue;
+    if (!b.built) return null; // an open build site outranks the carousel
+    if (b.kind === 'turret' && b.typeSelect && d < best) { best = d; sel = b; }
+  }
+  return sel;
 }
 
 function buyOffer(g, p) {
@@ -2195,11 +2325,42 @@ export function step(g, inputs, dt) {
     const ch = g.charMap[p.charId];
     if (!ch) continue;
 
+    // Swimmers (char.swims — the seal) treat water as open ground: x0.7
+    // speed and +50% fire cooldown while standing on a '~' tile.
+    const swims = !!ch.swims;
+    const onWater = swims && tileAt(g, p.x, p.y) === '~';
+
     // --- holdings: an occupied watchtower pins the gunner to its platform;
     // a mounted vehicle moves with its rider ---
     const tower = p.towerId != null ? g.towers[p.towerId] : null;
     if (tower) { p.x = tower.x; p.y = tower.y; }
     const vehicle = p.riding ? g.vehicles.find(v => v.id === p.riding) : null;
+
+    // --- turret type carousel (RA2 homage): a freshly built turret idles in
+    // typeSelect; holding act within build reach drives the carousel —
+    // left/right cycle gun/prism/tesla/toxin, fire confirms. Unattended for
+    // 8s it confirms by itself ('gun' unless someone cycled it and left).
+    // Open build sites outrank the carousel (typeSelectNear yields null);
+    // the carousel outranks the shop (a built turret in reach already blocks
+    // stall engagement via structureInReach) and consumes its engaging press
+    // whole, exactly like the shop below. ---
+    const wasSelecting = !!p.selecting;
+    const selB = inp.act && !tower && !vehicle ? typeSelectNear(g, p) : null;
+    p.selecting = !!selB;
+    const selEngaged = p.selecting && !wasSelecting;
+    if (selEngaged) p.selPrev = { left: !!inp.left, right: !!inp.right, fire: !!inp.fire };
+    if (selB) {
+      selB.attended = true; // the unattended-confirm clock holds while driven
+      const edgeL = !!inp.left && !p.selPrev.left;
+      const edgeR = !!inp.right && !p.selPrev.right;
+      const edgeF = !!inp.fire && !p.selPrev.fire;
+      p.selPrev = { left: !!inp.left, right: !!inp.right, fire: !!inp.fire };
+      if (edgeL) selB.tsIdx = ((selB.tsIdx || 0) + TURRET_TYPES.length - 1) % TURRET_TYPES.length;
+      if (edgeR) selB.tsIdx = ((selB.tsIdx || 0) + 1) % TURRET_TYPES.length;
+      // p.selecting stays set through the confirming tick so the press never
+      // falls through to the main weapon or the act chain
+      if (edgeF) confirmTurretType(g, selB);
+    }
 
     // --- shop carousel: holding act inside 1.5 tiles of a stall locks
     // movement; left/right (edge) browse, fire (edge) buys. Structure work
@@ -2229,7 +2390,7 @@ export function step(g, inputs, dt) {
     // browsing a shop) ---
     const specialEdge = !!inp.special && !p.specialPrev;
     p.specialPrev = !!inp.special;
-    if (specialEdge && p.specialCool <= 0 && ch.special && !vehicle && !tower && !p.shopping) {
+    if (specialEdge && p.specialCool <= 0 && ch.special && !vehicle && !tower && !p.shopping && !p.selecting) {
       const sp = ch.special;
       if (sp.kind === 'dash') {
         p.dashT = 0.15;
@@ -2249,7 +2410,8 @@ export function step(g, inputs, dt) {
         p.stimT = 3;
         g.events.push({ type: 'special', x: p.x, y: p.y, kind: 'stim', who: 'p' });
       } else {
-        fireWeapon(g, p, sp, 'p');
+        // weapon-kind specials evolve with the seat's level, like main fire
+        fireWeapon(g, p, applyEvolution(sp, ch.evolution, p.level), 'p');
         g.events.push({ type: 'special', x: p.x, y: p.y, kind: sp.kind, who: 'p' });
       }
       p.specialCool = sp.cooldown || 3;
@@ -2281,6 +2443,29 @@ export function step(g, inputs, dt) {
         p.shield = Math.min(SHIELD_MAX, p.shield + 2);
         g.events.push({ type: 'shieldUp', pid: p.pid, x: p.x, y: p.y, shield: p.shield });
         used = true;
+      } else if (it.kind === 'toxin') {
+        // thrown like the cracker: a 4-tile lob that pools toxin on landing
+        const tx = Math.max(TILE * 0.5, Math.min((g.w - 0.5) * TILE, p.x + p.fx * CRACKER_RANGE * TILE));
+        const ty = Math.max(TILE * 0.5, Math.min((g.h - 0.5) * TILE, p.y + p.fy * CRACKER_RANGE * TILE));
+        g.patches.push({ x: tx, y: ty, kind: 'toxin', r: TOXIN_PATCH_R * TILE, ttl: TOXIN_PATCH_TTL, pid: p.pid });
+        g.events.push({ type: 'patch', x: tx, y: ty, kind: 'toxin', r: TOXIN_PATCH_R * TILE });
+        used = true;
+      } else if (it.kind === 'controller') {
+        // mind control: the nearest NON-BOSS enemy within 4 tiles fights for
+        // the squad for 10s, then burns out. No target in reach wastes nothing.
+        let tgt = null, best = (TILE * CONTROLLER_RANGE) ** 2;
+        for (const e of g.enemies) {
+          if (e.dead || e.kind === 'boss' || e.convertedT > 0) continue;
+          const dd = dist2(p, e);
+          if (dd < best) { best = dd; tgt = e; }
+        }
+        if (tgt) {
+          tgt.convertedT = CONTROLLER_T;
+          tgt.returning = false;
+          wakeEnemy(g, tgt, false);
+          g.events.push({ type: 'converted', x: tgt.x, y: tgt.y, kind: tgt.kind, pid: p.pid });
+          used = true;
+        }
       }
       if (used && --it.count <= 0) p.item = null;
     }
@@ -2293,10 +2478,10 @@ export function step(g, inputs, dt) {
       let remain = (3 / 0.15) * TILE * dt;
       while (remain > 0) {
         const m = Math.min(6, remain);
-        moveCircle(g, p, p.dashFx * m, p.dashFy * m, PLAYER_R);
+        moveCircle(g, p, p.dashFx * m, p.dashFy * m, PLAYER_R, swims ? blocksMoveSwim : blocksMove);
         remain -= m;
       }
-    } else if (tower || p.shopping) {
+    } else if (tower || p.shopping || p.selecting) {
       // locked in place; tower gunners still swivel their aim
       if (tower) {
         const dx = (inp.right ? 1 : 0) - (inp.left ? 1 : 0);
@@ -2313,32 +2498,50 @@ export function step(g, inputs, dt) {
         let v = ch.speed * TILE * dt * (p.stimT > 0 ? 1.3 : 1);
         if (vehicle) v = ch.speed * TILE * dt * (vehicle.kind === 'stag' ? STAG_SPEED : 1);
         if (g.flags.length && g.flags.some(f => f.carrier === p.pid)) v *= CARRY_SLOW;
+        if (!vehicle && onWater) v *= SWIM_SLOW; // swimmers paddle slower
+        // toxin pools slow EVERYONE wading through — patches carry no team
+        // (burn patches never touch players at all; see stepPatches)
+        if (g.patches.length) {
+          for (const pa of g.patches) {
+            if (pa.kind === 'toxin' && dist2(p, pa) < pa.r * pa.r) { v *= TOXIN_SLOW; break; }
+          }
+        }
         if (vehicle && vehicle.kind === 'skiff') skiffMove(g, p, mx * v, my * v);
-        else moveCircle(g, p, mx * v, my * v, PLAYER_R);
+        else moveCircle(g, p, mx * v, my * v, PLAYER_R, swims ? blocksMoveSwim : blocksMove);
       }
       if (vehicle) { vehicle.x = p.x; vehicle.y = p.y; }
     }
     p.cool -= dt;
-    if (inp.fire && p.cool <= 0 && !vehicle && !p.shopping) {
-      let weapon = ch.weapon;
+    if (inp.fire && p.cool <= 0 && !vehicle && !p.shopping && !p.selecting) {
+      // L3+ weapon evolutions ride every shot (arcade seats never level, so
+      // p.level is undefined there and the weapon passes through untouched)
+      let weapon = applyEvolution(ch.weapon, ch.evolution, p.level);
       if (tower) {
         // the high ground: longer reach, shots sail over walls
         const bonus = TOWER_BONUS[(tower.level || 1) - 1];
         weapon = { ...weapon, range: (weapon.range ?? 5) * (1 + bonus), overWalls: true };
       }
       fireWeapon(g, p, weapon, 'p');
-      p.cool = ch.weapon.cooldown;
+      p.cool = ch.weapon.cooldown * (onWater ? SWIM_FIRE_MULT : 1);
     }
 
-    // --- act (edge-triggered; a press that engaged the shop carousel above
-    // never falls through to this chain. Priority order, top wins:
+    // --- act (edge-triggered). FINAL priority order, top wins. The hold
+    // interactions claim a press first and consume it whole (no fall-through):
+    //   a. open build sites own their radius (building runs per-site below
+    //      on the held bool) and outrank both carousels
+    //   b. turret typeSelect carousel (gun/prism/tesla/toxin, fire confirms)
+    //   c. shop carousel (only when no structure work could claim the hold)
+    // Then the edge chain:
     //   1. leave tower            2. dismount vehicle
-    //   3. build sites (they own their radius — building runs per-site below
-    //      on the held bool)      4. ripe/trampled farms
+    //   3. build sites            4. ripe/trampled farms
     //   5. vehicle mount (NEAREST in reach — mounts outrank chest opening)
     //   6. chests (nearest)       7. tower occupy
-    //   8. hire posts             9. npc talk ---
-    const actEdge = !!inp.act && !p.actPrev && !shopEngaged;
+    //   8. hire posts (inert in pvp; combat jobs field a bound follower)
+    //   9. npc talk
+    // The dismantle-chain on BUILT structures runs LAST, on the held bool in
+    // the structures block below: repair while damaged > upgrade below max
+    // level > dismantle. ---
+    const actEdge = !!inp.act && !p.actPrev && !shopEngaged && !selEngaged;
     p.actPrev = !!inp.act;
     if (actEdge) {
       if (tower) {
@@ -2414,11 +2617,38 @@ export function step(g, inputs, dt) {
             }
           }
         }
-        if (!handled) {
+        if (!handled && !(g.mode === 'ctf' || g.mode === 'br')) { // pvp: posts are inert
           for (const h of g.hires) {
             if (h.hired || dist2(p, h) >= reach2) continue;
             handled = true; // the post consumes the press even when unaffordable
-            if (getShards(g, p) >= h.cost) {
+            if (FOLLOWER_JOBS.has(h.job)) {
+              // combat hands bind to the HIRING player. Limits: 2 per player,
+              // 5 per squad — living followers only; the dead free their slot.
+              let mine = 0, all = 0;
+              const usedSlots = new Set();
+              for (const f of g.followers) {
+                if (f.dead) continue;
+                all++;
+                if (f.owner === p.pid) { mine++; usedSlots.add(f.slot); }
+              }
+              // lowest formation slot not held by a LIVING follower of this
+              // hirer — a rehire after a death never doubles up a flank
+              let slot = 0;
+              while (usedSlots.has(slot)) slot++;
+              if (mine >= MAX_FOLLOWERS_PER_PLAYER || all >= MAX_FOLLOWERS_PER_SQUAD) {
+                g.events.push({ type: 'followerLimit', x: h.x, y: h.y, pid: p.pid });
+              } else if (getShards(g, p) >= h.cost) {
+                addShards(g, p, -h.cost);
+                h.hired = true;
+                g.followers.push({
+                  id: g.nextFollowerId++, kind: h.job, owner: p.pid,
+                  x: h.x, y: h.y, hp: FOLLOWER_STATS[h.job].hp, slot,
+                  post: g.hires.indexOf(h), isFollower: true,
+                  fx: 0, fy: 1, cool: 0, invulnT: 0, path: null, pathI: 0, repathT: 0,
+                });
+                g.events.push({ type: 'hired', name: h.name, job: h.job, cost: h.cost, x: h.x, y: h.y });
+              }
+            } else if (getShards(g, p) >= h.cost) {
               addShards(g, p, -h.cost);
               h.hired = true;
               g.events.push({ type: 'hired', name: h.name, job: h.job, cost: h.cost, x: h.x, y: h.y });
@@ -2471,7 +2701,8 @@ export function step(g, inputs, dt) {
   const holdersOf = s => {
     const arr = [];
     for (const p of g.players) {
-      if (p.state !== 'active' || p.towerId != null || p.riding) continue;
+      // a player driving a typeSelect carousel never works structures
+      if (p.state !== 'active' || p.towerId != null || p.riding || p.selecting) continue;
       const inp = inputs[p.pid] || {};
       if (inp.act && dist2(p, s) < holdReach2) arr.push(p);
     }
@@ -2481,6 +2712,18 @@ export function step(g, inputs, dt) {
     if (b.evT > 0) b.evT -= dt;
     if (b.built) {
       if (b.kind === 'pylon' || b.kind === 'farm') continue;
+      if (b.typeSelect) {
+        // the carousel (player loop above) claims every hold here; left
+        // unattended, the 8s clock runs down and the turret self-confirms
+        // ('gun' unless somebody cycled it and walked away)
+        if (b.attended) { b.selT = 0; b.attended = false; }
+        else {
+          b.selT = (b.selT || 0) + dt;
+          if (b.selT >= TYPE_SELECT_T) confirmTurretType(g, b);
+        }
+        b.dismantleT = 0;
+        continue;
+      }
       const holderArr = holdersOf(b);
       const holders = holderArr.length;
       if (!holders) { b.dismantleT = 0; continue; }
@@ -2531,6 +2774,15 @@ export function step(g, inputs, dt) {
       b.hp = b.maxHp;
       b.invested = b.cost;
       g.events.push({ type: 'built', x: b.x, y: b.y, kind: b.kind });
+      if (b.kind === 'turret') {
+        // RA2 homage: a finished turret waits in type-select; the carousel
+        // (player loop) confirms it, or 8s of neglect defaults it to 'gun'.
+        b.typeSelect = true;
+        b.tsIdx = 0;
+        b.selT = 0;
+        b.attended = false;
+        b.ttype = undefined;
+      }
       if (b.kind === 'pylon' && g.gate) {
         g.gate.built++;
         maybeOpenGate(g);
@@ -2588,7 +2840,17 @@ export function step(g, inputs, dt) {
 
   // --- hired operators work their posts on fixed deterministic ticks ---
   for (const h of g.hires) {
+    // a combat post whose follower went down restocks after 20s
+    if (h.restockT > 0) {
+      h.restockT -= dt;
+      if (h.restockT <= 0) {
+        h.restockT = 0;
+        h.hired = false;
+        g.events.push({ type: 'restock', x: h.x, y: h.y, job: h.job });
+      }
+    }
     if (!h.hired) continue;
+    if (FOLLOWER_JOBS.has(h.job)) continue; // combat hands fight afield, no post work
     h.workT = (h.workT || 0) + dt;
     if (h.job === 'smith') {
       while (h.workT >= 20) { // +1 shard to the pool every 20s
@@ -2679,7 +2941,10 @@ export function step(g, inputs, dt) {
       g.events.push({ type: 'crackerBoom', x: c.x, y: c.y, radius: TILE * CRACKER_AOE });
       const r2 = (TILE * CRACKER_AOE) ** 2;
       for (const e of g.enemies) {
-        if (!e.dead && dist2(c, e) <= r2) damageEnemy(g, e, CRACKER_DMG, e.x, e.y, 'cracker');
+        // converted allies are spared (no convert-then-boom score farming);
+        // kills credit the thrower's seat with xp, like every other item
+        if (e.dead || e.convertedT > 0) continue;
+        if (dist2(c, e) <= r2) damageEnemy(g, e, CRACKER_DMG, e.x, e.y, 'cracker', c.pid);
       }
       // pvp only: the boom clips OTHER-team operatives caught in the lure
       // (never same-team; invuln/shield rules ride damagePlayer as usual)
@@ -2719,21 +2984,92 @@ export function step(g, inputs, dt) {
     }
   }
 
-  // --- built turrets: auto-fire at the nearest awake enemy in range+sight.
-  // Levels raise damage (1/2/3) and targeting reach (5/5.5/6 tiles). ---
+  // --- built turrets: each confirmed type runs its own pattern, level-scaled.
+  //   gun:   projectile, dmg 1/2/3, reach 5.5/6/6.5 tiles, every 0.55s
+  //          (the cheap reliable single-target pick beside the prism)
+  //   prism: instant beam, dmg 2/3/4 +1 per OTHER built prism within 4 tiles
+  //          (cap +3, the RA2 chain), reach 7/7.5/8, every 1.2s
+  //   tesla: chain-zap up to 3 enemies for 2/1/1 (3/2/1, 4/2/2) + 0.4s stun,
+  //          reach 4/4.5/5, every 1.5s
+  //   toxin: lobs a toxin patch onto the nearest awake enemy in 5/5.5/6 every
+  //          3s (a lob: no sight line needed)
+  // A turret still in typeSelect holds its fire. Turret kills pay no xp. ---
   for (const b of g.builds) {
-    if (!b.built || b.kind !== 'turret') continue;
+    if (!b.built || b.kind !== 'turret' || b.typeSelect) continue;
     if (b.cool > 0) { b.cool -= dt; continue; }
     const lvl = b.level || 1;
-    let tgt = null, best = (TILE * TURRET_RANGE[lvl - 1]) ** 2;
-    for (const e of g.enemies) {
-      if (e.dead || !e.awake) continue;
-      const dd = dist2(b, e);
-      if (dd < best && hasLoS(g, b.x, b.y, e.x, e.y, blocksSight)) { best = dd; tgt = e; }
-    }
-    if (tgt) {
-      fireWeapon(g, b, { ...TURRET_WEAPON, damage: TURRET_DMG[lvl - 1] }, 'p', tgt);
-      b.cool = 0.8;
+    const ttype = b.ttype || 'gun';
+    const pick = (rangeTiles, needLoS) => {
+      let tgt = null, best = (TILE * rangeTiles) ** 2;
+      for (const e of g.enemies) {
+        if (e.dead || !e.awake || e.convertedT > 0) continue;
+        const dd = dist2(b, e);
+        if (dd < best && (!needLoS || hasLoS(g, b.x, b.y, e.x, e.y, blocksSight))) { best = dd; tgt = e; }
+      }
+      return tgt;
+    };
+    if (ttype === 'gun') {
+      const tgt = pick(TURRET_RANGE[lvl - 1], true);
+      if (tgt) {
+        // shot flight range rides half a tile past targeting reach so the
+        // round always covers the distance to an edge-of-range target
+        fireWeapon(g, b, { ...TURRET_WEAPON, damage: TURRET_DMG[lvl - 1], range: TURRET_RANGE[lvl - 1] + 0.5 }, 'p', tgt);
+        b.cool = TURRET_PERIOD;
+      }
+    } else if (ttype === 'prism') {
+      const tgt = pick(PRISM_RANGE[lvl - 1], true);
+      if (tgt) {
+        // every OTHER built prism within 4 tiles feeds +1 beam damage (cap +3)
+        let feed = 0;
+        const link2 = (TILE * PRISM_LINK_R) ** 2;
+        for (const o of g.builds) {
+          if (o === b || !o.built || o.kind !== 'turret' || o.ttype !== 'prism' || o.typeSelect) continue;
+          if (dist2(b, o) < link2 && feed < 3) {
+            feed++;
+            g.events.push({ type: 'prismFeed', x: o.x, y: o.y, tx: b.x, ty: b.y });
+          }
+        }
+        const dmg = PRISM_DMG[lvl - 1] + feed;
+        g.events.push({ type: 'prismBeam', x: b.x, y: b.y, tx: tgt.x, ty: tgt.y, dmg });
+        damageEnemy(g, tgt, dmg, tgt.x, tgt.y, 'prism');
+        b.cool = PRISM_PERIOD;
+      }
+    } else if (ttype === 'tesla') {
+      const first = pick(TESLA_RANGE[lvl - 1], true);
+      if (first) {
+        // chain: hop to the nearest remaining enemy still inside turret reach
+        const range2 = (TILE * TESLA_RANGE[lvl - 1]) ** 2;
+        const targets = [first];
+        let from = first;
+        while (targets.length < 3) {
+          let nxt = null, best = Infinity;
+          for (const e of g.enemies) {
+            if (e.dead || e.convertedT > 0 || targets.includes(e)) continue;
+            if (dist2(b, e) >= range2) continue;
+            const dd = dist2(from, e);
+            if (dd < best) { best = dd; nxt = e; }
+          }
+          if (!nxt) break;
+          targets.push(nxt);
+          from = nxt;
+        }
+        g.events.push({ type: 'teslaZap', x: b.x, y: b.y, targets: targets.map(t => ({ x: t.x, y: t.y })) });
+        const dmgs = TESLA_DMG[lvl - 1];
+        for (let i = 0; i < targets.length; i++) {
+          const t = targets[i];
+          t.stunT = Math.max(t.stunT || 0, TESLA_STUN); // stun first: kills don't care
+          damageEnemy(g, t, dmgs[i], t.x, t.y, 'tesla');
+        }
+        b.cool = TESLA_PERIOD;
+      }
+    } else if (ttype === 'toxin') {
+      const tgt = pick(TOXIN_TURRET_RANGE[lvl - 1], false);
+      if (tgt) {
+        const r = TOXIN_TURRET_R[lvl - 1] * TILE;
+        g.patches.push({ x: tgt.x, y: tgt.y, kind: 'toxin', r, ttl: TOXIN_PATCH_TTL });
+        g.events.push({ type: 'patch', x: tgt.x, y: tgt.y, kind: 'toxin', r });
+        b.cool = TOXIN_TURRET_PERIOD;
+      }
     }
   }
 
@@ -2760,6 +3096,12 @@ export function step(g, inputs, dt) {
   if (g.graceT > 0) g.graceT -= dt;
   else for (const e of g.enemies) stepEnemy(g, e, dt);
 
+  // --- combat depth: status clocks (stun/burn/toxin/mind-control), ground
+  // patches, hired combat followers. All empty on classics — pure no-ops. ---
+  stepStatuses(g, dt);
+  stepPatches(g, dt);
+  stepFollowers(g, dt);
+
   // --- shots ---
   for (let i = g.shots.length - 1; i >= 0; i--) {
     const s = g.shots[i];
@@ -2779,7 +3121,8 @@ export function step(g, inputs, dt) {
     }
     if (!dead && s.who === 'p') {
       for (const e of g.enemies) {
-        if (e.dead || s.hits.includes(e.id)) continue;
+        // mind-controlled enemies fight for the squad: player fire passes over
+        if (e.dead || e.convertedT > 0 || s.hits.includes(e.id)) continue;
         if (dist2(s, e) < (ENEMY_R + (s.radius || SHOT_R)) ** 2) {
           if (shieldBlocks(e, s)) {
             dead = true;
@@ -2787,7 +3130,31 @@ export function step(g, inputs, dt) {
             break;
           }
           s.hits.push(e.id);
-          damageEnemy(g, e, s.dmg, e.x, e.y, s.kind);
+          // evolution riders land BEFORE the damage so a killing blow still
+          // counts as ignited (L4 burn corpses leave their ground patch)
+          if (s.stun) e.stunT = Math.max(e.stunT || 0, s.stun);
+          if (s.ignite) igniteEnemy(g, e, s.ownerPid, !!s.ignitePatch);
+          damageEnemy(g, e, s.dmg, e.x, e.y, s.kind, s.ownerPid);
+          if (s.shockArc) {
+            // L4 shock: arc to the nearest OTHER enemy within 2 tiles at half
+            // damage, stunned like a direct hit
+            let arc = null, bestA = (TILE * 2) ** 2;
+            for (const o of g.enemies) {
+              if (o === e || o.dead || o.convertedT > 0) continue;
+              const dd = dist2(e, o);
+              if (dd < bestA) { bestA = dd; arc = o; }
+            }
+            if (arc) {
+              arc.stunT = Math.max(arc.stunT || 0, s.stun || STUN_T);
+              g.events.push({ type: 'shockArc', x: e.x, y: e.y, tx: arc.x, ty: arc.y });
+              damageEnemy(g, arc, s.dmg / 2, arc.x, arc.y, 'shock', s.ownerPid);
+            }
+          }
+          if (s.knockback && !e.dead) {
+            // tornado: shove the victim back along the shot's line of flight
+            const sp = Math.hypot(s.vx, s.vy) || 1;
+            moveCircle(g, e, (s.vx / sp) * s.knockback * TILE, (s.vy / sp) * s.knockback * TILE, ENEMY_R);
+          }
           if (s.aoeRadius) explode(g, s, e);
           if (s.pierce > 0) s.pierce--;
           else dead = true;
@@ -2832,6 +3199,18 @@ export function step(g, inputs, dt) {
           break;
         }
       }
+      // followers soak enemy fire too (contact damage rides nearestTarget)
+      if (!dead) {
+        for (const f of g.followers) {
+          if (f.dead || f.invulnT > 0) continue;
+          if (dist2(s, f) < (FOLLOWER_R + (s.radius || SHOT_R)) ** 2) {
+            dead = true;
+            if (s.aoeRadius) explode(g, s);
+            else damageFollower(g, f, s.dmg);
+            break;
+          }
+        }
+      }
     }
     if (dead) {
       if (s.aoeRadius) explode(g, s);
@@ -2841,6 +3220,7 @@ export function step(g, inputs, dt) {
 
   g.enemies = g.enemies.filter(e => !e.dead);
   g.crystals = g.crystals.filter(c => c.hp > 0);
+  if (g.followers.length) g.followers = g.followers.filter(f => !f.dead);
 
   // --- end conditions ---
   // Bastion: the base core falling loses the mission outright.
@@ -2920,7 +3300,16 @@ export function snapshot(g, full = true) {
       x: b.x, y: b.y, kind: b.kind, cost: b.cost, progress: b.progress, paid: b.paid, built: b.built, hp: b.hp, maxHp: b.maxHp,
       ...(b.stage !== undefined ? { stage: b.stage, ...(b.trampled ? { trampled: true } : {}) } : {}),
       ...(b.level !== undefined ? { level: b.level } : {}),
+      // turret type carousel: ttype rides once confirmed; the select state
+      // ships while open (cursor + remaining auto-confirm seconds) so
+      // clients can draw the wheel and its countdown
+      ...(b.ttype ? { ttype: b.ttype } : {}),
+      ...(b.typeSelect ? { typeSelect: true, tsIdx: b.tsIdx || 0, typeSelectT: Math.max(0, TYPE_SELECT_T - (b.selT || 0)) } : {}),
     })),
+    // ground patches and combat followers ship only when populated — classic
+    // snapshots never gain the keys
+    ...(g.patches.length ? { patches: g.patches.map(pa => ({ x: pa.x, y: pa.y, kind: pa.kind, r: pa.r, ttl: pa.ttl })) } : {}),
+    ...(g.followers.length ? { followers: g.followers.map(f => ({ id: f.id, kind: f.kind, owner: f.owner, x: f.x, y: f.y, hp: f.hp, fx: f.fx, fy: f.fy, slot: f.slot })) } : {}),
     crystals: g.crystals.map(c => ({ x: c.x, y: c.y, hp: c.hp })),
     drops: g.drops.map(d => ({ x: d.x, y: d.y, amount: d.amount, ttl: d.ttl })),
     npcs: g.npcs.map(n => ({ id: n.id, name: n.name, x: n.x, y: n.y })),
@@ -2948,7 +3337,10 @@ export function snapshot(g, full = true) {
       ...(p.riding ? { riding: p.riding } : {}),
       ...(p.towerId != null ? { towerId: p.towerId } : {}),
       ...(p.shopping ? { shop: { idx: p.shopIdx || 0 } } : {}),
+      ...(p.selecting ? { selecting: true } : {}),
       ...(p.dmgBonus ? { dmgBonus: p.dmgBonus } : {}),
+      // on-the-spot leveling (non-arcade seats only; arcade never gains keys)
+      ...(p.level !== undefined ? { xp: p.xp, level: p.level } : {}),
       ...(p.state === 'pick' ? { pick: { idx: p.pickIdx, choices: freeChars(g) } } : {}),
     })),
     enemies: g.enemies.map(e => ({
@@ -2968,9 +3360,15 @@ export function snapshot(g, full = true) {
       awake: e.awake,
       returning: e.returning,
       ...(e.mutation ? { mutation: e.mutation } : {}),
+      // status clocks ship as short floats only while live (lite by default)
+      ...(e.stunT > 0 ? { stunT: e.stunT } : {}),
+      ...(e.burnT > 0 ? { burnT: e.burnT } : {}),
+      ...(e.toxT > 0 ? { toxT: e.toxT } : {}),
+      ...(e.convertedT > 0 ? { convertedT: e.convertedT } : {}),
     })),
     captives: g.captives.map(c => ({ charId: c.charId, x: c.x, y: c.y, owner: c.owner, fromPlayer: c.fromPlayer })),
-    shots: g.shots.map(s => ({ x: s.x, y: s.y, vx: s.vx, vy: s.vy, who: s.who, kind: s.kind })),
+    // ownerPid lets the renderer dress player shots in their seat's evolution
+    shots: g.shots.map(s => ({ x: s.x, y: s.y, vx: s.vx, vy: s.vy, who: s.who, kind: s.kind, ...(s.ownerPid !== undefined ? { ownerPid: s.ownerPid } : {}) })),
     rescued: g.rescued,
     score: Math.round(g.score),
     kills: g.kills,

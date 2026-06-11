@@ -106,16 +106,20 @@ for (const [tx, ty] of towerSpots) {
 // shop stall by the north wall, campfires on the parade ground
 set(46, 28, 'S');
 set(42, 29, '*'); set(42, 35, '*');
-// hire posts along the west interior (def.hires binds row-major: y order)
+// hire posts along the west interior (def.hires binds row-major: y order):
+// the 3 job posts plus 2 combat hands (hound/archer) bracketing the row
 const hirePlan = [
+  { x: 35, y: 29, job: 'hound', cost: 10, name: 'Fang Berro' },
   { x: 35, y: 31, job: 'farmer', cost: 8, name: 'Sage Imbra' },
   { x: 35, y: 33, job: 'engineer', cost: 10, name: 'Wrench Odal' },
   { x: 35, y: 35, job: 'smith', cost: 12, name: 'Forgemaster Hesk' },
+  { x: 35, y: 37, job: 'archer', cost: 12, name: 'Fletch Roan' },
 ];
 for (const h of hirePlan) {
   if (get(h.x, h.y) !== ';') fail(`hire spot occupied ${h.x},${h.y}`);
   set(h.x, h.y, 'H');
 }
+hirePlan.sort((a, b) => a.y - b.y || a.x - b.x); // def.hires binds row-major
 // two stags stabled east of the core (the skiff joins the plan at the lake)
 const vehiclePlan = [
   { x: 45, y: 31, kind: 'stag' },
@@ -126,12 +130,15 @@ for (const v of vehiclePlan) {
   set(v.x, v.y, 'V');
 }
 
-// --- build sites (def.builds binds row-major): 6 gap barricades, 2 turrets
-// inside, 4 farm plots in the southeast yard ---
+// --- build sites (def.builds binds row-major): 6 gap barricades, 4 turrets
+// inside (38,31 pairs within 4 tiles of 38,28 so prism chaining is on the
+// table; 50,32 covers the far east gate), 4 farm plots in the southeast yard ---
 const buildPlan = [
   ...gateTiles.map(([x, y]) => ({ kind: 'barricade', cost: 4, x, y })),
   { kind: 'turret', cost: 10, x: 38, y: 28 },
+  { kind: 'turret', cost: 10, x: 38, y: 31 },
   { kind: 'turret', cost: 10, x: 38, y: 36 },
+  { kind: 'turret', cost: 10, x: 50, y: 32 },
   { kind: 'farm', cost: 6, x: 44, y: 35 },
   { kind: 'farm', cost: 6, x: 46, y: 35 },
   { kind: 'farm', cost: 6, x: 44, y: 37 },
@@ -215,6 +222,8 @@ placeChest(26, 57, 'medkit', 1);   // south marsh edge
 placeChest(57, 57, 'cracker', 2);  // badlands gully
 placeChest(78, 52, 'shards', 9);   // far badlands
 placeChest(76, 33, 'shield', 1);   // east meadow end
+placeChest(28, 14, 'controller', 1); // forest fringe — turn one of theirs
+placeChest(60, 41, 'toxin', 1);    // badlands rim — area denial in a box
 // the island hoard: rich, skiff-only
 for (const [ix, iy, loot, amount] of [[65, 11, 'token', 1], [67, 11, 'shards', 12], [66, 13, 'shield', 1]]) {
   if (get(ix, iy) !== '.' || !inIsle(ix, iy)) fail(`island chest spot bad ${ix},${iy} ${get(ix, iy)}`);
@@ -330,7 +339,7 @@ for (const [letter, ex, ey] of enemyPlan) {
   // counts
   const counts = {};
   for (const row of grid) for (const c of row) counts[c] = (counts[c] || 0) + 1;
-  const expect = { P: 4, K: 1, W: 4, S: 1, H: 3, V: 3, C: 13, Y: 12, B: 12 };
+  const expect = { P: 4, K: 1, W: 4, S: 1, H: 5, V: 3, C: 15, Y: 12, B: 14 };
   for (const [ch, n] of Object.entries(expect))
     if ((counts[ch] || 0) !== n) fail(`tile '${ch}' count ${counts[ch] || 0} != ${n}`);
   if (enemyCount !== 28) fail(`enemy count ${enemyCount} != 28`);
