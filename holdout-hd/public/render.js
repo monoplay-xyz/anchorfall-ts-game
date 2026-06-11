@@ -14,6 +14,7 @@ const edgePulses = []; // nightwave warnings: violet bleed from a map edge
 const crackers = []; // landed lure crackers: 'crackerOut' -> 'crackerBoom'/timeout
 const beams = []; // prism tower shots: 'prismBeam' {x,y,tx,ty,dmg,feeders?}
 const zaps = []; // tesla chain lightning: 'teslaZap' {x,y,targets:[{x,y}]}
+const streaks = []; // blink lines: teleports + phase stalkers {x,y,tx,ty,rgb}
 const pendingLevelUps = []; // coordless 'levelUp' events resolved to player pos
 const houndMood = new Map(); // follower id -> {engaged,lastBark}: bark on engage edge
 let coreAlarmT = 0; // base-core alarm glow, armed by 'coreHit'/'coreDown'
@@ -569,11 +570,14 @@ export function drawPortrait(canvas, ch, size = 56) {
 function weaponClass(kind) {
   switch (kind) {
     case 'rail': case 'ghost': return 'long';
+    case 'railcannon': return 'long'; // field pickup: heavy pierce rail
     case 'scatter': case 'slug': return 'shotgun';
     case 'mortar': case 'cannon': case 'rivet': case 'comet': return 'tube';
+    case 'mortarMk2': return 'tube'; // field pickup: over-wall AoE tube
     case 'twin': case 'blade': return 'blades';
-    case 'flame': return 'thrower';
+    case 'flame': case 'flamer': return 'thrower'; // flamer = field pickup cone
     case 'disc': case 'helix': return 'arc';
+    case 'stormgun': return 'arc'; // field pickup: chain-zap emitter
     case 'harpoon': return 'spear'; // the Selkie's barbed harpoon
     default: return 'smg'; // smg, needle, spark, unknown future kinds
   }
@@ -713,7 +717,8 @@ export function addEventFX(ev) {
 
   // shoot flashes carry the shooter's weapon evolution when the sim ships it
   // (ev.evo); otherwise render() resolves it from the nearest leveled player.
-  if (ev.type === 'shoot') flashes.push({ x: ev.x, y: ev.y, life: 0.07, who: ev.who, evo: ev.evo });
+  // ev.weapon rides along so field weapons get their own muzzle FX.
+  if (ev.type === 'shoot') flashes.push({ x: ev.x, y: ev.y, life: 0.07, who: ev.who, evo: ev.evo, weapon: ev.weapon });
   else if (ev.type === 'hit') { burst(4, '#ffd9d2', 110, 0.3); burst(3, PAL.red, 90, 0.3); }
   else if (ev.type === 'hitWall' || ev.type === 'shield') burst(5, PAL.steel, 90, 0.25);
   else if (ev.type === 'explode') {
@@ -935,6 +940,148 @@ export function addEventFX(ev) {
   }
   else if (ev.type === 'followerHit') { if (ev.x != null) burst(5, '#ffd9d2', 100, 0.3); }
   else if (ev.type === 'followerDown') { if (ev.x != null) { burst(8, PAL.teal, 130, 0.45); burst(4, PAL.steel, 90, 0.35); } }
+  // --- frontier III: quests, puzzle systems, field weapons ---
+  else if (ev.type === 'switch') {
+    // a voice comes online (or resets off): clunk burst at the console
+    if (ev.x != null) {
+      const col = ev.on === false ? PAL.steel : PAL.lythGold;
+      burst(8, col, 110, 0.45);
+      ring(26, col, 0.45, 2);
+    }
+  }
+  else if (ev.type === 'glyph' || ev.type === 'glyphLit') {
+    if (ev.x != null) { burst(9, PAL.lythGold, 120, 0.5); ring(30, PAL.lythGold, 0.5, 2); }
+  }
+  else if (ev.type === 'glyphReset') {
+    // wrong rune: the ring spins back with a cough of drift-static
+    if (ev.x != null) { burst(12, PAL.glitch, 140, 0.5); burst(4, PAL.steel, 90, 0.35); ring(42, PAL.glitch, 0.5, 2); }
+    popups.push({ screen: true, x: 0, y: 0, text: 'THE RING SPINS BACK', life: 1.6, max: 1.6, color: PAL.glitch, size: 20 });
+  }
+  else if (ev.type === 'pillarDown') {
+    // a Colonnade pillar falls into curve-segment rubble
+    if (ev.x != null) {
+      burst(18, PAL.steel, 200, 0.6);
+      burst(10, PAL.glitch, 150, 0.5);
+      ring(60, PAL.steel, 0.6, 3);
+      popups.push({ x: ev.x, y: ev.y - 30, text: 'LET IT REST', life: 1.4, max: 1.4, color: PAL.coldHi });
+    }
+    shake = Math.max(shake, 7);
+  }
+  else if (ev.type === 'sealForged') {
+    // the Combining: one unbroken hammer-line settles checkpoint gold
+    if (ev.x != null) {
+      ring(70, PAL.lythGold, 0.9, 3);
+      burst(22, PAL.lythGold, 200, 0.7);
+      burst(8, PAL.lythPale, 260, 0.5);
+    }
+    popups.push({ screen: true, x: 0, y: 0, text: 'LYTHSEAL FORGED', life: 2.4, max: 2.4, color: PAL.lythGold, size: 28 });
+    shake = Math.max(shake, 4);
+  }
+  else if (ev.type === 'doorOpen') {
+    if (ev.x != null) { burst(10, PAL.steel, 120, 0.45); ring(34, PAL.relay, 0.5, 2); }
+  }
+  else if (ev.type === 'teleport') {
+    // the world agrees you've moved: gold-cyan blink at both pads
+    if (ev.x != null) {
+      burst(10, PAL.relay, 150, 0.4);
+      ring(22, PAL.anchor, 0.4, 2);
+      if (ev.tx != null) {
+        streaks.push({ x: ev.x, y: ev.y, tx: ev.tx, ty: ev.ty, life: 0.3, max: 0.3, rgb: '111,216,242' });
+        burstAt(ev.tx, ev.ty, 10, PAL.relay, 150, 0.4);
+      }
+    }
+  }
+  else if (ev.type === 'beacon') {
+    // a save beacon settles: progress held past failure
+    if (ev.x != null) { ring(60, PAL.lythGold, 0.8, 2.5); burst(12, PAL.lythGold, 140, 0.55); }
+    popups.push({ screen: true, x: 0, y: 0, text: 'BEACON SETTLED — PROGRESS HELD', life: 2.2, max: 2.2, color: PAL.lythGold, size: 20 });
+  }
+  else if (ev.type === 'quest') {
+    // objective toasts live in the client panel; a soft ring at the giver
+    if (ev.x != null) ring(28, PAL.lythGold, 0.5, 2);
+  }
+  else if (ev.type === 'fieldEmpty') {
+    // the field weapon runs dry and evaporates
+    if (ev.x != null) {
+      burst(5, PAL.steel, 70, 0.3);
+      popups.push({ x: ev.x, y: ev.y - 20, text: 'EMPTY', life: 0.8, max: 0.8, color: '#8A98B8' });
+    }
+  }
+  else if (ev.type === 'fieldPickup' || ev.type === 'pickupWeapon' || ev.type === 'weaponPickup') {
+    if (ev.x != null) {
+      burst(9, PAL.lythGold, 110, 0.45);
+      popups.push({ x: ev.x, y: ev.y - 20, text: String(ev.kind ?? 'WEAPON').toUpperCase(), life: 0.9, max: 0.9, color: PAL.lythGold });
+    }
+  }
+  else if (ev.type === 'fieldDrop' || ev.type === 'dropWeapon') { if (ev.x != null) burst(5, PAL.steel, 80, 0.3); }
+  else if (ev.type === 'qitem' || ev.type === 'questItem') {
+    if (ev.x != null) { burst(8, PAL.lythGold, 100, 0.45); ring(20, PAL.lythGold, 0.4, 2); }
+  }
+  else if (ev.type === 'shielded' || ev.type === 'enemyShield') {
+    // a Null Acolyte wraps a ward in one absorb charge
+    if (ev.x != null) ring(20, PAL.glitch, 0.4, 2);
+  }
+  else if (ev.type === 'blink') {
+    // phase stalker blink: violet streak between the two footprints
+    if (ev.x != null) {
+      burst(8, PAL.glitch, 140, 0.35);
+      if (ev.tx != null) streaks.push({ x: ev.x, y: ev.y, tx: ev.tx, ty: ev.ty, life: 0.22, max: 0.22, rgb: '142,79,209' });
+    }
+  }
+  else if (ev.type === 'zap' || ev.type === 'chainZap' || ev.type === 'voltZap') {
+    // volt wraith chain-zap on a player (zaps draw from y-27, so offset back)
+    if (ev.x != null) {
+      zaps.push({ x: ev.x, y: ev.y + 27, targets: [{ x: ev.tx ?? ev.x, y: ev.ty ?? ev.y }], life: 0.18, max: 0.18 });
+    }
+  }
+  else if (ev.type === 'shockArc') {
+    // a stormgun round (or L4 arc) leaps to the next enemy
+    if (ev.x != null && ev.tx != null) {
+      zaps.push({ x: ev.x, y: ev.y + 27, targets: [{ x: ev.tx, y: ev.ty }], life: 0.16, max: 0.16 });
+      burstAt(ev.tx, ev.ty, 4, PAL.eye, 120, 0.25);
+    }
+  }
+  else if (ev.type === 'shieldPop') {
+    // an acolyte ward shatters: violet shards, the absorb is spent
+    if (ev.x != null) { burst(9, PAL.glitch, 150, 0.4); ring(22, PAL.glitch, 0.35, 2); }
+  }
+  else if (ev.type === 'pyreBurst') {
+    // a pyre beetle goes up: warm pop + the burn patch rides g.patches
+    if (ev.x != null) {
+      burst(14, PAL.lythAmber, 190, 0.5);
+      burst(6, PAL.ember, 130, 0.45);
+      ring(ev.radius ?? TILE * 1.2, PAL.ember, 0.45, 2.5);
+    }
+    shake = Math.max(shake, 4);
+  }
+  else if (ev.type === 'questProgress') {
+    // the ledger ticks over: small gold count at the deed
+    if (ev.x) {
+      popups.push({
+        x: ev.x, y: ev.y - 24,
+        text: `${ev.progress ?? ''}/${ev.count ?? ''}`,
+        life: 0.9, max: 0.9, color: PAL.lythGold,
+      });
+    }
+  }
+  else if (ev.type === 'harvest') {
+    if (ev.x != null) { burst(8, '#8CC850', 100, 0.45); burst(4, PAL.lythGold, 80, 0.4); }
+  }
+  else if (ev.type === 'slotFull') {
+    if (ev.x != null) popups.push({ x: ev.x, y: ev.y - 24, text: 'FULL', life: 0.7, max: 0.7, color: '#8A98B8' });
+  }
+  else if (ev.type === 'restock') {
+    if (ev.x != null) { burst(7, PAL.teal, 90, 0.4); ring(20, PAL.teal, 0.4, 2); }
+  }
+  else if (ev.type === 'shieldUp') {
+    if (ev.x != null) ring(24, PAL.relay, 0.5, 2);
+  }
+  else if (ev.type === 'aim') {
+    // a ranged telegraph with a known mark: faint warning thread
+    if (ev.x != null && ev.tx != null) {
+      streaks.push({ x: ev.x, y: ev.y, tx: ev.tx, ty: ev.ty, life: 0.25, max: 0.5, rgb: '142,79,209' });
+    }
+  }
   // unknown event types are ignored gracefully
 }
 
@@ -1207,6 +1354,19 @@ function drawCaptive(ctx, c, color, t) {
 // Purple-black glitch bodies, one cyan-white eye each, era-debris skins.
 const KIND_R = { grunt: 13, archer: 10, charger: 16, bulwark: 13, spawner: 13, sniper: 9, skitter: 7, boss: 26 };
 
+// Frontier III kinds (letters z f q v x u) may ship under a few names while
+// the sim wave lands; normalize for drawing and register their radii.
+const KIND_ALIAS = {
+  z: 'husk', husk: 'husk',
+  f: 'forkalpha', fork: 'forkalpha', forkalpha: 'forkalpha', forkAlpha: 'forkalpha', alpha: 'forkalpha',
+  q: 'acolyte', acolyte: 'acolyte', nullacolyte: 'acolyte', nullAcolyte: 'acolyte',
+  v: 'voltwraith', volt: 'voltwraith', wraith: 'voltwraith', voltwraith: 'voltwraith', voltWraith: 'voltwraith',
+  x: 'phasestalker', phase: 'phasestalker', stalker: 'phasestalker', phasestalker: 'phasestalker', phaseStalker: 'phasestalker',
+  u: 'pyrebeetle', pyre: 'pyrebeetle', beetle: 'pyrebeetle', pyrebeetle: 'pyrebeetle', pyreBeetle: 'pyrebeetle',
+};
+const KIND_R_NEW = { husk: 10, forkalpha: 13, acolyte: 11, voltwraith: 11, phasestalker: 12, pyrebeetle: 11 };
+for (const [k, canon] of Object.entries(KIND_ALIAS)) KIND_R[k] = KIND_R_NEW[canon];
+
 function drawEye(ctx, x, y, r, alpha = 1) {
   ctx.save();
   ctx.globalAlpha *= alpha;
@@ -1223,6 +1383,7 @@ function drawEye(ctx, x, y, r, alpha = 1) {
 function drawEnemy(ctx, e, t, dt) {
   const a = Math.atan2(e.fy, e.fx);
   const { ph } = poseFor('e' + e.id, e.x, e.y, dt);
+  const kind = KIND_ALIAS[e.kind] || e.kind; // frontier III aliases
 
   if (e.kind === 'grunt') {
     // ENTROPY CRAWLER — low six-limbed tick of static, wider than tall
@@ -1483,9 +1644,31 @@ function drawEnemy(ctx, e, t, dt) {
   }
 
   if (e.kind === 'sniper') {
-    // CLASSICAL PHANTOM — semi-transparent ghost of an old operator coat
+    // CLASSICAL PHANTOM — semi-transparent ghost of an old operator coat.
+    // Inside a carried LythiumSeal's light (6 tiles) the forged cover boils
+    // away: full opacity, no flicker, curve-segments peeling off mid-stride.
+    let revealed = false;
+    for (const sc of sealCarriers) {
+      if ((sc.x - e.x) ** 2 + (sc.y - e.y) ** 2 < (TILE * 6) ** 2) { revealed = true; break; }
+    }
+    if (revealed) {
+      ctx.save();
+      const seed = e.id * 5.17;
+      for (let i = 0; i < 4; i++) {
+        // glowing fragments of the forged classical aggregate, shed upward
+        const pr = fract(t * 0.9 + i * 0.27 + flick(seed + i * 3.3));
+        const ox = (flick(seed + i * 7.1) - 0.5) * 22;
+        ctx.globalAlpha = (1 - pr) * 0.8;
+        ctx.strokeStyle = i % 2 ? PAL.lythGold : PAL.relay;
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.arc(e.x + ox, e.y - 4 - pr * 22, 3 + flick(seed + i) * 2.5, i, i + 1.5 + pr);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
     ctx.save();
-    ctx.globalAlpha *= 0.6 + 0.08 * Math.sin(t * 9 + e.id);
+    ctx.globalAlpha *= revealed ? 1 : 0.6 + 0.08 * Math.sin(t * 9 + e.id);
     ctx.translate(e.x, e.y);
     // legless wisp tail (fading circles)
     for (let i = 0; i < 3; i++) {
@@ -1560,6 +1743,328 @@ function drawEnemy(ctx, e, t, dt) {
     ctx.stroke();
     ctx.restore();
     drawEye(ctx, e.x + e.fx * 2, e.y + e.fy * 2, 2.6); // oversized eye
+    return;
+  }
+
+  if (kind === 'husk') {
+    // HUSK — ragged horde fodder of ash-grey static; the cheap shamble.
+    const lurch = Math.sin(ph * 0.9) * 2.4; // dragging, uneven gait
+    shadowBlob(ctx, e.x, e.y + 8, 9, 3.6);
+    ctx.save();
+    // husks never square up to their target — they just face the camera
+    ctx.translate(e.x, e.y + Math.abs(Math.sin(ph * 0.45)) * 1.4);
+    // dangling arms, out of phase with the lurch
+    ctx.strokeStyle = '#241433';
+    ctx.lineWidth = 2.4;
+    ctx.beginPath();
+    ctx.moveTo(-6, -4); ctx.lineTo(-8 - lurch * 0.4, 6);
+    ctx.moveTo(6, -4); ctx.lineTo(8 + lurch * 0.4, 7);
+    ctx.stroke();
+    // hunched ragged body — hem torn into static
+    ctx.fillStyle = PAL.entBlack;
+    ctx.beginPath();
+    ctx.moveTo(-7, 7 + lurch * 0.2);
+    ctx.quadraticCurveTo(-8.5, -4, -3 + lurch * 0.3, -9);
+    ctx.quadraticCurveTo(2, -11, 5.5, -7);
+    ctx.quadraticCurveTo(8.5, -2, 7, 7 - lurch * 0.2);
+    ctx.closePath(); ctx.fill();
+    // torn hem teeth
+    ctx.fillStyle = '#1A0E26';
+    for (let i = -2; i <= 2; i++) {
+      ctx.beginPath();
+      ctx.moveTo(i * 3 - 1.4, 6); ctx.lineTo(i * 3, 9.5 + flick(e.id + i) * 2); ctx.lineTo(i * 3 + 1.4, 6);
+      ctx.closePath(); ctx.fill();
+    }
+    // one faint violet seam — barely held together
+    ctx.strokeStyle = 'rgba(90,46,140,0.8)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(-2 + lurch * 0.3, -8); ctx.lineTo(0, -1); ctx.lineTo(-2, 5);
+    ctx.stroke();
+    // drooped head
+    ctx.fillStyle = '#1A0E26';
+    ctx.beginPath(); ctx.arc(1.5 + lurch * 0.3, -10, 3.6, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    drawEye(ctx, e.x + 1.5 + e.fx * 3, e.y - 10 + e.fy * 2, 1.6, 0.7); // dim eye
+    return;
+  }
+
+  if (kind === 'forkalpha') {
+    // FORK ALPHA — the twin-tail brute: a forkling grown wrong, luminous seam
+    // crown to belly, two half-faces that don't quite agree. Splits on death.
+    const hurtK = 1 - Math.max(0, Math.min(1, e.hp / (e.maxHp || 3)));
+    const seam = 0.45 + 0.4 * Math.sin(t * (3 + hurtK * 7) + e.id) + hurtK * 0.3;
+    // stutter-step double exposure
+    const stut = flick(Math.floor(t * 11) + e.id) < 0.3 ? 3 : 0;
+    if (stut) {
+      ctx.save();
+      ctx.globalAlpha *= 0.3;
+      ctx.translate(e.x - e.fy * stut, e.y + e.fx * stut);
+      ctx.rotate(a + Math.PI / 2);
+      ctx.fillStyle = '#8C2A3A'; // corrupt-red ghost
+      ctx.beginPath();
+      ctx.moveTo(0, -11); ctx.lineTo(9, 6); ctx.lineTo(-9, 6);
+      ctx.closePath(); ctx.fill();
+      ctx.restore();
+    }
+    shadowBlob(ctx, e.x, e.y + 8, 11, 4.5);
+    ctx.save();
+    ctx.translate(e.x, e.y);
+    ctx.rotate(a + Math.PI / 2);
+    // hunched wedge body, knuckles down
+    ctx.strokeStyle = '#241433';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(-7, -2); ctx.lineTo(-11, 5 + Math.sin(ph) * 2);
+    ctx.moveTo(7, -2); ctx.lineTo(11, 5 - Math.sin(ph) * 2);
+    ctx.stroke();
+    ctx.fillStyle = '#2A1020'; // red-shifted entropy flesh
+    ctx.beginPath();
+    ctx.moveTo(0, -12); ctx.lineTo(9.5, 4); ctx.lineTo(5, 8); ctx.lineTo(-5, 8); ctx.lineTo(-9.5, 4);
+    ctx.closePath(); ctx.fill();
+    // THE SEAM — crown to belly, flaring white before the split
+    ctx.save();
+    ctx.strokeStyle = `rgba(255,${190 + Math.round(seam * 60)},${200 + Math.round(seam * 55)},${0.5 + seam * 0.5})`;
+    ctx.lineWidth = 1.4 + seam * 1.4;
+    ctx.shadowColor = '#FF96A8';
+    ctx.shadowBlur = 4 + seam * 7;
+    ctx.beginPath();
+    ctx.moveTo(0, -12); ctx.lineTo(0.8, -4); ctx.lineTo(-0.6, 2); ctx.lineTo(0.4, 8);
+    ctx.stroke();
+    ctx.restore();
+    // twin tuning-fork tails — already two of everything
+    ctx.strokeStyle = '#2A1020';
+    ctx.lineWidth = 2.4;
+    ctx.beginPath();
+    ctx.moveTo(-3, 8); ctx.lineTo(-6.5, 14);
+    ctx.moveTo(3, 8); ctx.lineTo(6.5, 14);
+    ctx.stroke();
+    ctx.strokeStyle = PAL.entViolet;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(-6.5, 14); ctx.lineTo(-7.5, 17);
+    ctx.moveTo(6.5, 14); ctx.lineTo(7.5, 17);
+    ctx.stroke();
+    ctx.restore();
+    // two half-faces: paired eyes either side of the seam, disagreeing
+    drawEye(ctx, e.x + e.fx * 6 - e.fy * 3.2, e.y + e.fy * 6 + e.fx * 3.2, 2);
+    drawEye(ctx, e.x + e.fx * 5 + e.fy * 3.2, e.y + e.fy * 5 - e.fx * 3.2, 1.5, 0.85);
+    return;
+  }
+
+  if (kind === 'acolyte') {
+    // NULL ACOLYTE — robed support caster; shields and mends the swarm.
+    // Never attacks. Priority-kill read: the rotating zero halo.
+    const bob = Math.sin(t * 1.8 + e.id) * 1.2;
+    ctx.save();
+    ctx.globalAlpha *= 0.7;
+    shadowBlob(ctx, e.x, e.y + 10, 8, 3);
+    ctx.restore();
+    ctx.save();
+    ctx.translate(e.x, e.y + bob);
+    // ash-grey robe (paler than the Null Priest — a lesser order)
+    ctx.fillStyle = '#241B2E';
+    ctx.beginPath();
+    ctx.moveTo(0, -15);
+    ctx.quadraticCurveTo(8, -7, 8, 9);
+    ctx.lineTo(-8, 9);
+    ctx.quadraticCurveTo(-8, -7, 0, -15);
+    ctx.fill();
+    ctx.strokeStyle = '#3A3147';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(-3, -8); ctx.lineTo(-3.6, 8);
+    ctx.moveTo(3, -8); ctx.lineTo(3.6, 8);
+    ctx.stroke();
+    // inverted-anchor sigil on the chest, dull violet
+    ctx.strokeStyle = 'rgba(142,79,209,0.85)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(0, -7); ctx.lineTo(0, -1.5);
+    ctx.moveTo(-2.6, -4.5); ctx.quadraticCurveTo(0, -8.5, 2.6, -4.5); // flukes UP
+    ctx.stroke();
+    ctx.beginPath(); ctx.arc(0, -0.4, 1.1, 0, Math.PI * 2); ctx.stroke();
+    // raised palms, mid-mending
+    ctx.fillStyle = '#3A3147';
+    ctx.beginPath(); ctx.arc(-7.5, -9 + Math.sin(t * 2.4) * 0.8, 2, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(7.5, -9 + Math.cos(t * 2.4) * 0.8, 2, 0, Math.PI * 2); ctx.fill();
+    // cowl + faceless dark
+    ctx.fillStyle = '#241B2E';
+    ctx.beginPath(); ctx.arc(0, -13, 4.8, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = PAL.voidNight;
+    ctx.beginPath(); ctx.arc(0, -12.6, 3, 0, Math.PI * 2); ctx.fill();
+    // the slowly rotating ZERO of dull-violet static, haloing the head
+    ctx.strokeStyle = `rgba(142,79,209,${0.55 + 0.2 * Math.sin(t * 2)})`;
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.ellipse(0, -20, 6.5, 6.5 * Math.abs(Math.sin(t * 0.9 + e.id * 0.5)) + 1.2, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    // static motes shed off the halo
+    ctx.fillStyle = PAL.entViolet;
+    for (let i = 0; i < 2; i++) {
+      const pr = fract(t * 0.7 + i * 0.5 + e.id * 0.17);
+      ctx.globalAlpha = (1 - pr) * 0.7;
+      ctx.fillRect(Math.sin(t + i * 3) * 7, -20 - pr * 7, 1.4, 1.4);
+    }
+    ctx.restore();
+    drawEye(ctx, e.x, e.y + bob - 13, 1.7, 0.8);
+    return;
+  }
+
+  if (kind === 'voltwraith') {
+    // VOLT WRAITH — hovering tatter crowned in live arcs; chain-zap elite.
+    const bob = Math.sin(t * 2.6 + e.id) * 1.8;
+    const frame = Math.floor(t * 18) + e.id;
+    ctx.save();
+    ctx.globalAlpha *= 0.6;
+    shadowBlob(ctx, e.x, e.y + 10, 7, 2.8);
+    ctx.restore();
+    ctx.save();
+    ctx.translate(e.x, e.y + bob);
+    // legless tatter body, hem strips streaming
+    ctx.fillStyle = '#141B2E'; // storm-blue dark, not violet — reads electric
+    ctx.beginPath();
+    ctx.moveTo(0, -14);
+    ctx.quadraticCurveTo(7, -6, 5.5, 4);
+    ctx.lineTo(2.5, 9 + Math.sin(t * 5 + 1) * 1.5);
+    ctx.lineTo(0, 5);
+    ctx.lineTo(-2.5, 10 + Math.sin(t * 5) * 1.5);
+    ctx.lineTo(-5.5, 4);
+    ctx.quadraticCurveTo(-7, -6, 0, -14);
+    ctx.fill();
+    // capacitor ribs glowing faint cyan
+    ctx.strokeStyle = `rgba(111,216,242,${0.3 + 0.25 * flick(frame)})`;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(-4, -6); ctx.lineTo(4, -6);
+    ctx.moveTo(-4.5, -2); ctx.lineTo(4.5, -2);
+    ctx.moveTo(-4, 2); ctx.lineTo(4, 2);
+    ctx.stroke();
+    // head knot
+    ctx.fillStyle = '#141B2E';
+    ctx.beginPath(); ctx.arc(0, -13, 4, 0, Math.PI * 2); ctx.fill();
+    // THE ARC CROWN — live micro-bolts dancing above the head
+    ctx.strokeStyle = `rgba(191,251,255,${0.5 + 0.4 * flick(frame * 3.1)})`;
+    ctx.lineWidth = 1.1;
+    ctx.beginPath();
+    for (let i = 0; i < 3; i++) {
+      const aa = flick(frame + i * 7.7) * Math.PI * 2;
+      jagPath(ctx, 0, -16, Math.cos(aa) * 8, -16 - 3 - Math.abs(Math.sin(aa)) * 5, 3, 2.5, frame + i * 31);
+    }
+    ctx.stroke();
+    ctx.restore();
+    drawEye(ctx, e.x + e.fx * 2, e.y + bob - 13, 2);
+    return;
+  }
+
+  if (kind === 'phasestalker') {
+    // PHASE STALKER — lean blink predator; afterimages where it has been,
+    // a converging shimmer just before it is somewhere else.
+    // pre-blink telegraph if the sim ships a countdown (blinkT/teleT)
+    const blinkT = e.blinkT ?? e.teleT ?? null;
+    const charging = blinkT != null && blinkT < 0.6 ? 1 - blinkT / 0.6 : 0;
+    // ghosting: two trailing afterimages along its wake
+    for (let i = 1; i <= 2; i++) {
+      ctx.save();
+      ctx.globalAlpha *= i === 1 ? 0.28 : 0.13;
+      ctx.translate(e.x - e.fx * 9 * i, e.y - e.fy * 9 * i);
+      ctx.rotate(a + Math.PI / 2);
+      ctx.fillStyle = PAL.glitch;
+      ctx.beginPath();
+      ctx.moveTo(0, -10); ctx.lineTo(6, 6); ctx.lineTo(0, 3); ctx.lineTo(-6, 6);
+      ctx.closePath(); ctx.fill();
+      ctx.restore();
+    }
+    shadowBlob(ctx, e.x, e.y + 7, 9, 3.6);
+    ctx.save();
+    ctx.translate(e.x, e.y);
+    ctx.rotate(a + Math.PI / 2);
+    // sliced body: three horizontal bands, each slightly out of register
+    for (const [sy0, sy1, k2] of [[-11, -4, 0], [-4, 2, 1], [2, 8, 2]]) {
+      const off = (flick(Math.floor(t * 13) + e.id + k2 * 7) - 0.5) * (1.5 + charging * 4);
+      ctx.fillStyle = k2 === 1 ? '#221233' : '#1A0E26';
+      ctx.beginPath();
+      ctx.moveTo(off, sy0);
+      ctx.lineTo(off + 6 - k2, sy1);
+      ctx.lineTo(off, sy1 - 1.5);
+      ctx.lineTo(off - 6 + k2, sy1);
+      ctx.closePath(); ctx.fill();
+    }
+    // long scythe forelimbs
+    ctx.strokeStyle = '#2A1638';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-4, -6); ctx.quadraticCurveTo(-10, -10, -8, -15);
+    ctx.moveTo(4, -6); ctx.quadraticCurveTo(10, -10, 8, -15);
+    ctx.stroke();
+    ctx.restore();
+    if (charging > 0) {
+      // the world starts agreeing it has moved: converging ring + brighten
+      ctx.save();
+      ctx.strokeStyle = `rgba(142,79,209,${0.35 + 0.5 * charging})`;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(e.x, e.y, 18 * (1 - charging) + 5, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+    drawEye(ctx, e.x + e.fx * 7, e.y + e.fy * 7, 2.2, 0.8 + charging * 0.2);
+    return;
+  }
+
+  if (kind === 'pyrebeetle') {
+    // PYRE BEETLE — squat walking bomb; the warm belly glow is the warning.
+    // Explodes on death into a burn patch: back away from the light.
+    const hurtK = 1 - Math.max(0, Math.min(1, e.hp / (e.maxHp || 2)));
+    const pulse = 0.5 + 0.5 * Math.sin(t * (5 + hurtK * 8) + e.id * 1.3);
+    shadowBlob(ctx, e.x, e.y + 7, 11, 4.2);
+    ctx.save();
+    ctx.translate(e.x, e.y);
+    ctx.rotate(a + Math.PI / 2);
+    // six scuttling legs
+    ctx.strokeStyle = '#241433';
+    ctx.lineWidth = 1.8;
+    for (let i = -1; i <= 1; i++) {
+      const sway = Math.sin(ph * 1.2 + i * 2.1) * 2.5;
+      ctx.beginPath();
+      ctx.moveTo(-7, i * 4.5); ctx.lineTo(-11.5, i * 4.5 + sway);
+      ctx.moveTo(7, i * 4.5); ctx.lineTo(11.5, i * 4.5 - sway);
+      ctx.stroke();
+    }
+    // underglow leaking onto the ground — the belly furnace
+    const ug = ctx.createRadialGradient(0, 2, 0, 0, 2, 12 + pulse * 3);
+    ug.addColorStop(0, `rgba(240,169,60,${0.35 + pulse * 0.3 + hurtK * 0.2})`);
+    ug.addColorStop(1, 'rgba(240,169,60,0)');
+    ctx.fillStyle = ug;
+    ctx.fillRect(-15, -13, 30, 30);
+    // dark carapace shell
+    ctx.fillStyle = '#1E1018';
+    ctx.beginPath(); ctx.ellipse(0, 0, 9.5, 11.5, 0, 0, Math.PI * 2); ctx.fill();
+    // ember seams between the plates, brightening with damage
+    ctx.strokeStyle = `rgba(240,169,60,${0.45 + pulse * 0.35 + hurtK * 0.2})`;
+    ctx.lineWidth = 1.2 + hurtK;
+    ctx.beginPath();
+    ctx.moveTo(0, -11); ctx.lineTo(0, 11); // elytra split
+    ctx.moveTo(-8, -3); ctx.lineTo(-3, -1);
+    ctx.moveTo(8, -3); ctx.lineTo(3, -1);
+    ctx.moveTo(-7, 5); ctx.lineTo(-3, 4);
+    ctx.moveTo(7, 5); ctx.lineTo(3, 4);
+    ctx.stroke();
+    // fuse sparks popping off the shell when hurt
+    if (hurtK > 0.3) {
+      ctx.fillStyle = PAL.lythPale;
+      for (let i = 0; i < 2; i++) {
+        const pr = fract(t * 1.4 + i * 0.5 + e.id * 0.21);
+        ctx.globalAlpha = (1 - pr) * 0.9;
+        ctx.fillRect((flick(e.id + i * 7) - 0.5) * 12, -4 - pr * 9, 1.5, 1.5);
+      }
+      ctx.globalAlpha = 1;
+    }
+    // blunt head plate
+    ctx.fillStyle = '#2A1638';
+    ctx.beginPath(); ctx.ellipse(0, -11, 4.5, 3, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    drawEye(ctx, e.x + e.fx * 9, e.y + e.fy * 9, 1.6, 0.8);
     return;
   }
 
@@ -2836,6 +3341,709 @@ function drawFollower(ctx, fo, t, dt, col, lights) {
   if (fo.hp != null && fo.hp < maxHp) drawHeartPips(ctx, fo.x, fo.y - 22, fo.hp, maxHp);
 }
 
+// ============================== DEEP WORLD (FRONTIER III) ==============================
+// Quest items, field weapons, puzzle systems, doors, teleports, beacons.
+// Every snapshot field here is optional: classic and pre-frontier snapshots
+// carry none of them and render exactly as before.
+
+let sealCarriers = []; // active players carrying a lythseal, set per frame
+
+// The eight Monolythium runes, indexed by glyph symbol 0-7.
+const GLYPH_RUNES = ['ANCHOR', 'WAVE', 'VERTEX', 'SEAL', 'FORK', 'BURN', 'QUORUM', 'DRIFT'];
+
+// The Classical Colonnade: pillar names + inscriptions, picked by id.
+const PILLAR_NAMES = ['CURVE', 'PAIRING', 'AGGREGATE', 'INTERPOLATION'];
+
+// Field weapon pickups: each kind gets an unmistakable ground glow.
+const PICKUP_STYLE = {
+  flamer: { rgb: '240,169,60', col: '#F0A93C', label: 'FLAMER' },
+  railcannon: { rgb: '111,216,242', col: '#6FD8F2', label: 'RAILCANNON' },
+  stormgun: { rgb: '191,251,255', col: '#BFFBFF', label: 'STORMGUN' },
+  mortarMk2: { rgb: '224,123,57', col: '#E07B39', label: 'MORTAR MK2' },
+};
+
+// Teleport pad pair colors, keyed by the lower id of the pair.
+const TP_PAIR_RGB = ['111,216,242', '255,217,138', '95,210,180', '142,79,209', '191,251,255', '224,123,57'];
+
+const doorAnim = new Map(); // door id -> slide 0 (closed) .. 1 (open)
+
+// One vector rune per symbol, drawn around the current origin at scale s.
+// Caller sets strokeStyle/fillStyle (lit gold vs engraved graphite).
+function drawRune(ctx, sym, s) {
+  ctx.lineWidth = Math.max(1.1, s * 0.2);
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  switch (((Math.round(sym ?? 0) % 8) + 8) % 8) {
+    case 0: // ANCHOR — the mark that cannot be unsaid
+      ctx.moveTo(0, -s * 0.4); ctx.lineTo(0, s * 0.7);
+      ctx.moveTo(-s * 0.6, s * 0.2); ctx.quadraticCurveTo(0, s * 1.0, s * 0.6, s * 0.2);
+      ctx.moveTo(-s * 0.45, -s * 0.05); ctx.lineTo(s * 0.45, -s * 0.05);
+      ctx.stroke();
+      ctx.beginPath(); ctx.arc(0, -s * 0.6, s * 0.22, 0, Math.PI * 2); ctx.stroke();
+      return;
+    case 1: // WAVE — the breath the field takes together
+      ctx.moveTo(-s * 0.8, 0);
+      ctx.quadraticCurveTo(-s * 0.4, -s * 0.85, 0, 0);
+      ctx.quadraticCurveTo(s * 0.4, s * 0.85, s * 0.8, 0);
+      ctx.stroke();
+      return;
+    case 2: // VERTEX — one voice, once, and only once
+      ctx.moveTo(0, -s * 0.75); ctx.lineTo(s * 0.7, s * 0.55); ctx.lineTo(-s * 0.7, s * 0.55);
+      ctx.closePath(); ctx.stroke();
+      ctx.beginPath(); ctx.arc(0, s * 0.08, s * 0.15, 0, Math.PI * 2); ctx.fill();
+      return;
+    case 3: // SEAL — what is read only at inclusion
+      ctx.arc(0, 0, s * 0.65, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(0, 0, s * 0.26, 0, Math.PI * 2); ctx.fill();
+      return;
+    case 4: // FORK — the path that became two paths
+      ctx.moveTo(0, s * 0.75); ctx.lineTo(0, -s * 0.05);
+      ctx.moveTo(0, -s * 0.05); ctx.lineTo(-s * 0.5, -s * 0.7);
+      ctx.moveTo(0, -s * 0.05); ctx.lineTo(s * 0.5, -s * 0.7);
+      ctx.stroke();
+      return;
+    case 5: // BURN — the name that was spent to be kept honest
+      ctx.moveTo(0, -s * 0.75);
+      ctx.quadraticCurveTo(s * 0.75, -s * 0.1, s * 0.18, s * 0.7);
+      ctx.quadraticCurveTo(-s * 0.5, s * 0.45, -s * 0.28, -s * 0.05);
+      ctx.quadraticCurveTo(-s * 0.08, -s * 0.4, 0, -s * 0.75);
+      ctx.stroke();
+      return;
+    case 6: // QUORUM — seven of ten, and not six: the bottom line is short
+      ctx.moveTo(-s * 0.7, -s * 0.5); ctx.lineTo(s * 0.7, -s * 0.5);
+      ctx.moveTo(-s * 0.7, 0); ctx.lineTo(s * 0.7, 0);
+      ctx.moveTo(-s * 0.7, s * 0.5); ctx.lineTo(s * 0.12, s * 0.5);
+      ctx.stroke();
+      return;
+    default: // DRIFT — what waits for all who are not anchored
+      for (const ry of [-0.45, 0.1, 0.65]) {
+        ctx.moveTo(-s * 0.7, ry * s);
+        ctx.quadraticCurveTo(-s * 0.25, (ry - 0.4) * s, s * 0.02, ry * s);
+        ctx.quadraticCurveTo(s * 0.38, (ry + 0.4) * s, s * 0.7, ry * s);
+      }
+      ctx.stroke();
+      return;
+  }
+}
+
+// One absorb charge from a Null Acolyte: a glitch-violet shell, clearly NOT
+// the relay-cyan of a friendly shield. Pops via the 'shield' hit event.
+function drawEnemyShield(ctx, e, t) {
+  const r = (KIND_R[e.kind] || 13) + 5;
+  ctx.save();
+  const a = 0.32 + 0.14 * Math.sin(t * 4 + e.id);
+  ctx.strokeStyle = `rgba(142,79,209,${a + 0.2})`;
+  ctx.lineWidth = 1.5;
+  ctx.shadowColor = PAL.glitch;
+  ctx.shadowBlur = 6;
+  ctx.beginPath();
+  ctx.arc(e.x, e.y, r, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+  // three plate segments crawling around the shell
+  ctx.strokeStyle = `rgba(191,251,255,${a})`;
+  ctx.lineWidth = 2.2;
+  for (let i = 0; i < 3; i++) {
+    const ga = t * 1.8 + (i / 3) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, r, ga, ga + 0.7);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// Mini ground silhouette for a field weapon pickup, drawn around the origin.
+function drawPickupShape(ctx, kind) {
+  const dk = PAL.graphDark, gm = PAL.graphPlate;
+  if (kind === 'flamer') {
+    ctx.fillStyle = dk; ctx.fillRect(-8, -3.5, 12, 7);
+    ctx.fillStyle = gm; ctx.fillRect(-8, -3.5, 12, 2.6);
+    ctx.fillStyle = gm; ctx.beginPath(); ctx.arc(-5, 5, 3.4, 0, Math.PI * 2); ctx.fill(); // fuel tank
+    ctx.fillStyle = '#F0A93C';
+    ctx.shadowColor = '#F0A93C'; ctx.shadowBlur = 5;
+    ctx.fillRect(4, -2.2, 5, 4.4); // hot nozzle
+    ctx.shadowBlur = 0;
+  } else if (kind === 'railcannon') {
+    ctx.fillStyle = dk; ctx.fillRect(-12, -1.8, 24, 3.6);
+    ctx.fillStyle = gm; ctx.fillRect(-7, -3.6, 8, 7.2);
+    ctx.strokeStyle = PAL.relay; // accelerator coils
+    ctx.shadowColor = PAL.relay; ctx.shadowBlur = 4;
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    for (const cx of [3, 6.5, 10]) { ctx.moveTo(cx, -3); ctx.lineTo(cx, 3); }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  } else if (kind === 'stormgun') {
+    ctx.fillStyle = dk; ctx.fillRect(-8, -2.6, 12, 5.2);
+    ctx.fillStyle = gm; ctx.fillRect(-8, -4, 7, 8);
+    ctx.strokeStyle = PAL.eye; // storm orb emitter
+    ctx.shadowColor = PAL.eye; ctx.shadowBlur = 5;
+    ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.arc(7.5, 0, 3.4, 0, Math.PI * 2); ctx.stroke();
+    ctx.shadowBlur = 0;
+  } else { // mortarMk2 + future kinds: the fat tube
+    ctx.fillStyle = dk; ctx.fillRect(-10, -4, 20, 8);
+    ctx.fillStyle = gm; ctx.fillRect(-10, -4, 20, 3);
+    ctx.fillStyle = '#11131f'; ctx.fillRect(8, -3, 3, 6); // dark muzzle mouth
+    ctx.fillStyle = '#E07B39';
+    ctx.shadowColor = '#E07B39'; ctx.shadowBlur = 5;
+    ctx.fillRect(-12, -3.2, 2.4, 6.4); // hot breech cap
+    ctx.shadowBlur = 0;
+  }
+}
+
+// 'A' — field weapon pickup on the ground: bobbing silhouette over a kind-
+// colored glow ring. Teammates can grab dropped ones (ammo rides the sim).
+function drawFieldPickup(ctx, pk, t, lights) {
+  const st = PICKUP_STYLE[pk.kind] || { rgb: '255,217,138', col: '#FFD98A', label: String(pk.kind || 'WEAPON').toUpperCase() };
+  const bob = Math.sin(t * (Math.PI * 2 / 1.6) + (pk.x + pk.y) * 0.05) * 2;
+  ctx.save();
+  ctx.fillStyle = 'rgba(11,10,20,0.35)';
+  ctx.beginPath(); ctx.ellipse(pk.x, pk.y + 6, 8, 3, 0, 0, Math.PI * 2); ctx.fill();
+  // slow-turning claim ring on the ground
+  ctx.strokeStyle = `rgba(${st.rgb},${0.4 + 0.2 * Math.sin(t * 2.4 + pk.x * 0.05)})`;
+  ctx.lineWidth = 1.4;
+  for (let i = 0; i < 3; i++) {
+    const ga = t * 0.9 + (i / 3) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.ellipse(pk.x, pk.y + 5, 11, 4.5, 0, ga, ga + 1.3);
+    ctx.stroke();
+  }
+  ctx.translate(pk.x, pk.y - 6 + bob);
+  ctx.rotate(-0.22);
+  drawPickupShape(ctx, pk.kind);
+  ctx.restore();
+  lights.push({ x: pk.x, y: pk.y - 4, r: 30, rgb: st.rgb, a: 0.12 });
+}
+
+// 'I' — quest item: a proof fragment / relic. Carried, it trails its bearer
+// in warm motes; on the ground it pings like treasure.
+function drawQuestItem(ctx, q, t, lights) {
+  const carried = (q.carrier ?? null) != null;
+  const bob = carried ? 0 : Math.sin(t * (Math.PI * 2 / 1.3) + (q.x + q.y) * 0.06) * 2;
+  const y = q.y - 6 + bob;
+  // a stable per-item identity even when ids ship as strings ('qi0'...)
+  const qid = typeof q.id === 'number' ? q.id
+    : String(q.id ?? '').split('').reduce((s2, c2) => s2 + c2.charCodeAt(0), 0);
+  ctx.save();
+  if (!carried) {
+    ctx.fillStyle = 'rgba(11,10,20,0.35)';
+    ctx.beginPath(); ctx.ellipse(q.x, q.y + 5, 6, 2.4, 0, 0, Math.PI * 2); ctx.fill();
+  } else {
+    // warm mote trail streaming off the relic as it travels
+    ctx.fillStyle = PAL.lythGold;
+    for (let i = 0; i < 3; i++) {
+      const pr = fract(t * 1.3 + i * 0.33 + qid * 0.17);
+      ctx.globalAlpha = (1 - pr) * 0.7;
+      ctx.fillRect(q.x + (flick(qid + i * 3.7 + Math.floor(t * 4)) - 0.5) * 8, y + 4 + pr * 10, 1.8, 1.8);
+    }
+    ctx.globalAlpha = 1;
+  }
+  // the fragment: an angular gold tablet showing its partial glyph
+  ctx.translate(q.x, y);
+  ctx.rotate(0.18 + Math.sin(t * 1.1 + qid) * 0.06);
+  ctx.fillStyle = '#7A5A1E';
+  ctx.beginPath();
+  ctx.moveTo(-5.5, -6); ctx.lineTo(4.5, -7); ctx.lineTo(6, 5); ctx.lineTo(-3.5, 7); ctx.lineTo(-6.5, 1);
+  ctx.closePath(); ctx.fill();
+  const fg = ctx.createLinearGradient(0, -7, 0, 7);
+  fg.addColorStop(0, PAL.lythGold);
+  fg.addColorStop(1, PAL.lythAmber);
+  ctx.fillStyle = fg;
+  ctx.beginPath();
+  ctx.moveTo(-4.5, -5); ctx.lineTo(3.6, -5.8); ctx.lineTo(5, 4); ctx.lineTo(-2.8, 5.6); ctx.lineTo(-5.4, 0.8);
+  ctx.closePath(); ctx.fill();
+  // the partial glyph: half a rune, the rest sheared off at the break
+  ctx.strokeStyle = 'rgba(122,90,30,0.95)';
+  ctx.save();
+  ctx.beginPath(); ctx.rect(-5, -6, 6.5, 12); ctx.clip(); // sheared
+  drawRune(ctx, q.symbol ?? qid, 4);
+  ctx.restore();
+  ctx.restore();
+  // findable ping
+  const ph2 = fract(t / 2.1 + flick(q.x * 0.11 + q.y * 0.23));
+  if (!carried && ph2 < 0.12) {
+    const sa = 1 - ph2 / 0.12;
+    ctx.strokeStyle = `rgba(255,239,194,${sa})`;
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(q.x, y - 11); ctx.lineTo(q.x, y - 15);
+    ctx.moveTo(q.x + 9, y); ctx.lineTo(q.x + 13, y);
+    ctx.moveTo(q.x - 9, y); ctx.lineTo(q.x - 13, y);
+    ctx.stroke();
+  }
+  lights.push({ x: q.x, y, r: 26, rgb: '255,217,138', a: 0.13 });
+}
+
+// Quest marker over an NPC: gold '!' = quests waiting, relay '?' = come talk,
+// something is ready to settle. Reads several optional snapshot spellings.
+function npcQuestMark(n, quests) {
+  // explicit flags on the npc win
+  const qs = n.questState ?? n.qstate ?? n.quest;
+  if (qs === 'done' || qs === 'complete' || qs === 'ready' || n.questDone || n.questReady) return '?';
+  if (qs === 'avail' || qs === 'available' || qs === true || n.hasQuest) return '!';
+  // otherwise derive from the quest list when it names this npc as giver
+  if (Array.isArray(quests) && n.id != null) {
+    let mark = null;
+    for (const q of quests) {
+      if (q.giver !== n.id) continue;
+      if (q.state === 'active' && (q.count == null || (q.progress ?? 0) >= q.count)) return '?';
+      if (q.state === 'hidden') mark = '!';
+    }
+    return mark;
+  }
+  return null;
+}
+
+function drawQuestMark(ctx, x, y, mark, t) {
+  const bob = Math.sin(t * 2.6 + x * 0.05) * 1.6;
+  const col = mark === '?' ? PAL.relay : PAL.lythGold;
+  ctx.save();
+  ctx.font = 'bold 15px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = col;
+  ctx.shadowColor = col;
+  ctx.shadowBlur = 8;
+  ctx.fillText(mark, x, y + bob);
+  ctx.restore();
+}
+
+// 'Q' — relay switch console: one fallen operator's "voice" in the Count.
+// Off: grey-green gutter lamp. On: steady checkpoint gold. A burned console
+// (sw.burned) is fused black — an exiled equivocator; it never counts again.
+function drawSwitch(ctx, sw, t, lights) {
+  const { x, y } = sw;
+  const burned = !!(sw.burned || sw.dead);
+  const on = !!sw.on && !burned;
+  shadowBlob(ctx, x, y + 7, 11, 4);
+  // breaker pedestal
+  ctx.fillStyle = PAL.graphDark;
+  ctx.fillRect(x - 9, y - 1, 18, 8);
+  ctx.fillStyle = burned ? '#15121A' : PAL.graphPlate;
+  ctx.fillRect(x - 8, y - 9, 16, 8);
+  ctx.fillStyle = burned ? '#0E0C12' : PAL.graphMid;
+  ctx.fillRect(x - 8, y - 9, 16, 2.2);
+  if (burned) {
+    // fused black: scorch streaks, a dead socket, no lever throw left
+    ctx.strokeStyle = '#060509';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(x - 5, y - 9); ctx.lineTo(x - 3, y - 3); ctx.lineTo(x - 6, y + 2);
+    ctx.moveTo(x + 4, y - 8); ctx.lineTo(x + 5, y - 2);
+    ctx.stroke();
+    ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.arc(x, y - 5, 2.2, 0, Math.PI * 2); ctx.fill();
+    rimArc(ctx, x, y - 8, 8, 0.2);
+    return;
+  }
+  // the operator's sigil etched on the face
+  ctx.strokeStyle = 'rgba(138,152,184,0.55)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x - 5.5, y - 4); ctx.lineTo(x - 3, y - 7); ctx.lineTo(x - 3, y - 3);
+  ctx.stroke();
+  // the lever: thrown left = off, right = on
+  const la = on ? 0.65 : -0.65;
+  const px2 = x + 2.5, py2 = y - 5;
+  ctx.strokeStyle = PAL.steel;
+  ctx.lineWidth = 2.2;
+  ctx.beginPath();
+  ctx.moveTo(px2, py2);
+  ctx.lineTo(px2 + Math.sin(la) * 9, py2 - Math.cos(la) * 9);
+  ctx.stroke();
+  ctx.fillStyle = on ? PAL.lythGold : '#4E5A50';
+  ctx.beginPath();
+  ctx.arc(px2 + Math.sin(la) * 9, py2 - Math.cos(la) * 9, 2.2, 0, Math.PI * 2);
+  ctx.fill();
+  // the voice lamp: gutters grey-green until it counts, then steady gold
+  ctx.save();
+  if (on) {
+    ctx.fillStyle = PAL.lythGold;
+    ctx.shadowColor = PAL.lythGold;
+    ctx.shadowBlur = 8;
+    ctx.beginPath(); ctx.arc(x - 4.5, y - 12, 2.2, 0, Math.PI * 2); ctx.fill();
+  } else {
+    const gut = 0.35 + 0.25 * flick(Math.floor(t * 6) + x);
+    ctx.fillStyle = `rgba(110,140,110,${gut})`;
+    ctx.beginPath(); ctx.arc(x - 4.5, y - 12, 1.8, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+  rimArc(ctx, x, y - 8, 8, 0.35);
+  if (on) lights.push({ x, y: y - 10, r: 30, rgb: '255,217,138', a: 0.1 });
+}
+
+// 'J' — glyph stone: a standing stone bearing one of the eight runes.
+// Lit stones burn checkpoint gold; the wrong order spins the whole ring back.
+function drawGlyphStone(ctx, gl, t, lights) {
+  const { x, y } = gl;
+  const lit = !!gl.lit;
+  shadowBlob(ctx, x, y + 7, 10, 4);
+  // weathered standing stone
+  ctx.fillStyle = '#2E3140';
+  ctx.beginPath();
+  ctx.moveTo(x - 8, y + 6);
+  ctx.lineTo(x - 7, y - 12);
+  ctx.quadraticCurveTo(x, y - 18, x + 7, y - 12);
+  ctx.lineTo(x + 8, y + 6);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = 'rgba(11,10,20,0.35)'; // right face shade
+  ctx.beginPath();
+  ctx.moveTo(x + 3, y + 6); ctx.lineTo(x + 3, y - 13.5); ctx.lineTo(x + 7, y - 12); ctx.lineTo(x + 8, y + 6);
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = PAL.moonsteel; // moonlit left edge
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(x - 7.5, y + 5); ctx.lineTo(x - 6.6, y - 11.5);
+  ctx.stroke();
+  // the rune
+  ctx.save();
+  ctx.translate(x, y - 4);
+  if (lit) {
+    ctx.strokeStyle = PAL.lythGold;
+    ctx.fillStyle = PAL.lythGold;
+    ctx.shadowColor = PAL.lythGold;
+    ctx.shadowBlur = 7 + 2 * Math.sin(t * 2.2 + x * 0.05);
+  } else {
+    ctx.strokeStyle = '#4A5060';
+    ctx.fillStyle = '#4A5060';
+  }
+  drawRune(ctx, gl.symbol, 5.5);
+  ctx.restore();
+  if (lit) lights.push({ x, y: y - 4, r: 30, rgb: '255,217,138', a: 0.1 + 0.03 * Math.sin(t * 2 + x * 0.07) });
+}
+
+// 'X' — BLS pillar: pre-Fall classical cryptography. Beautiful, tiny, fast —
+// and forgeable now. Cracks open in stages under player fire; while one
+// stands, the field still honors the old curve.
+function drawPillar(ctx, pi, t, lights) {
+  const { x, y } = pi;
+  const maxHp = pi.maxHp ?? 12;
+  const frac = Math.max(0, Math.min(1, (pi.hp ?? maxHp) / maxHp));
+  if ((pi.hp ?? 1) <= 0) {
+    // felled: a rubble heap glowing along its cracks, going dark
+    shadowBlob(ctx, x, y + 6, 14, 5);
+    ctx.fillStyle = '#4A5060';
+    for (const [ox, oy, w, h] of [[-8, 2, 9, 6], [2, 3, 10, 5], [-3, -2, 8, 5], [7, -1, 6, 4]]) {
+      ctx.fillRect(x + ox - w / 2, y + oy - h / 2, w, h);
+    }
+    ctx.strokeStyle = `rgba(142,79,209,${0.25 + 0.15 * Math.sin(t * 1.6 + x * 0.05)})`;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x - 9, y + 2); ctx.lineTo(x - 3, y + 1); ctx.lineTo(x + 3, y + 4);
+    ctx.stroke();
+    return;
+  }
+  const idx = Math.abs(Math.round(pi.id ?? 0)) % 4;
+  shadowBlob(ctx, x + 2, y + 6, 14, 5);
+  // marble plinth + tall fluted column — paler than anything Entropy-made
+  ctx.fillStyle = '#4A5060';
+  ctx.fillRect(x - 12, y, 24, 6);
+  ctx.fillStyle = '#5E6880';
+  ctx.fillRect(x - 8, y - 40, 16, 41);
+  ctx.fillStyle = 'rgba(11,10,20,0.3)'; // right shade
+  ctx.fillRect(x + 3, y - 40, 5, 41);
+  ctx.fillStyle = '#6E7A94'; // capital
+  ctx.fillRect(x - 10, y - 44, 20, 5);
+  ctx.fillStyle = PAL.moonsteel;
+  ctx.fillRect(x - 10, y - 44, 20, 1.2);
+  // fluting
+  ctx.strokeStyle = 'rgba(30,32,40,0.6)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (const fx of [-4.5, 0, 4.5]) { ctx.moveTo(x + fx, y - 39); ctx.lineTo(x + fx, y - 1); }
+  ctx.stroke();
+  // the old curve, carved and still proud: ellipse + tangent chord
+  ctx.strokeStyle = 'rgba(191,208,232,0.7)';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.ellipse(x - 0.5, y - 26, 4.6, 6.2, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(x - 6, y - 18); ctx.lineTo(x + 5.5, y - 33);
+  ctx.stroke();
+  // its name, etched into the plinth
+  ctx.save();
+  ctx.font = 'bold 6px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(191,208,232,0.65)';
+  ctx.fillText(PILLAR_NAMES[idx], x, y + 4.5);
+  ctx.restore();
+  // while it stands the field honors the curve: a faint violet breath
+  const honor = 0.06 + 0.04 * Math.sin(t * 1.1 + idx * 1.7);
+  lights.push({ x, y: y - 22, r: 44, rgb: '142,79,209', a: honor * frac + 0.03 });
+  // crack stages: wounded, then failing with drift seeping out
+  if (frac < 0.66) {
+    ctx.strokeStyle = '#1E2028';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(x - 6, y - 38); ctx.lineTo(x - 3, y - 30); ctx.lineTo(x - 6.5, y - 22);
+    ctx.moveTo(x + 5, y - 14); ctx.lineTo(x + 2, y - 8);
+    ctx.stroke();
+  }
+  if (frac < 0.33) {
+    ctx.strokeStyle = `rgba(142,79,209,${0.5 + 0.3 * Math.sin(t * 6 + x)})`;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x - 3, y - 30); ctx.lineTo(x + 1, y - 24); ctx.lineTo(x - 2, y - 16); ctx.lineTo(x + 3, y - 10);
+    ctx.stroke();
+  }
+  rimArc(ctx, x - 1, y - 38, 9, 0.45);
+  if (pi.hp != null && pi.hp < maxHp) drawHpPips(ctx, x, y - 52, frac);
+}
+
+// 'Z' — the seal forge: Hask's threshold crucible. Seven fragment slots ring
+// the basin; fewer than seven melt to slag, so the rim says so in fire.
+function drawForge(ctx, fo, t, lights) {
+  const { x, y } = fo;
+  const j = flick(Math.floor(t * 8) + x * 1.3);
+  shadowBlob(ctx, x, y + 8, 15, 5.5);
+  // anvil block
+  ctx.fillStyle = PAL.graphDark;
+  ctx.fillRect(x + 7, y - 4, 12, 9);
+  ctx.fillStyle = PAL.graphPlate;
+  ctx.fillRect(x + 5, y - 8, 16, 5);
+  ctx.fillStyle = PAL.moonsteel;
+  ctx.fillRect(x + 5, y - 8, 16, 1.2);
+  // crucible: stone basin holding molten checkpoint-gold
+  ctx.fillStyle = '#3A3F4E';
+  ctx.beginPath(); ctx.ellipse(x - 4, y - 2, 11, 7, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#262A36';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  const mg = ctx.createRadialGradient(x - 4, y - 3, 0, x - 4, y - 3, 8);
+  mg.addColorStop(0, PAL.lythPale);
+  mg.addColorStop(0.5, PAL.lythGold);
+  mg.addColorStop(1, PAL.lythAmber);
+  ctx.fillStyle = mg;
+  ctx.beginPath(); ctx.ellipse(x - 4, y - 3, 7.5, 4.4, 0, 0, Math.PI * 2); ctx.fill();
+  // the seven slots around the rim — the Combining wants seven, not six
+  for (let i = 0; i < 7; i++) {
+    const a = (i / 7) * Math.PI * 2 - Math.PI / 2;
+    ctx.fillStyle = 'rgba(255,217,138,0.8)';
+    ctx.fillRect(x - 4 + Math.cos(a) * 10 - 1, y - 2 + Math.sin(a) * 6.4 - 1, 2, 2);
+  }
+  // sparks lifting off the melt
+  ctx.save();
+  ctx.fillStyle = '#E07B39';
+  for (let i = 0; i < 3; i++) {
+    const pr = fract(t * 0.7 + i * 0.33 + flick(x + i * 9.1));
+    ctx.globalAlpha *= (1 - pr);
+    ctx.fillRect(x - 4 + (flick(x + i * 3.7) - 0.5) * 10 + Math.sin(pr * 6 + i) * 3, y - 6 - pr * 22, 1.6, 1.6);
+    ctx.globalAlpha = 1;
+  }
+  ctx.restore();
+  // the long hammer resting against the anvil
+  ctx.strokeStyle = '#4A4232';
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(x + 16, y + 4); ctx.lineTo(x + 22, y - 12); ctx.stroke();
+  ctx.fillStyle = PAL.graphPlate;
+  ctx.fillRect(x + 19, y - 16, 7, 5);
+  lights.push({ x: x - 4, y: y - 3, r: 52, rgb: '240,169,60', a: 0.14 + j * 0.04 });
+}
+
+// Doors: closed bulkheads read as walls (they block movement, sight, shots).
+// Open ones slide their two panels apart along the door's long axis.
+function drawDoor(ctx, d, t, dt, lights) {
+  const id = d.id ?? `${d.x},${d.y}`;
+  const target = d.open ? 1 : 0;
+  let k = doorAnim.get(id);
+  if (k == null) k = target; // first sight: no animation pop
+  else if (k !== target) k = Math.max(0, Math.min(1, k + (target > k ? 1 : -1) * dt / 0.55));
+  doorAnim.set(id, k);
+  const px = d.x * TILE, py = d.y * TILE;
+  const w = (d.w ?? 1) * TILE, h = (d.h ?? 1) * TILE;
+  const horiz = w >= h;
+  // recessed track, always visible
+  ctx.fillStyle = '#0E0F16';
+  ctx.fillRect(px, py, w, h);
+  ctx.strokeStyle = '#262A36';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(px + 1, py + 1, w - 2, h - 2);
+  if (k < 1) {
+    // the two bulkhead panels, sliding apart as k rises
+    ctx.save();
+    ctx.beginPath(); ctx.rect(px, py, w, h); ctx.clip();
+    const slide = (horiz ? w : h) / 2 * k;
+    for (const side of [-1, 1]) {
+      const ox = horiz ? side * slide : 0;
+      const oy = horiz ? 0 : side * slide;
+      const hx = horiz ? px + (side < 0 ? 0 : w / 2) : px;
+      const hy = horiz ? py : py + (side < 0 ? 0 : h / 2);
+      const hw = horiz ? w / 2 : w;
+      const hh = horiz ? h : h / 2;
+      ctx.fillStyle = PAL.graphPlate;
+      ctx.fillRect(hx + ox, hy + oy, hw, hh);
+      ctx.fillStyle = PAL.graphMid;
+      ctx.fillRect(hx + ox + 2, hy + oy + 2, hw - 4, hh - 4);
+      // diagonal brace + rivets
+      ctx.strokeStyle = PAL.graphDark;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(hx + ox + 3, hy + oy + 3);
+      ctx.lineTo(hx + ox + hw - 3, hy + oy + hh - 3);
+      ctx.stroke();
+      ctx.fillStyle = '#6E7A94';
+      ctx.fillRect(hx + ox + 3, hy + oy + 3, 2, 2);
+      ctx.fillRect(hx + ox + hw - 5, hy + oy + hh - 5, 2, 2);
+      // moonsteel bevel on the panel's leading edge (the meeting seam)
+      ctx.fillStyle = PAL.moonsteel;
+      if (horiz) ctx.fillRect(hx + ox + (side < 0 ? hw - 2 : 0), hy + oy, 2, hh);
+      else ctx.fillRect(hx + ox, hy + oy + (side < 0 ? hh - 2 : 0), w, 2);
+    }
+    ctx.restore();
+    const cx = px + w / 2, cy = py + h / 2;
+    if (d.sealLock) {
+      // sealed: the lock answers only a carried LythiumSeal
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.strokeStyle = PAL.lythGold;
+      ctx.fillStyle = PAL.lythGold;
+      ctx.shadowColor = PAL.lythGold;
+      ctx.shadowBlur = 6 + 3 * Math.sin(t * 2.2 + cx * 0.03);
+      drawRune(ctx, 3, 6); // the SEAL rune
+      ctx.restore();
+      lights.push({ x: cx, y: cy, r: 26, rgb: '255,217,138', a: 0.08 });
+    } else {
+      // plain lock lamp: breach-red until something opens it
+      ctx.fillStyle = `rgba(224,72,72,${0.5 + 0.3 * Math.sin(t * 2 + cx * 0.05)})`;
+      ctx.beginPath(); ctx.arc(cx, cy, 2.2, 0, Math.PI * 2); ctx.fill();
+    }
+  } else {
+    // open: idle relay lamps at the jambs
+    const lx0 = horiz ? px + 3 : px + w / 2;
+    const ly0 = horiz ? py + h / 2 : py + 3;
+    const lx1 = horiz ? px + w - 3 : px + w / 2;
+    const ly1 = horiz ? py + h / 2 : py + h - 3;
+    ctx.fillStyle = 'rgba(111,216,242,0.7)';
+    ctx.fillRect(lx0 - 1.2, ly0 - 1.2, 2.4, 2.4);
+    ctx.fillRect(lx1 - 1.2, ly1 - 1.2, 2.4, 2.4);
+  }
+}
+
+// 'O' — settled corridor pad: two anchor-gates sharing one settled state.
+// Stand on it and the world agrees you've moved. Pair color by lower id.
+function drawTeleportPad(ctx, tp, t, snap, lights) {
+  const { x, y } = tp;
+  const pair = Math.min(tp.id ?? 0, tp.twin ?? tp.id ?? 0);
+  const rgb = TP_PAIR_RGB[((pair % TP_PAIR_RGB.length) + TP_PAIR_RGB.length) % TP_PAIR_RGB.length];
+  // is someone channeling? (any active player standing on the pad)
+  let chan = 0;
+  for (const p of snap.players ?? []) {
+    if (p.state !== 'active') continue;
+    if ((p.x - x) ** 2 + (p.y - y) ** 2 < (TILE * 0.55) ** 2) {
+      // sim may ship the channel countdown on the player (teleT: 0.8 -> 0)
+      chan = p.teleT != null ? Math.max(0.2, 1 - p.teleT / 0.8) : 1;
+      break;
+    }
+  }
+  ctx.save();
+  // base plate
+  ctx.fillStyle = 'rgba(30,32,40,0.9)';
+  ctx.beginPath(); ctx.ellipse(x, y, 15, 8.5, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = PAL.graphDark;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  // paired rune ring, rotating; channel spins it up hard
+  const spin = t * (0.6 + chan * 4.5);
+  ctx.strokeStyle = `rgba(${rgb},${0.55 + chan * 0.4})`;
+  ctx.lineWidth = 1.6;
+  for (let i = 0; i < 4; i++) {
+    const ga = spin + (i / 4) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.ellipse(x, y, 11.5, 6.2, 0, ga, ga + 0.9);
+    ctx.stroke();
+  }
+  // glyph ticks around the rim
+  ctx.fillStyle = `rgba(${rgb},${0.7 + chan * 0.3})`;
+  for (let i = 0; i < 6; i++) {
+    const ga = -spin * 0.6 + (i / 6) * Math.PI * 2;
+    ctx.fillRect(x + Math.cos(ga) * 13.5 - 1, y + Math.sin(ga) * 7.4 - 1, 2, 2);
+  }
+  // settled center: a soft core that breathes; channel raises a mote column
+  const breath = 0.5 + 0.5 * Math.sin(t * 1.8 + x * 0.05);
+  const cg = ctx.createRadialGradient(x, y, 0, x, y, 7 + chan * 3);
+  cg.addColorStop(0, `rgba(${rgb},${0.35 + 0.2 * breath + chan * 0.3})`);
+  cg.addColorStop(1, `rgba(${rgb},0)`);
+  ctx.fillStyle = cg;
+  ctx.fillRect(x - 10, y - 10, 20, 20);
+  if (chan > 0) {
+    ctx.fillStyle = `rgba(${rgb},0.9)`;
+    for (let i = 0; i < 4; i++) {
+      const pr = fract(t * 1.8 + i * 0.25);
+      ctx.globalAlpha = (1 - pr) * chan;
+      ctx.fillRect(x + (flick(i * 7.7 + Math.floor(t * 6)) - 0.5) * 14, y - pr * 30, 1.8, 1.8);
+    }
+    ctx.globalAlpha = 1;
+  }
+  ctx.restore();
+  lights.push({ x, y, r: 30 + chan * 18, rgb, a: 0.08 + chan * 0.1 });
+}
+
+// Built 'beacon' — the save point: a settled-light pylon. Checkpoint gold,
+// perfectly steady; a slow settled ring breathes off it every few seconds.
+function drawBeacon(ctx, b, t, lights) {
+  const { x, y } = b;
+  shadowBlob(ctx, x, y + 8, 10, 4);
+  // squat tapered pylon, gold-trimmed
+  ctx.fillStyle = PAL.graphMid;
+  ctx.beginPath();
+  ctx.moveTo(x - 6.5, y + 8); ctx.lineTo(x - 3, y - 16); ctx.lineTo(x + 3, y - 16); ctx.lineTo(x + 6.5, y + 8);
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = PAL.graphDark;
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(x, y + 7); ctx.lineTo(x, y - 15); ctx.stroke();
+  ctx.fillStyle = PAL.lythAmber; // service bands
+  ctx.fillRect(x - 5, y + 1, 10, 1.8);
+  ctx.fillRect(x - 4, y - 7, 8, 1.8);
+  // the settled lamp: steady, not blinking — finality holds
+  ctx.save();
+  ctx.fillStyle = PAL.lythGold;
+  ctx.shadowColor = PAL.lythGold;
+  ctx.shadowBlur = 9;
+  ctx.beginPath(); ctx.ellipse(x, y - 20, 3.6, 4.6, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = PAL.lythPale;
+  ctx.beginPath(); ctx.arc(x, y - 21, 1.5, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+  // the slow settled ring — what is anchored cannot be unsaid
+  const pr = fract(t / 2.6 + flick(x * 0.17));
+  if (pr < 0.4) {
+    ctx.strokeStyle = `rgba(255,217,138,${(1 - pr / 0.4) * 0.4})`;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.ellipse(x, y + 4, 8 + pr * 50, (8 + pr * 50) * 0.45, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  rimArc(ctx, x - 1, y - 6, 7, 0.5);
+  lights.push({ x, y: y - 18, r: 46, rgb: '255,217,138', a: 0.12 });
+}
+
+// The carried LythiumSeal: a checkpoint you bring with you. A gold lantern
+// ring orbits the bearer; Phantoms inside it cannot hold their disguise.
+function drawSealAura(ctx, x, y, t, lights) {
+  ctx.save();
+  const breath = 0.5 + 0.5 * Math.sin(t * 1.6);
+  ctx.strokeStyle = `rgba(255,217,138,${0.3 + 0.18 * breath})`;
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.ellipse(x, y + 6, 24, 11, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  // seal-rune ticks riding the ring
+  ctx.fillStyle = `rgba(255,239,194,${0.55 + 0.3 * breath})`;
+  for (let i = 0; i < 4; i++) {
+    const ga = t * 0.9 + (i / 4) * Math.PI * 2;
+    ctx.fillRect(x + Math.cos(ga) * 24 - 1.2, y + 6 + Math.sin(ga) * 11 - 1.2, 2.4, 2.4);
+  }
+  // the lantern-sigil itself, riding at the shoulder
+  ctx.translate(x + 10, y - 14 + Math.sin(t * 2.1) * 1.2);
+  ctx.strokeStyle = PAL.lythGold;
+  ctx.fillStyle = PAL.lythGold;
+  ctx.shadowColor = PAL.lythGold;
+  ctx.shadowBlur = 7;
+  drawRune(ctx, 3, 3.6); // SEAL
+  ctx.restore();
+  lights.push({ x, y, r: 70, rgb: '255,217,138', a: 0.1 + 0.04 * breath });
+}
+
 // Jagged lightning path appended to the current path (no stroke here).
 function jagPath(ctx, x0, y0, x1, y1, segs, mag, seed) {
   ctx.moveTo(x0, y0);
@@ -3075,6 +4283,13 @@ function holoShape(ctx, kind, x, y) {
     ctx.beginPath();
     for (const ry of [-4, 1, 6]) { ctx.moveTo(x - 12, y + ry); ctx.lineTo(x + 12, y + ry); }
     ctx.stroke();
+  } else if (kind === 'beacon') {
+    // squat settled-light pylon with its lamp capsule
+    ctx.beginPath();
+    ctx.moveTo(x - 6.5, y + 8); ctx.lineTo(x - 3, y - 16); ctx.lineTo(x + 3, y - 16); ctx.lineTo(x + 6.5, y + 8);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(x, y - 20, 3.6, 4.6, 0, 0, Math.PI * 2); ctx.stroke();
   } else { // barricade
     ctx.fillRect(x - 18, y - 10, 36, 18);
     ctx.strokeRect(x - 18, y - 10, 36, 18);
@@ -3426,6 +4641,7 @@ function drawBuild(ctx, b, t, snap, lights) {
     if (b.kind === 'barricade') drawBarricade(ctx, b, t);
     else if (b.kind === 'turret') drawTurret(ctx, b, t, snap, lights);
     else if (b.kind === 'farm') drawFarm(ctx, b, t, lights);
+    else if (b.kind === 'beacon') drawBeacon(ctx, b, t, lights);
     else drawPylon(ctx, b, t, lights);
     if (b.maxHp && b.hp != null && b.hp < b.maxHp) drawHpPips(ctx, x, y - 28, b.hp / b.maxHp);
     if (b.kind !== 'farm') drawLevelPips(ctx, x, y + 14, b.level);
@@ -3773,6 +4989,18 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
   const zone = snap.zone ?? null;
   const patches = snap.patches ?? []; // burn/toxin ground pools
   const followers = snap.followers ?? []; // combat hires (hound/archer/caster)
+  // --- frontier III (all optional) ---
+  const pickups = snap.pickups ?? []; // field weapons on the ground
+  const qitems = snap.qitems ?? []; // quest items / proof fragments
+  const switches = snap.switches ?? []; // relay switch consoles
+  const glyphs = snap.glyphs ?? []; // rune stones
+  const pillars = snap.pillars ?? []; // BLS colonnade pillars
+  const forges = snap.forges ?? []; // seal forges
+  const doors = snap.doors ?? []; // sliding bulkheads
+  const teleports = snap.teleports ?? []; // settled corridor pads
+  const quests = snap.quests ?? null; // for npc quest markers
+  // lythseal bearers light up Classical Phantoms within 6 tiles (drawEnemy)
+  sealCarriers = (snap.players ?? []).filter(p => p.state === 'active' && (p.hasSeal || p.seal));
   const lights = []; // per-frame light pools (campfires, LYTH, pylons...)
   // night grade: story dark missions are full night; bastion maps breathe
   // through a smooth dusk/dawn tint driven by the cycle clock (last 6s).
@@ -3823,6 +5051,11 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
     zaps[i].life -= dt;
     if (zaps[i].life <= 0) zaps.splice(i, 1);
   }
+  for (let i = streaks.length - 1; i >= 0; i--) {
+    streaks[i].life -= dt;
+    if (streaks[i].life <= 0) streaks.splice(i, 1);
+  }
+  if (doorAnim.size > 300) doorAnim.clear(); // long campaigns: ids keep growing
   // coordless levelUp events: anchor the flare to the player this frame
   while (pendingLevelUps.length) {
     const lu = pendingLevelUps.pop();
@@ -3895,6 +5128,20 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
       } else if (c === '*') {
         ctx.drawImage(tex.firebase, px, py);
         drawCampfire(ctx, px, py, x, y, t, lights);
+      } else if (c === ';' && doors.length) {
+        // INTERIOR MOOD — door-heavy maps build compartments from worked
+        // stone: pull the floor down a notch so the sparse service lamps
+        // (and door light) carry the room. No def flag; ';' + doors is the cue.
+        ctx.fillStyle = 'rgba(11,10,20,0.16)';
+        ctx.fillRect(px, py, TILE, TILE);
+        if ((x * 31 + y * 17) % 23 === 0) {
+          // a ceiling service lamp's warm pool on the deck
+          ctx.fillStyle = `rgba(255,217,138,${0.045 + 0.015 * Math.sin(t * 1.7 + x * 2.3)})`;
+          ctx.beginPath();
+          ctx.ellipse(px + TILE / 2, py + TILE / 2, 14, 9, 0, 0, Math.PI * 2);
+          ctx.fill();
+          lights.push({ x: px + TILE / 2, y: py + TILE / 2, r: 40, rgb: '255,217,138', a: 0.06 });
+        }
       }
     }
   }
@@ -3929,6 +5176,14 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
     }
   }
 
+  // --- doors: closed bulkheads read as walls; open ones slide aside ---
+  for (const d of doors) {
+    const dw = (d.w ?? 1) * TILE, dh = (d.h ?? 1) * TILE;
+    if (inView(d.x * TILE + dw / 2, d.y * TILE + dh / 2, Math.max(dw, dh) / 2 + 60)) {
+      drawDoor(ctx, d, t, dt, lights);
+    }
+  }
+
   // --- the Anchor (exit gate) ---
   const exitCols = exitTiles(snap);
   if (exitCols.length) {
@@ -3943,7 +5198,22 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
   for (const c of crystals) if (inView(c.x, c.y)) drawCrystal(ctx, c, t, lights);
   for (const b of builds) if (inView(b.x, b.y)) drawBuild(ctx, b, t, snap, lights);
   for (const d of drops) if (inView(d.x, d.y)) drawDrop(ctx, d, t, lights);
-  for (const n of npcs) if (inView(n.x, n.y)) drawNpc(ctx, n, t, lights);
+  for (const n of npcs) {
+    if (!inView(n.x, n.y)) continue;
+    drawNpc(ctx, n, t, lights);
+    // quest giver markers: '!' = quests waiting, '?' = ready to settle
+    const mark = npcQuestMark(n, quests);
+    if (mark) drawQuestMark(ctx, n.x, n.y - 36, mark, t);
+  }
+
+  // --- frontier III world pieces (puzzles, pickups, quest items) ---
+  for (const tp of teleports) if (inView(tp.x, tp.y, 60)) drawTeleportPad(ctx, tp, t, snap, lights);
+  for (const sw of switches) if (inView(sw.x, sw.y, 60)) drawSwitch(ctx, sw, t, lights);
+  for (const gl of glyphs) if (inView(gl.x, gl.y, 60)) drawGlyphStone(ctx, gl, t, lights);
+  for (const pi of pillars) if (inView(pi.x, pi.y, 90)) drawPillar(ctx, pi, t, lights);
+  for (const fo2 of forges) if (inView(fo2.x, fo2.y, 80)) drawForge(ctx, fo2, t, lights);
+  for (const pk of pickups) if (inView(pk.x, pk.y, 60)) drawFieldPickup(ctx, pk, t, lights);
+  for (const q of qitems) if (inView(q.x, q.y, 60)) drawQuestItem(ctx, q, t, lights);
 
   // --- frontier entities (all optional; absent on classic snapshots) ---
   const activePids = new Set();
@@ -4053,6 +5323,30 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
     // status overlays: stun sparks / flame / toxin drip / mind-control read
     const st = enemyStatus(e);
     if (st.stun || st.burn || st.tox || st.conv) drawStatusFX(ctx, e, st, t, lights);
+    // an acolyte's absorb charge: violet shell, popped by one hit
+    if (e.shielded) drawEnemyShield(ctx, e, t);
+  }
+
+  // --- acolyte shield-threads: each Null Acolyte tends its nearest ward ---
+  for (const e of snap.enemies) {
+    if ((KIND_ALIAS[e.kind] || e.kind) !== 'acolyte' || e.awake === false || !inView(e.x, e.y, 300)) continue;
+    let ward = null, best = (TILE * 6) ** 2;
+    for (const o of snap.enemies) {
+      if (o === e || !o.shielded) continue;
+      const d = (o.x - e.x) ** 2 + (o.y - e.y) ** 2;
+      if (d < best) { best = d; ward = o; }
+    }
+    if (!ward) continue;
+    ctx.save();
+    ctx.strokeStyle = `rgba(142,79,209,${0.3 + 0.2 * Math.sin(t * 4 + e.id)})`;
+    ctx.lineWidth = 1.2;
+    ctx.setLineDash([4, 5]);
+    ctx.lineDashOffset = -t * 22; // the mend flows acolyte -> ward
+    ctx.beginPath();
+    ctx.moveTo(e.x, e.y - 9);
+    ctx.lineTo(ward.x, ward.y);
+    ctx.stroke();
+    ctx.restore();
   }
 
   // --- followers: hired hounds, archers, casters trailing their operators ---
@@ -4098,8 +5392,11 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
     const swim = !!ch?.swims && yOff === 0
       && snap.grid?.[Math.floor(p.y / TILE)]?.[Math.floor(p.x / TILE)] === '~';
     if (swim) drawSwimWake(ctx, p, t);
+    // a carried lythseal rings the bearer in checkpoint gold (under the body)
+    if (p.hasSeal || p.seal) drawSealAura(ctx, p.x, p.y + yOff, t, lights);
+    // a picked-up field weapon overrides the character silhouette for FIRE
     drawSoldier(ctx, p.x, p.y + yOff, p.fx, p.fy, col, t, focus.has(p.pid), p.invuln,
-      { key: 'p' + p.pid, dt, weapon: ch?.weapon?.kind, swim });
+      { key: 'p' + p.pid, dt, weapon: p.fieldWeapon?.kind ?? ch?.weapon?.kind, swim });
     const fcar = flagByCarrier.get(p.pid);
     if (fcar) drawCarriedFlag(ctx, p.x, p.y + yOff, fcar, t);
     if ((p.shield ?? 0) > 0) drawShieldBubble(ctx, p.x, p.y + yOff, p.shield, t);
@@ -4118,6 +5415,21 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
     // survival hearts, shown only while hurt
     if (p.maxHp != null && p.hp != null && p.hp < p.maxHp) {
       drawHeartPips(ctx, p.x, p.y + yOff - 37, p.hp, p.maxHp);
+    }
+    // volt-zap root: the same spark cross the Entropy wears when stunned
+    if ((p.stunT ?? 0) > 0) {
+      ctx.save();
+      ctx.strokeStyle = `rgba(255,239,194,${0.65 + 0.3 * Math.sin(t * 14 + p.pid)})`;
+      ctx.lineWidth = 1.4;
+      for (let i = 0; i < 3; i++) {
+        const sa = t * 5 + (i / 3) * Math.PI * 2;
+        const sx = p.x + Math.cos(sa) * 9, sy = p.y + yOff - 16 + Math.sin(sa) * 3;
+        ctx.beginPath();
+        ctx.moveTo(sx - 2.4, sy); ctx.lineTo(sx + 2.4, sy);
+        ctx.moveTo(sx, sy - 2.4); ctx.lineTo(sx, sy + 2.4);
+        ctx.stroke();
+      }
+      ctx.restore();
     }
   }
 
@@ -4222,6 +5534,18 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
     if (b.hp != null && b.maxHp && b.hp < b.maxHp) cands.push({ x: b.x, y: b.y, py: b.y - 30, text: '[hold E/X] REPAIR 1◆/3HP' });
     else if (b.level < 3) cands.push({ x: b.x, y: b.y, py: b.y - 30, text: `[hold E/X] UPGRADE ${b.level * 8}◆` });
     else cands.push({ x: b.x, y: b.y, py: b.y - 30, text: '[hold E/X] DISMANTLE' });
+  }
+  // frontier III interactables join the same one-nearest-prompt chain
+  for (const pk of pickups) {
+    const st2 = PICKUP_STYLE[pk.kind];
+    cands.push({ x: pk.x, y: pk.y, py: pk.y - 24, text: `[E/X] TAKE ${st2?.label ?? String(pk.kind || 'WEAPON').toUpperCase()}` });
+  }
+  for (const fo2 of forges) cands.push({ x: fo2.x, y: fo2.y, py: fo2.y - 28, text: '[hold E/X] FORGE LYTHSEAL 20◆ + FRAGMENT' });
+  for (const sw of switches) {
+    if (!sw.on && !sw.burned && !sw.dead) cands.push({ x: sw.x, y: sw.y, py: sw.y - 26, text: '[E/X] THROW SWITCH' });
+  }
+  for (const gl of glyphs) {
+    if (!gl.lit) cands.push({ x: gl.x, y: gl.y, py: gl.y - 30, text: `[E/X] LIGHT ${GLYPH_RUNES[((Math.round(gl.symbol ?? 0) % 8) + 8) % 8]}` });
   }
   for (const s of shops) {
     // once someone is BROWSING (p.shop ships from the sim) the carousel takes
@@ -4345,6 +5669,77 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
       ctx.shadowBlur = 0;
       ctx.fillStyle = 'rgba(190,240,120,0.85)';
       ctx.fillRect(-1.6, -2.2, 1.6, 1.6);
+    } else if (s.kind === 'flamer' || s.kind === 'flame') {
+      // a short burning gout: stacked flame tears wobbling along the path
+      const seed = s.x * 0.7 + s.y * 1.1;
+      const j = 0.8 + flick(Math.floor(t * 10) + seed) * 0.4;
+      ctx.translate(s.x, s.y);
+      ctx.rotate(Math.atan2(ny, nx) + Math.PI / 2);
+      ctx.fillStyle = PAL.ember;
+      tear(ctx, 0, 2, 4.2 * j, 9 * j);
+      ctx.fillStyle = PAL.lythAmber;
+      tear(ctx, (flick(seed) - 0.5) * 2, 1, 2.8 * j, 6.5 * j);
+      ctx.fillStyle = PAL.lythGold;
+      tear(ctx, 0, 0.5, 1.6 * j, 4);
+    } else if (s.kind === 'railcannon') {
+      // a piercing lance: the longest, hottest line in the game
+      ctx.strokeStyle = 'rgba(111,216,242,0.5)';
+      ctx.shadowColor = PAL.relay;
+      ctx.shadowBlur = 12;
+      ctx.lineCap = 'round';
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(s.x - nx * 30, s.y - ny * 30);
+      ctx.lineTo(s.x, s.y);
+      ctx.stroke();
+      ctx.strokeStyle = PAL.anchor;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(s.x - nx * 34, s.y - ny * 34);
+      ctx.lineTo(s.x + nx * 3, s.y + ny * 3);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      // rail sparks shedding sideways
+      ctx.fillStyle = 'rgba(191,251,255,0.8)';
+      const sd = Math.floor(t * 30) + s.x;
+      for (let i = 1; i <= 2; i++) {
+        ctx.fillRect(s.x - nx * i * 12 - ny * (flick(sd + i) - 0.5) * 10,
+          s.y - ny * i * 12 + nx * (flick(sd + i * 3) - 0.5) * 10, 1.6, 1.6);
+      }
+    } else if (s.kind === 'stormgun' || s.kind === 'zap') {
+      // a crawling storm bolt (stormgun round / volt wraith zap):
+      // jagged core, re-rolled every frame
+      const frame = Math.floor(t * 30) + (s.x | 0);
+      ctx.lineCap = 'round';
+      for (const [w2, col2] of [[3.5, 'rgba(111,216,242,0.45)'], [1.4, PAL.eye]]) {
+        ctx.strokeStyle = col2;
+        ctx.shadowColor = PAL.relay;
+        ctx.shadowBlur = w2 > 2 ? 8 : 0;
+        ctx.lineWidth = w2;
+        ctx.beginPath();
+        jagPath(ctx, s.x - nx * 16, s.y - ny * 16, s.x, s.y, 4, 4, frame + w2);
+        ctx.stroke();
+      }
+      ctx.shadowBlur = 0;
+    } else if (s.kind === 'mortarMk2') {
+      // tumbling heavy shell on its over-wall arc, breech-glow trailing
+      ctx.strokeStyle = 'rgba(224,123,57,0.4)';
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(s.x - nx * 7, s.y - ny * 7);
+      ctx.lineTo(s.x - nx * 18, s.y - ny * 18);
+      ctx.stroke();
+      ctx.translate(s.x, s.y);
+      ctx.rotate(t * 7);
+      ctx.fillStyle = PAL.graphPlate;
+      ctx.fillRect(-5, -3, 10, 6);
+      ctx.fillStyle = PAL.graphDark;
+      ctx.fillRect(-5, -3, 10, 2);
+      ctx.fillStyle = '#E07B39'; // hot band
+      ctx.shadowColor = '#E07B39';
+      ctx.shadowBlur = 6;
+      ctx.fillRect(-1.2, -3, 2.4, 6);
+      ctx.shadowBlur = 0;
     } else if (s.who === 'e' && s.kind !== 'sniper') {
       // dark Entropy bolt trailed in violet
       ctx.strokeStyle = 'rgba(142,79,209,0.7)';
@@ -4453,6 +5848,33 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
     ctx.restore();
   }
 
+  // --- blink streaks: teleports + phase stalker hops (one missed heartbeat,
+  // then a fading after-image of the wave that carried you) ---
+  for (const sk of streaks) {
+    if (!inView(sk.x, sk.y, 400) && !inView(sk.tx, sk.ty, 100)) continue;
+    const k = Math.max(0, sk.life / sk.max);
+    const rgb = sk.rgb ?? '111,216,242';
+    ctx.save();
+    ctx.globalAlpha = k;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = `rgba(${rgb},0.5)`;
+    ctx.shadowColor = `rgb(${rgb})`;
+    ctx.shadowBlur = 10;
+    ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.moveTo(sk.x, sk.y); ctx.lineTo(sk.tx, sk.ty); ctx.stroke();
+    ctx.strokeStyle = PAL.anchor;
+    ctx.lineWidth = 1.8;
+    ctx.beginPath(); ctx.moveTo(sk.x, sk.y); ctx.lineTo(sk.tx, sk.ty); ctx.stroke();
+    ctx.shadowBlur = 0;
+    // the traveler, mid-agreement
+    const pr = 1 - k;
+    ctx.fillStyle = `rgba(${rgb},0.9)`;
+    ctx.beginPath();
+    ctx.arc(sk.x + (sk.tx - sk.x) * pr, sk.y + (sk.ty - sk.y) * pr, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
   // --- particles ---
   for (const p of particles) {
     ctx.globalAlpha = Math.max(0, p.life / p.max);
@@ -4507,7 +5929,12 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
     }
     let rgb = f.who === 'p' ? '223,243,255' : '142,79,209';
     let rad = 32;
-    if (f.evo === 'multi') rad = 48; // wider fan flash
+    // field weapons carry their own muzzle signature (evolutions don't apply)
+    if (f.weapon === 'flamer') { rad = 50; rgb = '240,169,60'; }
+    else if (f.weapon === 'railcannon') { rad = 56; rgb = '191,251,255'; }
+    else if (f.weapon === 'stormgun') { rad = 40; rgb = '191,251,255'; }
+    else if (f.weapon === 'mortarMk2') { rad = 46; rgb = '255,217,138'; }
+    else if (f.evo === 'multi') rad = 48; // wider fan flash
     else if (f.evo === 'blast') { rad = 44; rgb = '255,217,138'; } // heavy warm muzzle
     else if (f.evo === 'burn') rgb = '240,169,60'; // ember-hot muzzle
     const fg = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, rad);
@@ -4515,7 +5942,46 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
     fg.addColorStop(1, `rgba(${rgb},0)`);
     ctx.fillStyle = fg;
     ctx.fillRect(f.x - rad, f.y - rad, rad * 2, rad * 2);
-    if (f.evo === 'shock') {
+    if (f.weapon === 'flamer') {
+      // THE CONE: a wedge of fire down the shooter's facing
+      if (f.dir === undefined) {
+        f.dir = null;
+        for (const p of snap.players) {
+          if (p.state !== 'active') continue;
+          if ((p.x - f.x) ** 2 + (p.y - f.y) ** 2 < 34 ** 2) { f.dir = Math.atan2(p.fy, p.fx); break; }
+        }
+      }
+      if (f.dir != null) {
+        ctx.save();
+        ctx.translate(f.x, f.y);
+        ctx.rotate(f.dir);
+        const cone = ctx.createLinearGradient(0, 0, 56, 0);
+        cone.addColorStop(0, `rgba(255,239,194,${0.5 * Math.min(1, a)})`);
+        cone.addColorStop(0.5, `rgba(240,169,60,${0.35 * Math.min(1, a)})`);
+        cone.addColorStop(1, 'rgba(199,91,34,0)');
+        ctx.fillStyle = cone;
+        ctx.beginPath();
+        ctx.moveTo(4, 0);
+        ctx.lineTo(56, -19);
+        ctx.quadraticCurveTo(64, 0, 56, 19);
+        ctx.closePath(); ctx.fill();
+        ctx.restore();
+      }
+    } else if (f.weapon === 'stormgun') {
+      // coil crackle forking off the emitter orb
+      const frame = Math.floor(t * 40);
+      ctx.save();
+      ctx.strokeStyle = `rgba(191,251,255,${0.75 * Math.min(1, a)})`;
+      ctx.lineWidth = 1.3;
+      ctx.beginPath();
+      for (let i = 0; i < 3; i++) {
+        const aa = flick(frame + i * 9.3 + f.x) * Math.PI * 2;
+        jagPath(ctx, f.x, f.y, f.x + Math.cos(aa) * 16, f.y + Math.sin(aa) * 16, 3, 3.5, frame + i * 17);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+    if (f.evo === 'shock' && !PICKUP_STYLE[f.weapon]) { // field weapons skip evos
       // blue crackle forking off the muzzle
       const frame = Math.floor(t * 40);
       ctx.save();
@@ -4721,6 +6187,31 @@ export function renderMinimap(ctx, snap, focusPids) {
   }
   for (const fo of snap.followers ?? []) dot(fo.x, fo.y, PAL.teal, 1.6);
   for (const c of snap.chests ?? []) if (!c.opened) dot(c.x, c.y, PAL.lythGold, 1.8);
+  // frontier III (all optional): doors read as wall/gap, puzzles as marks
+  for (const d of snap.doors ?? []) {
+    ctx.fillStyle = d.open ? '#1E2028' : (d.sealLock ? '#7A5A1E' : '#343A48');
+    ctx.fillRect(d.x * TILE * sx, d.y * TILE * sy, (d.w ?? 1) * TILE * sx + 0.5, (d.h ?? 1) * TILE * sy + 0.5);
+  }
+  for (const tp of snap.teleports ?? []) {
+    ctx.strokeStyle = 'rgba(111,216,242,0.85)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(tp.x * sx, tp.y * sy, 2.6, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  for (const sw of snap.switches ?? []) {
+    ctx.fillStyle = sw.burned || sw.dead ? '#15121A' : sw.on ? PAL.lythGold : '#5E6B8C';
+    ctx.fillRect(sw.x * sx - 1.5, sw.y * sy - 1.5, 3, 3);
+  }
+  for (const gl of snap.glyphs ?? []) dot(gl.x, gl.y, gl.lit ? PAL.lythGold : '#4A4650', 1.5);
+  for (const pi of snap.pillars ?? []) {
+    if ((pi.hp ?? 1) <= 0) continue;
+    ctx.fillStyle = PAL.moonsteel;
+    ctx.fillRect(pi.x * sx - 1.5, pi.y * sy - 2, 3, 4);
+  }
+  for (const fo2 of snap.forges ?? []) dot(fo2.x, fo2.y, PAL.lythAmber, 2.4);
+  for (const pk of snap.pickups ?? []) dot(pk.x, pk.y, (PICKUP_STYLE[pk.kind] || {}).col || PAL.lythGold, 2);
+  for (const q of snap.qitems ?? []) dot(q.x, q.y, '#FFEFC2', 2.2);
   for (const tw of snap.towers ?? []) if ((tw.hp ?? 1) > 0) dot(tw.x, tw.y, PAL.moonsteel, 2);
   for (const v of snap.vehicles ?? []) dot(v.x, v.y, '#A9C4CE', 2);
   for (const f of snap.flags ?? []) dot(f.x, f.y, TEAM_COL[(f.team ?? 0) % 2], 3);

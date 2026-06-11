@@ -24,12 +24,10 @@ for (const f of ['game.js', 'characters.json']) {
   fs.copyFileSync(path.join(root, 'shared', f), path.join(dist, 'shared', f));
 }
 
-// optional PNG art overrides
+// optional PNG art overrides + the EVA voice pack (assets/voice/*.m4a)
 const assetsDir = path.join(root, 'public', 'assets');
 if (fs.existsSync(assetsDir)) {
-  for (const f of fs.readdirSync(assetsDir)) {
-    fs.copyFileSync(path.join(assetsDir, f), path.join(dist, 'assets', f));
-  }
+  fs.cpSync(assetsDir, path.join(dist, 'assets'), { recursive: true });
 }
 
 // client files with absolute paths rewritten to relative ones

@@ -1,4 +1,7 @@
 import { TILE, createGame, step, snapshot, applyResults, charsById } from '/shared/game.js';
+// Namespace import so optional sim features (serializeGame/restoreGame for save
+// beacons) can ship independently — accessed via gameMod.* with runtime checks.
+import * as gameMod from '/shared/game.js';
 import { render, renderMinimap, addEventFX, initTextures, drawPortrait, drawWeaponIcon } from './render.js';
 // Namespace import so optional renderer features (cutscenes, menu backdrop) can
 // ship independently — accessed via renderMod.* with runtime existence checks.
@@ -32,13 +35,27 @@ const ctx = canvas.getContext('2d');
 const mmCtx = $('minimap').getContext('2d');
 const SAVE_KEY = 'holdout-hd.save';
 const STORY_KEY = 'holdout-hd.story'; // { chapter: next 1-based chapter, roster }
+const BEACON_KEY = 'holdout-hd.beacon'; // { chapter: 1-based, data: serializeGame(g) } — local story only
 const PCOLORS = ['#4fc3f7', '#ffb74d', '#f06292', '#aed581'];
 // CTF team identity (badge color sets) + display names.
 const TEAMC = ['#5ea7ff', '#ff7a6a'];
 const TEAM_NAME = ['TEAM A', 'TEAM B'];
-const ITEM_ICON = { cracker: '✷ ', medkit: '✚ ', shield: '⬡ ', toxin: '☣ ', controller: '◉ ' };
+const ITEM_ICON = { cracker: '✷ ', medkit: '✚ ', shield: '⬡ ', toxin: '☣ ', controller: '◉ ', lythseal: '❖ ' };
 // item-slot display name overrides (default: kind.toUpperCase())
-const ITEM_LABEL = { controller: 'MIND LINK' };
+const ITEM_LABEL = { controller: 'MIND LINK', lythseal: 'LYTH SEAL' };
+// field weapon pickups: display names for the weapon panel while one is held
+const FIELD_WEAPON_LABEL = { flamer: 'FLAMER', railcannon: 'RAIL CANNON', stormgun: 'STORM GUN', mortarMk2: 'MORTAR MK2' };
+
+// ---------- save beacon storage (LOCAL story sessions only) ----------
+// The sim's serializeGame/restoreGame exports may land independently — both
+// reads are guarded, so an older shared/game.js just means no resume offer.
+function loadBeacon(chapter) {
+  try {
+    const b = JSON.parse(localStorage.getItem(BEACON_KEY));
+    return b && b.chapter === chapter && b.data ? b : null;
+  } catch { return null; }
+}
+function clearBeacon() { localStorage.removeItem(BEACON_KEY); }
 
 let session = null;
 setupAudioToggle($('btnAudio'));
@@ -232,6 +249,12 @@ function handleEvent(ev) {
   playEvent(ev);
   if (ev.type === 'talk') showDialogue(ev);
   if (ev.type === 'chest' && ev.loot) showToast(chestToast(ev));
+  // quest lifecycle toasts: {id, state, title, main} — 'hidden' never toasts
+  if (ev.type === 'quest' && (ev.state === 'active' || ev.state === 'done')) {
+    showToast(`${ev.state === 'done' ? 'COMPLETE' : 'NEW OBJECTIVE'} — ${ev.title ?? 'OBJECTIVE'}`, 3200);
+  }
+  if (ev.type === 'fieldEmpty') showToast('FIELD WEAPON SPENT');
+  if (ev.type === 'sealForged') showToast('LYTH SEAL FORGED');
   const b = bannerFor(ev);
   if (b) showBanner(b.text, b.blood);
 }
@@ -246,11 +269,17 @@ function show(id) {
 function hideAll() {
   for (const s of ['menu', 'lobby', 'msg']) $(s).hidden = true;
 }
-function showMsg(title, body, btnLabel, onOk) {
+function showMsg(title, body, btnLabel, onOk, altLabel, onAlt) {
   $('msgTitle').textContent = title;
   $('msgBody').textContent = body;
   $('btnMsgOk').textContent = btnLabel || 'Continue';
   $('btnMsgOk').onclick = e => { e.currentTarget.blur(); onOk(); };
+  // optional second action ('Resume from beacon' on a local story fail) — a
+  // ghost button so blind FIRE still defaults to the primary, DOWN reaches it
+  const alt = $('btnMsgAlt');
+  alt.hidden = !altLabel;
+  alt.textContent = altLabel || '';
+  alt.onclick = altLabel ? (e => { e.currentTarget.blur(); onAlt?.(); }) : null;
   show('msg');
 }
 function resultText(res) {
@@ -413,6 +442,7 @@ function buildSquadPanels(roster) {
   host.innerHTML = '';
   for (const k of Object.keys(squadCards)) delete squadCards[k];
   resetHearts();
+  resetObjectives();
   for (const id of roster.slice(0, 5)) {
     const ch = charMap[id];
     const card = document.createElement('div');
@@ -459,6 +489,62 @@ function updateMissionPanel() {
     $('missionName').textContent = lvl?.name?.toUpperCase() || '—';
   }
   $('missionObj').textContent = lvl?.objective || 'Reach the exit gate';
+}
+
+// Objectives checklist (top of the left column): main quest title + check,
+// then up to 3 secondaries. Lives off snapshot.quests (titles/main flags fall
+// back to the level def's quest list); story/bastion maps without quests show
+// the level objective as the standing main. Classic/versus snapshots carry no
+// quests and aren't story sessions, so the panel never appears — unchanged.
+let objSig = null;
+function resetObjectives() {
+  objSig = null;
+  const host = $('objectivesPanel');
+  host.hidden = true;
+  $('objList').innerHTML = '';
+}
+function updateObjectives(snap) {
+  const host = $('objectivesPanel');
+  const list = session?.levelList?.() ?? campaign;
+  const lvl = list[Math.min(session?.levelIdxView?.() ?? 0, list.length - 1)];
+  const defs = lvl?.quests ?? [];
+  const defOf = q => defs.find(d => d.id === q.id);
+  const quests = (snap.quests ?? [])
+    .filter(q => q.state !== 'hidden')
+    .map(q => ({
+      ...q,
+      title: q.title ?? defOf(q)?.title ?? 'OBJECTIVE',
+      main: q.main ?? defOf(q)?.main ?? false,
+    }));
+  let rows;
+  if (quests.length) {
+    const main = quests.find(q => q.main) ?? quests[0];
+    rows = [{ ...main, mainRow: true }, ...quests.filter(q => q !== main).slice(0, 3)];
+  } else if (session?.story || session?.bastionMode?.()) {
+    rows = [{ title: snap.objective || lvl?.objective || 'Reach the exit gate', state: snap.status === 'cleared' ? 'done' : 'active', mainRow: true }];
+  } else {
+    if (!host.hidden) resetObjectives();
+    return;
+  }
+  const sig = rows.map(r => [r.id ?? '', r.state, r.progress ?? '', r.count ?? '', r.title].join(':')).join('|');
+  if (sig === objSig) return;
+  objSig = sig;
+  host.hidden = false;
+  const el = $('objList');
+  el.innerHTML = '';
+  for (const r of rows) {
+    const row = document.createElement('div');
+    row.className = 'obj' + (r.mainRow ? ' main' : ' sec') + (r.state === 'done' ? ' done' : '');
+    const chk = document.createElement('span');
+    chk.className = 'chk';
+    chk.textContent = r.state === 'done' ? '☑' : '☐';
+    const txt = document.createElement('span');
+    txt.className = 'otxt';
+    // kill/fetch counters read as "title 2/5" once a count ships
+    txt.textContent = r.title + ((r.count ?? 0) > 1 ? ` ${Math.min(r.progress ?? 0, r.count)}/${r.count}` : '');
+    row.append(chk, txt);
+    el.appendChild(row);
+  }
 }
 
 // Hearts row per LOCAL player (survival maps only — players carry hp/maxHp).
@@ -574,9 +660,11 @@ function charStatus(id, snap) {
 
 function updateHUD(snap) {
   $('hScore').textContent = (snap.score ?? 0).toLocaleString();
-  const tl = Math.max(0, snap.timeLeft);
+  // untimed maps (story/bastion) count UP from elapsed and never tint red;
+  // classic arcade countdowns are untouched
+  const tl = Math.max(0, (snap.untimed ? snap.elapsed : snap.timeLeft) ?? 0);
   $('hTime').textContent = `${String(Math.floor(tl / 60)).padStart(2, '0')}:${String(Math.floor(tl % 60)).padStart(2, '0')}`;
-  $('hTime').style.color = tl < 15 ? '#ff7a6a' : '';
+  $('hTime').style.color = !snap.untimed && tl < 15 ? '#ff7a6a' : '';
   $('hKills').textContent = snap.kills ?? 0;
   $('hCombo').textContent = 'x' + (snap.combo ?? 1);
   // ctf runs per-team shard pools: show YOUR team's pool (both, labelled,
@@ -622,7 +710,15 @@ function updateHUD(snap) {
   const me = snap.players.find(p => focus.has(p.pid) && p.state === 'active' && p.charId)
     || snap.players.find(p => p.pid === session?.primaryPid());
   const ch = me?.charId ? charMap[me.charId] : null;
-  if (ch) {
+  const fw = me?.fieldWeapon;
+  if (fw?.kind) {
+    // a field pickup overrides the character weapon: name + ammo replace the
+    // stat line (special is unchanged, so the special row stays as-is below)
+    $('wName').textContent = FIELD_WEAPON_LABEL[fw.kind] ?? String(fw.kind).toUpperCase();
+    if (typeof renderMod.drawFieldWeaponIcon === 'function') renderMod.drawFieldWeaponIcon($('wIcon'), fw.kind);
+    else { const c = $('wIcon'); c.getContext('2d').clearRect(0, 0, c.width, c.height); }
+    $('wStats').textContent = `AMMO ${fw.ammo ?? 0} · hold Q / . / Y to drop`;
+  } else if (ch) {
     $('wName').textContent = ch.weapon.name.toUpperCase();
     drawWeaponIcon($('wIcon'), ch);
     $('wStats').textContent = `DMG ${ch.weapon.damage} · RNG ${ch.weapon.range} · ROF ${(1 / ch.weapon.cooldown).toFixed(1)}/s`;
@@ -653,6 +749,7 @@ function updateHUD(snap) {
   }
   updateItemSlot(me);
   updateHearts(snap);
+  updateObjectives(snap);
   updateModePanels(snap);
   renderMinimap(mmCtx, snap, session?.focusPids() ?? new Set());
 }
@@ -919,7 +1016,10 @@ class LocalSession {
     }
     step(this.game, inputs, dt);
     this.snap = snapshot(this.game);
-    for (const ev of this.snap.events) handleEvent(ev);
+    for (const ev of this.snap.events) {
+      handleEvent(ev);
+      if (ev.type === 'beacon') this.saveBeacon();
+    }
     if (this.snap.status !== 'play') this.finish();
   }
   // Attract-mode bot (?demo=1): walks east toward the exit, shoots what gets
@@ -981,6 +1081,28 @@ class LocalSession {
     }
     return inp;
   }
+  // Save beacons checkpoint LOCAL story runs only (the server ignores them
+  // online). serializeGame/restoreGame are guarded gameMod reads — an older
+  // sim build simply means no checkpoint, never a crash.
+  saveBeacon() {
+    if (!this.story || demoMode || !this.game || typeof gameMod.serializeGame !== 'function') return;
+    try {
+      localStorage.setItem(BEACON_KEY, JSON.stringify({ chapter: this.levelIdx + 1, data: gameMod.serializeGame(this.game) }));
+      showToast('BEACON LIT — PROGRESS SAVED');
+    } catch {} // storage quota — a failed checkpoint must never break the run
+  }
+  resumeBeacon() {
+    const b = loadBeacon(this.levelIdx + 1);
+    let g = null;
+    if (b && typeof gameMod.restoreGame === 'function') {
+      try { g = gameMod.restoreGame(b.data, charMap); } catch {}
+    }
+    if (!g) { clearBeacon(); return this.lobby(); } // unreadable beacon: regroup in the lobby
+    this.game = g;
+    this.snap = null;
+    this.paused = false;
+    hideAll();
+  }
   finish() {
     if (this.mode) return this.finishVersus();
     const res = applyResults(this.roster, this.game);
@@ -995,8 +1117,9 @@ class LocalSession {
       if (this.story) {
         this.levelIdx++;
         // save now (before any cutscene/dialog) so quitting can't lose the clear;
-        // demo/attract runs never touch the player's story save
+        // demo/attract runs never touch the player's story save or its beacon
         if (!demoMode) {
+          clearBeacon(); // the chapter is cleared — its mid-run checkpoint is spent
           if (this.levelIdx >= this.levels.length) localStorage.removeItem(STORY_KEY);
           else localStorage.setItem(STORY_KEY, JSON.stringify({ chapter: this.levelIdx + 1, roster: this.roster }));
         }
@@ -1021,7 +1144,19 @@ class LocalSession {
       localStorage.setItem(SAVE_KEY, JSON.stringify({ levelIdx: this.levelIdx, roster: this.roster }));
       showMsg('Mission Cleared', (resultText(res) || 'Nicely done.') + `\nScore: ${score.toLocaleString()}`, 'Continue', () => this.lobby());
     } else {
-      showMsg(this.story ? 'Chapter Failed' : 'Mission Failed', 'Time ran out or the whole squad went down.\nNo one is lost on a failed run — try again.', 'Retry', () => this.lobby());
+      // story runs are untimed, so a story fail can only be a squad wipe
+      const body = this.story
+        ? 'The whole squad went down.\nNo one is lost on a failed run — try again.'
+        : 'Time ran out or the whole squad went down.\nNo one is lost on a failed run — try again.';
+      // a live beacon on THIS chapter offers a mid-run resume (local story only)
+      const beacon = this.story && !demoMode && typeof gameMod.restoreGame === 'function'
+        ? loadBeacon(this.levelIdx + 1) : null;
+      if (beacon) {
+        showMsg('Chapter Failed', body + '\nA save beacon still burns in the field.',
+          'Retry', () => this.lobby(), 'Resume from beacon', () => this.resumeBeacon());
+      } else {
+        showMsg(this.story ? 'Chapter Failed' : 'Mission Failed', body, 'Retry', () => this.lobby());
+      }
     }
   }
   // Versus matches never touch the roster or saves; the lobby is the rematch
@@ -1050,7 +1185,7 @@ class LocalSession {
   victory() {
     playUi('victory');
     if (this.story) {
-      if (!demoMode) localStorage.removeItem(STORY_KEY);
+      if (!demoMode) { localStorage.removeItem(STORY_KEY); clearBeacon(); }
       showMsg('The Crossing Holds', `The Anchor is lit and the frontier breathes again.\nFinal roster: ${this.roster.map(id => charMap[id].name).join(', ')}`, 'Main Menu', () => this.leave());
       return;
     }
@@ -1427,6 +1562,7 @@ $('btnStory').onclick = e => {
   e.currentTarget.blur();
   if (!storyLevels.length || session) return;
   localStorage.removeItem(STORY_KEY); // fresh start, like btnSolo for classic
+  clearBeacon(); // an abandoned run's checkpoint dies with it
   session = new LocalSession(null, { story: true });
   session.lobby();
 };

@@ -1,0 +1,491 @@
+{
+  "name": "The Anchorcraft",
+  "story": true,
+  "chapter": 7,
+  "title": "Chapter VII — The Anchorcraft",
+  "expedition": true,
+  "objective": "Repair the crashed Anchorcraft and take the helm — the Crossing continues",
+  "time": 900,
+  "captiveChars": [],
+  "npcs": [
+    {
+      "id": "pilots-plaque",
+      "name": "The Pilot’s Plaque",
+      "lines": [
+        "IN MEMORIAM — she flew between checkpoints, and rests between them too.",
+        "The rite, continued: third, what is read only at inclusion. Last, the mark that cannot be unsaid.",
+        "Wave, then vertex, then seal, then anchor. The launch is a promise read in order, and finality signs it.",
+        "SEALED — READ AT INCLUSION. The hold’s cargo will not open until the launch settles."
+      ]
+    },
+    {
+      "id": "elder-sefa",
+      "name": "Elder Sefa Tenwright",
+      "lines": [
+        "Ten keepers founded this village. I have buried six. You see the arithmetic of my problem.",
+        "The craft in the east fell before the Fall finished falling. Plating, coil, regulator — three salvage runs, and I settle each one in the ledger.",
+        "The depot keeps the plating, and its keepers now are not keepers. The swamp wreck keeps the coil — take the skiff. The vault keeps the regulator, and its own counsel.",
+        "The vault answers three runes: first, the mark that cannot be unsaid. Then seven of ten, and not six. Last, what waits for all who are not anchored.",
+        "The helm rite begins with the breath the field takes together, then one voice, once, and only once. The pilot’s plaque keeps the rest. Two and two — that is my half of four.",
+        "Raise the pylon at the breach when the salvage is settled. The Anchor takes no fractions, operator. Neither does the craft."
+      ],
+      "gift": {
+        "shards": 8
+      }
+    },
+    {
+      "id": "warden-mirelle",
+      "name": "Mirelle, Corridor Warden",
+      "lines": [
+        "You don’t move. The world agrees you’ve moved. Try to be the kind of person worlds agree with.",
+        "The husk nest at the north-west edge is drift made flesh. Thin it out and the road breathes again.",
+        "The craft’s airlock is a settled corridor: two pads, one agreed state. Stand on the outer pad, let the field include you, and you are simply already inside.",
+        "An unsettled corridor doesn’t lose travelers. It reconsiders them. I never send anyone mid-breath — the pad channels at the top of the wave."
+      ]
+    },
+    {
+      "id": "hask-embervein",
+      "name": "Hask Embervein, Forgekeeper",
+      "lines": [
+        "One key is a confession. Seven keys are a country.",
+        "A keeper fell in the husk nest, north-west, carrying a proof fragment. Bring me fragments, not promises — the anvil cannot interpolate promises.",
+        "Six fragments make slag. Don’t look at me like that — six is not a quorum at this anvil either.",
+        "Burned hands, operator. Count your hammer blows out loud and you will never lose track of what is true."
+      ]
+    }
+  ],
+  "builds": [
+    {
+      "kind": "beacon",
+      "cost": 10
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "pylon",
+      "cost": 18
+    }
+  ],
+  "chests": [
+    {
+      "loot": "shield",
+      "amount": 1
+    },
+    {
+      "loot": "cracker",
+      "amount": 2
+    },
+    {
+      "loot": "shards",
+      "amount": 8
+    },
+    {
+      "loot": "shards",
+      "amount": 9
+    },
+    {
+      "loot": "medkit",
+      "amount": 1
+    },
+    {
+      "loot": "medkit",
+      "amount": 1
+    },
+    {
+      "loot": "shards",
+      "amount": 10
+    },
+    {
+      "loot": "toxin",
+      "amount": 1
+    }
+  ],
+  "vehicles": [
+    {
+      "kind": "skiff"
+    }
+  ],
+  "pickups": [
+    {
+      "kind": "flamer"
+    },
+    {
+      "kind": "mortarMk2"
+    }
+  ],
+  "qitems": [
+    {
+      "id": "qi-plating",
+      "kind": "plating"
+    },
+    {
+      "id": "qi-fragment",
+      "kind": "fragment"
+    },
+    {
+      "id": "qi-coil",
+      "kind": "coil"
+    },
+    {
+      "id": "qi-regulator",
+      "kind": "regulator"
+    }
+  ],
+  "switches": [
+    {
+      "id": "airlock-bulkhead",
+      "group": 0
+    },
+    {
+      "id": "hold-bulkhead",
+      "group": 1
+    }
+  ],
+  "switchGroups": [
+    {
+      "group": 0,
+      "need": 1,
+      "of": 1,
+      "reward": {
+        "openDoor": "door-hold"
+      }
+    },
+    {
+      "group": 1,
+      "need": 1,
+      "of": 1,
+      "reward": {
+        "openDoor": "door-reactor"
+      }
+    }
+  ],
+  "glyphs": [
+    {
+      "symbol": 1,
+      "group": 1
+    },
+    {
+      "symbol": 2,
+      "group": 1
+    },
+    {
+      "symbol": 3,
+      "group": 1
+    },
+    {
+      "symbol": 0,
+      "group": 1
+    },
+    {
+      "symbol": 0,
+      "group": 0
+    },
+    {
+      "symbol": 6,
+      "group": 0
+    },
+    {
+      "symbol": 7,
+      "group": 0
+    }
+  ],
+  "glyphGroups": [
+    {
+      "group": 0,
+      "order": [
+        0,
+        6,
+        7
+      ],
+      "reward": {
+        "openDoor": "vault-door"
+      }
+    },
+    {
+      "group": 1,
+      "order": [
+        1,
+        2,
+        3,
+        0
+      ],
+      "reward": {
+        "openDoor": "door-helm"
+      }
+    }
+  ],
+  "doors": [
+    {
+      "id": "vault-door",
+      "x": 63,
+      "y": 51,
+      "w": 1,
+      "h": 1
+    },
+    {
+      "id": "door-hold",
+      "x": 68,
+      "y": 33,
+      "w": 1,
+      "h": 1
+    },
+    {
+      "id": "door-reactor",
+      "x": 75,
+      "y": 33,
+      "w": 1,
+      "h": 1
+    },
+    {
+      "id": "door-helm",
+      "x": 86,
+      "y": 33,
+      "w": 1,
+      "h": 1
+    }
+  ],
+  "teleports": [
+    {
+      "id": "airlock-in",
+      "twin": "airlock-out"
+    },
+    {
+      "id": "airlock-out",
+      "twin": "airlock-in"
+    }
+  ],
+  "quests": [
+    {
+      "id": "hull-plating",
+      "main": true,
+      "title": "Salvage: depot hull plating",
+      "giver": "elder-sefa",
+      "kind": "fetch",
+      "item": "plating",
+      "count": 1,
+      "reward": {
+        "shards": 8
+      },
+      "hint": "The relay depot north of the road kept spare hull plate. Its keepers now are not keepers."
+    },
+    {
+      "id": "wave-coil",
+      "main": true,
+      "title": "Salvage: the swamp wreck’s wave-coil",
+      "giver": "elder-sefa",
+      "kind": "fetch",
+      "item": "coil",
+      "count": 1,
+      "reward": {
+        "shards": 8
+      },
+      "hint": "A second wreck drowned in the south swamp. Take the skiff — the coil survived the water."
+    },
+    {
+      "id": "burn-regulator",
+      "main": true,
+      "title": "Salvage: the vaulted burn regulator",
+      "giver": "elder-sefa",
+      "kind": "fetch",
+      "item": "regulator",
+      "count": 1,
+      "reward": {
+        "shards": 8
+      },
+      "hint": "Three runes guard the vault: the mark that cannot be unsaid; seven of ten, and not six; what waits for all who are not anchored."
+    },
+    {
+      "id": "hull-repair",
+      "main": true,
+      "title": "Raise the launch pylon at the hull breach",
+      "giver": "elder-sefa",
+      "kind": "build",
+      "target": "pylon",
+      "count": 1,
+      "reward": {
+        "shards": 6
+      },
+      "hint": "Plating, coil, regulator — settled. Raise the pylon at the breach and the craft takes the repair as final."
+    },
+    {
+      "id": "helm-rite",
+      "main": true,
+      "title": "Settle the helm rite — four runes in order",
+      "giver": "elder-sefa",
+      "kind": "glyph",
+      "target": "1",
+      "count": 1,
+      "reward": {
+        "shards": 6
+      },
+      "hint": "It begins with the breath the field takes together, then one voice, once, and only once. The pilot’s plaque keeps the rest."
+    },
+    {
+      "id": "launch",
+      "main": true,
+      "title": "Reach the helm — launch the Anchorcraft",
+      "giver": "elder-sefa",
+      "kind": "reach",
+      "target": {
+        "x": 88,
+        "y": 33
+      },
+      "count": 1,
+      "hint": "Behind you, a world that holds. Ahead, one that doesn’t yet."
+    },
+    {
+      "id": "husk-nest",
+      "title": "Clear the husk nest",
+      "giver": "warden-mirelle",
+      "kind": "kill",
+      "target": "z",
+      "count": 12,
+      "reward": {
+        "shards": 10
+      },
+      "hint": "The nest at the north-west edge is drift made flesh. Twelve husks down and the road breathes again."
+    },
+    {
+      "id": "keepers-fragment",
+      "title": "Recover the fallen keeper’s proof fragment",
+      "giver": "hask-embervein",
+      "kind": "fetch",
+      "item": "fragment",
+      "count": 1,
+      "reward": {
+        "shards": 12
+      },
+      "hint": "Bring me fragments, not promises. The anvil cannot interpolate promises."
+    }
+  ],
+  "intro": [
+    {
+      "title": "Chapter VII — The Anchorcraft",
+      "lines": [
+        "Act II. East of the village, a starcraft lies where it fell — hull cold, helm sealed.",
+        "Elder Tenwright keeps the salvage ledger: plating, coil, regulator.",
+        "The Crossing continues. This Anchor takes no fractions."
+      ],
+      "art": "anchorcraft"
+    }
+  ],
+  "outro": [
+    {
+      "title": "Relight",
+      "lines": [
+        "The burn chamber catches with a chord, and the lights walk aft to fore.",
+        "The field goes gold edge to edge — the corridor of sky settles.",
+        "The Anchorcraft rises on one long wave-tunnel."
+      ],
+      "art": "anchorcraft"
+    },
+    {
+      "title": "The Crossing Continues",
+      "lines": [
+        "Behind you, a world that holds. Ahead, one that doesn’t yet.",
+        "Next: the Prover Array — where mountains are ground into receipts."
+      ],
+      "art": "crossing"
+    }
+  ],
+  "modifiers": {
+    "waves": [
+      {
+        "at": 180,
+        "letters": "zzzzz",
+        "edge": "n"
+      },
+      {
+        "at": 360,
+        "letters": "zzfuu",
+        "edge": "e"
+      },
+      {
+        "at": 600,
+        "letters": "zzzzzff",
+        "edge": "s"
+      },
+      {
+        "at": 840,
+        "letters": "zzuuzzf",
+        "edge": "w"
+      }
+    ]
+  },
+  "tiles": [
+    "############################################################################################",
+    "#..........................................................................................#",
+    "#...___________________................................T...................................#",
+    "#...__________________#.................................TTT................................#",
+    "#...___________________#..............................TT...................................#",
+    "#..._______________z___##..........###############....T....................................#",
+    "#...______z____z__u____........#...#,,,n,,,,,,,,,#....TT...................................#",
+    "#..._____u____zzz______........##m.#,,C,,,,,,,g,,#.........................................#",
+    "#...___________________....T.......#,a,,,,I,f,,,,#.........................................#",
+    "#...________I__________....TT......#,,g,,,s,,,,,,#.........................................#",
+    "#..._________z_##__Y___...T........#,,,,,,,,,A,,,#......................................TT.#",
+    "#..._____z#z___#_______............#,,,,,,,g,,,,,#.......................................T.#",
+    "#...____#z##_#zu_______............#,Y,,,f,,,,a,,#..................#..............#......T#",
+    "#...____####_#_z_______............#,,,,,,,,,,,,,#.....#...........#...............##......#",
+    "#...___Y_z______z______............######,,,######....#...........................##.###...#",
+    "#...____##_____________...............o;;;..oo........................................#....#",
+    "#...___________________......##........;;;.............................................#...#",
+    "#..._________;;;_______.....#.#........;;;..............T..................................#",
+    "#..._________;;;_______......#.........;;;............T....................................#",
+    "#............;;;.......................;;;.................................................#",
+    "#............;;;.......................;;;.................................................#",
+    "#............;;;.......................;;;.................................................#",
+    "#...#########.,,###########.......TT...;;;.................................................#",
+    "#...#,,.,,,,,,,..,,,,,,,,.#.....##.T...;;;.................................................#",
+    "#...#,,########,..#######.#....####....;;;..#...................##########################.#",
+    "#...#,.#,.,,,.#,,.#,,.C,#,#....##.....T;;;.#......________....__##########################.#",
+    "#...#,,#,C,.,,#,.,#.,,.,#.#...........T;;;........___._________.##########################.#",
+    "#...#.,#,,,,,.#.,,###.###,#............;;;........___._.z____._.#####:C::::###############.#",
+    "#...#,,###,####,.,..,,.,,.#............;;;.........__#Y_._._.._.#####::::::#::::::########.#",
+    "#...#,,,,,,,,,,.,,.,,,,,..#............;;;........__#z.__u.____.#####::::::#Y:::::#:::####.#",
+    "#...#,,,,,,.,.,,.,,,.,,,,.#........g...;;;........__##_s_#o__.__#####:::z::#::::::#JNJ####.#",
+    "#...#Y,,.,..,,.,,.,.,..,,,#...z........;;g....zB.#_.g_._#.__.___#Q::#::::::#::##::#:::#::#.#",
+    "#...#.,.,,..,,..,,,S,,,.,,#.B...Y...z..;;;T.....###Y#.._.__B____#:::#::::::#::##::#:::#::#.#",
+    "#...#,.,,,,P.P,N.,,,,,,,,,,;;;;w;;;;;;;;;;;;;;;;;;;;;;;u;;;;;;;;#:O::::z::::::##:::::::::#.#",
+    "#...#,,..,,,,,.,*,,,,,,N,,,;;;;;;;;;;;;;;;;w;;;;;;;;z;;;;;;;;O;;#:::#::::::#::##::#:::#::#.#",
+    "#...#,,,,,.P,P,,,....,,,,,,;;;;;;;;;;;;;;;;;;;;;;;;;;f;;;;;;;;;;#:::#::::::#::##::#:::#::#.#",
+    "#...#,,,,,.,,,,,,,,H,,,.,,#.Bg.........TT....g.C.;;;#.#___._._._#####::::::#::::::#J:J####.#",
+    "#...#,,,,.,,,.,,.,,,,,,,.,#......z..........z....;;;##__.__...B_#####:Q::::#Y:::::#:::####.#",
+    "#...#,,,,,.,,....,.,,,,.,,#......................;;;_z_.__o_..__#####::::A:#::::::########.#",
+    "#...#,###,##,,.,,,,,,,.,,,#......................;;;g______._.._#####:::::C###############.#",
+    "#...#,#,,,,#,.##,###,.,,,,#......................;;;___Y_____._.##########################.#",
+    "#...#,#,N,*#,,#.,,,#,,,,,,#.......z..............;;;_m_._z._.___##########################.#",
+    "#...#,#,,,.#,,#.,,.#,,,,,.#......................;;;_____...___.##########################.#",
+    "#...#,#.,..#.,#,,,,#,,.,,,#......................;;;_._._._.____...........................#",
+    "#...#,######,,######.,.,,,#......................;;;.......................................#",
+    "#...#,,,,,,,,,,,,,,,.,.,.,#......................;;;.......................................#",
+    "#...#######################......................;;;.........................#.............#",
+    "#.............................u....zY....z.u...z.;;;.........r...s...........##............#",
+    "#..............................~.n..;;;;;;;;;;;;;;;;;;;;;;;f;;;;;;;;..........#............#",
+    "#..............T.............~.~....;;;;;;;;;;;;;;;;;;;;;;;;J;;J;;J;.......................#",
+    "#............T.T.............~~.~..~..V~~...........##.............n.......................#",
+    "#............TTTT............~~~.~~.~.~~~~~~~~~~~~...#.....####:####.............#.........#",
+    "#.....T.TT.......T...........~~~~~~.~.~.~~~~~~~~~~.........#:::::::#..............#........#",
+    "#........T........T...........~~~...~.~...~~#...~~.........#:::::::#............###........#",
+    "#......T.........TT............~.~~~~..~.~~~.I..~~.........#:::I:::#............##.........#",
+    "#.................T.............~~~~~.~.~.~~.aC.~~.........#:C:::Y:#............##..#......#",
+    "#...............................~~~~~~.~~~~~...#~~.........#:::::::#...............#.#.....#",
+    "#...............................~~~~~~.~.~~~~~~~~~.........#########................##.....#",
+    "#..............................~..~.~~~~~~~~~~~~~~.................................####....#",
+    "#...............................~...~~~~~~~~~.~.~..........#........................#......#",
+    "#..........T#...................~.~.~.~~~~...~............##.......................##......#",
+    "#..........TT.......................~..~~~~.~.............................###......##......#",
+    "#......#..TTT........................~.....................................................#",
+    "############T###############################################################################"
+  ]
+}

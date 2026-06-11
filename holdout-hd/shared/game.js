@@ -17,6 +17,24 @@ const ENEMY_STATS = {
   n: { kind: 'sniper', hp: 2, speed: 0, range: 10.5, cool: 1.4, score: 200, aggro: 12.5 },
   w: { kind: 'skitter', hp: 1, speed: 2.0, score: 50, aggro: 10.5 },
   b: { kind: 'boss', hp: 24, speed: 0.55, range: 8.5, cool: 1.1, spawnCool: 3.2, score: 1200, aggro: 12 },
+  // --- frontier III roster (deep-world contract) ---
+  // z Husk: Null Priest cultist husks — cheap horde fodder that swarms.
+  z: { kind: 'husk', hp: 1, speed: 1.0, score: 40, aggro: 9 },
+  // f Fork Alpha: the Forkling, the divided one — on death the seam parts and
+  // it ALWAYS splits into two skitters (distinct from the 'split' mutation).
+  f: { kind: 'alpha', hp: 3, speed: 1.7, score: 150, aggro: 9.5 },
+  // q Null Acolyte: Classical Phantom support caster — shields and mends the
+  // pack, never raises a hand against players. Priority-kill design.
+  q: { kind: 'acolyte', hp: 2, speed: 0.9, range: 5, cool: 2.5, score: 220, aggro: 9 },
+  // v Volt Wraith: LYTH Leech-kin elite — chain-zap shots that sting and
+  // briefly stun one operative (shield pips absorb the whole zap).
+  v: { kind: 'wraith', hp: 2, speed: 1.1, range: 6, cool: 2.2, score: 200, aggro: 10 },
+  // x Phase Stalker: Rift Brute lineage — blinks 3 tiles toward its prey on a
+  // deterministic per-id cadence, then mauls in melee.
+  x: { kind: 'stalker', hp: 3, speed: 1.3, score: 260, aggro: 10 },
+  // u Pyre Beetle: the Swarm Carrier urnback — the urn cracks on death into a
+  // burning ground patch plus a 1-damage blast.
+  u: { kind: 'beetle', hp: 2, speed: 1.4, score: 130, aggro: 9 },
 };
 
 // Maps at or below this tile count play arcade-style: every enemy is awake
@@ -31,14 +49,17 @@ const START_GRACE = 2.5;
 const ENEMY_LETTERS = new Set(Object.keys(ENEMY_STATS));
 
 // Shards dropped on death, by kind. Deterministic, always.
-const SHARD_DROPS = { grunt: 1, archer: 1, skitter: 1, charger: 2, sniper: 2, bulwark: 2, spawner: 3, boss: 12 };
+const SHARD_DROPS = {
+  grunt: 1, archer: 1, skitter: 1, charger: 2, sniper: 2, bulwark: 2, spawner: 3, boss: 12,
+  husk: 1, alpha: 2, acolyte: 2, wraith: 2, stalker: 3, beetle: 1,
+};
 const DROP_TTL = 25;
 const MAGNET_RANGE = 2.5; // tiles
 const MAGNET_SPEED = 6; // tiles/sec
 const BUILD_RADIUS = 18; // px, built structures block movement in this circle
 const BUILD_REACH = 1.5; // tiles, act range for building and talking
 const CRYSTAL_R = 16;
-const MELEE_KINDS = new Set(['grunt', 'skitter', 'charger', 'bulwark', 'boss']);
+const MELEE_KINDS = new Set(['grunt', 'skitter', 'charger', 'bulwark', 'boss', 'husk', 'alpha', 'stalker', 'beetle']);
 const STATIONARY_KINDS = new Set(['archer', 'sniper', 'spawner']);
 const LEASH_MULT = 1.8;
 const TURRET_WEAPON = { kind: 'turret', damage: 1, projSpeed: 10, range: 6, count: 1 };
@@ -136,12 +157,57 @@ const CONTROLLER_T = 10; // seconds of mind control before the husk burns out
 const SWIM_SLOW = 0.7; // swimmer speed multiplier on water
 const SWIM_FIRE_MULT = 1.5; // swimmer fire cooldown multiplier on water
 
+// --- frontier III: new roster tuning, field weapons, quests -----------------
+const ACOLYTE_PULSE = 2.5; // seconds between Null Acolyte support pulses
+// 'heals 1 hp at 25% rate': one mend rides every 4th shield pulse (1 hp/10s)
+const ACOLYTE_HEAL_EVERY = 4;
+const WRAITH_COOL = 2.2; // seconds between Volt Wraith chain-zaps
+const WRAITH_STUN = 0.3; // seconds an unshielded operative is rooted by a zap
+const STALKER_BLINK_T = 3.5; // seconds between Phase Stalker blinks
+const STALKER_BLINK_TILES = 3; // tiles per blink, toward its target
+const BEETLE_BURST_R = 1.2; // tiles: Pyre Beetle death patch + 1 dmg AoE
+// Field weapon pickups (letter 'A'): self-contained weapon defs. They replace
+// the carrier's main FIRE outright — no evolutions, their own cooldown; shop
+// dmgBonus still rides via fireWeapon. `ammo` is the full-load default.
+const FIELD_WEAPONS = {
+  // cone of 5 short burn shots every 0.3s; each volley sips 1 fuel of 90
+  flamer: { kind: 'flamer', damage: 1, projSpeed: 7, range: 2.6, count: 5, spreadDeg: 24, ignite: true, cooldown: 0.3, ammo: 90 },
+  railcannon: { kind: 'railcannon', damage: 5, projSpeed: 20, range: 13, count: 1, pierce: 6, cooldown: 1.4, ammo: 10 },
+  // chain-zap: stuns the mark and arcs to the nearest other enemy (shockArc)
+  stormgun: { kind: 'stormgun', damage: 2, projSpeed: 11, range: 7, count: 1, stun: 0.3, shockArc: true, cooldown: 0.5, ammo: 24 },
+  mortarMk2: { kind: 'mortarMk2', damage: 4, projSpeed: 7, range: 9, count: 1, aoeRadius: 1.6, overWalls: true, cooldown: 1.2, ammo: 14 },
+};
+const FIELD_KINDS = ['flamer', 'railcannon', 'stormgun', 'mortarMk2']; // 'A' default cycle
+const FIELD_DROP_HOLD = 0.8; // seconds holding ITEM to drop a field weapon
+const QITEM_R = 12; // px, quest item touch radius (captive-sized)
+const QUEST_REACH_TILES = 1.5; // tiles, 'reach' quests trip inside this ring
+
+// --- frontier III: monolythium puzzle systems -------------------------------
+// 'X' BLS pillar: obsolete cryptography, destructible by player fire only.
+const PILLAR_HP = 12;
+const PILLAR_R = 16; // px, shot-hit circle (crystal-sized)
+// 'Z' seal forge: act-hold with 20 shards + a carried proof fragment mints a
+// lythseal into the crafter's item slot.
+const FORGE_COST = 20; // shards
+const FORGE_ITEM = 'fragment'; // required carried quest-item kind
+const FORGE_HOLD_T = 1.0; // seconds of act-hold at the anvil
+const GLYPH_SYMBOLS = 8; // distinct Monolythium runes, 0-7
+// 'O' teleport pads: stand 0.8s to channel, blink to the twin, 2s per-player
+// cooldown. Enemies never use pads (no code path exists for them).
+const TELE_CHANNEL_T = 0.8;
+const TELE_COOLDOWN = 2;
+const DOOR_TOUCH = 10; // px beyond the player radius for lythseal door touches
+
 function buildMaxHp(kind) {
   if (kind === 'barricade') return 14;
   if (kind === 'turret') return 10;
   if (kind === 'farm') return 6;
-  return 20; // pylon: never takes damage once built (indestructible)
+  return 20; // pylon/beacon: never take damage once built (indestructible)
 }
+
+// Built structures that are never gnawed, repaired, upgraded or dismantled:
+// pylons (gate anchors) and save beacons (checkpoints are sacrosanct).
+function inertBuild(kind) { return kind === 'pylon' || kind === 'beacon'; }
 
 // Deterministic chest loot: def.chests binds row-major; missing entries fall
 // back to a fixed cycle by index. Shard chests pay 6-12 by index.
@@ -189,6 +255,8 @@ function makeEnemy(letter, x, y, id) {
     homeY: y,
     returning: false,
     hitCool: 0,
+    // Phase Stalker blink clock: staggered by id, like cool — deterministic.
+    ...(def.kind === 'stalker' ? { blinkT: STALKER_BLINK_T + (id % 4) * 0.35 } : {}),
   };
 }
 
@@ -208,6 +276,13 @@ export function parseLevel(def) {
   const shops = [];
   const hires = [];
   const flags = [];
+  const pickups = [];
+  const qitems = [];
+  const switches = [];
+  const glyphs = [];
+  const pillars = [];
+  const forges = [];
+  const teleports = [];
   let core = null;
   let ci = 0;
   let ni = 0;
@@ -276,13 +351,56 @@ export function parseLevel(def) {
       } else if (c === 'Y') {
         crystals.push({ cid: crystals.length, x: px, y: py, hp: 3 });
         grid[y][x] = '.';
+      } else if (c === 'A') {
+        // field weapon pickups: def.pickups binds row-major; missing entries
+        // cycle the four field kinds deterministically by index
+        const pd = (def.pickups || [])[pickups.length] || {};
+        const kind = FIELD_WEAPONS[pd.kind] ? pd.kind : FIELD_KINDS[pickups.length % FIELD_KINDS.length];
+        pickups.push({ id: 'fw' + pickups.length, x: px, y: py, kind, ammo: pd.ammo ?? FIELD_WEAPONS[kind].ammo });
+        grid[y][x] = '.';
+      } else if (c === 'I') {
+        // quest items: def.qitems binds row-major (proof fragments and the
+        // like); they trail their carrier exactly like captives
+        const qd = (def.qitems || [])[qitems.length] || {};
+        qitems.push({ id: qd.id || 'qi' + qitems.length, kind: qd.kind || 'fragment', x: px, y: py, carrier: null });
+        grid[y][x] = '.';
+      } else if (c === 'Q') {
+        // relay switches: def.switches binds row-major ({id, group})
+        const sd = (def.switches || [])[switches.length] || {};
+        switches.push({ id: sd.id || 'sw' + switches.length, x: px, y: py, on: false, group: sd.group ?? 0 });
+        grid[y][x] = '.';
+      } else if (c === 'J') {
+        // glyph stones: def.glyphs binds row-major ({id, symbol 0-7, group})
+        const gd = (def.glyphs || [])[glyphs.length] || {};
+        glyphs.push({
+          id: gd.id || 'gl' + glyphs.length, x: px, y: py,
+          symbol: (gd.symbol ?? glyphs.length) % GLYPH_SYMBOLS, lit: false, group: gd.group ?? 0,
+        });
+        grid[y][x] = '.';
+      } else if (c === 'X') {
+        // BLS pillars: obsolete cryptography, shot-destructible (hp 12)
+        pillars.push({ id: 'pl' + pillars.length, x: px, y: py, hp: PILLAR_HP, maxHp: PILLAR_HP });
+        grid[y][x] = '.';
+      } else if (c === 'Z') {
+        forges.push({ x: px, y: py, holdT: 0 });
+        grid[y][x] = '.';
+      } else if (c === 'O') {
+        // teleport pads pair in def.teleports order; the default pairs
+        // consecutive pads (0<->1, 2<->3, ...) — an odd trailing pad is inert
+        const td = (def.teleports || [])[teleports.length] || {};
+        teleports.push({ id: td.id || 'tp' + teleports.length, x: px, y: py, twin: td.twin ?? null });
+        grid[y][x] = '.';
       } else if (ENEMY_LETTERS.has(c)) {
         enemies.push(makeEnemy(c, px, py, eid++));
         grid[y][x] = '.';
       }
     }
   }
-  return { grid: grid.map(r => r.join('')), w, h, spawns, captives, enemies, npcs, builds, crystals, chests, vehicles, towers, shops, hires, flags, core };
+  // resolve default teleport twins by id once every pad is known
+  teleports.forEach((t, i) => {
+    if (t.twin == null) t.twin = (teleports[i ^ 1] || {}).id ?? null;
+  });
+  return { grid: grid.map(r => r.join('')), w, h, spawns, captives, enemies, npcs, builds, crystals, chests, vehicles, towers, shops, hires, flags, pickups, qitems, switches, glyphs, pillars, forges, teleports, core };
 }
 
 export function createGame(def, party, charMap, roster) {
@@ -332,6 +450,12 @@ export function createGame(def, party, charMap, roster) {
   // player with more kills, then the lower pid)
   if (pvp) for (const p of players) p.kills = 0;
   const bastion = def.mode === 'bastion' ? { ...BASTION_DEFAULTS, ...(def.bastion || {}) } : null;
+  // Untimed story (user mandate: no countdown in story modes): story levels
+  // and bastion maps never decrement timeLeft, never fail on the clock and
+  // never cue lowTime — g.elapsed keeps driving waves/gate.after/day-night.
+  // def.timed:true opts a future level back into a countdown. CTF and BR keep
+  // their match timers; classic levels keep their arcade countdowns.
+  const untimed = !pvp && !def.timed && (!!def.story || def.mode === 'bastion');
   // First 'E' tile center, used by the gateOpen event.
   let exitX = lvl.w * TILE / 2, exitY = lvl.h * TILE / 2;
   outer: for (let y = 0; y < lvl.h; y++) {
@@ -344,6 +468,7 @@ export function createGame(def, party, charMap, roster) {
     objective: def.objective || '',
     grid: lvl.grid, w: lvl.w, h: lvl.h,
     arcade,
+    untimed,
     spawns: lvl.spawns,
     timeLeft: def.time || 90,
     // Story modifiers. dark shrinks enemy aggro and caps their sight; waves
@@ -371,6 +496,42 @@ export function createGame(def, party, charMap, roster) {
     patches: [],
     followers: [],
     nextFollowerId: 1,
+    // field weapon pickups ('A') and quest items ('I'). Dropped weapons mint
+    // fresh ids from nextPickupId so shared loot stays addressable.
+    pickups: lvl.pickups,
+    nextPickupId: lvl.pickups.length,
+    qitems: lvl.qitems,
+    // quest runtime: hidden until the giver is talked to; progress accrues
+    // while active; completion (and rewards) land back at the giver's feet.
+    quests: (def.quests || []).map(q => ({
+      id: q.id, main: !!q.main, title: q.title || q.id, giver: q.giver,
+      kind: q.kind, item: q.item, target: q.target, count: q.count || 1,
+      reward: q.reward || null, hint: q.hint || '',
+      state: 'hidden', progress: 0,
+    })),
+    // openDoor quest rewards park door ids here; stepDoors consumes them.
+    pendingDoorOpens: [],
+    // --- monolythium puzzle systems ---
+    // relay switches and their cluster quorums (need-of-of, optional window)
+    switches: lvl.switches,
+    switchGroups: (def.switchGroups || []).map(sg => ({
+      group: sg.group ?? 0, need: sg.need || 1, of: sg.of ?? lvl.switches.filter(s => s.group === (sg.group ?? 0)).length,
+      window: sg.window || 0, reward: sg.reward || null, windowT: 0, done: false,
+    })),
+    // glyph stones light in exact order; a wrong stone resets the group
+    glyphs: lvl.glyphs,
+    glyphGroups: (def.glyphGroups || []).map(gg => ({
+      group: gg.group ?? 0, order: (gg.order || []).slice(), reward: gg.reward || null, done: false,
+    })),
+    pillars: lvl.pillars,
+    forges: lvl.forges,
+    teleports: lvl.teleports,
+    // doors are tile rects from def.doors: closed they block movement, sight,
+    // shots and A*; opened by quest/switch/glyph rewards or lythseal touch
+    doors: (def.doors || []).map((d, i) => ({
+      id: d.id || 'door' + i, x: d.x, y: d.y, w: d.w || 1, h: d.h || 1,
+      open: !!d.open, sealLock: !!d.sealLock,
+    })),
     // Mode missions (bastion/ctf/br) replace the classic end conditions;
     // classic defs carry no mode so nothing changes for them.
     mode: def.mode || null,
@@ -446,9 +607,22 @@ function blocksMove(c) { return c === '#' || c === 'T' || c === '~' || c === 'o'
 // else that blocks movement still blocks them.
 function blocksMoveSwim(c) { return c === '#' || c === 'T' || c === 'o'; }
 
+// A closed door covers its tile rect like rock: movement, sight, shots and
+// A* all stop at it. Maps without doors pay one length check and move on.
+function doorBlocksPx(g, x, y) {
+  if (!g.doors || !g.doors.length) return false;
+  const tx = Math.floor(x / TILE);
+  const ty = Math.floor(y / TILE);
+  for (const d of g.doors) {
+    if (!d.open && tx >= d.x && tx < d.x + d.w && ty >= d.y && ty < d.y + d.h) return true;
+  }
+  return false;
+}
+
 function collides(g, x, y, r) {
   for (const [ox, oy] of [[-r, -r], [r, -r], [-r, r], [r, r]]) {
     if (blocksMove(tileAt(g, x + ox, y + oy))) return true;
+    if (doorBlocksPx(g, x + ox, y + oy)) return true;
   }
   // Built structures (pylons, barricades, turrets) block players and enemies.
   // A* ignores them on purpose so enemies bump into them and gnaw them down.
@@ -470,6 +644,9 @@ function collides(g, x, y, r) {
 function moveBlocked(g, fromX, fromY, x, y, r, blocks = blocksMove) {
   for (const [ox, oy] of [[-r, -r], [r, -r], [-r, r], [r, r]]) {
     if (blocks(tileAt(g, x + ox, y + oy))) return true;
+    // closed doors only ever OPEN (never close on someone), so a plain
+    // block needs no escape-friendly carve-out
+    if (doorBlocksPx(g, x + ox, y + oy)) return true;
   }
   if (g.builds) {
     for (const b of g.builds) {
@@ -510,7 +687,10 @@ function hasLoS(g, ax, ay, bx, by, blocks = blocksMove) {
   const d = Math.hypot(dx, dy);
   const steps = Math.max(1, Math.ceil(d / (TILE / 3)));
   for (let i = 1; i < steps; i++) {
-    if (blocks(tileAt(g, ax + (dx * i) / steps, ay + (dy * i) / steps))) return false;
+    const px = ax + (dx * i) / steps;
+    const py = ay + (dy * i) / steps;
+    if (blocks(tileAt(g, px, py))) return false;
+    if (doorBlocksPx(g, px, py)) return false; // closed doors stop sight too
   }
   return true;
 }
@@ -527,6 +707,12 @@ function canSee(g, e, tgt) {
 function tileBlocked(g, tx, ty) {
   if (tx < 0 || ty < 0 || tx >= g.w || ty >= g.h) return true;
   if (blocksMove(g.grid[ty][tx])) return true;
+  // A* respects closed doors exactly like rock (they reopen the route later)
+  if (g.doors && g.doors.length) {
+    for (const d of g.doors) {
+      if (!d.open && tx >= d.x && tx < d.x + d.w && ty >= d.y && ty < d.y + d.h) return true;
+    }
+  }
   // A* routes around built structures instead of funneling chasers into them
   if (g.builds) {
     for (const b of g.builds) {
@@ -808,6 +994,8 @@ function fireWeapon(g, shooter, weapon, who, target = null) {
       ...(weapon.ignitePatch ? { ignitePatch: true } : {}),
       ...(weapon.shockArc ? { shockArc: true } : {}),
       ...(weapon.knockback ? { knockback: weapon.knockback } : {}),
+      // volt wraith zap: roots the struck operative (shield pips absorb it)
+      ...(weapon.stunPlayer ? { stunPlayer: weapon.stunPlayer } : {}),
       hits: [],
     });
   }
@@ -897,6 +1085,9 @@ function toxEnemy(g, e, owner) {
 
 function enemyWeapon(kind) {
   if (kind === 'sniper') return { kind: 'sniper', damage: 1, projSpeed: 12, range: 11, cooldown: 0, count: 1 };
+  // volt wraith chain-zap: 1 dmg + a 0.3s root on ONE operative; a shield
+  // pip absorbs the whole zap, stun included (see the enemy-shot hit loop)
+  if (kind === 'wraith') return { kind: 'zap', damage: 1, projSpeed: 9, range: 6.5, cooldown: 0, count: 1, stunPlayer: WRAITH_STUN };
   if (kind === 'boss') return { kind: 'boss', damage: 1, projSpeed: 6.8, range: 9, cooldown: 0, count: 5, spreadDeg: 42 };
   if (kind === 'spawner') return { kind: 'spore', damage: 1, projSpeed: 4.8, range: 6, cooldown: 0, count: 1 };
   return { kind: 'arrow', damage: 1, projSpeed: 5.5, range: 8, cooldown: 0, count: 1 };
@@ -918,9 +1109,20 @@ function dropFlags(g, p) {
   }
 }
 
+// Lay a carried field weapon at the feet as a shared pickup with whatever
+// ammo is left. One code path for every drop: the 0.8s ITEM hold, going down,
+// extraction, and the swap-out when grabbing a different weapon.
+function dropFieldWeapon(g, p) {
+  if (!p.fieldWeapon) return;
+  g.pickups.push({ id: 'fw' + g.nextPickupId++, x: p.x, y: p.y, kind: p.fieldWeapon.kind, ammo: p.fieldWeapon.ammo });
+  g.events.push({ type: 'fieldDrop', pid: p.pid, x: p.x, y: p.y, kind: p.fieldWeapon.kind, ammo: p.fieldWeapon.ammo });
+  p.fieldWeapon = null;
+}
+
 // Going down vacates whatever the player held: mount, watchtower, flag, shop.
 function releaseHoldings(g, p) {
   p.shopping = false;
+  dropFieldWeapon(g, p); // downed (and extracted) operatives drop theirs
   if (p.riding) {
     const v = g.vehicles.find(v => v.id === p.riding);
     if (v) v.rider = null;
@@ -1066,6 +1268,283 @@ function harvestFarm(g, b, p) {
   g.events.push({ type: 'harvest', x: b.x, y: b.y, pid: p.pid });
 }
 
+// --- quests --------------------------------------------------------------
+// Bump every ACTIVE quest of `kind` whose target matches one of `tags`
+// (a quest with no target matches anything). Kill and build quests call in
+// from the sim; the puzzle systems (switch/glyph/destroy/craft) call the
+// export from their own resolutions. Completion always settles at the giver.
+export function questProgress(g, kind, tags = [], x = 0, y = 0) {
+  if (!g.quests || !g.quests.length) return;
+  for (const q of g.quests) {
+    if (q.state !== 'active' || q.kind !== kind || q.progress >= q.count) continue;
+    if (q.target != null && !tags.includes(q.target)) continue;
+    q.progress++;
+    g.events.push({ type: 'questProgress', id: q.id, progress: q.progress, count: q.count, x, y });
+  }
+}
+
+// Talking to a giver drives its quests: hidden ones activate; active ones
+// complete once satisfied. fetch = the TALKER trails `count` quest items of
+// the right kind (handed over and consumed on the spot); every other kind
+// banks `progress` from linked events first. Rewards pay the talker —
+// shards to the pool, an item into the slot, a field weapon into the hands;
+// openDoor parks the door id on g.pendingDoorOpens for the door system.
+function questTalk(g, npc, p) {
+  if (!g.quests.length) return;
+  for (const q of g.quests) {
+    if (q.giver !== npc.id) continue;
+    if (q.state === 'hidden') {
+      q.state = 'active';
+      g.events.push({ type: 'quest', id: q.id, state: 'active', title: q.title, main: q.main });
+      continue;
+    }
+    if (q.state !== 'active') continue;
+    let satisfied = false;
+    if (q.kind === 'fetch') {
+      const carried = g.qitems.filter(it => it.carrier === p.pid && it.kind === q.item);
+      if (carried.length >= q.count) {
+        for (let i = 0; i < q.count; i++) g.qitems.splice(g.qitems.indexOf(carried[i]), 1);
+        q.progress = q.count;
+        satisfied = true;
+      }
+    } else {
+      satisfied = q.progress >= q.count;
+    }
+    if (!satisfied) continue;
+    q.state = 'done';
+    const r = q.reward || {};
+    if (r.shards) addShards(g, p, r.shards);
+    if (r.item) { // item rewards fill the slot like chest loot (stack/swap)
+      if (p.item && p.item.kind === r.item) p.item.count += 1;
+      else p.item = { kind: r.item, count: 1 };
+    }
+    if (r.weapon && FIELD_WEAPONS[r.weapon]) { // a fully loaded field weapon
+      dropFieldWeapon(g, p); // anything in hand swaps out at the feet
+      p.fieldWeapon = { kind: r.weapon, ammo: FIELD_WEAPONS[r.weapon].ammo };
+    }
+    if (r.openDoor) g.pendingDoorOpens.push(r.openDoor);
+    g.events.push({ type: 'quest', id: q.id, state: 'done', title: q.title, main: q.main, ...(q.reward ? { reward: q.reward } : {}) });
+  }
+}
+
+// Per-tick quest upkeep: 'reach' quests trip when any active player stands
+// inside 1.5 tiles of the target tile, and fetch quests mirror the carried
+// count into progress so the objectives HUD reads live (completion still
+// demands the talker carry them to the giver).
+function stepQuests(g) {
+  if (!g.quests.length) return;
+  for (const q of g.quests) {
+    if (q.state !== 'active') continue;
+    if (q.kind === 'reach' && q.progress < q.count && q.target && typeof q.target.x === 'number') {
+      const tx = (q.target.x + 0.5) * TILE, ty = (q.target.y + 0.5) * TILE;
+      for (const p of g.players) {
+        if (p.state !== 'active' || dist2(p, { x: tx, y: ty }) >= (TILE * QUEST_REACH_TILES) ** 2) continue;
+        q.progress++;
+        g.events.push({ type: 'questProgress', id: q.id, progress: q.progress, count: q.count, x: tx, y: ty });
+        break;
+      }
+    } else if (q.kind === 'fetch') {
+      let carried = 0;
+      for (const it of g.qitems) if (it.carrier != null && it.kind === q.item) carried++;
+      q.progress = Math.min(q.count, carried);
+    }
+  }
+}
+
+// --- monolythium puzzle systems --------------------------------------------
+// Doors open exactly once, by id. Every opener funnels through here.
+function openDoor(g, d) {
+  if (!d || d.open) return;
+  d.open = true;
+  g.events.push({ type: 'doorOpen', id: d.id, x: (d.x + d.w / 2) * TILE, y: (d.y + d.h / 2) * TILE });
+}
+
+// Puzzle rewards mirror quest rewards where they overlap: openDoor parks the
+// id on pendingDoorOpens (stepDoors consumes it); quest bumps the named
+// quest's progress by one, like any other linked-system event.
+function applyPuzzleReward(g, reward, x, y) {
+  if (!reward) return;
+  if (reward.openDoor) g.pendingDoorOpens.push(reward.openDoor);
+  if (reward.quest) {
+    const q = g.quests.find(q2 => q2.id === reward.quest);
+    if (q && q.state === 'active' && q.progress < q.count) {
+      q.progress++;
+      g.events.push({ type: 'questProgress', id: q.id, progress: q.progress, count: q.count, x, y });
+    }
+  }
+}
+
+// Relay switch: act throws it ON (one-way; the quorum window resets it).
+// CLUSTER QUORUM: need-of-of online completes the group — its reward fires
+// and 'switch' quests targeting the group name advance. A lone relay with no
+// group def drives 'switch' quests by its own id instead.
+function toggleSwitch(g, s, p) {
+  s.on = true;
+  g.events.push({ type: 'switch', id: s.id, group: s.group, on: true, x: s.x, y: s.y, pid: p.pid });
+  const grp = g.switchGroups.find(sg => sg.group === s.group && !sg.done);
+  if (!grp) {
+    questProgress(g, 'switch', [s.id], s.x, s.y);
+    return;
+  }
+  let on = 0;
+  for (const o of g.switches) if (o.group === s.group && o.on) on++;
+  // a timed quorum starts its window on the FIRST relay thrown
+  if (grp.window > 0 && on === 1) grp.windowT = grp.window;
+  if (on >= grp.need) {
+    grp.done = true;
+    grp.windowT = 0;
+    g.events.push({ type: 'quorum', group: grp.group, x: s.x, y: s.y });
+    applyPuzzleReward(g, grp.reward, s.x, s.y);
+    questProgress(g, 'switch', [String(grp.group)], s.x, s.y);
+  }
+}
+
+// Quorum windows tick down; an expired window resets every relay in the
+// group to OFF (the whole cluster must be re-thrown inside a fresh window).
+function stepSwitchGroups(g, dt) {
+  if (!g.switchGroups.length) return;
+  for (const grp of g.switchGroups) {
+    if (grp.done || !(grp.windowT > 0)) continue;
+    grp.windowT -= dt;
+    if (grp.windowT <= 0) {
+      grp.windowT = 0;
+      let x = 0, y = 0;
+      for (const s of g.switches) {
+        if (s.group !== grp.group) continue;
+        s.on = false;
+        x = s.x; y = s.y;
+      }
+      g.events.push({ type: 'switchReset', group: grp.group, x, y });
+    }
+  }
+}
+
+// Glyph stone: act lights it — but only the stone whose symbol comes next in
+// the group's order. A wrong stone snuffs the whole group ('glyphReset');
+// completing the order fires the reward and 'glyph' quests by group name.
+// Stones without a group def just light (scenery inscriptions).
+function lightGlyph(g, gl, p) {
+  const grp = g.glyphGroups.find(gg => gg.group === gl.group && !gg.done);
+  if (!grp) {
+    gl.lit = true;
+    g.events.push({ type: 'glyph', id: gl.id, symbol: gl.symbol, group: gl.group, x: gl.x, y: gl.y });
+    return;
+  }
+  let lit = 0;
+  for (const o of g.glyphs) if (o.group === gl.group && o.lit) lit++;
+  if (gl.symbol !== grp.order[lit]) {
+    for (const o of g.glyphs) if (o.group === gl.group) o.lit = false;
+    g.events.push({ type: 'glyphReset', group: gl.group, x: gl.x, y: gl.y });
+    return;
+  }
+  gl.lit = true;
+  g.events.push({ type: 'glyph', id: gl.id, symbol: gl.symbol, group: gl.group, x: gl.x, y: gl.y });
+  if (lit + 1 >= grp.order.length) {
+    grp.done = true;
+    g.events.push({ type: 'glyphDone', group: gl.group, x: gl.x, y: gl.y });
+    applyPuzzleReward(g, grp.reward, gl.x, gl.y);
+    questProgress(g, 'glyph', [String(grp.group)], gl.x, gl.y);
+  }
+}
+
+// Seal forge: an act-hold at the anvil by a player trailing a proof fragment
+// while the pool holds 20 shards consumes both and mints a lythseal into the
+// crafter's item slot. Carrying it opens sealLock doors on touch and reveals
+// Classical Phantoms (snapshot players hasSeal; render does the distance).
+function stepForges(g, inputs, dt) {
+  if (!g.forges.length) return;
+  const r2 = (TILE * BUILD_REACH) ** 2;
+  for (const f of g.forges) {
+    let crafter = null;
+    for (const p of g.players) {
+      if (p.state !== 'active' || p.towerId != null || p.riding || p.shopping || p.selecting) continue;
+      const inp = inputs[p.pid] || {};
+      if (!inp.act || dist2(p, f) >= r2) continue;
+      if (!g.qitems.some(it => it.carrier === p.pid && it.kind === FORGE_ITEM)) continue;
+      if (getShards(g, p) < FORGE_COST) continue;
+      crafter = p;
+      break;
+    }
+    if (!crafter) { f.holdT = 0; continue; }
+    f.holdT = (f.holdT || 0) + dt;
+    if (f.holdT < FORGE_HOLD_T) continue;
+    f.holdT = 0;
+    const idx = g.qitems.findIndex(it => it.carrier === crafter.pid && it.kind === FORGE_ITEM);
+    g.qitems.splice(idx, 1);
+    addShards(g, crafter, -FORGE_COST);
+    if (crafter.item && crafter.item.kind === 'lythseal') crafter.item.count++;
+    else crafter.item = { kind: 'lythseal', count: 1 };
+    g.events.push({ type: 'sealForged', pid: crafter.pid, x: f.x, y: f.y });
+    questProgress(g, 'craft', ['lythseal'], f.x, f.y);
+  }
+}
+
+// Doors: consume parked openDoor rewards (quests, quorums, glyph orders),
+// then let lythseal carriers swing sealLock doors on touch.
+function stepDoors(g) {
+  if (g.pendingDoorOpens.length) {
+    for (const id of g.pendingDoorOpens.splice(0)) {
+      openDoor(g, g.doors.find(d => d.id === id));
+    }
+  }
+  if (!g.doors.length) return;
+  for (const d of g.doors) {
+    if (d.open || !d.sealLock) continue;
+    for (const p of g.players) {
+      if (p.state !== 'active' || !(p.item && p.item.kind === 'lythseal')) continue;
+      // nearest point of the door's pixel rect to the carrier
+      const nx = Math.max(d.x * TILE, Math.min((d.x + d.w) * TILE, p.x));
+      const ny = Math.max(d.y * TILE, Math.min((d.y + d.h) * TILE, p.y));
+      const dx = p.x - nx, dy = p.y - ny;
+      if (dx * dx + dy * dy <= (PLAYER_R + DOOR_TOUCH) ** 2) {
+        openDoor(g, d);
+        break;
+      }
+    }
+  }
+}
+
+// Teleport pads: an active, unmounted player standing on a pad channels for
+// 0.8s, then blinks to the twin. Carried captives and quest items arrive at
+// the destination with them; the player's followers blink along too. A 2s
+// per-player cooldown stops ping-ponging; enemies never channel at all.
+function stepTeleports(g, dt) {
+  if (!g.teleports.length) return;
+  for (const p of g.players) {
+    if (p.teleCool > 0) p.teleCool -= dt;
+    if (p.state !== 'active' || p.riding || p.towerId != null) { p.channelT = 0; continue; }
+    const tx = Math.floor(p.x / TILE);
+    const ty = Math.floor(p.y / TILE);
+    let pad = null;
+    for (const t of g.teleports) {
+      if (Math.floor(t.x / TILE) === tx && Math.floor(t.y / TILE) === ty) { pad = t; break; }
+    }
+    const twin = pad && pad.twin != null ? g.teleports.find(t => t.id === pad.twin) : null;
+    if (!twin || p.teleCool > 0) { p.channelT = 0; continue; }
+    p.channelT = (p.channelT || 0) + dt;
+    if (p.channelT < TELE_CHANNEL_T) continue;
+    p.channelT = 0;
+    p.teleCool = TELE_COOLDOWN;
+    const sx = p.x, sy = p.y;
+    p.x = twin.x;
+    p.y = twin.y;
+    for (const c of g.captives) {
+      if (c.owner === p.pid) { c.x = twin.x; c.y = twin.y; }
+    }
+    for (const it of g.qitems) {
+      if (it.carrier === p.pid) { it.x = twin.x; it.y = twin.y; }
+    }
+    for (const f of g.followers) {
+      if (f.dead || f.owner !== p.pid) continue;
+      f.x = twin.x;
+      f.y = twin.y;
+      f.path = null;
+      f.repathT = 0;
+    }
+    g.events.push({ type: 'teleport', pid: p.pid, from: pad.id, to: twin.id, sx, sy, x: twin.x, y: twin.y });
+  }
+}
+
 function addKillScore(g, e) {
   const points = (e.score || 100) * g.combo;
   g.kills++;
@@ -1099,6 +1578,7 @@ function killEnemy(g, e, ownerPid) {
   e.dead = true;
   addKillScore(g, e);
   awardXp(g, ownerPid, e); // kill credit -> the owning seat levels up
+  questProgress(g, 'kill', [e.letter, e.kind], e.x, e.y); // kill quests count
   // L4 burn: an enemy that dies ignited leaves a 3s ground burn patch.
   if (e.burnT > 0 && e.burnPatch) {
     g.patches.push({ x: e.x, y: e.y, kind: 'burn', r: BURN_PATCH_R * TILE, ttl: BURN_PATCH_TTL, pid: e.burnOwner });
@@ -1106,6 +1586,24 @@ function killEnemy(g, e, ownerPid) {
   }
   // Every kill drops a shard pickup at the corpse. Deterministic, always.
   g.drops.push({ x: e.x, y: e.y, amount: SHARD_DROPS[e.kind] || 1, ttl: DROP_TTL });
+  // Fork Alpha: the seam parts — it ALWAYS splits into two skitters. The
+  // 'split' mutation below stacks its own pair on top when rolled.
+  if (e.kind === 'alpha') {
+    splitSpawn(g, e, 0);
+    splitSpawn(g, e, 1);
+  }
+  // Pyre Beetle: the urn cracks — 1 dmg AoE to players plus a hostile burn
+  // patch (hostile patches sear players and pass over enemies; see stepPatches).
+  if (e.kind === 'beetle') {
+    const r = TILE * BEETLE_BURST_R;
+    g.events.push({ type: 'pyreBurst', x: e.x, y: e.y, radius: r });
+    const r2 = r * r;
+    for (const p of g.players) {
+      if (p.state === 'active' && p.invuln <= 0 && dist2(e, p) <= r2) damagePlayer(g, p, 1);
+    }
+    g.patches.push({ x: e.x, y: e.y, kind: 'burn', r, ttl: BURN_PATCH_TTL, hostile: true });
+    g.events.push({ type: 'patch', x: e.x, y: e.y, kind: 'burn', r, hostile: true });
+  }
   // Mutant deaths: volatile pops, split twins out.
   if (e.mutation === 'volatile') {
     g.events.push({ type: 'volatile', x: e.x, y: e.y, radius: TILE * 1.2 });
@@ -1123,6 +1621,14 @@ function damageEnemy(g, e, dmg, x, y, cause, ownerPid) {
   if (e.dead) return false;
   wakeEnemy(g, e);
   e.returning = false; // a hit always re-engages an enemy walking home
+  // Null Acolyte ward: one absorb charge soaks the whole damage instance
+  // (status riders applied before the hit still land — it's a damage ward).
+  if (e.shielded) {
+    e.shielded = false;
+    e.hurt = 0.14;
+    g.events.push({ type: 'shieldPop', x: x ?? e.x, y: y ?? e.y, kind: e.kind });
+    return false;
+  }
   e.hp -= dmg;
   e.hurt = 0.14;
   g.events.push({ type: 'hit', x: x ?? e.x, y: y ?? e.y, kind: e.kind, hp: Math.max(0, e.hp), cause });
@@ -1211,7 +1717,7 @@ function nearestTarget(g, e) {
     // rest, and a fallen barricade resumes the core march through the gap.
     if (e.gnawI !== undefined) {
       const b = g.builds[e.gnawI];
-      if (b && b.built && b.kind !== 'farm' && b.kind !== 'pylon') {
+      if (b && b.built && b.kind !== 'farm' && !inertBuild(b.kind)) {
         return [{ x: b.x, y: b.y, nonPlayer: true, adj: true }, dist2(e, b)];
       }
       e.gnawI = undefined; // chewed through (or dismantled): resume the march
@@ -1224,8 +1730,8 @@ function nearestTarget(g, e) {
       const cands = [];
       for (let i = 0; i < g.builds.length; i++) {
         const b = g.builds[i];
-        // pylons are indestructible and farms are walkable — never gnaw goals
-        if (!b.built || b.kind === 'farm' || b.kind === 'pylon') continue;
+        // pylons/beacons are indestructible, farms walkable — never gnaw goals
+        if (!b.built || b.kind === 'farm' || inertBuild(b.kind)) continue;
         cands.push([dist2(e, b), i]);
       }
       cands.sort((a, b2) => a[0] - b2[0] || a[1] - b2[1]);
@@ -1322,7 +1828,7 @@ function attackBuilds(g, e, dt) {
   let tower = null;
   const rr = BUILD_RADIUS + ENEMY_R + 3;
   for (const b of g.builds) {
-    if (!b.built || b.kind === 'pylon' || b.kind === 'farm') continue; // farms are trampled, not gnawed
+    if (!b.built || inertBuild(b.kind) || b.kind === 'farm') continue; // farms are trampled, not gnawed
     if (dist2(e, b) < rr * rr) { touching = b; break; }
   }
   if (!touching) {
@@ -1467,6 +1973,16 @@ function stepPatches(g, dt) {
     pa.ttl -= dt;
     if (pa.ttl <= 0) { g.patches.splice(i, 1); continue; }
     const r2 = pa.r * pa.r;
+    // hostile patches (Pyre Beetle bursts) are the mirror image: they sear
+    // players standing in them (the hit-grace spaces the burn to ~1 dmg/s)
+    // and pass clean over enemies — no enemy-on-enemy friendly fire.
+    if (pa.hostile) {
+      for (const p of g.players) {
+        if (p.state !== 'active' || p.invuln > 0 || dist2(pa, p) >= r2) continue;
+        damagePlayer(g, p, 1);
+      }
+      continue;
+    }
     for (const e of g.enemies) {
       // converted enemies fight for the squad: patches pass over allies
       // (no convert-then-poison farming for score/xp/shards)
@@ -1656,13 +2172,90 @@ function stepEnemy(g, e, dt) {
   if (attackBuilds(g, e, dt)) return;
   if (attackCore(g, e, dt)) return;
 
-  if (e.kind === 'grunt' || e.kind === 'skitter' || e.kind === 'bulwark') {
+  // husk/alpha/beetle melee exactly like the classic chassis; the stalker
+  // shares it after resolving its blink below
+  if (e.kind === 'grunt' || e.kind === 'skitter' || e.kind === 'bulwark'
+      || e.kind === 'husk' || e.kind === 'alpha' || e.kind === 'beetle' || e.kind === 'stalker') {
+    // Phase Stalker: on its per-id cadence it blinks up to 3 tiles toward the
+    // target (never closer than a tile out, never onto blocked ground — the
+    // first open landing along the line wins; walls don't stop a phase).
+    if (e.kind === 'stalker') {
+      e.blinkT -= dt;
+      if (e.blinkT <= 0) {
+        e.blinkT = STALKER_BLINK_T;
+        if (d > TILE * 2) {
+          const hop = Math.min(STALKER_BLINK_TILES * TILE, d - TILE);
+          for (let r = hop; r >= TILE; r -= TILE * 0.5) {
+            const nx = e.x + e.fx * r, ny = e.y + e.fy * r;
+            if (!collides(g, nx, ny, ENEMY_R)) {
+              g.events.push({ type: 'blink', x: e.x, y: e.y, tx: nx, ty: ny, kind: e.kind });
+              e.x = nx; e.y = ny;
+              e.path = null;
+              e.repathT = 0;
+              break;
+            }
+          }
+        }
+      }
+    }
     if (g.arcade) {
       moveCircle(g, e, e.fx * e.speed * dt, e.fy * e.speed * dt, ENEMY_R);
       contactPlayer(g, e, best, tgt);
     } else {
       moveToward(g, e, tgt, dt);
       contactPlayer(g, e, dist2(e, tgt), tgt);
+    }
+    return;
+  }
+
+  if (e.kind === 'acolyte') {
+    // Null Acolyte: pure support — NEVER attacks players. It shadows the
+    // pack toward its target, holds at range, and pulses every 2.5s: the
+    // nearest unwarded packmate gains a one-hit absorb shield; every 4th
+    // pulse also mends the nearest wounded packmate 1 hp (the 25% heal rate).
+    e.cool -= dt;
+    if (e.cool <= 0) {
+      e.cool = ACOLYTE_PULSE;
+      e.pulseN = (e.pulseN || 0) + 1;
+      const r2 = e.range * e.range;
+      let ward = null, bestW = r2;
+      for (const o of g.enemies) {
+        if (o === e || o.dead || o.shielded || o.convertedT > 0) continue;
+        const dd = dist2(e, o);
+        if (dd < bestW) { bestW = dd; ward = o; }
+      }
+      if (ward) {
+        ward.shielded = true;
+        g.events.push({ type: 'enemyShield', x: ward.x, y: ward.y, kind: ward.kind });
+      }
+      if (e.pulseN % ACOLYTE_HEAL_EVERY === 0) {
+        let mend = null, bestM = r2;
+        for (const o of g.enemies) {
+          if (o === e || o.dead || o.convertedT > 0 || o.hp >= o.maxHp) continue;
+          const dd = dist2(e, o);
+          if (dd < bestM) { bestM = dd; mend = o; }
+        }
+        if (mend) {
+          mend.hp = Math.min(mend.maxHp, mend.hp + 1);
+          g.events.push({ type: 'enemyHeal', x: mend.x, y: mend.y, kind: mend.kind, hp: mend.hp });
+        }
+      }
+    }
+    if (d > e.range) moveToward(g, e, tgt, dt);
+    return;
+  }
+
+  if (e.kind === 'wraith') {
+    // Volt Wraith: mobile zapper — closes until its chain-zap reaches, then
+    // holds and fires every 2.2s at ONE operative.
+    e.cool -= dt;
+    if (d < e.range && (g.arcade || canSee(g, e, tgt)) && !tgt.nonPlayer) {
+      if (e.cool <= 0) {
+        fireWeapon(g, e, enemyWeapon('wraith'), 'e', tgt);
+        e.cool = WRAITH_COOL;
+      }
+    } else {
+      moveToward(g, e, tgt, dt);
     }
     return;
   }
@@ -2001,7 +2594,7 @@ function shopNear(g, p) {
 function structureInReach(g, p) {
   const r2 = (TILE * BUILD_REACH) ** 2;
   for (const b of g.builds) {
-    if (b.built && (b.kind === 'pylon' || b.kind === 'farm')) continue;
+    if (b.built && (inertBuild(b.kind) || b.kind === 'farm')) continue;
     if (dist2(p, b) < r2) return true;
   }
   for (const t of g.towers) if (dist2(p, t) < r2) return true;
@@ -2242,7 +2835,9 @@ export function step(g, inputs, dt) {
   // timer — it freezes and never fails the level. PvP clocks never fail the
   // match either: CTF expiry crowns the leader (a tie goes to sudden death,
   // first capture wins, clock frozen at 0) and BR lets the zone settle it.
-  if (!g.cycle && g.timeLeft > 0) {
+  // Untimed story missions freeze the countdown entirely: timeLeft never
+  // decrements and neither the time-out fail nor 'lowTime' can fire.
+  if (!g.cycle && !g.untimed && g.timeLeft > 0) {
     g.timeLeft -= dt;
     if (g.timeLeft <= 0) {
       g.timeLeft = 0;
@@ -2321,6 +2916,7 @@ export function step(g, inputs, dt) {
     if (p.invuln > 0) p.invuln -= dt;
     if (p.specialCool > 0) p.specialCool -= dt;
     if (p.stimT > 0) p.stimT -= dt;
+    if (p.stunT > 0) p.stunT -= dt; // volt zap root: blocks movement and fire
     const inp = inputs[p.pid] || {};
     const ch = g.charMap[p.charId];
     if (!ch) continue;
@@ -2470,6 +3066,18 @@ export function step(g, inputs, dt) {
       if (used && --it.count <= 0) p.item = null;
     }
 
+    // --- field weapon drop: holding ITEM for 0.8s lays the carried weapon at
+    // the feet as a pickup with its remaining ammo (teammates can grab it) ---
+    if (p.fieldWeapon && inp.item) {
+      p.itemHoldT = (p.itemHoldT || 0) + dt;
+      if (p.itemHoldT >= FIELD_DROP_HOLD) {
+        p.itemHoldT = 0;
+        dropFieldWeapon(g, p);
+      }
+    } else {
+      p.itemHoldT = 0;
+    }
+
     // --- movement (dash overrides stick input; stim grants +30% speed) ---
     if (p.dashT > 0) {
       p.dashT -= dt;
@@ -2492,7 +3100,8 @@ export function step(g, inputs, dt) {
     } else {
       const dx = (inp.right ? 1 : 0) - (inp.left ? 1 : 0);
       const dy = (inp.down ? 1 : 0) - (inp.up ? 1 : 0);
-      if (dx || dy) {
+      // a volt-zap root pins the feet for its 0.3s; aim and items still work
+      if ((dx || dy) && !(p.stunT > 0)) {
         const [mx, my] = norm(dx, dy);
         p.fx = mx; p.fy = my;
         let v = ch.speed * TILE * dt * (p.stimT > 0 ? 1.3 : 1);
@@ -2512,17 +3121,32 @@ export function step(g, inputs, dt) {
       if (vehicle) { vehicle.x = p.x; vehicle.y = p.y; }
     }
     p.cool -= dt;
-    if (inp.fire && p.cool <= 0 && !vehicle && !p.shopping && !p.selecting) {
-      // L3+ weapon evolutions ride every shot (arcade seats never level, so
-      // p.level is undefined there and the weapon passes through untouched)
-      let weapon = applyEvolution(ch.weapon, ch.evolution, p.level);
+    if (inp.fire && p.cool <= 0 && !vehicle && !p.shopping && !p.selecting && !(p.stunT > 0)) {
+      let weapon, cd;
+      if (p.fieldWeapon) {
+        // a carried field weapon REPLACES the character weapon for fire:
+        // no evolutions, its own cooldown; shop dmgBonus rides in fireWeapon
+        weapon = FIELD_WEAPONS[p.fieldWeapon.kind];
+        cd = weapon.cooldown;
+      } else {
+        // L3+ weapon evolutions ride every shot (arcade seats never level, so
+        // p.level is undefined there and the weapon passes through untouched)
+        weapon = applyEvolution(ch.weapon, ch.evolution, p.level);
+        cd = ch.weapon.cooldown;
+      }
       if (tower) {
         // the high ground: longer reach, shots sail over walls
         const bonus = TOWER_BONUS[(tower.level || 1) - 1];
         weapon = { ...weapon, range: (weapon.range ?? 5) * (1 + bonus), overWalls: true };
       }
       fireWeapon(g, p, weapon, 'p');
-      p.cool = ch.weapon.cooldown * (onWater ? SWIM_FIRE_MULT : 1);
+      p.cool = cd * (onWater ? SWIM_FIRE_MULT : 1);
+      // ammo: each trigger pull (full volley) spends 1; dry weapons evaporate
+      // on the spot — nothing drops, the character weapon is back next press
+      if (p.fieldWeapon && --p.fieldWeapon.ammo <= 0) {
+        g.events.push({ type: 'fieldEmpty', pid: p.pid, x: p.x, y: p.y, kind: p.fieldWeapon.kind });
+        p.fieldWeapon = null;
+      }
     }
 
     // --- act (edge-triggered). FINAL priority order, top wins. The hold
@@ -2535,9 +3159,10 @@ export function step(g, inputs, dt) {
     //   1. leave tower            2. dismount vehicle
     //   3. build sites            4. ripe/trampled farms
     //   5. vehicle mount (NEAREST in reach — mounts outrank chest opening)
-    //   6. chests (nearest)       7. tower occupy
-    //   8. hire posts (inert in pvp; combat jobs field a bound follower)
-    //   9. npc talk
+    //   6. chests (nearest)       7. field weapon pickups (nearest)
+    //   8. relay switches         9. glyph stones
+    //  10. tower occupy          11. hire posts (inert in pvp)
+    //  12. npc talk
     // The dismantle-chain on BUILT structures runs LAST, on the held bool in
     // the structures block below: repair while damaged > upgrade below max
     // level > dismantle. ---
@@ -2602,6 +3227,43 @@ export function step(g, inputs, dt) {
             if (dd < bestC) { bestC = dd; chest = c; }
           }
           if (chest) { openChest(g, chest, p); handled = true; }
+        }
+        if (!handled) {
+          // field weapon pickups: grab the NEAREST in reach. A weapon already
+          // in hand swaps out at the feet so teammates can claim the cast-off.
+          let pk = null, bestW = reach2;
+          for (const w of g.pickups) {
+            const dd = dist2(p, w);
+            if (dd < bestW) { bestW = dd; pk = w; }
+          }
+          if (pk) {
+            g.pickups.splice(g.pickups.indexOf(pk), 1);
+            dropFieldWeapon(g, p);
+            p.fieldWeapon = { kind: pk.kind, ammo: pk.ammo };
+            p.itemHoldT = 0;
+            g.events.push({ type: 'fieldPickup', pid: p.pid, x: pk.x, y: pk.y, kind: pk.kind, ammo: pk.ammo });
+            handled = true;
+          }
+        }
+        if (!handled && g.switches.length) {
+          // relay switches: throw the NEAREST off relay in reach
+          let sw = null, bestSw = reach2;
+          for (const s of g.switches) {
+            if (s.on) continue;
+            const dd = dist2(p, s);
+            if (dd < bestSw) { bestSw = dd; sw = s; }
+          }
+          if (sw) { toggleSwitch(g, sw, p); handled = true; }
+        }
+        if (!handled && g.glyphs.length) {
+          // glyph stones: light the NEAREST unlit stone in reach
+          let gl = null, bestGl = reach2;
+          for (const st of g.glyphs) {
+            if (st.lit) continue;
+            const dd = dist2(p, st);
+            if (dd < bestGl) { bestGl = dd; gl = st; }
+          }
+          if (gl) { lightGlyph(g, gl, p); handled = true; }
         }
         if (!handled) {
           const m2 = (TILE * TOWER_MOUNT_REACH) ** 2;
@@ -2672,6 +3334,7 @@ export function step(g, inputs, dt) {
               gift = npc.gift.shards;
             }
             g.events.push({ type: 'talk', x: npc.x, y: npc.y, npcId: npc.id, name: npc.name, line, gift });
+            questTalk(g, npc, p); // givers hand out and settle their quests
           }
         }
       }
@@ -2682,6 +3345,14 @@ export function step(g, inputs, dt) {
       if (c.owner == null && dist2(p, c) < (PLAYER_R + CAPTIVE_R) ** 2) {
         c.owner = p.pid;
         g.events.push({ type: 'pickup', x: c.x, y: c.y, charId: c.charId });
+      }
+    }
+
+    // quest items are scooped on touch, exactly like captives
+    for (const it of g.qitems) {
+      if (it.carrier == null && dist2(p, it) < (PLAYER_R + QITEM_R) ** 2) {
+        it.carrier = p.pid;
+        g.events.push({ type: 'qitemPickup', x: it.x, y: it.y, id: it.id, kind: it.kind, pid: p.pid });
       }
     }
 
@@ -2711,7 +3382,7 @@ export function step(g, inputs, dt) {
   for (const b of g.builds) {
     if (b.evT > 0) b.evT -= dt;
     if (b.built) {
-      if (b.kind === 'pylon' || b.kind === 'farm') continue;
+      if (inertBuild(b.kind) || b.kind === 'farm') continue;
       if (b.typeSelect) {
         // the carousel (player loop above) claims every hold here; left
         // unattended, the 8s clock runs down and the turret self-confirms
@@ -2774,6 +3445,12 @@ export function step(g, inputs, dt) {
       b.hp = b.maxHp;
       b.invested = b.cost;
       g.events.push({ type: 'built', x: b.x, y: b.y, kind: b.kind });
+      questProgress(g, 'build', [b.kind], b.x, b.y); // build quests count
+      if (b.kind === 'beacon') {
+        // save beacon: the client snapshots the run here (serializeGame) and
+        // offers 'Resume from beacon' on mission failure. Sim just announces.
+        g.events.push({ type: 'beacon', x: b.x, y: b.y });
+      }
       if (b.kind === 'turret') {
         // RA2 homage: a finished turret waits in type-select; the carousel
         // (player loop) confirms it, or 8s of neglect defaults it to 'gun'.
@@ -2866,7 +3543,7 @@ export function step(g, inputs, dt) {
         h.workT -= 3;
         let tgt = null, best = Infinity;
         for (const b of g.builds) {
-          if (!b.built || b.kind === 'pylon' || b.hp >= b.maxHp) continue;
+          if (!b.built || inertBuild(b.kind) || b.hp >= b.maxHp) continue;
           const dd = dist2(h, b);
           if (dd < best) { best = dd; tgt = b; }
         }
@@ -3087,6 +3764,31 @@ export function step(g, inputs, dt) {
     }
   }
 
+  // --- quest items trail their carrier like captives; a carrier going down
+  // (or extracting) lays them where they stood, free for anyone to scoop ---
+  for (const it of g.qitems) {
+    if (it.carrier == null) continue;
+    const o = g.players.find(p => p.pid === it.carrier);
+    if (!o || o.state !== 'active') { it.carrier = null; continue; }
+    const d = Math.hypot(o.x - it.x, o.y - it.y);
+    const gap = PLAYER_R + QITEM_R + 8;
+    if (d > gap) {
+      const t = Math.min(1, ((d - gap) / d) * 8 * dt);
+      it.x += (o.x - it.x) * t;
+      it.y += (o.y - it.y) * t;
+    }
+  }
+
+  stepQuests(g); // reach checks + live fetch progress for the objectives HUD
+
+  // --- monolythium puzzle systems: quorum windows, the seal forge, doors
+  // (parked openDoor rewards + lythseal touches), teleport pads. All empty
+  // on classics — pure no-ops. ---
+  stepSwitchGroups(g, dt);
+  stepForges(g, inputs, dt);
+  stepDoors(g);
+  stepTeleports(g, dt);
+
   // --- pvp: carried flags track their runners, dropped ones tick home;
   // the BR zone closes in and burns whoever lingers outside ---
   stepFlags(g, dt);
@@ -3115,7 +3817,7 @@ export function step(g, inputs, dt) {
     s.y += s.vy * dt;
     s.ttl -= dt;
     let dead = s.ttl <= 0 || s.x < 0 || s.y < 0 || s.x > g.w * TILE || s.y > g.h * TILE;
-    if (!dead && !s.overWalls && blocksSight(tileAt(g, s.x, s.y))) {
+    if (!dead && !s.overWalls && (blocksSight(tileAt(g, s.x, s.y)) || doorBlocksPx(g, s.x, s.y))) {
       dead = true;
       g.events.push({ type: 'hitWall', x: s.x, y: s.y });
     }
@@ -3178,6 +3880,25 @@ export function step(g, inputs, dt) {
           }
         }
       }
+      // BLS pillars crack under player fire alone ('destroy obsolete
+      // cryptography') — enemy shots and explosions pass clean over them.
+      if (!dead && g.pillars.length) {
+        for (const pl of g.pillars) {
+          if (pl.hp <= 0 || s.hits.includes(pl.id)) continue;
+          if (dist2(s, pl) < (PILLAR_R + (s.radius || SHOT_R)) ** 2) {
+            s.hits.push(pl.id);
+            pl.hp -= s.dmg;
+            g.events.push({ type: 'pillarHit', x: pl.x, y: pl.y, hp: Math.max(0, pl.hp) });
+            if (pl.hp <= 0) {
+              g.events.push({ type: 'pillarDown', id: pl.id, x: pl.x, y: pl.y });
+              questProgress(g, 'destroy', ['pillar', pl.id], pl.x, pl.y);
+            }
+            if (s.pierce > 0) s.pierce--;
+            else dead = true;
+            break;
+          }
+        }
+      }
       // pvp: player fire hits OTHER-team operatives (friendly fire is off;
       // shots sail through teammates and invulnerable targets)
       if (!dead && (g.mode === 'ctf' || g.mode === 'br') && s.pid !== undefined) {
@@ -3195,7 +3916,13 @@ export function step(g, inputs, dt) {
         if (p.state === 'active' && p.invuln <= 0 && dist2(s, p) < (PLAYER_R + (s.radius || SHOT_R)) ** 2) {
           dead = true;
           if (s.aoeRadius) explode(g, s);
-          else damagePlayer(g, p);
+          else {
+            // volt zap: a shield pip absorbs the WHOLE zap — the root only
+            // lands when the hit reached hp (arcade never fields wraiths)
+            const soaked = p.shield !== undefined && p.shield > 0;
+            damagePlayer(g, p);
+            if (s.stunPlayer && !soaked) p.stunT = Math.max(p.stunT || 0, s.stunPlayer);
+          }
           break;
         }
       }
@@ -3220,6 +3947,7 @@ export function step(g, inputs, dt) {
 
   g.enemies = g.enemies.filter(e => !e.dead);
   g.crystals = g.crystals.filter(c => c.hp > 0);
+  if (g.pillars.length) g.pillars = g.pillars.filter(pl => pl.hp > 0);
   if (g.followers.length) g.followers = g.followers.filter(f => !f.dead);
 
   // --- end conditions ---
@@ -3282,6 +4010,25 @@ export function applyResults(roster, g) {
   return { roster: next, gained, lost };
 }
 
+// --- save beacons: whole-sim serialization ----------------------------------
+// A JSON-safe deep copy of the live game minus the (shared, static) charMap.
+// Everything the sim reads while stepping is plain data, so a JSON round-trip
+// restores a byte-identical future: run, serialize, restore, step both — the
+// snapshot streams match. Keys holding undefined drop in the copy; every
+// reader already treats a missing key and undefined alike.
+export function serializeGame(g) {
+  const { charMap, ...rest } = g;
+  return JSON.parse(JSON.stringify(rest));
+}
+
+// Rebuild a steppable game from serializeGame data. The copy keeps the
+// caller's stored object pristine (resume twice from one beacon).
+export function restoreGame(data, charMap) {
+  const g = JSON.parse(JSON.stringify(data));
+  g.charMap = charMap;
+  return g;
+}
+
 // Pass full=false to omit the static tile grid (the server sends the grid once
 // at levelStart and lite snapshots every tick; clients re-attach the cached grid).
 export function snapshot(g, full = true) {
@@ -3290,6 +4037,8 @@ export function snapshot(g, full = true) {
     objective: g.objective,
     ...(full ? { grid: g.grid } : {}), w: g.w, h: g.h,
     ...(g.dark ? { dark: true } : {}),
+    // untimed story: the client clock counts UP on elapsed instead of down
+    ...(g.untimed ? { untimed: true, elapsed: g.elapsed } : {}),
     timeLeft: g.timeLeft,
     status: g.status,
     shards: g.shards,
@@ -3308,8 +4057,22 @@ export function snapshot(g, full = true) {
     })),
     // ground patches and combat followers ship only when populated — classic
     // snapshots never gain the keys
-    ...(g.patches.length ? { patches: g.patches.map(pa => ({ x: pa.x, y: pa.y, kind: pa.kind, r: pa.r, ttl: pa.ttl })) } : {}),
+    ...(g.patches.length ? { patches: g.patches.map(pa => ({ x: pa.x, y: pa.y, kind: pa.kind, r: pa.r, ttl: pa.ttl, ...(pa.hostile ? { hostile: true } : {}) })) } : {}),
+    // frontier III: field weapon pickups, quest items, quest states — all
+    // shipped only when populated so classic snapshots never gain a key
+    ...(g.pickups.length ? { pickups: g.pickups.map(w => ({ id: w.id, x: w.x, y: w.y, kind: w.kind, ammo: w.ammo })) } : {}),
+    ...(g.qitems.length ? { qitems: g.qitems.map(it => ({ id: it.id, x: it.x, y: it.y, kind: it.kind, carrier: it.carrier })) } : {}),
+    ...(g.quests.length ? { quests: g.quests.map(q => ({ id: q.id, state: q.state, progress: q.progress, count: q.count, title: q.title, main: q.main, kind: q.kind })) } : {}),
     ...(g.followers.length ? { followers: g.followers.map(f => ({ id: f.id, kind: f.kind, owner: f.owner, x: f.x, y: f.y, hp: f.hp, fx: f.fx, fy: f.fy, slot: f.slot })) } : {}),
+    // monolythium puzzle systems — shipped only when populated, so classic
+    // snapshots never gain a key
+    ...(g.switches.length ? { switches: g.switches.map(s => ({ id: s.id, x: s.x, y: s.y, on: s.on, group: s.group })) } : {}),
+    ...(g.switchGroups.length ? { switchGroups: g.switchGroups.map(sg => ({ group: sg.group, need: sg.need, of: sg.of, done: sg.done, ...(sg.windowT > 0 ? { windowT: sg.windowT } : {}) })) } : {}),
+    ...(g.glyphs.length ? { glyphs: g.glyphs.map(s => ({ id: s.id, x: s.x, y: s.y, symbol: s.symbol, lit: s.lit, group: s.group })) } : {}),
+    ...(g.pillars.length ? { pillars: g.pillars.map(pl => ({ id: pl.id, x: pl.x, y: pl.y, hp: pl.hp, maxHp: pl.maxHp })) } : {}),
+    ...(g.forges.length ? { forges: g.forges.map(f => ({ x: f.x, y: f.y, ...(f.holdT > 0 ? { holdT: f.holdT } : {}) })) } : {}),
+    ...(g.teleports.length ? { teleports: g.teleports.map(t => ({ id: t.id, x: t.x, y: t.y, twin: t.twin })) } : {}),
+    ...(g.doors.length ? { doors: g.doors.map(d => ({ id: d.id, x: d.x, y: d.y, w: d.w, h: d.h, open: d.open, ...(d.sealLock ? { sealLock: true } : {}) })) } : {}),
     crystals: g.crystals.map(c => ({ x: c.x, y: c.y, hp: c.hp })),
     drops: g.drops.map(d => ({ x: d.x, y: d.y, amount: d.amount, ttl: d.ttl })),
     npcs: g.npcs.map(n => ({ id: n.id, name: n.name, x: n.x, y: n.y })),
@@ -3339,6 +4102,12 @@ export function snapshot(g, full = true) {
       ...(p.shopping ? { shop: { idx: p.shopIdx || 0 } } : {}),
       ...(p.selecting ? { selecting: true } : {}),
       ...(p.dmgBonus ? { dmgBonus: p.dmgBonus } : {}),
+      ...(p.fieldWeapon ? { fieldWeapon: { kind: p.fieldWeapon.kind, ammo: p.fieldWeapon.ammo } } : {}),
+      ...(p.stunT > 0 ? { stunT: p.stunT } : {}),
+      // lythseal carrier: opens sealLock doors on touch; the renderer drops
+      // Classical Phantom transparency within 6 tiles of this seat
+      ...(p.item && p.item.kind === 'lythseal' ? { hasSeal: true } : {}),
+      ...(p.channelT > 0 ? { channelT: p.channelT } : {}),
       // on-the-spot leveling (non-arcade seats only; arcade never gains keys)
       ...(p.level !== undefined ? { xp: p.xp, level: p.level } : {}),
       ...(p.state === 'pick' ? { pick: { idx: p.pickIdx, choices: freeChars(g) } } : {}),
@@ -3360,6 +4129,7 @@ export function snapshot(g, full = true) {
       awake: e.awake,
       returning: e.returning,
       ...(e.mutation ? { mutation: e.mutation } : {}),
+      ...(e.shielded ? { shielded: true } : {}), // acolyte ward, one absorb
       // status clocks ship as short floats only while live (lite by default)
       ...(e.stunT > 0 ? { stunT: e.stunT } : {}),
       ...(e.burnT > 0 ? { burnT: e.burnT } : {}),

@@ -4,6 +4,7 @@ let muted = false;
 let storageKey = 'holdout.audio.muted';
 
 function ensureAudio() {
+  if (typeof window === 'undefined') return null; // headless (tests): stay silent
   if (!ctx) {
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
     if (!AudioCtx) return null;
@@ -27,10 +28,12 @@ let amb = null;
 function startAmbient() {
   if (amb || !ctx) return;
   const now = ctx.currentTime;
+  const out = ctx.createGain(); // the whole bed routes through here so EVA can duck it
+  out.connect(master);
   const bed = ctx.createGain();
   bed.gain.setValueAtTime(0.0001, now);
   bed.gain.exponentialRampToValueAtTime(0.16, now + 8); // slow fade-in
-  bed.connect(master);
+  bed.connect(out);
   const drone = (freq, type, vol) => {
     const o = ctx.createOscillator();
     const og = ctx.createGain();
@@ -68,11 +71,236 @@ function startAmbient() {
     og.gain.exponentialRampToValueAtTime(0.035, t0 + 0.04);
     og.gain.exponentialRampToValueAtTime(0.0001, t0 + 2.6);
     o.connect(og);
-    og.connect(master);
+    og.connect(out);
     o.start(t0);
     o.stop(t0 + 2.7);
   }, 3800);
-  amb = { bed, timer };
+  amb = { bed, out, timer };
+}
+
+// ============================== EVA ANNOUNCER ==============================
+// RA2-style ops voice. Every clip is a tiny local m4a synthesized offline on
+// this machine (macOS `say` -> afconvert 44.1k AAC) — zero copyrighted game
+// audio. Clips lazy-load on first use; one announcement plays at a time with
+// a 0.4s gap; per-line cooldowns stop chatter; pri 2 lines preempt whatever
+// is speaking; everything passes a bandpass 'comms' chain plus a slight
+// sample-hold crush for the radio feel; the ambient bed ducks while she
+// talks; the master audio toggle silences her; a missing clip is silently
+// skipped — the announcer never throws.
+const EVA_VOL = 0.85;
+const EVA_GAP = 0.4;   // seconds of air between queued lines
+const EVA_MAX_AGE = 8; // a line still waiting after this long is stale — drop it
+// pri 2 preempts the current line; pri 1 jumps the queue; 0 waits its turn.
+// cd is the per-line cooldown in seconds (default 3). once = once per session.
+const EVA_LINES = {
+  'pylon-online':    { cd: 1.5 },
+  'anchor-charging': { cd: 30 },             // reserved: no sim event emits this yet
+  'anchor-open':     { cd: 30, pri: 1 },
+  'nightfall':       { cd: 20 },             // sim emits dusk once per dusk already
+  'daybreak':        { cd: 20 },
+  'blood-moon':      { cd: 25, pri: 1 },
+  'base-attack':     { cd: 12, pri: 2 },
+  'core-critical':   { cd: 10, pri: 2 },
+  'beacon-down':     { cd: 6 },              // reserved: no sim event emits this yet
+  'beacon-lit':      { cd: 5 },
+  'structure-lost':  { cd: 8 },
+  'turret-online':   { cd: 1.5 },
+  'tower-manned':    { cd: 6 },              // reserved: no sim event emits this yet
+  'unit-promoted':   { cd: 5 },
+  'new-operator':    { cd: 4 },
+  'operator-down':   { cd: 6, pri: 1 },
+  'rescue':          { cd: 4 },
+  'shields-up':      { cd: 8 },
+  'low-shards':      { cd: 6 },              // reserved: no sim event emits this yet
+  'quest-new':       { cd: 2 },
+  'quest-done':      { cd: 2 },
+  'wave-incoming':   { cd: 10 },
+  'match-won':       { cd: 30, pri: 1 },
+  'match-lost':      { cd: 30, pri: 1 },
+  'flag-taken':      { cd: 6 },
+  'flag-capture':    { cd: 4 },
+  'teleport-online': { once: true },         // the first blink confirms the pad network
+  'ship-arrived':    { cd: 30 },             // reserved: no sim event emits this yet
+};
+// The one declarative wiring table: sim event type -> line id (null = silent).
+// playEvent is the single client funnel for sim events, so hooking here wires
+// every session kind (story/bastion/classic/ctf/br) without touching client.js.
+const EVA_WIRES = {
+  built: ev => ev.kind === 'pylon' ? 'pylon-online' : ev.kind === 'turret' ? 'turret-online' : null,
+  gateOpen: () => 'anchor-open',
+  dusk: () => 'nightfall',
+  dawn: () => 'daybreak',
+  bloodWarn: () => 'blood-moon',
+  coreHit: ev => (ev.hp != null && ev.hp < 10) ? 'core-critical' : 'base-attack',
+  beacon: () => 'beacon-lit',              // a save beacon comes online
+  beaconDown: () => 'beacon-down',         // future-proofed: no current emitter
+  beaconLit: () => 'beacon-lit',           // future-proofed alias
+  buildDown: () => 'structure-lost',
+  levelUp: () => 'unit-promoted',
+  down: () => 'operator-down',
+  eliminated: () => 'operator-down',
+  pickup: () => 'rescue',                  // captive rescued (joins the roster)
+  hired: () => 'new-operator',
+  shieldUp: () => 'shields-up',
+  quest: ev => ev.state === 'done' ? 'quest-done' : ev.state === 'active' ? 'quest-new' : null,
+  wave: () => 'wave-incoming',
+  clear: () => 'match-won',
+  fail: () => 'match-lost',
+  flagTaken: () => 'flag-taken',
+  capture: () => 'flag-capture',
+  teleport: () => 'teleport-online',
+  shipDown: () => 'ship-arrived',          // future-proofed: no current emitter
+  towerOccupied: () => 'tower-manned',     // future-proofed: no current emitter
+  noShards: () => 'low-shards',            // future-proofed: no current emitter
+};
+
+const evaClips = new Map(); // id -> { state: 'loading'|'ready'|'missing', buf }
+const evaQueue = [];        // [{ id, pri, at }]
+const evaLast = new Map();  // id -> last accepted time (cooldowns)
+const evaOnce = new Set();
+let evaSpeaking = null;     // { id, src, watchdog }
+let evaNextOk = 0;          // earliest time the next line may start
+let evaPumpT = null;        // pending pump timer
+let evaChain = null;        // comms filter input node
+
+// Monotonic seconds that also works headless (node tests have no AudioContext).
+function evaNow() {
+  if (ctx) return ctx.currentTime;
+  return (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
+}
+
+// Slight downsample: hold every 3rd sample (~14.7kHz effective at 44.1k) —
+// just enough grit to sit the voice "on the radio" without mangling it.
+function evaCrush(buf) {
+  const HOLD = 3;
+  const out = ctx.createBuffer(1, buf.length, buf.sampleRate);
+  const src = buf.getChannelData(0);
+  const dst = out.getChannelData(0);
+  for (let i = 0; i < src.length; i += HOLD) {
+    const v = src[i];
+    const end = Math.min(i + HOLD, src.length);
+    for (let j = i; j < end; j++) dst[j] = v;
+  }
+  return out;
+}
+
+function evaLoad(id) {
+  let c = evaClips.get(id);
+  if (c) return c;
+  c = { state: 'loading', buf: null };
+  evaClips.set(id, c);
+  (async () => {
+    try {
+      const res = await fetch(`/assets/voice/${id}.m4a`);
+      if (!res.ok || !ctx) throw new Error('voice clip unavailable');
+      c.buf = evaCrush(await ctx.decodeAudioData(await res.arrayBuffer()));
+      c.state = 'ready';
+    } catch {
+      c.state = 'missing'; // graceful silent fallback, never throws
+    }
+    evaPump();
+  })();
+  return c;
+}
+
+// The comms chain: telephone-band bandpass (hp 320 / lp 3400) with a small
+// presence peak. Built once, feeds master so the audio toggle governs it.
+function evaOut() {
+  if (evaChain) return evaChain;
+  const inG = ctx.createGain();
+  inG.gain.value = EVA_VOL;
+  const hp = ctx.createBiquadFilter();
+  hp.type = 'highpass'; hp.frequency.value = 320; hp.Q.value = 0.8;
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass'; lp.frequency.value = 3400; lp.Q.value = 0.8;
+  const pres = ctx.createBiquadFilter();
+  pres.type = 'peaking'; pres.frequency.value = 1800; pres.gain.value = 4; pres.Q.value = 1;
+  inG.connect(hp); hp.connect(lp); lp.connect(pres); pres.connect(master);
+  evaChain = inG;
+  return evaChain;
+}
+
+function evaDuck(on) {
+  if (!amb || !amb.out || !ctx) return;
+  const g = amb.out.gain;
+  g.cancelScheduledValues(ctx.currentTime);
+  g.setTargetAtTime(on ? 0.25 : 1, ctx.currentTime, on ? 0.05 : 0.4);
+}
+
+function evaStop() {
+  if (!evaSpeaking) return;
+  try { evaSpeaking.src.onended = null; evaSpeaking.src.stop(); } catch { /* already done */ }
+  clearTimeout(evaSpeaking.watchdog);
+  evaSpeaking = null;
+  evaDuck(false);
+  evaNextOk = evaNow() + 0.15; // one breath before the preempting line
+}
+
+function evaPump() {
+  try {
+    if (evaPumpT) { clearTimeout(evaPumpT); evaPumpT = null; }
+    if (evaSpeaking || !evaQueue.length) return;
+    const t = evaNow();
+    if (t < evaNextOk) { evaPumpT = setTimeout(evaPump, (evaNextOk - t) * 1000 + 10); return; }
+    const head = evaQueue[0];
+    if (t - head.at > EVA_MAX_AGE) { evaQueue.shift(); evaPump(); return; }
+    const clip = evaClips.get(head.id) || evaLoad(head.id);
+    if (clip.state === 'loading') { evaPumpT = setTimeout(evaPump, 120); return; }
+    evaQueue.shift();
+    if (clip.state !== 'ready' || !ctx || muted) { evaPump(); return; } // skip silently
+    const src = ctx.createBufferSource();
+    src.buffer = clip.buf;
+    src.connect(evaOut());
+    const done = () => {
+      if (!evaSpeaking || evaSpeaking.src !== src) return;
+      clearTimeout(evaSpeaking.watchdog);
+      evaSpeaking = null;
+      evaDuck(false);
+      evaNextOk = evaNow() + EVA_GAP;
+      evaPump();
+    };
+    src.onended = done;
+    evaSpeaking = { id: head.id, src, watchdog: setTimeout(done, src.buffer.duration * 1000 + 600) };
+    evaDuck(true);
+    src.start();
+  } catch {
+    evaSpeaking = null; // a broken clip must never wedge the queue
+  }
+}
+
+export function announce(id) {
+  try {
+    const line = EVA_LINES[id];
+    if (!line || muted) return;
+    ensureAudio(); // no-op headless; resumes/creates the ctx in a browser
+    const t = evaNow();
+    if (line.once && evaOnce.has(id)) return;
+    const last = evaLast.get(id);
+    if (last != null && t - last < (line.cd ?? 3)) return;
+    evaLast.set(id, t);
+    if (line.once) evaOnce.add(id);
+    evaLoad(id);
+    const pri = line.pri ?? 0;
+    if (evaSpeaking && pri >= 2 && evaSpeaking.id !== id) evaStop(); // preempt
+    if (evaQueue.some(q => q.id === id)) return; // already waiting its turn
+    const entry = { id, pri, at: t };
+    if (pri > 0) {
+      let i = 0;
+      while (i < evaQueue.length && evaQueue[i].pri >= pri) i++;
+      evaQueue.splice(i, 0, entry);
+    } else {
+      evaQueue.push(entry);
+    }
+    evaPump();
+  } catch { /* the announcer never breaks the game */ }
+}
+
+function evaOnEvent(ev) {
+  try {
+    const wire = EVA_WIRES[ev.type];
+    const id = wire && wire(ev);
+    if (id) announce(id);
+  } catch { /* bad payloads stay silent */ }
 }
 
 function updateButton(btn) {
@@ -151,11 +379,22 @@ function shot(kind, who) {
   else if (kind === 'riptide') { noise(0.16, 0.11, 460); tone(290, 0.12, 'sine', 0.07, 0.65); } // water burst
   else if (kind === 'toxin') { tone(220, 0.06, 'sine', 0.07, 0.6); noise(0.1, 0.04, 800); } // glob lob
   else if (kind === 'tornado') { noise(0.18, 0.07, 380); tone(160, 0.14, 'triangle', 0.05, 1.3); } // wind-up
+  // field weapon pickups
+  else if (kind === 'flamer') { noise(0.13, 0.11, 460); tone(200, 0.07, 'sawtooth', 0.05, 0.8); } // burning gout
+  else if (kind === 'railcannon') { tone(1480, 0.12, 'sawtooth', 0.14, 2.0); tone(170, 0.1, 'square', 0.1, 0.55); noise(0.06, 0.06, 3200); } // heavy lance
+  else if (kind === 'stormgun') { noise(0.07, 0.13, 3800); tone(90, 0.08, 'square', 0.08, 0.6); } // coil crack
+  else if (kind === 'mortarMk2') { tone(120, 0.18, 'triangle', 0.2, 0.4); noise(0.11, 0.09, 190); } // deep thump
   else { tone(520, 0.05, 'square', 0.1, 1.15); }
 }
 
+// One tone per Monolythium rune (symbol 0-7): Anchor, Wave, Vertex, Seal,
+// Fork, Burn, Quorum, Drift. A correct combination sounds like a chord
+// finalizing — each settled stone adds a deeper supporting octave.
+const GLYPH_TONES = [261.63, 293.66, 329.63, 392, 440, 523.25, 587.33, 659.25];
+
 export function playEvent(ev) {
   if (muted) return;
+  evaOnEvent(ev); // EVA announcer rides the same funnel as the sfx
   if (ev.type === 'shoot') shot(ev.weapon, ev.who);
   else if (ev.type === 'hit') tone(310, 0.04, 'square', 0.07, 0.7);
   else if (ev.type === 'hitWall' || ev.type === 'shield') noise(0.05, 0.08, 900);
@@ -373,6 +612,102 @@ export function playEvent(ev) {
     tone(420, 0.16, 'sine', 0.07, 0.5);
     setTimeout(() => tone(260, 0.18, 'sine', 0.05, 0.55), 110);
   }
+  // --- frontier III: quests, puzzle systems, field weapons ---
+  else if (ev.type === 'switch') {
+    // breaker clunk; coming ON earns a small gold confirmation
+    tone(140, 0.07, 'square', 0.12, 0.7);
+    noise(0.05, 0.06, 500);
+    if (ev.on !== false) setTimeout(() => tone(523.25, 0.12, 'sine', 0.05, 1.1), 90);
+  }
+  else if (ev.type === 'glyph' || ev.type === 'glyphLit') {
+    // the rune settles with a deepening tone (one per rune symbol)
+    const f = GLYPH_TONES[((Math.round(ev.symbol ?? 0) % 8) + 8) % 8];
+    tone(f, 0.4, 'sine', 0.09, 1.0);
+    tone(f / 2, 0.55, 'triangle', 0.045, 1.0); // the deepening under-octave
+  }
+  else if (ev.type === 'glyphReset') {
+    // wrong rune: a low flat chord and a cough of drift-static
+    tone(110, 0.5, 'sawtooth', 0.09, 0.96);
+    tone(116.54, 0.5, 'sawtooth', 0.08, 0.96); // a flat semitone against it
+    noise(0.25, 0.07, 900);
+  }
+  else if (ev.type === 'pillarDown') {
+    // obsolete cryptography comes down: stone rumble + cracking
+    tone(70, 0.5, 'sawtooth', 0.16, 0.4);
+    noise(0.5, 0.13, 240);
+    setTimeout(() => noise(0.3, 0.08, 160), 180);
+  }
+  else if (ev.type === 'sealForged') {
+    // the forge roar, then the Combining settles checkpoint gold
+    noise(0.7, 0.13, 300);
+    tone(65, 0.8, 'sawtooth', 0.1, 1.3);
+    setTimeout(() => { tone(523.25, 0.3, 'triangle', 0.08, 1.0); tone(659.25, 0.4, 'triangle', 0.06, 1.0); }, 350);
+    setTimeout(() => tone(1046.5, 0.6, 'sine', 0.06, 1.0), 600);
+  }
+  else if (ev.type === 'doorOpen') {
+    // bulkhead hiss + servo + the latch seating
+    noise(0.35, 0.09, 1300);
+    tone(90, 0.3, 'triangle', 0.07, 1.4);
+    setTimeout(() => tone(180, 0.06, 'square', 0.05, 0.8), 320);
+  }
+  else if (ev.type === 'teleport') {
+    // the blink zip: one missed heartbeat, then you're already there
+    tone(660, 0.12, 'sine', 0.08, 2.4);
+    noise(0.08, 0.06, 2600);
+    setTimeout(() => tone(1320, 0.07, 'sine', 0.05, 0.6), 90);
+  }
+  else if (ev.type === 'beacon') {
+    // a checkpoint settles — two rising tones that simply stop arguing
+    tone(392, 0.25, 'sine', 0.08, 1.0);
+    setTimeout(() => tone(587.33, 0.4, 'sine', 0.06, 1.0), 180);
+  }
+  else if (ev.type === 'quest') {
+    // ledger chime: a new entry rings up; completion resolves the chord
+    if (ev.state === 'done') {
+      tone(659.25, 0.1, 'triangle', 0.08, 1.0);
+      setTimeout(() => tone(880, 0.12, 'triangle', 0.07, 1.0), 90);
+      setTimeout(() => tone(1318.5, 0.2, 'triangle', 0.06, 1.0), 180);
+    } else {
+      tone(880, 0.09, 'sine', 0.07, 1.1);
+      setTimeout(() => tone(1174.66, 0.12, 'sine', 0.05, 1.05), 100);
+    }
+  }
+  else if (ev.type === 'fieldEmpty') tone(300, 0.05, 'square', 0.05, 0.6); // dry click — the weapon evaporates
+  else if (ev.type === 'fieldPickup' || ev.type === 'pickupWeapon' || ev.type === 'weaponPickup') {
+    // shouldering found hardware
+    tone(494, 0.07, 'triangle', 0.07, 1.2);
+    setTimeout(() => tone(740, 0.09, 'triangle', 0.06, 1.1), 70);
+  }
+  else if (ev.type === 'fieldDrop' || ev.type === 'dropWeapon') { noise(0.06, 0.06, 420); tone(180, 0.05, 'triangle', 0.05, 0.8); }
+  else if (ev.type === 'qitem' || ev.type === 'questItem') {
+    // a proof fragment found — bright and brief
+    tone(1047, 0.07, 'sine', 0.06, 1.15);
+    setTimeout(() => tone(1568, 0.09, 'sine', 0.04, 1.1), 60);
+  }
+  else if (ev.type === 'shielded' || ev.type === 'enemyShield') tone(330, 0.12, 'sine', 0.05, 0.7); // a ward wraps on
+  else if (ev.type === 'shieldPop') { noise(0.06, 0.08, 2200); tone(520, 0.06, 'triangle', 0.06, 0.6); } // the absorb shatters
+  else if (ev.type === 'blink') { noise(0.06, 0.06, 3000); tone(880, 0.06, 'sine', 0.05, 0.45); } // stalker zip
+  else if (ev.type === 'zap' || ev.type === 'chainZap' || ev.type === 'voltZap' || ev.type === 'shockArc') {
+    // a chain-zap leaps — smaller than the tesla coil's crack
+    noise(0.07, 0.11, 4000);
+    tone(80, 0.09, 'square', 0.08, 0.55);
+  }
+  else if (ev.type === 'pyreBurst') {
+    // a pyre beetle pops — between a volatile mutant and a full explosion
+    tone(100, 0.18, 'sawtooth', 0.16, 0.4);
+    noise(0.15, 0.11, 300);
+  }
+  else if (ev.type === 'questProgress') tone(740, 0.05, 'sine', 0.045, 1.1); // ledger tick
+  else if (ev.type === 'harvest') {
+    tone(587.33, 0.08, 'triangle', 0.07, 1.15);
+    setTimeout(() => tone(880, 0.1, 'triangle', 0.05, 1.08), 80);
+  }
+  else if (ev.type === 'slotFull') tone(220, 0.06, 'square', 0.05, 0.8); // dull refusal
+  else if (ev.type === 'restock') {
+    tone(392, 0.08, 'triangle', 0.06, 1.1);
+    setTimeout(() => tone(523.25, 0.1, 'triangle', 0.05, 1.05), 90);
+  }
+  else if (ev.type === 'shieldUp') { tone(523.25, 0.1, 'sine', 0.06, 1.2); tone(784, 0.14, 'sine', 0.04, 1.1); }
   // unknown event types stay silent, never throw
 }
 

@@ -354,3 +354,85 @@ button.ghost.navfocus { color: #eaf6ff; }
   border: 1px solid rgba(54, 160, 138, .55);
 }
 .followchip.down { opacity: .35; text-decoration: line-through; }
+
+/* --- objectives panel (top of the LEFT column; markup is client-managed) ---
+   <div id="objectivesPanel" class="panel">
+     <div class="ptitle amber">OBJECTIVE</div>
+     <div class="objrow main"><i class="check"></i><span>main quest title</span></div>
+     <div class="objrow"><i class="check"></i><span>secondary…</span></div>   (≤3)
+   </div>
+   Add .done to a row when its quest completes; the check fills gold. */
+#objectivesPanel { order: -1; } /* always above the squad cards */
+.objrow {
+  display: flex; gap: 8px; align-items: flex-start;
+  padding: 3px 0; font-size: 11px; line-height: 1.45;
+  color: #9aa6bc; letter-spacing: .4px;
+}
+.objrow.main { font-size: 13px; font-weight: 700; color: #DFF3FF; letter-spacing: .6px; }
+.objrow .check {
+  flex-shrink: 0; width: 11px; height: 11px; margin-top: 2px;
+  border: 1px solid rgba(138, 152, 184, .65);
+  border-radius: 2px; position: relative;
+  background: rgba(255, 255, 255, .04);
+}
+.objrow.main .check { width: 13px; height: 13px; border-color: rgba(255, 217, 138, .7); }
+.objrow.done { color: #6d7890; }
+.objrow.done span { text-decoration: line-through; text-decoration-color: rgba(255, 217, 138, .5); }
+.objrow.done .check {
+  background: rgba(240, 169, 60, .85);
+  border-color: var(--amber);
+  box-shadow: 0 0 8px rgba(255, 217, 138, .5);
+}
+.objrow.done .check::after {
+  content: ''; position: absolute; left: 2px; top: 0;
+  width: 4px; height: 7px;
+  border: solid #1a1206; border-width: 0 2px 2px 0;
+  transform: rotate(40deg);
+}
+.objrow .prog { margin-left: auto; color: var(--amber); font-variant-numeric: tabular-nums; font-weight: 700; }
+
+/* quest toast — client toggles .show on 'quest' events, then removes it.
+   <div id="questToast"><b>NEW OBJECTIVE</b><span>title…</span></div> */
+#questToast {
+  position: fixed; top: 18vh; left: 50%; transform: translateX(-50%);
+  display: flex; flex-direction: column; gap: 2px; align-items: center;
+  padding: 9px 26px;
+  background: rgba(18, 14, 4, .88);
+  border: 1px solid rgba(240, 169, 60, .65);
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+  z-index: 50; pointer-events: none;
+  opacity: 0; transition: opacity .4s;
+}
+#questToast b { color: var(--amber); font-size: 12px; letter-spacing: 4px; text-shadow: 0 0 12px rgba(255, 217, 138, .7); }
+#questToast span { color: #DFF3FF; font-size: 15px; letter-spacing: 1px; }
+#questToast.show { opacity: 1; }
+#questToast.done b { color: var(--relay); text-shadow: 0 0 12px rgba(111, 216, 242, .7); }
+
+/* field weapon slot (weapon panel): the picked-up gun overrides FIRE.
+   <div class="fieldslot"><span class="fnm">RAILCANNON</span>
+   <span class="fammo">10</span></div> — add .low under 25% ammo. */
+.fieldslot {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 6px; padding: 5px 9px;
+  background: rgba(240, 169, 60, .08);
+  border: 1px solid rgba(240, 169, 60, .5);
+  border-radius: 4px;
+}
+.fieldslot .fnm { font-size: 11px; font-weight: 800; letter-spacing: 1px; color: var(--amber); text-transform: uppercase; }
+.fieldslot .fammo { margin-left: auto; color: #FFEFC2; font-weight: 800; font-size: 13px; font-variant-numeric: tabular-nums; }
+.fieldslot .hint { color: #5E6B8C; font-size: 9px; letter-spacing: 1px; }
+.fieldslot.low { border-color: rgba(224, 72, 72, .6); }
+.fieldslot.low .fammo { color: #FF8A80; }
+
+/* lythseal tag beside a squad card name while the seal is carried */
+.sealchip {
+  display: inline-block; margin-left: 4px; padding: 1px 6px;
+  border-radius: 8px; font-size: 9px; font-weight: 800; letter-spacing: 1px;
+  color: #1a1206; background: linear-gradient(180deg, #FFD98A, #F0A93C);
+  box-shadow: 0 0 8px rgba(255, 217, 138, .55);
+}
+
+/* untimed story missions: the clock counts UP and must not read as a warning.
+   Client swaps .clock-down for .clock-up on the mission clock readout. */
+.clock-up { color: var(--teal) !important; }
+.clock-up::after { content: ' ▲'; font-size: 9px; color: #5E6B8C; }

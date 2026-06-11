@@ -1,0 +1,399 @@
+{
+  "name": "The Prover Array",
+  "story": true,
+  "chapter": 8,
+  "title": "Chapter VIII — The Prover Array",
+  "expedition": true,
+  "objective": "Fell the six classical pillars, forge the LythiumSeal, and bring seven of ten voices online — then walk the gold gate to the Array core",
+  "time": 900,
+  "captiveChars": [],
+  "npcs": [
+    {
+      "id": "hask-embervein",
+      "name": "Hask Embervein, Forgekeeper",
+      "lines": [
+        "Hask Embervein. Mind the sparks. One key is a confession; seven keys are a country.",
+        "Bring me fragments, not promises. The anvil can't interpolate promises.",
+        "A proof fragment and twenty shards buy you the Combining. Six fragments make slag — six is not a quorum at this anvil either.",
+        "The Seal never names the innocent. It only fails the forged. Walk it near a Phantom and watch the stolen face boil off.",
+        "The colonnade pillars? Good servants, bad gods. They served between checkpoints. Let them rest between them too."
+      ],
+      "gift": {
+        "shards": 10
+      }
+    },
+    {
+      "id": "sel-brakka",
+      "name": "Sel Brakka, Prover Foreman",
+      "lines": [
+        "Sel Brakka, foreman of the Array. We grind mountains into receipts here — when the stacks are lit. They are not lit.",
+        "The Entropy threw the count. Ten breaker voices stand on that field, and seven true make a quorum. Six is not a quorum. The gate text means it.",
+        "Mind the window: the moment the first voice goes up, the field starts counting. Seven inside two minutes, or it forgets every voice you threw.",
+        "The old colonnade still stands — six grey pillars on the dead curve. While one stands, the Phantoms re-knit out of drift. Put the Migration through.",
+        "Hask keeps the forge across the west corridor. The vault out there only answers a LythiumSeal — a proof fragment and twenty shards buy the Combining.",
+        "Keep my canals wet and the corridors gold. Generation is costly, verification is cheap. That's mercy, engineered."
+      ],
+      "gift": {
+        "shards": 6
+      }
+    }
+  ],
+  "builds": [
+    {
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "beacon",
+      "cost": 10
+    }
+  ],
+  "chests": [
+    {
+      "loot": "shards",
+      "amount": 10
+    },
+    {
+      "loot": "cracker",
+      "amount": 2
+    },
+    {
+      "loot": "medkit",
+      "amount": 1
+    },
+    {
+      "loot": "shield",
+      "amount": 1
+    },
+    {
+      "loot": "shards",
+      "amount": 8
+    },
+    {
+      "loot": "token",
+      "amount": 1
+    },
+    {
+      "loot": "shards",
+      "amount": 9
+    }
+  ],
+  "vehicles": [
+    {
+      "kind": "stag"
+    },
+    {
+      "kind": "stag"
+    }
+  ],
+  "pickups": [
+    {
+      "kind": "railcannon"
+    },
+    {
+      "kind": "stormgun"
+    }
+  ],
+  "qitems": [
+    {
+      "id": "frag-relay",
+      "kind": "fragment"
+    },
+    {
+      "id": "frag-keeper",
+      "kind": "fragment"
+    }
+  ],
+  "switches": [
+    {
+      "id": "voice-1",
+      "group": 0
+    },
+    {
+      "id": "voice-2",
+      "group": 0
+    },
+    {
+      "id": "voice-3",
+      "group": 0
+    },
+    {
+      "id": "voice-4",
+      "group": 0
+    },
+    {
+      "id": "voice-5",
+      "group": 0
+    },
+    {
+      "id": "voice-6",
+      "group": 0
+    },
+    {
+      "id": "voice-7",
+      "group": 0
+    },
+    {
+      "id": "voice-8",
+      "group": 0
+    },
+    {
+      "id": "voice-9",
+      "group": 0
+    },
+    {
+      "id": "voice-10",
+      "group": 0
+    }
+  ],
+  "switchGroups": [
+    {
+      "group": 0,
+      "need": 7,
+      "of": 10,
+      "window": 120,
+      "reward": {
+        "openDoor": "core-gate"
+      }
+    }
+  ],
+  "doors": [
+    {
+      "id": "vault",
+      "x": 70,
+      "y": 43,
+      "w": 1,
+      "h": 2,
+      "sealLock": true
+    },
+    {
+      "id": "core-gate",
+      "x": 81,
+      "y": 31,
+      "w": 1,
+      "h": 2
+    }
+  ],
+  "teleports": [
+    {
+      "id": "cor-north-a",
+      "twin": "cor-north-b"
+    },
+    {
+      "id": "cor-north-b",
+      "twin": "cor-north-a"
+    },
+    {
+      "id": "cor-east-a",
+      "twin": "cor-east-b"
+    },
+    {
+      "id": "cor-east-b",
+      "twin": "cor-east-a"
+    },
+    {
+      "id": "cor-west-b",
+      "twin": "cor-west-a"
+    },
+    {
+      "id": "cor-west-a",
+      "twin": "cor-west-b"
+    },
+    {
+      "id": "cor-south-a",
+      "twin": "cor-south-b"
+    },
+    {
+      "id": "cor-south-b",
+      "twin": "cor-south-a"
+    }
+  ],
+  "quests": [
+    {
+      "id": "q-migration",
+      "main": true,
+      "title": "The Migration: fell the six classical pillars",
+      "giver": "sel-brakka",
+      "kind": "destroy",
+      "target": "pillar",
+      "count": 6,
+      "reward": {
+        "shards": 14
+      },
+      "hint": "They served between checkpoints. Let them rest between them too."
+    },
+    {
+      "id": "q-seal",
+      "title": "Forge a LythiumSeal at Hask's anvil",
+      "giver": "hask-embervein",
+      "kind": "craft",
+      "target": "lythseal",
+      "count": 1,
+      "reward": {
+        "shards": 8
+      },
+      "hint": "A proof fragment and twenty shards. The anvil cannot interpolate promises."
+    },
+    {
+      "id": "q-quorum",
+      "title": "The Count: bring seven of ten voices online",
+      "giver": "sel-brakka",
+      "kind": "switch",
+      "target": "0",
+      "count": 1,
+      "reward": {
+        "shards": 10
+      },
+      "hint": "Seven inside the window, or the field forgets every voice you threw. Six is not a quorum."
+    },
+    {
+      "id": "q-core",
+      "title": "Reach the Array core",
+      "giver": "sel-brakka",
+      "kind": "reach",
+      "target": {
+        "x": 85,
+        "y": 32
+      },
+      "count": 1,
+      "hint": "The gold gate answers the quorum. Walk in and prove the frontier whole."
+    }
+  ],
+  "intro": [
+    {
+      "title": "Chapter VIII — The Prover Array",
+      "lines": [
+        "The Entropy threw the count at the Prover Array. The stacks stand cold, the corridors grey.",
+        "While one classical pillar stands, the slain Phantoms re-knit out of drift.",
+        "A forged name dies at the next checkpoint. Become the checkpoint."
+      ],
+      "art": "entropy"
+    },
+    {
+      "title": "Six Is Not a Quorum",
+      "lines": [
+        "Ten breaker voices wait across the chasms, and any seven true voices give the same answer.",
+        "The Anchor takes no fractions."
+      ],
+      "art": "quorum"
+    }
+  ],
+  "outro": [
+    {
+      "title": "The Field Proves Whole",
+      "lines": [
+        "The seventh voice snaps true and gold floods the field — every pylon answers at once.",
+        "The stacks roar back to work; feather-light receipts ride the settled corridors to every village gate.",
+        "What the curve promised, the lattice keeps."
+      ],
+      "art": "dawn"
+    },
+    {
+      "title": "Act II — Settled",
+      "lines": [
+        "From the Basin to the Array, the frontier holds: anchored, counted, proven whole.",
+        "The Anchorcraft waits on its pad for the hundredth-anchor checkpoint. The Crossing continues.",
+        "Behind you, a world that holds. Ahead, one that does not yet."
+      ],
+      "art": "settlement"
+    }
+  ],
+  "modifiers": {
+    "waves": [
+      {
+        "at": 300,
+        "letters": "zzzzzzuu",
+        "edge": "e"
+      },
+      {
+        "at": 600,
+        "letters": "qqvvxx",
+        "edge": "e"
+      },
+      {
+        "at": 960,
+        "letters": "zzzzffqq",
+        "edge": "e"
+      },
+      {
+        "at": 1320,
+        "letters": "xxvvqqss",
+        "edge": "e"
+      }
+    ]
+  },
+  "tiles": [
+    "################################################################################################",
+    "#,,,,,__,,,_,,,,_,,,,,,,,,,,,,,,######_________________________________________________#########",
+    "#,,_,,,_,,,,,,,,,,,,__,,,#,,,,_,######____________________v_________x_Y______z_________#########",
+    "#_,,_,_,_,,,,,,,_,Y,__,,,,,,O___######____________C___________q_I___________###________#########",
+    "#_,,I_,,,,,_,,,,,,_,,,,,,##_,_,,######____O_________________v___________v___#__________#########",
+    "#,,__,,,_,,,,,,__,,,,_,,z,,,,,,,######_______z____________________v_______m_________O__#########",
+    "#,_,,q,_,,,,_,,f,,,,_,,,,,,,n,,_######_________________A______#x_________________z_____#########",
+    "#,,,,_,,,,,,,,,,_,,,,,,,,s,,_,_,######_________Y____z____________q_________C___________#########",
+    "#,,,,,,,,,z,,,#,,,,_X,,X,_X,,,,,######________________##_______________________________#########",
+    "#,,z#,,_,,,,_,,,_,,_,s,,,,,z,,,_######_________________________________________________#########",
+    "#_,,_#,,,,,,,,,,,,,,_q,__,,,,_,,################################################################",
+    "#,,,#,,,,,,,,,,,,,_,,,,,,q,,__,,################################################################",
+    "#,,,,,,_Z,,,,,,,z,_,__,,_,,,,C,,################################################################",
+    "#,,,,_,_,,_,_,,,,,,_,,,,,_,,,,,,################################################################",
+    "#,_,,,,,,,,,,,,,,,,,_,,,,,_,,,,,######;;;;###;;;;;;,;;;;,##;;,;;;;;,;,;;,;;;;;,;;,;;;;;;;;;,;;;#",
+    "#,,,_,,,,,,,,,#,,,,,,_,,,Y,,,,,,######;;;;##;;;;;;,;;,;,;;;;;;,;;;;,;;;,;;;;;;;;;,,;,;;;;,;;;C;#",
+    "#,,,,,,z,,,,,##,_u,,,_,,,_,,,_,,######;;Y,;;,;;,;;,,~~;;;;;,;;;;;;;;;;;;;,;;;;;;;;;;;,;;;,;,;;;#",
+    "#,,,,,_,,,,,,,,,,,,__,,,_,,,,,,,#######,;;;;;;;;;;;,~~;;;Y;;;;;;z;;;;;;;,;;;;;,,;,,;O;;;;;;,;;;#",
+    "#,_,,,,,,,_,N*,,,,,,,#z,,,,,,,,_######;#;,;;;;Q;,;;;~~;;;;;;;;;,;;~~;;;;;,,,;;;;;;;;;;,;,;;;;;;#",
+    "#,,,_,,,,,,,_,_,__,,#,,,,,,,,,,,######;;;;;;;;;;;,;;~~;;,;;;;;q;;;~~;;;;;,;;,;;,,;;;;,;,,;;;;;;#",
+    "#,,,,Y,,,,,,,,,,,,,,,#_,,,,,,,,,######;;,;;;;;;;;;;,~~;;;;;,;,;###~~;,;;;;;,;;;;;;,;;,;;;;Y;;;;#",
+    "#,,,,,,,,f,,,,_,,,,z,#,,,,,,,,,,######;;;;;;;;;;;;;;~~,;;;;s;;;;;;~~;;,,;;;;;;;;;;;,;;;;;,;,;;;#",
+    "#,,,,,,_,,,,,_O,_,,,#_#,,,_,_#,,######,;,;,;;;;;,x,;~~;;,;X;,X;;X;~~;;;;,;;;f;,;;,;,;;;;,;;;;;;#",
+    "#,,,,,,,,,,,,_,,___,_,,,,,,,##,,######;;;,;;;;;,,;;;~~;;;;;q,;,;;,~~;;,;;,;;;,,;;,;;;;;;;,;;;;;#",
+    "#,,__,,,,_,_,,,,,,,__,,,,,,_,,,,######;;;;;;;;;;;;;;;;;,;;###;;s##~~,;;;,;;;,;;;;,;;,,;;u;;;;;;#",
+    "#,,,,_,,,_,,,_,,_,,,,,,,__,,,_,,######;;;,;;;z;;;,;,;;;;;;;;#;;;,#~~,;,;;;;;,;,;,;;;;;;;;;;;;;,#",
+    "######################################;;;;;,;;;,,;;;;;,;,;;#;;,;;n~~;;;;Q;;,;;;;;############,;#",
+    "######################################;;;;;;;;;;;;,;~~;;;,;#;;;;;;~~;,;;,,;;,;,;;#;;;;;;;;;;#;;#",
+    "######################################;,;;;,,,;;;,,f~~;;,;;;;;;;;;~~;#;,,,;;;;;;;#;;;;;;,;;;#,;#",
+    "######################################;;,;;;,;;;;,;,~~;;;;;;;;;;;;~~;#;#;;;;;;;B;#;;;;;;;,;;#;,#",
+    "######################################;;;;;;;;;q;;;,~~;,A;;;z;,;;,;;#,##;v;;;;;;;#;;q;;;,;;;#;;#",
+    "#.._.____.__.....___..__...._._.######;;,,;;;;;;;;;;~~;;;;;;;;;;;;;;;,;,;;;;;,;;;;;;;;,;EE,;#;,#",
+    "#............_...__...._........######;;;,;,;;;,;,;,~~;,;;;;;,;;,;;;;;;;;;;;,;;;,;,;;;b;EE;;#;,#",
+    "#.......__....O...._.__...__.._.######;;;;;;,;,;;;;;~~;;,;;;;;;,,,~~;;;z;;;;;;;;,#;,;,;;;;;,#;;#",
+    "#......#........_..._.z._._#....######;;;;;Q;;,;;,;;~~;;;v;;;;;;;;~~;;;;;;;,,,,;;#;;;,;q;;;,#;;#",
+    "#_.._.#.._..._..#_._._..._#__.__######;;;;;;;;;;;;;;~~,;;,;;;#;#;;~~;;;;;,,;;;;;;#;;,;,;;;,;#,;#",
+    "#....#....._._Y_#......_.#__....######;;,;;;,;u;;;;,~~;;,;;,,;#,;;~~V;;;;;;;;;;;;#;;;;,;;;;,#;;#",
+    "#____.###_.._...#_.._##..._...._######;;;,;;,;;,;,;;~~;;;#;;,,;;;;~~;;,;;;,;;;;;;#;;;;;;;;,;#;;#",
+    "#.__...#._.._..._#z...#.g...._..######;;;,,;;,,;;;z;~~;;;#;;Q;#;;;~~;;#######################;,#",
+    "#_._..__....._.........._.......######;,;;;,;;;;;;;,~~;;#;;,;;;;;;~~;;#;;;;;;;,;,,#;;,;##,;;;;;#",
+    "#...._..V_.._.__g........_....__######;;;;,;z#;#;;;;;;;;;,;;;;x;;;~~;B#;,;;;;;;;;;#;;##;#;;,;,,#",
+    "#__...._._.._.._......_...._..__######;;;,;,,#,;;;;,;,;;,;;;;;;,;;~~q;#;;,Q;,,Q,;;#B;;##;;;;,;;#",
+    "#.._.._..__...._.._.....C_._..__######;;;;;;,;,;Y;;;;q;,;;;;;;;;;,~~;,#;;q;;;;;;;;#;;n#;;;;;;;;#",
+    "#_._...__....___.._......._.....######;;;;,;;;;;,;;;~~;;;,;;;;,;;,~~,,,;;;;,;;;;,;#;;#;;;;;,;;;#",
+    "#._.P_P....._......_..._.__.._._######;;;;;;;;,;;;;;~~;,;,;;;;,;;;~~;,;;;;;;x;;;,;#;;##;;,;;;;;#",
+    "#__...__..N*.........._......__.######;;;,;;;;,;;;;;~~,;;;;;;;;;;,~~;;#;;;,;;;;;;;#;;;,;;;z,;,;#",
+    "#...P_P.._...._..._._..__z....._######,;;,,,;;;;;;;,~~;,z,;;,,,;;;~~;b#;;;;;;;;q;;#;;;;;;;;;;;;#",
+    "#..._......_.__._..._...._..__..######;;;;;,;;;;,;;;~~,;,;;,;;;;;;;;B;#;;,Q;;;Q,;;#;;,;;,;;;;;;#",
+    "#..__._......_.._....u.....q.___######,,;;;;,;;;,#,;~~;;;,;;;,Y;;;;;;;#;;;;;;,;;C;#;;;v;;;;;,;;#",
+    "#...__.._###._..........._.._._.######;;;,,,;;;;;;;;~~;;;;;;;,;;;;~~;;#,,;;;;;;;;;#,;,;;;;;;;;;#",
+    "#.._...._.##......_.....__..O_._######;;;;;,;B;,;;Q;~~;;;,;;;;;;;;~~;;#############;;;;;;;;;;;;#",
+    "#__.._...__##_..._........_._...######;,,;;;;;,;;;;,~~,;;;,;;;,;;;,,;;,;;;;,;;;;,,;;;;;;;;,;,;;#",
+    "#._..Y.......z..._._z..__.._.._.######,;;;O;;,;;;,;;~~;;;,z,;#;,;,;;;;;;;;;,;;;;;;;,;;;;Q;,;,;;#",
+    "#___......._....._.._._._.._.._.######;;;;;;;;,,;,;;~~;;;;;;#,;,;;;,;;;;;;;;;,m;;;;;;,;;;;;;;;,#",
+    "#.._............._....._....._._######;;;;;,;;,;;;;;~~;;;;;;,#;;;;;,;;;;,,;;;;;,;;;;;;,;,;,,;;;#",
+    "#.._......_......_..Y...._.z__..######,;,;,;;;,;;;;;~~;;;;,;;;,;;,;;;;,;;;;;q;;;x;;;;;;;;;Y;;;;#",
+    "#..._.._...__._......._.._......######;;;;;;;,;;,;;;~~;;;;,,;;;;;;;;;;;;;;;,;;;;,;,,;;;,;;,;;;;#",
+    "#....._._.._.._.___......__.....######;;C;;;;;;;;;;;;;;;;;;;;;;,;;;;,;;;;;;z;;,;;;;;;;;;;;;,,;;#",
+    "#__..._.___......__._......_....######;;;;;;;;;;;;;;;,;;;,,,;;;;;,;;;;;;,;;;;,;;;;;;;,;;;;;;;;,#",
+    "################################################################################################"
+  ]
+}

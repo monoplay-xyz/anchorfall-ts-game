@@ -2,7 +2,7 @@ import assert from 'assert/strict';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { applyResults, charsById, createGame, parseLevel, snapshot, step, TILE } from '../shared/game.js';
+import { applyResults, charsById, createGame, parseLevel, questProgress, restoreGame, serializeGame, snapshot, step, TILE } from '../shared/game.js';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const characters = JSON.parse(fs.readFileSync(path.join(root, 'shared/characters.json'), 'utf8'));
@@ -55,7 +55,7 @@ function testLevelsParse() {
     const pvp = level.mode === 'ctf' || level.mode === 'br';
     assert.ok(level.tiles.every(r => r.length === w), `level ${idx + 1} rows have equal width`);
     assert.ok(level.tiles.some(r => r.includes('P')), `level ${idx + 1} has a spawn`);
-    if (!pvp) assert.ok(level.tiles.some(r => /[garsmnb]/.test(r)), `level ${idx + 1} has enemies`);
+    if (!pvp) assert.ok(level.tiles.some(r => /[garsmnwbzfqvxu]/.test(r)), `level ${idx + 1} has enemies`);
     for (const id of level.captiveChars || []) {
       assert.ok(validChars.has(id), `${id} is a valid captive character`);
       captiveIds.add(id);
@@ -254,7 +254,8 @@ function testTwoLocalPlayersMoveIndependently() {
 // Generic integrity gate for EVERY story/expedition level. New chapters are
 // validated automatically the moment their files land in levels/.
 const ART_KEYS = new Set(['anchorcraft', 'crossing', 'basin', 'quorum', 'forkfall', 'siege', 'settlement', 'campfire', 'entropy', 'dawn']);
-const WAVE_LETTERS = new Set('garsmnwb');
+const WAVE_LETTERS = new Set('garsmnwbzfqvxu'); // frontier III adds z f q v x u
+const QUEST_KINDS = new Set(['fetch', 'kill', 'build', 'switch', 'glyph', 'destroy', 'craft', 'reach']);
 
 function testStoryLevelIntegrity() {
   const storyLevels = levels.filter(l => l.story || l.expedition);
@@ -279,6 +280,49 @@ function testStoryLevelIntegrity() {
     assert.equal((def.captiveChars || []).length, tileCount('c'), `${tag}: captiveChars length matches 'c' tiles`);
     assert.equal((def.npcs || []).length, tileCount('N'), `${tag}: npcs length matches 'N' tiles`);
     assert.equal((def.builds || []).length, tileCount('B'), `${tag}: builds length matches 'B' tiles`);
+    // field weapon pickups and quest items have deterministic defaults, so
+    // their defs are optional — but a present def must match its tiles
+    if (def.pickups) assert.equal(def.pickups.length, tileCount('A'), `${tag}: pickups length matches 'A' tiles`);
+    if (def.qitems) assert.equal(def.qitems.length, tileCount('I'), `${tag}: qitems length matches 'I' tiles`);
+    // puzzle systems: optional row-major defs must match their tiles too
+    if (def.switches) assert.equal(def.switches.length, tileCount('Q'), `${tag}: switches length matches 'Q' tiles`);
+    if (def.glyphs) assert.equal(def.glyphs.length, tileCount('J'), `${tag}: glyphs length matches 'J' tiles`);
+    if (def.teleports) assert.equal(def.teleports.length, tileCount('O'), `${tag}: teleports length matches 'O' tiles`);
+    // switch quorums must be satisfiable by the map's relays
+    for (const sg of def.switchGroups || []) {
+      const members = parsed.switches.filter(s => s.group === (sg.group ?? 0)).length;
+      assert.ok((sg.need || 1) <= members, `${tag}: switch group '${sg.group}' need ${sg.need} <= ${members} relays`);
+    }
+    // glyph orders: every ordered rune exists among the group's stones
+    for (const gg of def.glyphGroups || []) {
+      const members = parsed.glyphs.filter(s => s.group === (gg.group ?? 0));
+      assert.ok((gg.order || []).length >= 1, `${tag}: glyph group '${gg.group}' orders at least one rune`);
+      for (const sym of gg.order || []) {
+        assert.ok(Number.isInteger(sym) && sym >= 0 && sym <= 7, `${tag}: glyph symbol ${sym} is a rune 0-7`);
+        assert.ok(members.some(m => m.symbol === sym), `${tag}: glyph group '${gg.group}' has a stone for rune ${sym}`);
+      }
+    }
+    // every teleport twin resolves to a pad on the map
+    for (const t of parsed.teleports) {
+      if (t.twin != null) assert.ok(parsed.teleports.some(o => o.id === t.twin), `${tag}: teleport '${t.id}' twin '${t.twin}' exists`);
+    }
+    // every openDoor reward (quests, quorums, glyph orders) names a real door
+    const doorIds = new Set((def.doors || []).map((d, i) => d.id || 'door' + i));
+    const wantsDoor = id => assert.ok(doorIds.has(id), `${tag}: openDoor reward '${id}' is a real door`);
+    for (const q2 of def.quests || []) if (q2.reward && q2.reward.openDoor) wantsDoor(q2.reward.openDoor);
+    for (const sg of def.switchGroups || []) if (sg.reward && sg.reward.openDoor) wantsDoor(sg.reward.openDoor);
+    for (const gg of def.glyphGroups || []) if (gg.reward && gg.reward.openDoor) wantsDoor(gg.reward.openDoor);
+    // quests: known kinds, real givers, fetch items that actually exist
+    for (const q of def.quests || []) {
+      assert.ok(q.id && typeof q.title === 'string' && q.title.length > 0, `${tag}: quest has id and title`);
+      assert.ok(QUEST_KINDS.has(q.kind), `${tag}: quest '${q.id}' kind '${q.kind}' is known`);
+      assert.ok((def.npcs || []).some(n => n.id === q.giver), `${tag}: quest '${q.id}' giver '${q.giver}' is an npc on the map`);
+      if (q.kind === 'fetch') {
+        assert.ok(q.item, `${tag}: fetch quest '${q.id}' names its item`);
+        assert.ok((def.qitems || []).some(it => (it.kind || 'fragment') === q.item),
+          `${tag}: fetch quest '${q.id}' item '${q.item}' exists among the map's qitems`);
+      }
+    }
     if (def.gate) {
       const pylons = (def.builds || []).filter(b => b.kind === 'pylon').length;
       assert.ok(def.gate.need <= pylons, `${tag}: gate.need ${def.gate.need} <= ${pylons} pylon sites`);
@@ -286,18 +330,49 @@ function testStoryLevelIntegrity() {
     // walkable connectivity (BFS) from the first spawn to every objective
     // ('T' trees block movement; crystals are parsed out and never block)
     const pass = c => c !== '#' && c !== 'T' && c !== '~' && c !== 'o';
+    // doors must cover walkable floor inside the map (the rect is a route
+    // once the door opens; the BFS below deliberately walks through closed
+    // doors — the validator assumes solvable puzzles open them eventually)
+    for (const [i, d] of (def.doors || []).entries()) {
+      const dw = d.w || 1, dh = d.h || 1;
+      const id = d.id || 'door' + i;
+      assert.ok(d.x >= 0 && d.y >= 0 && d.x + dw <= parsed.w && d.y + dh <= parsed.h, `${tag}: door '${id}' rect in bounds`);
+      for (let yy = d.y; yy < d.y + dh; yy++)
+        for (let xx = d.x; xx < d.x + dw; xx++)
+          assert.ok(pass(parsed.grid[yy][xx]), `${tag}: door '${id}' covers walkable floor`);
+    }
     const seen = new Set();
     const sx = Math.floor(parsed.spawns[0].x / TILE), sy = Math.floor(parsed.spawns[0].y / TILE);
     const q = [[sx, sy]];
     seen.add(sx + ',' + sy);
-    while (q.length) {
-      const [x, y] = q.pop();
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-        const nx = x + dx, ny = y + dy;
-        if (nx < 0 || ny < 0 || nx >= parsed.w || ny >= parsed.h) continue;
-        const k = nx + ',' + ny;
-        if (!seen.has(k) && pass(parsed.grid[ny][nx])) { seen.add(k); q.push([nx, ny]); }
+    const flood = () => {
+      while (q.length) {
+        const [x, y] = q.pop();
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nx = x + dx, ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= parsed.w || ny >= parsed.h) continue;
+          const k = nx + ',' + ny;
+          if (!seen.has(k) && pass(parsed.grid[ny][nx])) { seen.add(k); q.push([nx, ny]); }
+        }
       }
+    };
+    flood();
+    // teleport pads extend on-foot reach: a reachable pad floods its twin
+    // (the interior pattern: compartments reachable only via pads/doors)
+    for (let pass2 = 0; pass2 <= parsed.teleports.length; pass2++) {
+      let changed = false;
+      for (const t of parsed.teleports) {
+        if (!seen.has(Math.floor(t.x / TILE) + ',' + Math.floor(t.y / TILE))) continue;
+        const twin = parsed.teleports.find(o => o.id === t.twin);
+        if (!twin) continue;
+        const wx = Math.floor(twin.x / TILE), wy = Math.floor(twin.y / TILE);
+        if (seen.has(wx + ',' + wy)) continue;
+        changed = true;
+        seen.add(wx + ',' + wy);
+        q.push([wx, wy]);
+        flood();
+      }
+      if (!changed) break;
     }
     const reach = (px, py, what) =>
       assert.ok(seen.has(Math.floor(px / TILE) + ',' + Math.floor(py / TILE)), `${tag}: ${what} reachable from spawn`);
@@ -333,11 +408,20 @@ function testStoryLevelIntegrity() {
     for (const v of parsed.vehicles) reach(v.x, v.y, `${v.kind}`);
     for (const f of parsed.flags) reach(f.x, f.y, `team ${f.team} flag stand`);
     if (parsed.core) reach(parsed.core.x, parsed.core.y, 'base core');
-    // story modifiers: wave letters/edges/timing must be sane
+    for (const s of parsed.switches) reach(s.x, s.y, `relay ${s.id}`);
+    for (const s of parsed.glyphs) reach(s.x, s.y, `glyph ${s.id}`);
+    for (const pl of parsed.pillars) reach(pl.x, pl.y, `pillar ${pl.id}`);
+    for (const f2 of parsed.forges) reach(f2.x, f2.y, 'seal forge');
+    for (const t of parsed.teleports) reach(t.x, t.y, `teleport ${t.id}`);
+    // story modifiers: wave letters/edges/timing must be sane. Untimed levels
+    // (story/bastion without timed:true) run on elapsed time, so the
+    // wave.at < def.time bound only binds when a countdown actually runs.
+    const untimed = !def.timed && (!!def.story || def.mode === 'bastion')
+      && def.mode !== 'ctf' && def.mode !== 'br';
     for (const wv of (def.modifiers && def.modifiers.waves) || []) {
-      assert.ok(wv.letters.length >= 1 && [...wv.letters].every(c => WAVE_LETTERS.has(c)), `${tag}: wave letters '${wv.letters}' all in garsmnwb`);
+      assert.ok(wv.letters.length >= 1 && [...wv.letters].every(c => WAVE_LETTERS.has(c)), `${tag}: wave letters '${wv.letters}' all in garsmnwbzfqvxu`);
       assert.ok(['n', 's', 'e', 'w'].includes(wv.edge), `${tag}: wave edge '${wv.edge}' is n/s/e/w`);
-      assert.ok(typeof wv.at === 'number' && wv.at < def.time, `${tag}: wave at ${wv.at}s fires inside the ${def.time}s timer`);
+      assert.ok(typeof wv.at === 'number' && (untimed || wv.at < def.time), `${tag}: wave at ${wv.at}s fires inside the ${def.time}s timer`);
     }
     // cutscene slides: title, 1-3 lines, known art key
     for (const slide of [...(def.intro || []), ...(def.outro || [])]) {
@@ -3722,6 +3806,944 @@ function testBloodMoonAndLateNightBuffs() {
   assert.equal(split4.speed, 1.25 * TILE * 1.25, 'blood grunt pace: base x1.25');
 }
 
+// ===== SIM-D: frontier III — new roster, field weapons, quests ==============
+
+// --- letters audit: z f q v x u / A / I all parse, collide with nothing ---
+function testFrontierLettersParse() {
+  const def = {
+    name: 'Frontier Letters', time: 60, captiveChars: [],
+    pickups: [{ kind: 'railcannon', ammo: 3 }],
+    qitems: [{ id: 'frag1', kind: 'fragment' }],
+    tiles: [
+      '############',
+      '#P.zfqvxu..#',
+      '#..A..I....#',
+      '############',
+    ],
+  };
+  const lvl = parseLevel(def);
+  assert.deepEqual(lvl.enemies.map(e => e.kind), ['husk', 'alpha', 'acolyte', 'wraith', 'stalker', 'beetle'],
+    'z f q v x u parse row-major into the six new kinds');
+  const by = k => lvl.enemies.find(e => e.kind === k);
+  assert.equal(by('husk').hp, 1, 'husk hp 1');
+  assert.equal(by('husk').score, 40, 'husk score 40');
+  assert.equal(by('alpha').hp, 3, 'fork alpha hp 3');
+  assert.equal(by('alpha').speed, 1.7 * TILE, 'fork alpha speed 1.7');
+  assert.equal(by('acolyte').range, 5 * TILE, 'acolyte support range 5 tiles');
+  assert.equal(by('wraith').range, 6 * TILE, 'wraith zap range 6 tiles');
+  assert.equal(by('stalker').blinkT, 3.5 + (4 % 4) * 0.35, 'stalker blink clock staggered by id');
+  assert.equal(by('beetle').score, 130, 'beetle score 130');
+  assert.deepEqual(lvl.pickups, [{ id: 'fw0', x: 3.5 * TILE, y: 2.5 * TILE, kind: 'railcannon', ammo: 3 }],
+    'A binds def.pickups row-major (kind + ammo)');
+  assert.deepEqual(lvl.qitems, [{ id: 'frag1', kind: 'fragment', x: 6.5 * TILE, y: 2.5 * TILE, carrier: null }],
+    'I binds def.qitems row-major');
+  for (const row of lvl.grid) assert.ok(!/[zfqvxuAI]/.test(row), 'every frontier letter resolves to floor');
+  // defaults: pickups cycle the four field kinds, qitems default to fragments
+  const dflt = parseLevel({ tiles: ['########', '#PAAAAI#', '########'] });
+  assert.deepEqual(dflt.pickups.map(w => w.kind), ['flamer', 'railcannon', 'stormgun', 'mortarMk2'],
+    'unbound A tiles cycle the field kinds deterministically');
+  assert.equal(dflt.pickups[0].ammo, 90, 'flamer default fuel 90');
+  assert.equal(dflt.pickups[1].ammo, 10, 'railcannon default 10 rounds');
+  assert.equal(dflt.pickups[2].ammo, 24, 'stormgun default 24 rounds');
+  assert.equal(dflt.pickups[3].ammo, 14, 'mortarMk2 default 14 rounds');
+  assert.equal(dflt.qitems[0].kind, 'fragment', 'unbound I defaults to a proof fragment');
+  // populated maps ship the new keys; classics never gain them
+  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const s = snapshot(g, false);
+  assert.equal(s.pickups.length, 1, 'snapshot ships pickups');
+  assert.equal(s.qitems.length, 1, 'snapshot ships qitems');
+  const classic = snapshot(createGame(levels[0], [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster), false);
+  for (const key of ['pickups', 'qitems', 'quests', 'untimed', 'elapsed']) {
+    assert.ok(!(key in classic), `classic snapshots never gain '${key}'`);
+  }
+}
+
+// --- fork alpha always splits; new letters ride the wave machinery ---
+function testAlphaSplitAndFrontierWaves() {
+  const level = {
+    name: 'Alpha Test', time: 30, captiveChars: [],
+    tiles: ['##########', '#P..f....#', '##########'],
+  };
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  g.players[0].invuln = 999;
+  run(g, () => ({ 0: aimAtNearest(g, g.players[0]) }), 12);
+  assert.ok(g.events.some(ev => ev.type === 'die' && ev.kind === 'alpha'), 'the alpha died');
+  assert.equal(g.events.filter(ev => ev.type === 'spawnEnemy' && ev.kind === 'skitter').length, 2,
+    'a dying alpha always splits into exactly two skitters');
+  assert.ok(g.kills >= 3 || g.status === 'cleared', 'the twins were hunted down too');
+  // new letters spawn from scripted waves exactly like the classics
+  const wlevel = bigEmptyLevel([[17, '#....................................g#']]);
+  wlevel.modifiers = { waves: [{ at: 0.5, letters: 'zu', edge: 'n' }] };
+  const wg = createGame(wlevel, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  wg.players[0].invuln = 999;
+  run(wg, () => ({ 0: {} }), 1);
+  const kinds = wg.enemies.map(e => e.kind);
+  assert.ok(kinds.includes('husk') && kinds.includes('beetle'), 'wave letters z/u spawn husk and beetle');
+  assert.ok(wg.enemies.filter(e => e.kind !== 'grunt').every(e => e.awake), 'wave spawns arrive awake');
+}
+
+// --- null acolyte: support pulses, one-hit ward, 25%-rate mend, pacifism ---
+function testAcolyteShieldHealAndPacifism() {
+  const level = {
+    name: 'Acolyte Test', time: 60, captiveChars: [],
+    tiles: ['############', '#P..gq.....#', '############'],
+  };
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const p = g.players[0];
+  const grunt = g.enemies.find(e => e.kind === 'grunt');
+  p.invuln = 999;
+  g.graceT = 0;
+  // acolyte id 1: first pulse lands at 2.5 + 0.25s
+  run(g, () => ({ 0: {} }), 3);
+  assert.equal(grunt.shielded, true, 'the acolyte warded its nearest packmate');
+  assert.ok(g.events.some(ev => ev.type === 'enemyShield' && ev.kind === 'grunt'), 'enemyShield cue fired');
+  assert.equal(snapshot(g, false).enemies.find(e => e.kind === 'grunt').shielded, true, 'snapshot flags the ward');
+  // the ward soaks exactly one hit, leaving hp untouched
+  g.graceT = 1e9; // freeze the field and line up a clean shot at the grunt
+  p.x = grunt.x + 3 * TILE;
+  p.y = grunt.y;
+  p.fx = -1; p.fy = 0;
+  for (let i = 0; i < 60 && !g.events.some(ev => ev.type === 'shieldPop'); i++) {
+    step(g, { 0: { fire: true } }, 1 / 30);
+  }
+  assert.ok(g.events.some(ev => ev.type === 'shieldPop' && ev.kind === 'grunt'), 'the ward popped under fire');
+  assert.equal(grunt.shielded, false, 'one absorb charge only');
+  assert.equal(grunt.hp, 2, 'the warded hit cost no hp');
+  // mend: every 4th pulse heals the nearest wounded packmate 1 hp
+  const g2 = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  g2.players[0].invuln = 999;
+  g2.graceT = 0;
+  const hurt = g2.enemies.find(e => e.kind === 'grunt');
+  hurt.hp = 1;
+  run(g2, () => ({ 0: {} }), 11);
+  assert.ok(g2.events.some(ev => ev.type === 'enemyHeal' && ev.kind === 'grunt'), 'the 4th pulse mended the packmate');
+  assert.equal(hurt.hp, 2, 'mend restored exactly 1 hp');
+  // pacifism: an acolyte alone never lays a hand on a player
+  const g3 = createGame({
+    name: 'Pacifist', time: 30, captiveChars: [],
+    tiles: ['########', '#P.q...#', '########'],
+  }, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  g3.players[0].invuln = 0;
+  g3.graceT = 0;
+  run(g3, () => ({ 0: {} }), 5);
+  assert.equal(g3.players[0].state, 'active', 'the acolyte never attacks players directly');
+  assert.ok(!g3.events.some(ev => ev.type === 'down' || ev.type === 'playerHit'), 'no player damage of any kind');
+}
+
+// --- volt wraith: chain-zap stings and roots; a shield pip soaks the lot ---
+function testWraithZapStunAndShieldAbsorb() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const mk = () => {
+    let r = '#' + '.'.repeat(38) + '#';
+    r = put(put(r, 4, 'P'), 9, 'v');
+    const g = createGame(bigEmptyLevel([[5, r]]), [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+    g.graceT = 0;
+    g.players[0].invuln = 0;
+    return g;
+  };
+  const g = mk();
+  const p = g.players[0];
+  for (let i = 0; i < 150 && !g.events.some(ev => ev.type === 'playerHit'); i++) step(g, { 0: {} }, 1 / 30);
+  assert.ok(g.events.some(ev => ev.type === 'playerHit'), 'the zap landed');
+  assert.equal(p.hp, 2, 'zap costs 1 hp');
+  assert.ok(p.stunT > 0, 'an unshielded operative is rooted');
+  const x0 = p.x;
+  step(g, { 0: { right: true } }, 1 / 30);
+  assert.equal(p.x, x0, 'rooted feet hold still');
+  run(g, () => ({ 0: { right: true } }), 0.5);
+  assert.ok(p.x > x0, 'the root wears off in 0.3s');
+  // shield pips absorb the zap whole — damage AND stun
+  const g2 = mk();
+  const p2 = g2.players[0];
+  p2.shield = 2;
+  for (let i = 0; i < 150 && !g2.events.some(ev => ev.type === 'playerHit'); i++) step(g2, { 0: {} }, 1 / 30);
+  assert.equal(p2.hp, 3, 'shield pip soaked the damage');
+  assert.equal(p2.shield, 1, 'one pip spent');
+  assert.ok(!(p2.stunT > 0), 'shield absorbs the stun too');
+}
+
+// --- phase stalker: deterministic 3-tile blinks toward its prey, then melee ---
+function testStalkerBlinkAndMelee() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  let r = '#' + '.'.repeat(38) + '#';
+  r = put(put(r, 4, 'P'), 18, 'x');
+  const g = createGame(bigEmptyLevel([[5, r]]), [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const p = g.players[0];
+  const e = g.enemies[0];
+  assert.equal(e.kind, 'stalker');
+  e.awake = true;
+  g.graceT = 0;
+  p.invuln = 0;
+  run(g, () => ({ 0: {} }), 3.6);
+  const blink = g.events.find(ev => ev.type === 'blink');
+  assert.ok(blink, 'the stalker blinked on its 3.5s cadence');
+  assert.ok(Math.abs(Math.hypot(blink.tx - blink.x, blink.ty - blink.y) - 3 * TILE) < 1,
+    'a full blink covers exactly 3 tiles');
+  run(g, () => ({ 0: {} }), 8);
+  assert.ok(g.events.some(ev => ev.type === 'playerHit'), 'the stalker closed and mauled in melee');
+}
+
+// --- pyre beetle: death burst — 1 dmg AoE plus a hostile burn patch ---
+function testBeetleBurstAndHostilePatch() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  let r = '#' + '.'.repeat(38) + '#';
+  r = put(put(put(r, 4, 'P'), 5, 'u'), 6, 'g');
+  const g = createGame(bigEmptyLevel([[5, r]]), [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const p = g.players[0];
+  const beetle = g.enemies.find(e => e.kind === 'beetle');
+  const grunt = g.enemies.find(e => e.kind === 'grunt');
+  g.graceT = 1e9; // freeze the field: this test inspects the death burst only
+  p.invuln = 0;
+  p.fx = 1; p.fy = 0;
+  beetle.hp = 1;
+  for (let i = 0; i < 30 && !beetle.dead; i++) step(g, { 0: { fire: true } }, 1 / 30);
+  assert.ok(beetle.dead, 'the beetle fell to fire');
+  const burst = g.events.find(ev => ev.type === 'pyreBurst');
+  assert.ok(burst, 'pyreBurst fired');
+  assert.equal(burst.radius, 1.2 * TILE, 'burst radius is 1.2 tiles');
+  assert.equal(p.hp, 2, 'the urn blast cost the adjacent operative 1 hp');
+  const patch = g.patches.find(pa => pa.kind === 'burn');
+  assert.ok(patch && patch.hostile, 'a hostile burn patch pools at the corpse');
+  assert.equal(patch.r, 1.2 * TILE, 'patch radius is 1.2 tiles');
+  assert.ok(snapshot(g, false).patches[0].hostile, 'snapshot flags the hostile patch');
+  // the patch sears players (~1/s through the hit grace), never enemies
+  run(g, () => ({ 0: {} }), 1.3);
+  assert.equal(p.hp, 1, 'standing in the fire costs ~1 hp per second');
+  assert.ok(!(grunt.burnT > 0), 'hostile patches pass clean over enemies');
+}
+
+// --- field weapons: pickup, fire override, ammo, evaporation ---
+function testFieldWeaponPickupOverrideAndAmmo() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  let r = '#' + '.'.repeat(38) + '#';
+  r = put(put(r, 4, 'P'), 5, 'A');
+  const level = bigEmptyLevel([[5, r], [17, '#....................................g#']]);
+  level.pickups = [{ kind: 'railcannon', ammo: 2 }];
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const p = g.players[0];
+  const ch = charMap[p.charId];
+  p.invuln = 999;
+  p.dmgBonus = 1;
+  p.level = 4; // evolutions must NOT touch field weapons
+  step(g, { 0: {} }, 1 / 30);
+  step(g, { 0: { act: true } }, 1 / 30);
+  assert.deepEqual(p.fieldWeapon, { kind: 'railcannon', ammo: 2 }, 'act grabs the pickup');
+  assert.equal(g.pickups.length, 0, 'the pickup left the field');
+  assert.ok(g.events.some(ev => ev.type === 'fieldPickup' && ev.kind === 'railcannon'), 'fieldPickup cue fired');
+  assert.deepEqual(snapshot(g, false).players[0].fieldWeapon, { kind: 'railcannon', ammo: 2 }, 'snapshot ships the held weapon');
+  const n0 = g.shots.length;
+  step(g, { 0: { fire: true } }, 1 / 30);
+  assert.equal(g.shots.length - n0, 1, 'railcannon fires a single slug (no evolution multishot)');
+  const shot = g.shots[g.shots.length - 1];
+  assert.equal(shot.kind, 'railcannon', 'the field weapon overrides main fire');
+  assert.equal(shot.dmg, 6, 'dmg 5 + shop token bonus (dmgBonus still applies)');
+  assert.equal(shot.pierce, 6, 'railcannon pierces 6');
+  assert.equal(p.fieldWeapon.ammo, 1, 'each trigger pull spends 1 round');
+  assert.equal(p.cool, 1.4, 'field weapons use their own cooldown');
+  p.cool = 0;
+  step(g, { 0: { fire: true } }, 1 / 30);
+  assert.equal(p.fieldWeapon, null, 'a dry weapon evaporates — nothing drops');
+  assert.equal(g.pickups.length, 0, 'no pickup from an empty weapon');
+  assert.ok(g.events.some(ev => ev.type === 'fieldEmpty' && ev.kind === 'railcannon'), 'fieldEmpty cue fired');
+  p.cool = 0;
+  step(g, { 0: { fire: true } }, 1 / 30);
+  const back = g.shots[g.shots.length - 1];
+  assert.equal(back.kind, ch.weapon.kind || ch.weapon.name || 'shot', 'the character weapon is back next press');
+}
+
+// --- field weapons: 0.8s ITEM-hold drop, teammate sharing, downed drop ---
+function testFieldWeaponDropShareAndDownedDrop() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  let r = '#' + '.'.repeat(38) + '#';
+  r = put(r, 4, 'P');
+  const level = bigEmptyLevel([[5, r], [17, '#....................................g#']]);
+  const party = startingRoster.slice(0, 2).map((id, i) => ({ pid: i, name: id, charId: id }));
+  const g = createGame(level, party, charMap, startingRoster);
+  const [p0, p1] = g.players;
+  p0.invuln = 999;
+  g.graceT = 0;
+  p0.fieldWeapon = { kind: 'stormgun', ammo: 7 };
+  // a short tap never drops
+  run(g, () => ({ 0: { item: true } }), 0.5);
+  assert.ok(p0.fieldWeapon, 'a 0.5s hold keeps the weapon');
+  run(g, () => ({ 0: {} }), 0.2);
+  run(g, () => ({ 0: { item: true } }), 0.9);
+  assert.equal(p0.fieldWeapon, null, 'a 0.8s ITEM hold drops the weapon');
+  assert.equal(g.pickups.length, 1, 'the drop lies as a pickup');
+  assert.equal(g.pickups[0].ammo, 7, 'remaining ammo rides the drop');
+  assert.ok(g.events.some(ev => ev.type === 'fieldDrop' && ev.pid === 0), 'fieldDrop cue fired');
+  // a teammate scoops the cast-off
+  p1.x = g.pickups[0].x;
+  p1.y = g.pickups[0].y;
+  step(g, {}, 1 / 30);
+  step(g, { 1: { act: true } }, 1 / 30);
+  assert.deepEqual(p1.fieldWeapon, { kind: 'stormgun', ammo: 7 }, 'teammates can grab a dropped weapon');
+  // going down drops the weapon at the body (step away from the invulnerable
+  // teammate first so the grunt unambiguously hunts the carrier)
+  p1.x += 8 * TILE;
+  const e = g.enemies[0];
+  e.awake = true;
+  e.x = p1.x + 20;
+  e.y = p1.y;
+  p1.hp = 1;
+  p1.invuln = 0;
+  run(g, () => ({}), 2);
+  assert.ok(p1.state !== 'active', 'the carrier went down');
+  assert.ok(!p1.fieldWeapon, 'downed players lose the weapon from hand');
+  assert.equal(g.pickups.length, 1, 'the weapon lies where they fell');
+  assert.equal(g.pickups[0].kind, 'stormgun', 'same weapon');
+  assert.equal(g.pickups[0].ammo, 7, 'same ammo');
+  // grabbing with full hands swaps: the old weapon drops at the feet
+  p0.fieldWeapon = { kind: 'flamer', ammo: 5 };
+  p0.x = g.pickups[0].x;
+  p0.y = g.pickups[0].y;
+  step(g, {}, 1 / 30);
+  step(g, { 0: { act: true } }, 1 / 30);
+  assert.deepEqual(p0.fieldWeapon, { kind: 'stormgun', ammo: 7 }, 'the new weapon is in hand');
+  assert.deepEqual(g.pickups.map(w => ({ kind: w.kind, ammo: w.ammo })), [{ kind: 'flamer', ammo: 5 }],
+    'the old weapon swapped out at the feet');
+}
+
+// --- quests: fetch lifecycle — hidden, active, carried fragment, done ---
+function testQuestFetchLifecycle() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  let r = '#' + '.'.repeat(38) + '#';
+  r = put(put(put(r, 4, 'P'), 8, 'N'), 20, 'I');
+  const level = bigEmptyLevel([[5, r], [17, '#....................................g#']]);
+  level.npcs = [{ id: 'sefa', name: 'Elder Tenwright', lines: ['Seven I can settle. Six I can only mourn.'] }];
+  level.qitems = [{ id: 'frag1', kind: 'fragment' }];
+  level.quests = [{
+    id: 'count1', main: true, title: 'The Count', giver: 'sefa', kind: 'fetch',
+    item: 'fragment', count: 1, reward: { shards: 7 }, hint: 'Six is not a quorum.',
+  }];
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const p = g.players[0];
+  const npc = g.npcs[0];
+  const qi = g.qitems[0];
+  p.invuln = 999;
+  assert.deepEqual(snapshot(g, false).quests, [{
+    id: 'count1', state: 'hidden', progress: 0, count: 1, title: 'The Count', main: true, kind: 'fetch',
+  }], 'quests ship hidden in the snapshot from the start');
+  const talk = () => {
+    step(g, { 0: {} }, 1 / 30);
+    step(g, { 0: { act: true } }, 1 / 30);
+  };
+  p.x = npc.x + TILE;
+  p.y = npc.y;
+  talk();
+  assert.equal(g.quests[0].state, 'active', 'talking to the giver activates the quest');
+  assert.ok(g.events.some(ev => ev.type === 'quest' && ev.id === 'count1' && ev.state === 'active' && ev.main === true),
+    'quest activation event fired');
+  talk();
+  assert.equal(g.quests[0].state, 'active', 'empty-handed talk completes nothing');
+  // touch the fragment: scooped like a captive, then it trails the carrier
+  p.x = qi.x;
+  p.y = qi.y;
+  step(g, { 0: {} }, 1 / 30);
+  assert.equal(qi.carrier, 0, 'quest items are picked up on touch');
+  assert.ok(g.events.some(ev => ev.type === 'qitemPickup' && ev.id === 'frag1'), 'qitemPickup cue fired');
+  p.x += 5 * TILE;
+  run(g, () => ({ 0: {} }), 1.5);
+  assert.ok(Math.hypot(qi.x - p.x, qi.y - p.y) < TILE * 2, 'the fragment trails its carrier');
+  assert.equal(g.quests[0].progress, 1, 'fetch progress mirrors the carried count for the HUD');
+  // a downed carrier lays the fragment where they stood
+  p.state = 'down';
+  step(g, {}, 1 / 30);
+  assert.equal(qi.carrier, null, 'down drops the quest item');
+  p.state = 'active';
+  p.x = qi.x;
+  p.y = qi.y;
+  step(g, { 0: {} }, 1 / 30);
+  assert.equal(qi.carrier, 0, 'rescooped on touch');
+  // deliver
+  p.x = npc.x + TILE;
+  p.y = npc.y;
+  const shards0 = g.shards;
+  talk();
+  assert.equal(g.quests[0].state, 'done', 'carrying the fragment to the giver completes the fetch');
+  assert.equal(g.qitems.length, 0, 'the fragment is handed over and consumed');
+  assert.equal(g.shards, shards0 + 7, 'the shard reward pays the pool');
+  assert.ok(g.events.some(ev => ev.type === 'quest' && ev.id === 'count1' && ev.state === 'done'), 'quest done event fired');
+}
+
+// --- quests: kill/build/reach progress, rewards, openDoor parking, hooks ---
+function testQuestKillBuildReachAndRewards() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  let r = '#' + '.'.repeat(38) + '#';
+  r = put(put(put(put(put(r, 4, 'P'), 10, 'z'), 12, 'z'), 14, 'z'), 8, 'N');
+  let r2 = '#' + '.'.repeat(38) + '#';
+  r2 = put(r2, 4, 'B');
+  // a far sleeping grunt keeps the field from auto-clearing once husks fall
+  const level = bigEmptyLevel([[5, r], [8, r2], [17, '#....................................g#']]);
+  level.npcs = [{ id: 'sefa', name: 'Elder Tenwright', lines: ['Put them down kindly.'] }];
+  level.builds = [{ kind: 'barricade', cost: 2 }];
+  level.doors = [{ id: 'door1', x: 34, y: 14 }];
+  level.quests = [
+    { id: 'cull', title: 'Cull the Husks', giver: 'sefa', kind: 'kill', target: 'z', count: 2, reward: { openDoor: 'door1' } },
+    { id: 'wall', title: 'Raise the Wall', giver: 'sefa', kind: 'build', target: 'barricade', count: 1, reward: { item: 'medkit' } },
+    { id: 'ridge', title: 'Reach the Ridge', giver: 'sefa', kind: 'reach', target: { x: 30, y: 12 }, count: 1, reward: { weapon: 'stormgun' } },
+    { id: 'mig', title: 'The Migration', giver: 'sefa', kind: 'destroy', target: 'pillar', count: 1 },
+  ];
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const p = g.players[0];
+  const npc = g.npcs[0];
+  p.invuln = 999;
+  g.graceT = 0;
+  g.shards = 10;
+  const qById = id => g.quests.find(q => q.id === id);
+  // kills before activation earn nothing
+  for (let i = 0; i < 240 && g.kills < 1; i++) step(g, { 0: aimAtNearest(g, p) }, 1 / 30);
+  assert.ok(g.kills >= 1, 'a husk fell before the quest was taken');
+  const talk = () => {
+    step(g, { 0: {} }, 1 / 30);
+    step(g, { 0: { act: true } }, 1 / 30);
+  };
+  p.x = npc.x + TILE;
+  p.y = npc.y;
+  talk();
+  assert.ok(g.quests.every(q => q.state === 'active'), 'one talk hands out every quest the giver holds');
+  assert.equal(qById('cull').progress, 0, 'pre-activation kills never count');
+  // cull two more husks
+  for (let i = 0; i < 600 && g.kills < 3; i++) step(g, { 0: aimAtNearest(g, p) }, 1 / 30);
+  assert.equal(qById('cull').progress, 2, 'kill quests count the target letter');
+  assert.ok(g.events.some(ev => ev.type === 'questProgress' && ev.id === 'cull' && ev.progress === 2), 'progress events fired');
+  // raise the wall (hold act on the site)
+  const site = g.builds[0];
+  p.x = site.x + TILE;
+  p.y = site.y;
+  run(g, () => ({ 0: { act: true } }), 2.5);
+  assert.ok(site.built, 'the barricade went up');
+  assert.equal(qById('wall').progress, 1, 'build quests count completed structures');
+  // reach the ridge
+  p.x = (30 + 0.5) * TILE;
+  p.y = (12 + 0.5) * TILE;
+  step(g, { 0: {} }, 1 / 30);
+  assert.equal(qById('ridge').progress, 1, 'reach quests trip on standing at the target tile');
+  // the puzzle-system hook (switch/glyph/destroy/craft resolutions call this)
+  questProgress(g, 'destroy', ['pillar'], 0, 0);
+  assert.equal(qById('mig').progress, 1, 'exported questProgress drives linked-system quests');
+  // settle all four with the giver
+  p.x = npc.x + TILE;
+  p.y = npc.y;
+  talk();
+  assert.ok(g.quests.every(q => q.state === 'done'), 'one settling talk completes every satisfied quest');
+  // the parked openDoor reward is consumed by stepDoors in the same tick
+  assert.deepEqual(g.pendingDoorOpens, [], 'the door system drained the parked reward');
+  assert.equal(g.doors[0].open, true, 'the openDoor reward swung door1');
+  assert.ok(g.events.some(ev => ev.type === 'doorOpen' && ev.id === 'door1'), 'doorOpen event fired');
+  assert.deepEqual(p.item, { kind: 'medkit', count: 1 }, 'item rewards fill the slot');
+  assert.deepEqual(p.fieldWeapon, { kind: 'stormgun', ammo: 24 }, 'weapon rewards arrive fully loaded');
+  assert.equal(g.events.filter(ev => ev.type === 'quest' && ev.state === 'done').length, 4, 'four done events');
+  const s = snapshot(g, false);
+  assert.ok(s.quests.every(q => q.state === 'done'), 'snapshot tracks quest completion');
+}
+
+// --- untimed story: no countdown, no lowTime, waves keep riding elapsed ---
+function testUntimedStoryAndBastion() {
+  const mkLevel = () => {
+    const level = bigEmptyLevel([[17, '#....................................g#']]);
+    level.time = 3;
+    level.story = true;
+    level.modifiers = { waves: [{ at: 5, letters: 'z', edge: 'n' }] };
+    return level;
+  };
+  const g = createGame(mkLevel(), [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  assert.equal(g.untimed, true, 'story levels run untimed');
+  g.players[0].invuln = 999;
+  run(g, () => ({ 0: {} }), 6.5);
+  assert.equal(g.status, 'play', 'the 3s clock never failed the mission');
+  assert.equal(g.timeLeft, 3, 'timeLeft never decrements');
+  assert.ok(!g.events.some(ev => ev.type === 'lowTime' || ev.type === 'fail'), 'no lowTime, no time-out fail');
+  assert.ok(g.enemies.some(e => e.kind === 'husk'), 'waves keep firing on elapsed time (at 5s > time 3)');
+  const s = snapshot(g, false);
+  assert.equal(s.untimed, true, 'snapshot flags untimed');
+  assert.ok(s.elapsed > 6 && s.elapsed < 7, 'snapshot ships elapsed for the count-up clock');
+  // def.timed:true opts a story level back into the countdown
+  const tLevel = mkLevel();
+  tLevel.timed = true;
+  tLevel.modifiers = undefined;
+  const tg = createGame(tLevel, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  assert.equal(tg.untimed, false, 'timed:true restores the countdown');
+  tg.players[0].invuln = 999;
+  run(tg, () => ({ 0: {} }), 4);
+  assert.equal(tg.status, 'failed', 'the opted-in countdown still fails the level');
+  assert.ok(tg.events.some(ev => ev.type === 'lowTime'), 'lowTime still cues on timed levels');
+  // bastion maps are untimed by definition; classics keep their countdown
+  const bg = createGame(bastionDef(), [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  assert.equal(bg.untimed, true, 'bastion maps run untimed');
+  assert.equal(snapshot(bg, false).untimed, true, 'bastion snapshot flags untimed');
+  const cg = createGame(levels[0], startingRoster.map((id, i) => ({ pid: i, name: id, charId: id })), charMap, startingRoster);
+  assert.equal(cg.untimed, false, 'classics never run untimed');
+  run(cg, () => ({}), 1);
+  assert.ok(cg.timeLeft < levels[0].time, 'classic countdowns are untouched');
+}
+
+// --- determinism: identical scripted runs over every frontier system ---
+function testDeterministicFrontierRun() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  let r5 = '#' + '.'.repeat(38) + '#';
+  r5 = put(put(put(put(r5, 4, 'P'), 5, 'P'), 14, 'z'), 18, 'f');
+  let r8 = '#' + '.'.repeat(38) + '#';
+  r8 = put(put(put(put(r8, 6, 'A'), 10, 'I'), 16, 'q'), 20, 'v');
+  let r11 = '#' + '.'.repeat(38) + '#';
+  r11 = put(put(put(r11, 8, 'N'), 24, 'x'), 28, 'u');
+  const level = bigEmptyLevel([[5, r5], [8, r8], [11, r11]]);
+  level.story = true;
+  level.npcs = [{ id: 'hask', name: 'Hask Embervein', lines: ['Bring me fragments, not promises.'] }];
+  level.qitems = [{ id: 'frag1', kind: 'fragment' }];
+  level.quests = [{ id: 'forge', title: 'The Combining', giver: 'hask', kind: 'fetch', item: 'fragment', count: 1, reward: { shards: 5 } }];
+  const party = startingRoster.slice(0, 2).map((id, i) => ({ pid: i, name: id, charId: id }));
+  const runOnce = () => {
+    const g = createGame(level, party, charMap, startingRoster);
+    const dt = 1 / 30;
+    const h = [];
+    for (let i = 0; i < 900 && g.status === 'play'; i++) {
+      const inputs = {};
+      for (const p of g.players) {
+        inputs[p.pid] = {
+          right: (i % 60) < 35, down: p.pid === 0 && (i % 80) < 30, up: p.pid === 1 && (i % 80) < 30,
+          fire: (i % 9) < 4, act: (i % 50) < 12, item: (i % 100) < 40,
+        };
+      }
+      step(g, inputs, dt);
+      if (i % 30 === 0) h.push(JSON.stringify(snapshot(g, false)));
+    }
+    return h.join('\n');
+  };
+  assert.ok(runOnce() === runOnce(), 'two identical scripted frontier runs produce identical snapshot streams');
+}
+
+// --- puzzle letters: Q J X Z O parse, defs bind row-major, defaults hold ---
+function testPuzzleLettersParse() {
+  const def = {
+    name: 'Puzzle Letters', time: 60, captiveChars: [],
+    switches: [{ id: 'swA', group: 'g1' }, { group: 'g1' }],
+    glyphs: [{ id: 'glA', symbol: 5, group: 'runes' }],
+    teleports: [{ id: 'padA' }, { id: 'padB' }],
+    doors: [{ id: 'gate', x: 9, y: 2, sealLock: true }],
+    tiles: [
+      '############',
+      '#P.QQ.J.X..#',
+      '#..Z.OO....#',
+      '############',
+    ],
+  };
+  const lvl = parseLevel(def);
+  assert.deepEqual(lvl.switches, [
+    { id: 'swA', x: 3.5 * TILE, y: 1.5 * TILE, on: false, group: 'g1' },
+    { id: 'sw1', x: 4.5 * TILE, y: 1.5 * TILE, on: false, group: 'g1' },
+  ], 'Q binds def.switches row-major');
+  assert.deepEqual(lvl.glyphs, [
+    { id: 'glA', x: 6.5 * TILE, y: 1.5 * TILE, symbol: 5, lit: false, group: 'runes' },
+  ], 'J binds def.glyphs row-major');
+  assert.deepEqual(lvl.pillars, [
+    { id: 'pl0', x: 8.5 * TILE, y: 1.5 * TILE, hp: 12, maxHp: 12 },
+  ], 'X parses a 12 hp BLS pillar');
+  assert.deepEqual(lvl.forges, [{ x: 3.5 * TILE, y: 2.5 * TILE, holdT: 0 }], 'Z parses a seal forge');
+  assert.deepEqual(lvl.teleports.map(t => ({ id: t.id, twin: t.twin })),
+    [{ id: 'padA', twin: 'padB' }, { id: 'padB', twin: 'padA' }],
+    'O pads pair consecutively in def.teleports order');
+  for (const row of lvl.grid) assert.ok(!/[QJXZO]/.test(row), 'every puzzle letter resolves to floor');
+  // defaults: group 0, symbols cycle 0-7, twin by index pairing, odd pad inert
+  const dflt = parseLevel({ tiles: ['#############', '#PQJJJJJJJJJO#'.slice(0, 12) + '#', '#############'] });
+  assert.equal(dflt.switches[0].group, 0, 'unbound switches default to group 0');
+  assert.deepEqual(dflt.glyphs.map(s => s.symbol), [0, 1, 2, 3, 4, 5, 6, 7, 0], 'unbound glyph symbols cycle the 8 runes');
+  const odd = parseLevel({ tiles: ['#####', '#POO#', '#.O.#', '#####'] });
+  assert.deepEqual(odd.teleports.map(t => t.twin), ['tp1', 'tp0', null], 'an odd trailing pad has no twin (inert)');
+  // populated maps ship the new snapshot keys; classics never gain them
+  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const s = snapshot(g, false);
+  assert.equal(s.switches.length, 2, 'snapshot ships switches');
+  assert.equal(s.glyphs.length, 1, 'snapshot ships glyphs');
+  assert.equal(s.pillars.length, 1, 'snapshot ships pillars');
+  assert.equal(s.forges.length, 1, 'snapshot ships forges');
+  assert.equal(s.teleports.length, 2, 'snapshot ships teleports');
+  assert.deepEqual(s.doors, [{ id: 'gate', x: 9, y: 2, w: 1, h: 1, open: false, sealLock: true }], 'snapshot ships doors');
+  const classic = snapshot(createGame(levels[0], [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster), false);
+  for (const key of ['switches', 'switchGroups', 'glyphs', 'pillars', 'forges', 'teleports', 'doors']) {
+    assert.ok(!(key in classic), `classic snapshots never gain '${key}'`);
+  }
+}
+
+// --- relay switches: act toggles ON, the cluster quorum, window resets ---
+function testSwitchQuorumWindowAndReset() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  let r = '#' + '.'.repeat(38) + '#';
+  r = put(put(put(put(r, 4, 'P'), 8, 'Q'), 16, 'Q'), 24, 'Q');
+  const level = bigEmptyLevel([[5, r], [17, '#....................................g#']]);
+  level.switches = [{ group: 'g1' }, { group: 'g1' }, { group: 'g1' }];
+  level.switchGroups = [{ group: 'g1', need: 2, of: 3, window: 2, reward: { openDoor: 'gateA' } }];
+  level.doors = [{ id: 'gateA', x: 34, y: 5 }];
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const p = g.players[0];
+  p.invuln = 999;
+  // a live 'switch' quest targeting the group counts the quorum
+  g.quests.push({
+    id: 'sq', main: false, title: 'Bring the Cluster Online', giver: 'none', kind: 'switch',
+    target: 'g1', count: 1, reward: null, hint: '', state: 'active', progress: 0,
+  });
+  const throwAt = sw => {
+    p.x = sw.x - TILE;
+    p.y = sw.y;
+    step(g, { 0: {} }, 1 / 30);
+    step(g, { 0: { act: true } }, 1 / 30);
+  };
+  // one relay alone: the window opens, runs out, and resets the cluster
+  throwAt(g.switches[0]);
+  assert.equal(g.switches[0].on, true, 'act throws the relay ON');
+  assert.ok(g.events.some(ev => ev.type === 'switch' && ev.id === 'sw0' && ev.on === true), 'switch event fired');
+  assert.ok(g.switchGroups[0].windowT > 0, 'the first relay starts the quorum window');
+  run(g, () => ({ 0: {} }), 2.2);
+  assert.equal(g.switches[0].on, false, 'an expired window resets every relay');
+  assert.ok(g.events.some(ev => ev.type === 'switchReset' && ev.group === 'g1'), 'switchReset event fired');
+  assert.equal(g.doors[0].open, false, 'no quorum, no door');
+  // re-throwing the same relay works after a reset; 2-of-3 inside the window wins
+  throwAt(g.switches[0]);
+  throwAt(g.switches[2]);
+  assert.equal(g.switchGroups[0].done, true, 'need-of-of online completes the quorum');
+  assert.ok(g.events.some(ev => ev.type === 'quorum' && ev.group === 'g1'), 'quorum event fired');
+  assert.equal(g.quests.find(q => q.id === 'sq').progress, 1, "the quorum drove the 'switch' quest");
+  step(g, { 0: {} }, 1 / 30);
+  assert.equal(g.doors[0].open, true, 'the quorum reward opened its door');
+  assert.equal(g.switchGroups[0].windowT, 0, 'a completed quorum stops its clock');
+  run(g, () => ({ 0: {} }), 2.2);
+  assert.equal(g.switches[0].on, true, 'completed clusters never reset');
+  // acting on an ON relay is inert
+  const n = g.events.filter(ev => ev.type === 'switch').length;
+  throwAt(g.switches[0]);
+  assert.equal(g.events.filter(ev => ev.type === 'switch').length, n, 'an ON relay consumes no press');
+  const s = snapshot(g, false);
+  assert.equal(s.switches.filter(sw => sw.on).length, 2, 'snapshot tracks relay state');
+  assert.equal(s.switchGroups[0].done, true, 'snapshot tracks quorum completion');
+}
+
+// --- glyph stones: exact order lights the group; a wrong stone resets it ---
+function testGlyphOrderAndReset() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  let r = '#' + '.'.repeat(38) + '#';
+  r = put(put(put(put(r, 4, 'P'), 8, 'J'), 16, 'J'), 24, 'J');
+  const level = bigEmptyLevel([[5, r], [17, '#....................................g#']]);
+  level.glyphs = [{ symbol: 3, group: 'runes' }, { symbol: 5, group: 'runes' }, { symbol: 1, group: 'runes' }];
+  level.glyphGroups = [{ group: 'runes', order: [5, 3, 1], reward: { openDoor: 'vault' } }];
+  level.doors = [{ id: 'vault', x: 34, y: 5 }];
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const p = g.players[0];
+  p.invuln = 999;
+  // a live 'glyph' quest targeting the group counts the completed order
+  g.quests.push({
+    id: 'gq', main: false, title: 'Read the Stones', giver: 'none', kind: 'glyph',
+    target: 'runes', count: 1, reward: null, hint: '', state: 'active', progress: 0,
+  });
+  const lightAt = gl => {
+    p.x = gl.x - TILE;
+    p.y = gl.y;
+    step(g, { 0: {} }, 1 / 30);
+    step(g, { 0: { act: true } }, 1 / 30);
+  };
+  const bySym = sym => g.glyphs.find(o => o.symbol === sym);
+  // right first stone (rune 5), then a wrong one (rune 1 before 3): reset
+  lightAt(bySym(5));
+  assert.equal(bySym(5).lit, true, 'the ordered first stone lights');
+  assert.ok(g.events.some(ev => ev.type === 'glyph' && ev.symbol === 5), 'glyph event fired');
+  lightAt(bySym(1));
+  assert.equal(g.glyphs.every(o => !o.lit), true, 'a wrong stone snuffs the whole group');
+  assert.ok(g.events.some(ev => ev.type === 'glyphReset' && ev.group === 'runes'), 'glyphReset event fired');
+  assert.equal(g.doors[0].open, false, 'no order, no door');
+  // the exact order completes
+  lightAt(bySym(5));
+  lightAt(bySym(3));
+  lightAt(bySym(1));
+  assert.equal(g.glyphGroups[0].done, true, 'the exact order completes the group');
+  assert.ok(g.events.some(ev => ev.type === 'glyphDone' && ev.group === 'runes'), 'glyphDone event fired');
+  assert.equal(g.quests.find(q => q.id === 'gq').progress, 1, "the completed order drove the 'glyph' quest");
+  step(g, { 0: {} }, 1 / 30);
+  assert.equal(g.doors[0].open, true, 'the glyph reward opened its door');
+  const s = snapshot(g, false);
+  assert.equal(s.glyphs.filter(o => o.lit).length, 3, 'snapshot tracks lit stones');
+}
+
+// --- BLS pillars: player fire alone cracks them; 'destroy' quests count ---
+function testPillarDestructionAndQuest() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  let r = '#' + '.'.repeat(38) + '#';
+  r = put(put(put(r, 4, 'P'), 8, 'X'), 12, 'N');
+  const level = bigEmptyLevel([[5, r], [17, '#....................................g#']]);
+  level.npcs = [{ id: 'tela', name: 'Tela of the Loop', lines: ['Smash the old ciphers.'] }];
+  level.quests = [{ id: 'bls', title: 'Obsolete Cryptography', giver: 'tela', kind: 'destroy', target: 'pillar', count: 1 }];
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const p = g.players[0];
+  const pillar = g.pillars[0];
+  p.invuln = 999;
+  // activate the quest first
+  p.x = g.npcs[0].x + TILE;
+  p.y = g.npcs[0].y;
+  step(g, { 0: {} }, 1 / 30);
+  step(g, { 0: { act: true } }, 1 / 30);
+  assert.equal(g.quests[0].state, 'active');
+  // enemy fire never scratches a pillar
+  const eshotN = () => {
+    g.shots.push({
+      id: g.nextShotId++, x: pillar.x - 2 * TILE, y: pillar.y, vx: 8 * TILE, vy: 0,
+      ttl: 1, dmg: 1, who: 'e', pierce: 0, aoeRadius: 0, radius: 5, kind: 'arrow', hits: [],
+    });
+  };
+  eshotN();
+  run(g, () => ({ 0: {} }), 1);
+  assert.equal(pillar.hp, 12, 'enemy shots pass clean over pillars');
+  // 12 player hits down it
+  p.x = pillar.x - 3 * TILE;
+  p.y = pillar.y;
+  p.fx = 1; p.fy = 0;
+  for (let i = 0; i < 360 && g.pillars.length; i++) step(g, { 0: { fire: true } }, 1 / 30);
+  assert.equal(g.pillars.length, 0, 'the pillar fell to player fire');
+  assert.ok(g.events.some(ev => ev.type === 'pillarHit'), 'pillarHit events fired');
+  assert.ok(g.events.some(ev => ev.type === 'pillarDown' && ev.id === 'pl0'), 'pillarDown event fired');
+  assert.equal(g.quests[0].progress, 1, "the 'destroy' quest counted the pillar");
+  assert.ok(!('pillars' in snapshot(g, false)), 'a cleared field ships no pillars key');
+}
+
+// --- seal forge: 20 shards + a carried fragment mint a lythseal; the seal
+// opens sealLock doors on touch and flags hasSeal for the phantom reveal ---
+function testSealForgeAndLythsealDoors() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  let r = '#' + '.'.repeat(38) + '#';
+  r = put(put(put(r, 4, 'P'), 8, 'Z'), 12, 'I');
+  // a wall line at y=10 with a floor gap at x=20, sealed by a sealLock door
+  const wall = '#'.repeat(20) + '.' + '#'.repeat(19);
+  const level = bigEmptyLevel([[5, r], [10, wall], [17, '#....................................g#']]);
+  level.qitems = [{ id: 'proof1', kind: 'fragment' }];
+  level.doors = [{ id: 'sealgate', x: 20, y: 10, sealLock: true }];
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const p = g.players[0];
+  const forge = g.forges[0];
+  p.invuln = 999;
+  g.shards = 25;
+  // a live 'craft' quest counts the forging
+  g.quests.push({
+    id: 'cq', main: false, title: 'Forge the Seal', giver: 'none', kind: 'craft',
+    target: 'lythseal', count: 1, reward: null, hint: '', state: 'active', progress: 0,
+  });
+  // an empty-handed hold forges nothing
+  p.x = forge.x - TILE;
+  p.y = forge.y;
+  run(g, () => ({ 0: { act: true } }), 1.5);
+  assert.equal(p.item, null, 'no fragment, no seal');
+  assert.equal(g.shards, 25, 'no shards spent');
+  // scoop the fragment, then hold at the anvil
+  p.x = g.qitems[0].x;
+  p.y = g.qitems[0].y;
+  step(g, { 0: {} }, 1 / 30);
+  assert.equal(g.qitems[0].carrier, 0, 'the proof fragment is carried');
+  p.x = forge.x - TILE;
+  p.y = forge.y;
+  run(g, () => ({ 0: { act: true } }), 1.5);
+  assert.deepEqual(p.item, { kind: 'lythseal', count: 1 }, 'the forge minted a lythseal into the item slot');
+  assert.equal(g.shards, 5, 'the forge consumed 20 shards');
+  assert.equal(g.qitems.length, 0, 'the proof fragment was consumed');
+  assert.ok(g.events.some(ev => ev.type === 'sealForged' && ev.pid === 0), 'sealForged event fired');
+  assert.equal(g.quests.find(q => q.id === 'cq').progress, 1, "forging drove the 'craft' quest");
+  assert.equal(snapshot(g, false).players[0].hasSeal, true, 'snapshot flags the carrier for the phantom reveal');
+  // the ITEM button never spends a lythseal (it is a key, not a consumable)
+  step(g, { 0: {} }, 1 / 30);
+  step(g, { 0: { item: true } }, 1 / 30);
+  assert.deepEqual(p.item, { kind: 'lythseal', count: 1 }, 'the seal is not consumable');
+  // the sealed gate blocks until the carrier touches it
+  const doorX = (20 + 0.5) * TILE;
+  p.x = doorX;
+  p.y = 9.5 * TILE - 20; // just north of the closed door, out of touch range
+  assert.equal(g.doors[0].open, false);
+  run(g, () => ({ 0: { down: true } }), 1.5);
+  assert.equal(g.doors[0].open, true, 'a lythseal carrier swings the sealLock door on touch');
+  assert.ok(g.events.some(ev => ev.type === 'doorOpen' && ev.id === 'sealgate'), 'doorOpen event fired');
+  run(g, () => ({ 0: { down: true } }), 2.5);
+  assert.ok(p.y > 11 * TILE, 'the opened gate lets the carrier through');
+}
+
+// --- doors: closed rects block movement, sight, shots and A*; openers work ---
+function testDoorsBlockMoveSightShotsAndPath() {
+  // a wall line at y=10 with a floor gap at x=20, shut by a plain door
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const wall = '#'.repeat(20) + '.' + '#'.repeat(19);
+  let r13 = '#' + '.'.repeat(38) + '#';
+  r13 = put(r13, 20, 'P');
+  let r7 = '#' + '.'.repeat(38) + '#';
+  r7 = put(r7, 20, 'g');
+  const level = bigEmptyLevel([[13, r13], [10, wall], [7, r7]]);
+  level.doors = [{ id: 'd1', x: 20, y: 10 }];
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const p = g.players[0];
+  const e = g.enemies[0];
+  p.invuln = 999;
+  g.graceT = 0;
+  // movement: pushing north into the closed door goes nowhere
+  run(g, () => ({ 0: { up: true } }), 1.5);
+  assert.ok(p.y > 10.5 * TILE, 'the closed door holds the line');
+  // sight: the grunt is 6 tiles away through the door — it must stay asleep
+  assert.equal(e.awake, false, 'no sight through a closed door');
+  // shots: player fire north dies at the door
+  p.fx = 0; p.fy = -1;
+  const wallHits0 = g.events.filter(ev => ev.type === 'hitWall').length;
+  run(g, () => ({ 0: { fire: true } }), 0.6);
+  assert.ok(g.events.filter(ev => ev.type === 'hitWall').length > wallHits0, 'shots die on the closed door');
+  assert.equal(e.hp, 2, 'nothing reached the grunt');
+  // A*: an awake grunt cannot route through the shut gap
+  e.awake = true;
+  run(g, () => ({ 0: {} }), 2.5);
+  assert.ok(e.y < 10 * TILE, 'A* respects the closed door');
+  // open it via the parked-reward path (quests/quorums/glyphs all land here)
+  g.pendingDoorOpens.push('d1');
+  step(g, { 0: {} }, 1 / 30);
+  assert.equal(g.doors[0].open, true, 'pendingDoorOpens swings the door');
+  assert.ok(g.events.some(ev => ev.type === 'doorOpen' && ev.id === 'd1'), 'doorOpen event fired');
+  // the grunt now sees, routes through the gap and crosses the line
+  run(g, () => ({ 0: {} }), 5);
+  assert.ok(e.y > 10 * TILE, 'the opened door is a route again');
+  // and shots fly through: park the grunt off the firing line, fire north —
+  // rounds sail the gap and die mid-air, never on the door
+  e.x = 34.5 * TILE;
+  e.y = 13.5 * TILE;
+  const wallHits1 = g.events.filter(ev => ev.type === 'hitWall').length;
+  p.fx = 0; p.fy = -1;
+  run(g, () => ({ 0: { fire: true } }), 0.6);
+  assert.equal(g.events.filter(ev => ev.type === 'hitWall').length, wallHits1, 'shots pass the open door');
+}
+
+// --- teleport pads: 0.8s channel, blink with cargo, 2s cooldown, no enemies ---
+function testTeleportPads() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  let r5 = '#' + '.'.repeat(38) + '#';
+  r5 = put(put(put(put(r5, 4, 'P'), 8, 'O'), 6, 'c'), 10, 'I');
+  let r15 = '#' + '.'.repeat(38) + '#';
+  r15 = put(r15, 30, 'O');
+  // a second pad pair (tp2<->tp3) parks the enemy-on-pad probe far from the
+  // action; the sleeping grunt on tp2 also keeps the field from auto-clearing
+  let r17 = '#' + '.'.repeat(38) + '#';
+  r17 = put(put(put(r17, 10, 'O'), 20, 'O'), 11, 'g');
+  const level = bigEmptyLevel([[5, r5], [15, r15], [17, r17]]);
+  level.captiveChars = ['sniper'];
+  level.qitems = [{ id: 'frag1', kind: 'fragment' }];
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const p = g.players[0];
+  const [padA, padB, padC] = g.teleports;
+  assert.equal(padA.twin, 'tp1', 'pads pair consecutively');
+  const sleeper = g.enemies[0];
+  p.invuln = 999;
+  g.graceT = 0;
+  // cargo: a trailing captive, a carried fragment, a hired hound
+  g.captives[0].owner = 0;
+  g.qitems[0].carrier = 0;
+  g.followers.push({
+    id: g.nextFollowerId++, kind: 'hound', owner: 0, x: p.x, y: p.y, hp: 2, slot: 0,
+    post: 0, isFollower: true, fx: 0, fy: 1, cool: 0, invulnT: 0, path: null, pathI: 0, repathT: 0,
+  });
+  // park the sleeping grunt squarely on tp2
+  sleeper.x = padC.x;
+  sleeper.y = padC.y;
+  // crossing the pad in under 0.8s never triggers
+  p.x = padA.x - 2 * TILE;
+  p.y = padA.y;
+  run(g, () => ({ 0: { right: true } }), 1.2);
+  assert.ok(!g.events.some(ev => ev.type === 'teleport'), 'walking across a pad never blinks');
+  // standing on it channels for 0.8s, then blinks — cargo and all
+  p.x = padA.x;
+  p.y = padA.y;
+  run(g, () => ({ 0: {} }), 1);
+  const tev = g.events.find(ev => ev.type === 'teleport');
+  assert.ok(tev, 'the channel completed');
+  assert.equal(tev.from, 'tp0');
+  assert.equal(tev.to, 'tp1');
+  assert.ok(Math.hypot(p.x - padB.x, p.y - padB.y) < TILE, 'the player blinked to the twin');
+  assert.ok(Math.hypot(g.captives[0].x - padB.x, g.captives[0].y - padB.y) < TILE, 'the trailing captive came along');
+  assert.ok(Math.hypot(g.qitems[0].x - padB.x, g.qitems[0].y - padB.y) < TILE, 'the carried fragment came along');
+  assert.ok(Math.hypot(g.followers[0].x - p.x, g.followers[0].y - p.y) < TILE * 2.5, 'the follower blinked with its owner');
+  // the 2s cooldown holds the return trip, then standing channels back
+  run(g, () => ({ 0: {} }), 1.5);
+  assert.equal(g.events.filter(ev => ev.type === 'teleport').length, 1, 'the cooldown blocks an instant return');
+  run(g, () => ({ 0: {} }), 1.6);
+  assert.equal(g.events.filter(ev => ev.type === 'teleport').length, 2, 'after the cooldown the pad channels back');
+  assert.ok(Math.hypot(p.x - padA.x, p.y - padA.y) < TILE, 'the return trip lands on the first pad');
+  // enemies never use pads: the grunt slept on tp2 the whole time
+  assert.equal(sleeper.x, padC.x, 'an enemy parked on a pad never teleports');
+  assert.equal(sleeper.y, padC.y, 'it never even shuffled');
+}
+
+// --- save beacons: cost-10 build sites that announce themselves when raised ---
+function testBeaconBuildAndEvent() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  let r = '#' + '.'.repeat(38) + '#';
+  r = put(put(r, 4, 'P'), 8, 'B');
+  const level = bigEmptyLevel([[5, r], [17, '#....................................g#']]);
+  level.builds = [{ kind: 'beacon', cost: 10 }];
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const p = g.players[0];
+  const b = g.builds[0];
+  p.invuln = 999;
+  g.shards = 12;
+  p.x = b.x - TILE;
+  p.y = b.y;
+  run(g, () => ({ 0: { act: true } }), 8);
+  assert.equal(b.built, true, 'the beacon went up');
+  assert.ok(Math.abs(g.shards - 2) < 1e-6, 'the build cost 10 shards');
+  assert.ok(g.events.some(ev => ev.type === 'built' && ev.kind === 'beacon'), 'built event fired');
+  assert.ok(g.events.some(ev => ev.type === 'beacon' && ev.x === b.x && ev.y === b.y), "the 'beacon' event announces the checkpoint");
+  // a raised beacon is inert: no repair/upgrade/dismantle hold, no gnawing
+  run(g, () => ({ 0: { act: true } }), 2.5);
+  assert.equal(b.built, true, 'holding act never dismantles a beacon');
+  const e = g.enemies[0];
+  e.awake = true;
+  e.x = b.x + 28; // pressed against the build circle (BUILD_RADIUS 18 + reach)
+  e.y = b.y;
+  g.graceT = 0;
+  run(g, () => ({ 0: {} }), 3);
+  assert.equal(b.hp, b.maxHp, 'enemies never gnaw a beacon');
+  assert.ok(!g.events.some(ev => ev.type === 'buildHit'), 'no buildHit ever lands on a beacon');
+}
+
+// --- serializeGame/restoreGame: a 60s bastion run, saved and resumed, steps
+// in perfect lockstep with the original for 30 more seconds ---
+function testSerializeRestoreRoundTrip() {
+  const level = bastionDef({ nights: 3, dayLen: 20, nightLen: 30, bloodMoons: [2] });
+  const party = startingRoster.slice(0, 2).map((id, i) => ({ pid: i, name: id, charId: id }));
+  const g = createGame(level, party, charMap, startingRoster);
+  g.core.hp = 5000;
+  g.core.maxHp = 5000;
+  for (const p of g.players) p.invuln = 1e9;
+  const dt = 1 / 30;
+  const inputsAt = i => {
+    const inputs = {};
+    for (const pid of [0, 1]) {
+      inputs[pid] = {
+        right: (i % 50) < 25, left: (i % 50) >= 40,
+        down: pid === 0 && (i % 70) < 30, up: pid === 1 && (i % 70) < 30,
+        fire: (i % 7) < 3, act: (i % 90) < 10,
+      };
+    }
+    return inputs;
+  };
+  for (let i = 0; i < 1800; i++) step(g, inputsAt(i), dt);
+  assert.equal(g.status, 'play', 'the bastion run is live at the save point');
+  const data = serializeGame(g);
+  assert.ok(!('charMap' in data), 'serializeGame strips the shared charMap');
+  assert.equal(JSON.stringify(data), JSON.stringify(JSON.parse(JSON.stringify(data))), 'the save is JSON-safe');
+  // a beacon save is stored as JSON and reloaded later: simulate the trip
+  const stored = JSON.parse(JSON.stringify(data));
+  const g2 = restoreGame(stored, charMap);
+  assert.equal(g2.charMap, charMap, 'restoreGame reattaches the charMap');
+  for (let i = 1800; i < 2700; i++) {
+    step(g, inputsAt(i), dt);
+    step(g2, inputsAt(i), dt);
+  }
+  assert.equal(g.status, 'play', 'the original is still live after 90s');
+  assert.equal(
+    JSON.stringify(snapshot(g, false)),
+    JSON.stringify(snapshot(g2, false)),
+    'the restored sim steps in lockstep with the original'
+  );
+  // restoring never mutates the stored save: resume twice from one beacon
+  const g3 = restoreGame(stored, charMap);
+  assert.equal(JSON.stringify(serializeGame(g3)), JSON.stringify(stored), 'the stored beacon survives a restore untouched');
+}
+
 testRespawnPickFlow();
 testEnemyPathsAroundBuiltPylon();
 testStructureRepairUpgradeDismantle();
@@ -3790,5 +4812,26 @@ testSnapshotTypeSelectTAndShotOwnerPid();
 testNightWaveEngageAndResume();
 testSealedCampGnawFallback();
 testBloodMoonAndLateNightBuffs();
+testFrontierLettersParse();
+testAlphaSplitAndFrontierWaves();
+testAcolyteShieldHealAndPacifism();
+testWraithZapStunAndShieldAbsorb();
+testStalkerBlinkAndMelee();
+testBeetleBurstAndHostilePatch();
+testFieldWeaponPickupOverrideAndAmmo();
+testFieldWeaponDropShareAndDownedDrop();
+testQuestFetchLifecycle();
+testQuestKillBuildReachAndRewards();
+testUntimedStoryAndBastion();
+testDeterministicFrontierRun();
+testPuzzleLettersParse();
+testSwitchQuorumWindowAndReset();
+testGlyphOrderAndReset();
+testPillarDestructionAndQuest();
+testSealForgeAndLythsealDoors();
+testDoorsBlockMoveSightShotsAndPath();
+testTeleportPads();
+testBeaconBuildAndEvent();
+testSerializeRestoreRoundTrip();
 
 console.log('sim tests passed');

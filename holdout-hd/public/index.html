@@ -34,11 +34,23 @@
     /* per-mission XP readout in the weapon panel (non-arcade missions only) */
     #wXp .xpbar { height: 3px; margin-top: 2px; background: rgba(255,255,255,.08); border-radius: 2px; overflow: hidden; }
     #wXp .xpbar i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, var(--relay), var(--amber)); transition: width .2s; }
+    /* objectives checklist (top of the left column): main quest + up to 3 secondaries */
+    #objectivesPanel[hidden] { display: none; }
+    #objectivesPanel .obj { display: flex; gap: 7px; align-items: baseline; margin-top: 3px; }
+    #objectivesPanel .obj .chk { color: var(--amber); flex: none; }
+    #objectivesPanel .obj.done .chk { color: var(--green); }
+    #objectivesPanel .obj.done .otxt { color: #5E6B8C; text-decoration: line-through; }
+    #objectivesPanel .obj.main .otxt { font-weight: 800; letter-spacing: 1px; }
+    #objectivesPanel .obj.sec { font-size: 10px; color: #9fb0cc; }
   </style>
 </head>
 <body>
   <div id="stage">
     <aside id="left">
+      <div class="panel" id="objectivesPanel" hidden>
+        <div class="ptitle" id="objTitle">OBJECTIVE</div>
+        <div id="objList"></div>
+      </div>
       <div id="squadPanels"></div>
       <div id="heartsPanel" hidden></div>
       <div class="panel" id="squadStatusPanel">
@@ -83,6 +95,8 @@
         Hold E on a build site to construct &mdash; LYTH shards drop from fallen Entropy<br>
         New turrets ask for a type: stand close, hold E/X &mdash; LEFT/RIGHT cycles Gun &middot; Prism &middot; Tesla &middot; Toxin, FIRE confirms<br>
         Selkie swims: water is open to her &mdash; slower afloat, harpoon cooldown +50% on water<br>
+        Field weapon caches dot the wild &mdash; stand close and press E/X to shoulder one, hold Q&hairsp;/&hairsp;.&hairsp;/&hairsp;Y to drop it for a teammate<br>
+        Teleport pads channel for a moment, then jump you to their twin &mdash; enemies can't follow. Save beacons checkpoint story runs.<br>
         Walk into stranded allies to pick them up &mdash; carry them to the exit to recruit them.<br>
         Online rooms now fit four couch players per machine &mdash; press FIRE to add a seat.</p>
       </div>
@@ -104,6 +118,8 @@
         <h2 id="msgTitle"></h2>
         <p id="msgBody"></p>
         <button id="btnMsgOk">Continue</button>
+        <!-- optional second action (e.g. 'Resume from beacon' on a story fail) -->
+        <button id="btnMsgAlt" class="ghost" hidden></button>
       </div>
     </main>
 
