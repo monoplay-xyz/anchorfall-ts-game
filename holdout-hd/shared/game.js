@@ -4431,6 +4431,9 @@ export function step(g, inputs, dt) {
       b.built = true;
       b.hp = b.maxHp;
       b.invested = b.cost;
+      // pvp: the structure belongs to the finishing builder's team — drives
+      // the turret friendly-fire exemption (undefined in co-op: all friendly)
+      b.team = builderArr[0].team;
       g.buildEpoch = (g.buildEpoch || 0) + 1;
       g.events.push({ type: 'built', x: b.x, y: b.y, kind: b.kind });
       questProgress(g, 'build', [b.kind], b.x, b.y); // build quests count
@@ -4906,8 +4909,9 @@ export function step(g, inputs, dt) {
         }
       }
       // FORTIFIED WALLS: player shots demolish structures on DIRECT hits —
-      // walls, barricades, turrets, towers and comm masts; NEVER pylons or
-      // beacons (inert), never farms. Seat-fired rounds only (turret and
+      // walls, barricades, towers and comm masts; NEVER pylons or beacons
+      // (inert), never farms, and never the own team's turrets (see below).
+      // Seat-fired rounds only (turret and
       // follower fire carries no ownerPid) and lobbed overWalls arcs sail
       // clean over. AoE splash and ground patches never touch structures —
       // so this is the official self-rescue: built yourself in? Shoot out.
@@ -4915,6 +4919,11 @@ export function step(g, inputs, dt) {
         for (let bi = 0; bi < g.builds.length; bi++) {
           const b = g.builds[bi];
           if (!b.built || inertBuild(b.kind) || b.kind === 'farm' || s.hits.includes('b' + bi)) continue;
+          // turrets are friendly-fire-proof: your own team's guns can't be
+          // shot down (hold ACT to DISMANTLE instead). Walls and barricades
+          // stay demolishable — that's the built-yourself-in escape hatch.
+          // In pvp the OTHER team's turrets are fair game.
+          if (b.kind === 'turret' && (s.team === undefined || s.team === b.team)) continue;
           if (dist2(s, b) < (BUILD_RADIUS + (s.radius || SHOT_R)) ** 2) {
             s.hits.push('b' + bi);
             b.hp -= s.dmg;
