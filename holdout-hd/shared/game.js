@@ -2,6 +2,11 @@
 // All distances are in pixels; speeds in characters.json are tiles/second.
 
 export const TILE = 48;
+// Per-mode seat caps for one match (wave 7: replaces the old flat 8). The sim
+// enforces the ctf cap — and its half-size team cap — in addPlayerMidGame;
+// the server reads the rest for lobby gating. Versus scales up to massed
+// fields; co-op stays a tight squad of 8.
+export const MODE_CAPS = { classic: 8, story: 8, bastion: 8, ctf: 32, br: 16 };
 const PLAYER_R = 14;
 const ENEMY_R = 14;
 const SHOT_R = 5;
@@ -586,7 +591,7 @@ export function createGame(def, party, charMap, roster) {
       if (lvl.grid[y][x] === 'E') { exitX = (x + 0.5) * TILE; exitY = (y + 0.5) * TILE; break outer; }
     }
   }
-  return {
+  const g = {
     name: def.name || 'Untitled',
     objective: def.objective || '',
     grid: lvl.grid, w: lvl.w, h: lvl.h,
@@ -717,6 +722,43 @@ export function createGame(def, party, charMap, roster) {
     comboT: 0,
     lowTimeSent: false,
   };
+  // CTF deploys every operative on their team stand's spawn ring (16 seats
+  // per stand, deterministic offsets, see ctfStandSpot) instead of the
+  // row-major 'P' spawn list — at 16v16 the old spawns[i % n] + i*10px drift
+  // walked late seats into walls AND could land explicit-team parties at the
+  // wrong base. Respawn and mid-match joins use the same rings.
+  if (g.mode === 'ctf' && g.flags.length) {
+    for (const p of g.players) {
+      const s = ctfStandSpot(g, p);
+      p.x = s.x;
+      p.y = s.y;
+    }
+  } else if (!g.arcade) {
+    // Mode maps above the old flat-8 cap (br fields 16 now): the classic
+    // spawn drift (spawns[i % n] + i*10px) can run a late seat into a wall
+    // when spawns are reused. A colliding deploy ring-scans to the nearest
+    // open tile around its spawn point (deterministic respawnSpot order);
+    // clear deploys keep their exact classic positions, so nothing moves
+    // for the squads that always fit. Arcade classics keep the original
+    // byte-identical behavior, drift and all.
+    for (const p of g.players) {
+      if (!collides(g, p.x, p.y, PLAYER_R)) continue;
+      ring: for (let r = 1; r <= 4; r++) {
+        for (let dy = -r; dy <= r; dy++) {
+          for (let dx = -r; dx <= r; dx++) {
+            if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+            const x = p.x + dx * TILE, y = p.y + dy * TILE;
+            if (x > TILE && y > TILE && x < (g.w - 1) * TILE && y < (g.h - 1) * TILE && !collides(g, x, y, PLAYER_R)) {
+              p.x = x;
+              p.y = y;
+              break ring;
+            }
+          }
+        }
+      }
+    }
+  }
+  return g;
 }
 
 function spawnPlayer(pid, name, charId, x, y) {
@@ -1205,6 +1247,45 @@ function respawnSpot(g) {
   return { x: ally.x, y: ally.y };
 }
 
+// --- ctf team spawn rings ----------------------------------------------------
+// 16v16 needs 16 unstuck spawners per base, so CTF seats deploy AROUND their
+// team's flag stand on deterministic ring offsets instead of stacking on the
+// stand point. Three fixed candidate rings (8/16/16 slots at 1.25/2.25/3.25
+// tiles, angles stepped clockwise from due north) are filtered to spots a
+// walker can stand on (collides: rock/trees/water/void/doors/structures —
+// nobody deploys overlap-stuck in a wall), then seat k takes the k-th open
+// slot. k is the player's index among its OWN team in players order — stable,
+// because seats only ever append. More seats than open slots wraps (an overlap
+// beats a wall); a fully blocked neighborhood falls back to the stand itself
+// (the pre-ring behavior). No RNG, no clock: the same field state always
+// yields the same spot, so replays and save/restore twins stay byte-exact.
+const CTF_RINGS = [[8, 1.25], [16, 2.25], [16, 3.25]];
+function ctfStandSpot(g, p) {
+  const stand = g.flags.find(f => f.team === p.team);
+  if (!stand) {
+    const s = g.spawns[0] || { x: TILE * 2, y: TILE * 2 };
+    return { x: s.x, y: s.y };
+  }
+  let k = 0;
+  for (const q of g.players) {
+    if (q.pid === p.pid) break;
+    if (q.team === p.team) k++;
+  }
+  const open = [];
+  for (const [n, r] of CTF_RINGS) {
+    for (let i = 0; i < n; i++) {
+      const a = -Math.PI / 2 + (2 * Math.PI * i) / n;
+      const x = stand.homeX + Math.cos(a) * r * TILE;
+      const y = stand.homeY + Math.sin(a) * r * TILE;
+      if (x > TILE && y > TILE && x < (g.w - 1) * TILE && y < (g.h - 1) * TILE && !collides(g, x, y, PLAYER_R)) {
+        open.push({ x, y });
+      }
+    }
+  }
+  if (!open.length) return { x: stand.homeX, y: stand.homeY };
+  return open[k % open.length];
+}
+
 function fireWeapon(g, shooter, weapon, who, target = null) {
   const [fx, fy] = target ? norm(target.x - shooter.x, target.y - shooter.y) : [shooter.fx, shooter.fy];
   const base = Math.atan2(fy, fx);
@@ -1485,6 +1566,10 @@ function addShards(g, p, n) {
 }
 
 function freeChars(g) {
+  // pvp: the full roster is always free. Character duplicates are allowed —
+  // even on the same team (identity in ctf is name + team color) — and pvp
+  // never consumes roster operatives, so there is nothing to filter.
+  if (g.mode === 'ctf' || g.mode === 'br') return g.roster.slice();
   const used = new Set();
   for (const p of g.players) if (p.charId) used.add(p.charId);
   for (const c of g.captives) used.add(c.charId);
@@ -1508,6 +1593,43 @@ export function revivePlayer(g, pid) {
   p.pickIdx = 0;
   p.pickPrev = { left: true, right: true, fire: true };
   return true;
+}
+
+// CTF mid-match join (wave 7, public rooms): insert a brand-new seat into a
+// LIVE ctf match. The joiner lands in the respawn-pick state on their team
+// stand's spawn ring and picks any roster operative (pvp duplicates allowed —
+// freeChars returns the full roster). Sim-level caps hold here too: refuses
+// at MODE_CAPS.ctf seats total or MODE_CAPS.ctf/2 on the team, and refuses
+// non-ctf modes, finished matches, bad teams and duplicate pids. pickPrev
+// starts all-held so a button held through the join can't instantly confirm
+// (the down-flow rule). Deterministic: no RNG, no clock — the new seat is
+// plain appended state, so serializeGame/restoreGame round-trips keep
+// replaying byte-exact. Returns the new player, or false when refused.
+export function addPlayerMidGame(g, { pid, name, team }) {
+  if (g.mode !== 'ctf' || g.status !== 'play') return false;
+  if (team !== 0 && team !== 1) return false;
+  if (g.players.some(q => q.pid === pid)) return false;
+  if (g.players.length >= MODE_CAPS.ctf) return false;
+  if (g.players.filter(q => q.team === team).length >= MODE_CAPS.ctf / 2) return false;
+  const p = spawnPlayer(pid, name, null, 0, 0);
+  p.team = team;
+  p.kills = 0;
+  // survival-rule fields (mode maps are never arcade): 3 hp, shield pips, an
+  // item slot, per-seat xp — exactly the createGame loadout
+  p.hp = PLAYER_MAX_HP;
+  p.maxHp = PLAYER_MAX_HP;
+  p.shield = 0;
+  p.item = null;
+  p.xp = 0;
+  p.level = 1;
+  g.players.push(p);
+  const s = ctfStandSpot(g, p);
+  p.x = s.x;
+  p.y = s.y;
+  p.state = 'pick';
+  p.pickIdx = 0;
+  p.pickPrev = { left: true, right: true, fire: true };
+  return p;
 }
 
 function extractPlayer(g, p) {
@@ -3633,12 +3755,13 @@ export function step(g, inputs, dt) {
     if (p.state === 'down') {
       p.respawn -= dt;
       if (p.respawn <= 0) {
-        // CTF: redeploy the same operative at the team flag stand. No pick
-        // screen, no roster consumption — pvp never touches rosters.
+        // CTF: redeploy the same operative on the team stand's spawn ring
+        // (the seat's deterministic slot). No pick screen, no roster
+        // consumption — pvp never touches rosters.
         if (g.mode === 'ctf') {
-          const stand = g.flags.find(f => f.team === p.team);
-          p.x = stand ? stand.homeX : (g.spawns[0] || { x: TILE * 2 }).x;
-          p.y = stand ? stand.homeY : (g.spawns[0] || { y: TILE * 2 }).y;
+          const s = ctfStandSpot(g, p);
+          p.x = s.x;
+          p.y = s.y;
           p.fx = 0; p.fy = -1; p.cool = 0;
           p.invuln = 2.5;
           if (p.maxHp !== undefined) { p.hp = p.maxHp; p.shield = 0; }
@@ -3672,7 +3795,10 @@ export function step(g, inputs, dt) {
       if (edgeL) p.pickIdx = (p.pickIdx + free.length - 1) % free.length;
       if (edgeR) p.pickIdx = (p.pickIdx + 1) % free.length;
       if (edgeF) {
-        const s = respawnSpot(g);
+        // ctf pickers (mid-match joiners) deploy on their team stand's ring —
+        // respawnSpot's "beside a living teammate" could land them beside an
+        // ENEMY in pvp. Co-op keeps the teammate-adjacent respawn exactly.
+        const s = g.mode === 'ctf' ? ctfStandSpot(g, p) : respawnSpot(g);
         p.charId = free[p.pickIdx];
         p.x = s.x; p.y = s.y; p.fx = 0; p.fy = -1; p.cool = 0;
         p.invuln = 3.5;

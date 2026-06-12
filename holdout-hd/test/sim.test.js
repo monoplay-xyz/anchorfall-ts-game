@@ -2,7 +2,7 @@ import assert from 'assert/strict';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { applyResults, charsById, createGame, parseLevel, questProgress, restoreGame, revivePlayer, serializeGame, snapshot, step, TILE } from '../shared/game.js';
+import { addPlayerMidGame, applyResults, charsById, createGame, MODE_CAPS, parseLevel, questProgress, restoreGame, revivePlayer, serializeGame, snapshot, step, TILE } from '../shared/game.js';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const characters = JSON.parse(fs.readFileSync(path.join(root, 'shared/characters.json'), 'utf8'));
@@ -2211,10 +2211,15 @@ function testCtfMatch() {
   assert.ok(f0.x === f0.homeX && f0.y === f0.homeY, 'flag back on its stand');
   assert.ok(g.events.some(ev => ev.type === 'flagReturn' && ev.team === 0), 'flagReturn event fired');
   p2.x = 14 * TILE; p2.y = 5 * TILE;
-  // the downed carrier redeploys at their own stand after 5s, reset and whole
+  // the downed carrier redeploys on their own stand's spawn ring after 5s,
+  // reset and whole (wave 7: ring offsets, not the stand point — 16 seats
+  // per base must not stack)
   run(g, () => ({}), 5.2);
   assert.equal(p1.state, 'active', 'ctf respawns after 5s');
-  assert.ok(p1.x === f1.homeX && p1.y === f1.homeY, 'respawn lands at the team flag stand');
+  assert.ok(Math.hypot(p1.x - f1.homeX, p1.y - f1.homeY) <= TILE * 3.5,
+    'respawn lands on the team stand spawn ring');
+  assert.ok(Math.hypot(p1.x - f0.homeX, p1.y - f0.homeY) > TILE * 10,
+    'respawn lands at the OWN base, not the enemy one');
   assert.equal(p1.hp, 3, 'respawn restores hp');
   p1.x = 30 * TILE; p1.y = 15 * TILE;
   // p0 runs the full capture: take the enemy flag, bring it home
@@ -6404,6 +6409,270 @@ function testDayEventsSkippedByHornAndRearm() {
   assert.equal(g.chests[0].loot, 'medkit', 'day 1 drops medkits');
 }
 
+// ===== WAVE 7: 32-player CTF — spawn rings, mid-match joins, duplicates =====
+
+// helper: a 32-seat ctf party with explicit alternating teams (16v16)
+function party32() {
+  return Array.from({ length: 32 }, (_, i) =>
+    ({ pid: i, name: 'P' + i, charId: startingRoster[i % startingRoster.length], team: i % 2 }));
+}
+
+// helper: would a walker stand clear at (x, y)? Mirrors the sim's collides():
+// rock/trees/water/skiff-moor/void block, checked at the player-circle corners.
+function stuckAt(g, x, y) {
+  const blocked = c => c === '#' || c === 'T' || c === '~' || c === 'o' || c === '%';
+  const tile = (px, py) => {
+    const tx = Math.floor(px / TILE), ty = Math.floor(py / TILE);
+    if (tx < 0 || ty < 0 || tx >= g.w || ty >= g.h) return '#';
+    return g.grid[ty][tx];
+  };
+  for (const [ox, oy] of [[-14, -14], [14, -14], [-14, 14], [14, 14]]) {
+    if (blocked(tile(x + ox, y + oy))) return true;
+  }
+  for (const b of g.builds) {
+    if (!b.built || b.kind === 'farm') continue;
+    if (Math.hypot(x - b.x, y - b.y) < 18 + 14) return true;
+  }
+  return false;
+}
+
+// --- ctf mode caps: the contract numbers the whole wave builds against ---
+function testModeCaps() {
+  assert.deepEqual(MODE_CAPS, { classic: 8, story: 8, bastion: 8, ctf: 32, br: 16 },
+    'per-mode caps: co-op squads stay 8, ctf fields 32, br fields 16');
+}
+
+// --- ctf: same-team character duplicates are allowed at the sim level ---
+function testCtfSameTeamDuplicates() {
+  const dup = startingRoster[0];
+  const g = createGame(ctfDef(), [
+    { pid: 0, name: 'A', charId: dup, team: 0 },
+    { pid: 1, name: 'B', charId: dup, team: 0 }, // same char, same team
+    { pid: 2, name: 'C', charId: dup, team: 1 }, // and across teams too
+    { pid: 3, name: 'D', charId: startingRoster[1], team: 1 },
+  ], charMap, startingRoster);
+  assert.deepEqual(g.players.map(p => p.charId), [dup, dup, dup, startingRoster[1]],
+    'createGame fields same-team duplicates untouched');
+  assert.deepEqual(g.players.map(p => p.team), [0, 0, 1, 1], 'explicit party teams hold');
+  // both duplicate seats are fully functional: each fires its own shot
+  for (const p of g.players) { p.invuln = 0; p.cool = 0; }
+  g.players[0].x = 10 * TILE; g.players[0].y = 5 * TILE;
+  g.players[1].x = 12 * TILE; g.players[1].y = 5 * TILE;
+  step(g, { 0: { fire: true }, 1: { fire: true }, 2: {}, 3: {} }, 1 / 30);
+  const pids = g.shots.map(s => s.pid).sort();
+  assert.deepEqual(pids, [0, 1], 'both same-char seats fire independently');
+}
+
+// --- ctf spawn rings: 16 seats per stand, deterministic, unstuck, own-base ---
+// Runs against the synthetic open-field def AND every shipped ctf map, so a
+// new 32-player map is gated the moment its file lands in levels/ctf.
+function testCtfSpawnRings16PerStand() {
+  const defs = [ctfDef(), ...levels.filter(l => l.mode === 'ctf')];
+  for (const def of defs) {
+    const tag = def.name;
+    const g = createGame(def, party32(), charMap, startingRoster);
+    assert.equal(g.players.length, 32, `${tag}: 32 seats fielded`);
+    for (const team of [0, 1]) {
+      const mates = g.players.filter(p => p.team === team);
+      assert.equal(mates.length, 16, `${tag}: team ${team} fields 16`);
+      const stand = g.flags.find(f => f.team === team);
+      const foe = g.flags.find(f => f.team !== team);
+      const spots = new Set(mates.map(p => p.x.toFixed(2) + '|' + p.y.toFixed(2)));
+      assert.equal(spots.size, 16, `${tag}: team ${team}'s 16 seats land on 16 distinct ring slots`);
+      for (const p of mates) {
+        assert.ok(!stuckAt(g, p.x, p.y), `${tag}: seat ${p.pid} deploys unstuck`);
+        const dOwn = Math.hypot(p.x - stand.homeX, p.y - stand.homeY) / TILE;
+        const dFoe = Math.hypot(p.x - foe.homeX, p.y - foe.homeY) / TILE;
+        assert.ok(dOwn <= 3.5, `${tag}: seat ${p.pid} rings its own stand (${dOwn.toFixed(1)} tiles)`);
+        assert.ok(dFoe > dOwn, `${tag}: seat ${p.pid} deploys at its OWN base`);
+      }
+    }
+    // deterministic: a second create lands every seat on the same slot
+    const g2 = createGame(def, party32(), charMap, startingRoster);
+    assert.deepEqual(g2.players.map(p => [p.x, p.y]), g.players.map(p => [p.x, p.y]),
+      `${tag}: ring deployment is deterministic`);
+  }
+  // respawn reuses the seat's ring slot: down a seat, wait out the 5s, and it
+  // lands exactly where it deployed — then walks free (not overlap-stuck)
+  const g = createGame(ctfDef(), party32(), charMap, startingRoster);
+  const p = g.players[6]; // team 0, ring seat 3
+  const home = { x: p.x, y: p.y };
+  p.invuln = 0; p.shield = 0; p.hp = 1;
+  pvpShotAt(g, p, 1, 1);
+  step(g, {}, 1 / 30);
+  assert.equal(p.state, 'down', 'seat downed');
+  p.x = 20 * TILE; p.y = 10 * TILE; // body elsewhere — the ring must pull it home
+  run(g, () => ({}), 5.3);
+  assert.equal(p.state, 'active', 'seat redeployed after the 5s ctf respawn');
+  assert.ok(Math.abs(p.x - home.x) < 0.01 && Math.abs(p.y - home.y) < 0.01,
+    'respawn reuses the seat ring slot deterministically');
+  const x0 = p.x;
+  run(g, () => ({ [p.pid]: { right: true } }), 0.5);
+  assert.ok(p.x > x0 + TILE * 0.5, 'respawned seat walks free of the ring');
+}
+
+// --- addPlayerMidGame: pick-state insertion at the team stand, caps, dups ---
+function testAddPlayerMidGame() {
+  const party = [0, 1, 2, 3].map(i => ({ pid: i, name: 'P' + i, charId: startingRoster[i % startingRoster.length] }));
+  const g = createGame(ctfDef(), party, charMap, startingRoster);
+  run(g, () => ({}), 1); // a live, mid-match field
+  // refusals first: wrong mode, bad team, duplicate pid
+  assert.equal(addPlayerMidGame(g, { pid: 50, name: 'X', team: 2 }), false, 'team must be 0 or 1');
+  assert.equal(addPlayerMidGame(g, { pid: 0, name: 'X', team: 1 }), false, 'duplicate pid refused');
+  const classic = createGame(levels[0], [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+  assert.equal(addPlayerMidGame(classic, { pid: 9, name: 'X', team: 0 }), false, 'classic refuses mid-game joins');
+  const brDef = { ...ctfDef(), name: 'BR Join', mode: 'br', br: { shrinks: [] } };
+  brDef.tiles = brDef.tiles.map(r => r.replace(/D/g, '.')); // br fields no stands
+  const br = createGame(brDef, party.slice(0, 2), charMap, startingRoster);
+  assert.equal(addPlayerMidGame(br, { pid: 9, name: 'X', team: 0 }), false,
+    'br refuses mid-game joins — eliminated is eliminated');
+  // the join: lands in the respawn-pick state on the team-1 stand ring
+  const joiner = addPlayerMidGame(g, { pid: 50, name: 'Late', team: 1 });
+  assert.ok(joiner && joiner.pid === 50, 'join returns the new player');
+  assert.equal(g.players.length, 5, 'seat appended');
+  assert.equal(joiner.state, 'pick', 'joiner enters the respawn-pick state');
+  assert.equal(joiner.charId, null, 'no operative until the pick confirms');
+  assert.equal(joiner.team, 1);
+  assert.deepEqual([joiner.hp, joiner.maxHp, joiner.shield, joiner.kills, joiner.xp, joiner.level],
+    [3, 3, 0, 0, 0, 1], 'survival + pvp seat fields ride the insert');
+  const stand1 = g.flags.find(f => f.team === 1);
+  assert.ok(Math.hypot(joiner.x - stand1.homeX, joiner.y - stand1.homeY) <= TILE * 3.5,
+    'joiner waits on the team stand ring');
+  // pvp pick choices: the FULL roster, duplicates included (identity is
+  // name + team color) — teammates' fielded chars stay choosable
+  const sj = snapshot(g, false).players.find(p => p.pid === 50);
+  assert.deepEqual(sj.pick.choices, startingRoster, 'pick offers the full roster in pvp');
+  // a button held through the join can't instantly confirm (down-flow rule)
+  step(g, { 50: { fire: true } }, 1 / 30);
+  assert.equal(joiner.state, 'pick', 'held fire does not confirm');
+  step(g, { 50: {} }, 1 / 30); // release
+  step(g, { 50: { fire: true } }, 1 / 30); // press = confirm
+  assert.equal(joiner.state, 'active', 'released-then-pressed fire confirms the pick');
+  assert.equal(joiner.charId, startingRoster[0], 'joiner fields the cursor operative');
+  assert.ok(joiner.invuln > 3, 'fresh deploy lands with spawn grace');
+  assert.ok(Math.hypot(joiner.x - stand1.homeX, joiner.y - stand1.homeY) <= TILE * 3.5,
+    'the confirmed deploy is on the team ring too');
+  // same-team duplicate via the pick: pid 1 (team 1) already fields roster[1];
+  // a second joiner cursors right once and fields the same operative
+  const j2 = addPlayerMidGame(g, { pid: 51, name: 'Twin', team: 1 });
+  step(g, { 51: {} }, 1 / 30);
+  step(g, { 51: { right: true } }, 1 / 30); // cursor 0 -> 1
+  step(g, { 51: {} }, 1 / 30);
+  step(g, { 51: { fire: true } }, 1 / 30);
+  assert.equal(j2.charId, startingRoster[1], 'duplicate pick confirms');
+  assert.equal(g.players.filter(p => p.team === 1 && p.charId === startingRoster[1]).length, 2,
+    'two team-1 seats field the same operative');
+  // mid-join determinism + snapshot integrity: a serialize/restore twin taken
+  // right after an insert replays snapshot-for-snapshot
+  const g3 = createGame(ctfDef(), party, charMap, startingRoster);
+  run(g3, () => ({}), 0.5);
+  addPlayerMidGame(g3, { pid: 70, name: 'Mid', team: 0 });
+  assert.ok(!Number.isNaN(JSON.stringify(snapshot(g3, false)).length), 'post-insert snapshot serializes');
+  const twin = restoreGame(serializeGame(g3), charMap);
+  const script = i => {
+    const inputs = {};
+    for (const p of [0, 1, 2, 3, 70]) {
+      inputs[p] = { right: p % 2 === 0, left: p % 2 === 1, fire: (i * 30 % 5) < 2 };
+    }
+    return inputs;
+  };
+  const h = [[], []];
+  [g3, twin].forEach((gx, gi) => {
+    for (let i = 0; i < 60; i++) {
+      step(gx, script(i / 30), 1 / 30);
+      h[gi].push(JSON.stringify(snapshot(gx, false)));
+    }
+  });
+  assert.deepEqual(h[0], h[1], 'mid-join twins replay snapshot-for-snapshot');
+}
+
+// --- addPlayerMidGame: the sim holds the 32/16-per-team caps itself ---
+function testAddPlayerMidGameCaps() {
+  // 31 seats: 16 on team 0 (full), 15 on team 1
+  const party = Array.from({ length: 31 }, (_, i) =>
+    ({ pid: i, name: 'P' + i, charId: startingRoster[i % startingRoster.length], team: i < 16 ? 0 : 1 }));
+  const g = createGame(ctfDef(), party, charMap, startingRoster);
+  assert.equal(addPlayerMidGame(g, { pid: 100, name: 'X', team: 0 }), false,
+    'a full team (16) refuses even below the room cap');
+  const ok = addPlayerMidGame(g, { pid: 100, name: 'X', team: 1 });
+  assert.ok(ok, 'the open team accepts the 32nd seat');
+  assert.equal(g.players.length, MODE_CAPS.ctf, 'field is at the 32 cap');
+  assert.equal(addPlayerMidGame(g, { pid: 101, name: 'Y', team: 1 }), false,
+    'seat 33 is refused at the sim level');
+  // a finished match refuses too
+  g.status = 'cleared';
+  g.players.pop();
+  assert.equal(addPlayerMidGame(g, { pid: 102, name: 'Z', team: 1 }), false,
+    'no joins after the horn');
+}
+
+// --- br at its new 16 cap: every seat deploys unstuck on the shipped map ---
+// (the audit fix: spawn-reuse drift spawns[i % n] + i*10px walked seat 12
+// into the level22 border wall at 16 players)
+function testBr16SeatsDeployUnstuck() {
+  const brMaps = levels.filter(l => l.mode === 'br');
+  assert.ok(brMaps.length >= 1, 'a br map ships');
+  for (const def of brMaps) {
+    const party = Array.from({ length: MODE_CAPS.br }, (_, i) =>
+      ({ pid: i, name: 'P' + i, charId: startingRoster[i % startingRoster.length] }));
+    const g = createGame(def, party, charMap, startingRoster);
+    assert.equal(g.players.length, MODE_CAPS.br, `${def.name}: 16 seats fielded`);
+    for (const p of g.players) {
+      assert.ok(!stuckAt(g, p.x, p.y), `${def.name}: seat ${p.pid} deploys unstuck at 16 players`);
+    }
+    // deterministic: the unstick scan lands the same seats on the same tiles
+    const g2 = createGame(def, party, charMap, startingRoster);
+    assert.deepEqual(g2.players.map(p => [p.x, p.y]), g.players.map(p => [p.x, p.y]),
+      `${def.name}: 16-seat deploy is deterministic`);
+  }
+}
+
+// --- 32-player ctf smoke: 60s of scripted 16v16 chaos, bytes/tick report ---
+function test32PlayerCtfSmoke() {
+  const g = createGame(ctfDef(), party32(), charMap, startingRoster);
+  const full = JSON.stringify({ t: 'levelStart', s: snapshot(g, true) }).length;
+  const dt = 1 / 30;
+  let bytes = 0, maxBytes = 0, ticks = 0;
+  for (let i = 0; i < 1800 && g.status === 'play'; i++) {
+    const inputs = {};
+    for (const p of g.players) {
+      const adv = (i % 240) < 150; // advance waves, then regroup
+      inputs[p.pid] = {
+        right: p.team === 0 ? adv : !adv,
+        left: p.team === 1 ? adv : !adv,
+        up: (p.pid % 4) < 2 && (i % 50) < 25,
+        down: (p.pid % 4) >= 2 && (i % 50) < 25,
+        fire: ((i + p.pid * 3) % 9) < 4,
+        special: (i % 120) === (p.pid * 3) % 120,
+        act: ((i + p.pid) % 70) < 6,
+        item: (i % 200) === (p.pid * 5) % 200,
+      };
+    }
+    step(g, inputs, dt);
+    const wire = JSON.stringify({ t: 'state', s: snapshot(g, false) });
+    bytes += wire.length;
+    maxBytes = Math.max(maxBytes, wire.length);
+    ticks++;
+    if (i % 150 === 0) {
+      for (const p of g.players) {
+        assert.ok(Number.isFinite(p.x) && Number.isFinite(p.y), 'positions stay finite');
+        assert.ok(p.x >= 0 && p.x <= g.w * TILE && p.y >= 0 && p.y <= g.h * TILE, 'players stay in bounds');
+      }
+    }
+  }
+  assert.equal(ticks, 1800, '60 seconds of 32-player ctf step without an early end or throw');
+  assert.equal(g.players.length, 32, 'all 32 seats survive the match state machine');
+  // the whole sim still JSON round-trips after the brawl
+  const twin = restoreGame(serializeGame(g), charMap);
+  assert.equal(JSON.stringify(snapshot(twin, false)), JSON.stringify(snapshot(g, false)),
+    'post-smoke serialize/restore is byte-stable');
+  const avg = Math.round(bytes / ticks);
+  // players ride every snapshot whole by design; 32 seats must stay sane on
+  // the wire (the AOI path trims swarms, not players)
+  assert.ok(avg < 32 * 1024, `32-player snapshot averages under 32KB/tick (got ${avg})`);
+  console.log(`  32-player ctf wire: avg ${avg} bytes/tick, peak ${maxBytes}, levelStart ${full} (${ticks} ticks)`);
+}
+
 testEnemyShotsBlockedByStructures();
 testCoreGnawNeedsWaveOrSealedTarget();
 testShipBoardingEdgeWalkAwayAndLaunch();
@@ -6416,5 +6685,12 @@ testHornCallsTheNightEarly();
 testHornAtLitBeacon();
 testDayEventsProbeAndSupplyDrop();
 testDayEventsSkippedByHornAndRearm();
+testModeCaps();
+testCtfSameTeamDuplicates();
+testCtfSpawnRings16PerStand();
+testAddPlayerMidGame();
+testAddPlayerMidGameCaps();
+testBr16SeatsDeployUnstuck();
+test32PlayerCtfSmoke();
 
 console.log('sim tests passed');

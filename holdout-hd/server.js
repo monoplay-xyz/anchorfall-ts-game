@@ -52,6 +52,11 @@ const isPvp = room => room.mode === 'ctf' || room.mode === 'br';
 // pvp and bastion rooms are one-shots: never saved, never resumed, never
 // advanced — the lobby is the rematch on the same map
 const isOneShot = room => isPvp(room) || room.mode === 'bastion';
+// Per-mode room caps (wave 7): pvp fields outgrow the co-op party of 8.
+// Prefer the sim's table once it lands so server and sim can never disagree;
+// seats-per-connection stays 4 everywhere. CTF team cap = MODE_CAPS.ctf / 2.
+const MODE_CAPS = sim.MODE_CAPS || { classic: 8, story: 8, bastion: 8, ctf: 32, br: 16 };
+const roomCap = room => MODE_CAPS[room.mode] || 8;
 console.log(`Loaded ${levels.length} levels (${classicLevels.length} classic, ${storyLevels.length} story, ${bastionLevels.length} stronghold, ${ctfLevels.length} ctf, ${brLevels.length} br), ${characters.length} characters`);
 
 const savesDir = path.join(__dirname, 'saves');
@@ -90,6 +95,12 @@ function recordRanking(key, entry) {
   return i === -1 ? null : i + 1;
 }
 
+// Big-team boards (wave 7, 16v16 ctf): an entry stores at most 8 real names;
+// a larger party folds the overflow into one "+N more" tail string (so the
+// names array tops out at 9 entries) while `players` keeps the true count.
+// Existing <=8 co-op/ctf entries are untouched.
+const capNames = names => names.length <= 8 ? names : [...names.slice(0, 8), `+${names.length - 8} more`];
+
 // Online auto-submit: every server-room level CLEAR lands on its board.
 // Co-op (classic/story/stronghold): full party names, final score, g.elapsed.
 // CTF: the winning team's names; score = caps * 1000 (a capture is worth a
@@ -105,35 +116,68 @@ function recordOnlineRun(room, def, g) {
     if (g.winner !== 0 && g.winner !== 1) return null;
     const team = g.players.filter(p => p.team === g.winner);
     if (!team.length) return null;
-    return { key: def.key, rank: recordRanking(def.key, { names: team.map(p => p.name), players: team.length, score: (g.caps?.[g.winner] || 0) * 1000, timeS: round1(g.elapsed), ...stamp }) };
+    return { key: def.key, rank: recordRanking(def.key, { names: capNames(team.map(p => p.name)), players: team.length, score: (g.caps?.[g.winner] || 0) * 1000, timeS: round1(g.elapsed), ...stamp }) };
   }
   if (room.mode === 'br') {
     const champ = g.players.find(p => p.pid === g.winner);
     if (!champ) return null;
     return { key: def.key, rank: recordRanking(def.key, { names: [champ.name], players: g.players.length, score: champ.kills || 0, timeS: round1(g.elapsed), ...stamp }) };
   }
-  return { key: def.key, rank: recordRanking(def.key, { names: g.players.map(p => p.name), players: g.players.length, score: Math.round(g.score), timeS: round1(g.elapsed), ...stamp }) };
+  return { key: def.key, rank: recordRanking(def.key, { names: capNames(g.players.map(p => p.name)), players: g.players.length, score: Math.round(g.score), timeS: round1(g.elapsed), ...stamp }) };
 }
 
-// POST rate limit: 10/min per IP, sliding window.
-const rankPostLog = new Map();
-function rankRateLimited(ip) {
+// Sliding-window rate limit (max hits per windowMs per IP). Each endpoint
+// keeps its own log: rankings POST at 10/min, room browser GET at 30/10s
+// (the browser polls every 5s — light enough for a few tabs, heavy enough
+// to shrug off a hammering loop).
+function rateLimited(log, ip, max, windowMs) {
   const now = Date.now();
-  if (rankPostLog.size > 500) { // shed stale IPs so the map can't grow unbounded
-    for (const [k, v] of rankPostLog) if (!v.some(t => now - t < 60000)) rankPostLog.delete(k);
+  if (log.size > 500) { // shed stale IPs so the map can't grow unbounded
+    for (const [k, v] of log) if (!v.some(t => now - t < windowMs)) log.delete(k);
   }
-  const log = (rankPostLog.get(ip) || []).filter(t => now - t < 60000);
-  if (log.length >= 10) { rankPostLog.set(ip, log); return true; }
-  log.push(now);
-  rankPostLog.set(ip, log);
+  const hits = (log.get(ip) || []).filter(t => now - t < windowMs);
+  if (hits.length >= max) { log.set(ip, hits); return true; }
+  hits.push(now);
+  log.set(ip, hits);
   return false;
 }
+const rankPostLog = new Map();
+const roomsGetLog = new Map();
+const rankRateLimited = ip => rateLimited(rankPostLog, ip, 10, 60000);
 
 // --- http ---
 const app = express();
 app.use('/shared', express.static(path.join(__dirname, 'shared')));
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/api/levels', (req, res) => res.json(levels));
+// Public room browser (wave 7): JOINABLE public rooms only — lobby-phase
+// rooms below cap, plus LIVE ctf rooms below cap (ctf accepts mid-match
+// joiners onto the smaller team, so they list with phase 'play'; the client
+// tags those LIVE). Private rooms, full rooms, intro cutscenes, finished
+// campaigns and mid-level co-op never appear. joinableNow is true on every
+// listed entry by construction (the field rides along for the contract /
+// future modes that might list-but-lock). No auth — community server.
+app.get('/api/rooms', (req, res) => {
+  if (rateLimited(roomsGetLog, req.ip || req.socket?.remoteAddress || '?', 30, 10000)) {
+    return res.status(429).json({ error: 'rate limited' });
+  }
+  const out = [];
+  for (const room of rooms.values()) {
+    if (!room.public || room.players.size >= roomCap(room)) continue;
+    const live = room.mode === 'ctf' && room.phase === 'play' && room.game && room.game.status === 'play';
+    if (room.phase !== 'lobby' && !live) continue;
+    const list = roomLevels(room);
+    if (room.levelIdx >= list.length) continue; // campaign finished — nothing left to join
+    const def = list[room.levelIdx];
+    out.push({
+      code: room.code, mode: room.mode,
+      levelName: def?.name || null, levelTitle: def?.title,
+      players: room.players.size, cap: roomCap(room),
+      phase: room.phase, joinableNow: true,
+    });
+  }
+  res.json(out);
+});
 // rankings REST: list boards that have entries (levels order = category order),
 // fetch one board, or submit a LOCAL run (sessions simmed in the browser but
 // served from this server). Online room clears are recorded server-side and
@@ -167,7 +211,7 @@ app.post('/api/rankings', express.json({ limit: '4kb' }), (req, res) => {
 const lanIp = Object.values(os.networkInterfaces()).flat().find(i => i && i.family === 'IPv4' && !i.internal)?.address;
 const lanUrl = lanIp ? `http://${lanIp}:${PORT}` : null;
 const server = app.listen(PORT, () => {
-  console.log(`HOLDOUT running at http://localhost:${PORT}`);
+  console.log(`MONOLYTHIUM — THE ANCHORFALL running at http://localhost:${PORT}`);
   if (lanUrl) console.log(`LAN: ${lanUrl}`);
 });
 
@@ -271,6 +315,12 @@ function lobbyState(room) {
   };
 }
 
+// lobbyState()'s players array without the assignTeams() side effect — safe
+// to ship inside mid-match playerJoined broadcasts (teams must not reshuffle)
+function rosterOf(room) {
+  return [...room.players.values()].map(p => ({ pid: p.pid, name: p.name, charId: p.charId, isHost: p.pid === room.hostPid, team: p.team }));
+}
+
 function destroyRoom(room) {
   if (room.timer) clearInterval(room.timer);
   rooms.delete(room.code);
@@ -293,7 +343,20 @@ function pruneHolds(room) {
 // a held operative returns to the field as a rescuable captive; CTF redeploys
 // the same operative at the stand; BR stays out — eliminated is eliminated).
 function reviveSeat(g, pid) {
-  if (typeof sim.revivePlayer === 'function') return sim.revivePlayer(g, pid);
+  if (typeof sim.revivePlayer === 'function') {
+    if (sim.revivePlayer(g, pid) || g.mode !== 'ctf') return;
+    // ctf falls through: the sim export refuses pvp, but a held ctf seat
+    // SHOULD come back (a 16v16 hold that spectates forever is a dead seat).
+    // Nudge it through the existing down->redeploy path — ctf redeploys the
+    // same operative at the team stand. A seat that never confirmed a pick
+    // (mid-match joiner who dropped while choosing) re-enters the pick
+    // instead, pickPrev all-held so a carried button can't instantly confirm.
+    const q = g.players.find(pl => pl.pid === pid);
+    if (!q || q.state !== 'out') return;
+    if (q.charId) { q.state = 'down'; q.respawn = 1; }
+    else { q.state = 'pick'; q.pickIdx = 0; q.pickPrev = { left: true, right: true, fire: true }; }
+    return;
+  }
   if (g.mode === 'br') return;
   const p = g.players.find(pl => pl.pid === pid);
   if (!p || p.state !== 'out') return;
@@ -303,6 +366,52 @@ function reviveSeat(g, pid) {
   }
   p.state = 'down';
   p.respawn = 1;
+}
+
+// --- ctf mid-match join ---------------------------------------------------
+// Live BELOW-CAP ctf rooms accept brand-new joiners straight into the match:
+// the joiner lands on the smaller team (tie -> team 0), enters the sim in the
+// respawn-pick state at their team stand, gets a levelStart-style full
+// snapshot (the rejoin pattern — score/caps/teamShards ride it), and everyone
+// else gets an additive playerJoined toast. NEVER a lobby broadcast mid-match
+// — a lobby message would stomp live game screens (and re-alternate teams).
+
+// Smaller team counted on the sim's FIELDED seats (anything but 'out'), so
+// expired-hold ghosts don't skew the balance. Ties go to team 0.
+function smallerTeam(g) {
+  const n = [0, 0];
+  for (const p of g.players) if (p.state !== 'out' && (p.team === 0 || p.team === 1)) n[p.team]++;
+  return n[1] < n[0] ? 1 : 0;
+}
+function teamHasRoom(room, team) {
+  const cap = Math.floor(roomCap(room) / 2); // ctf team cap = MODE_CAPS.ctf / 2
+  return room.game.players.filter(p => p.state !== 'out' && p.team === team).length < cap;
+}
+
+// Insert a live seat into a running ctf sim. Prefers the sim's
+// addPlayerMidGame export (this wave's sim work); until it lands, a shim
+// mirrors the contract: the seat appears at its team flag stand in the
+// respawn-pick state (pickPrev all-held so a button carried through the join
+// can't instantly confirm), and the game's roster widens to the full
+// character list so pvp picks draw on everything ("free chars in pvp = full
+// roster" — safe because applyResults never lets a pvp game touch the lobby
+// roster). The shim's literal mirrors the sim's spawnPlayer + survival +
+// pvp fields so snapshots/step treat it like any lobby-born seat.
+function insertMidGamePlayer(g, seat) {
+  if (typeof sim.addPlayerMidGame === 'function') return sim.addPlayerMidGame(g, seat) !== false;
+  if (g.status !== 'play' || g.mode !== 'ctf') return false;
+  for (const id of Object.keys(charMap)) if (!g.roster.includes(id)) g.roster.push(id);
+  const stand = (g.flags || []).find(f => f.team === seat.team);
+  const x = stand ? stand.homeX : TILE * 2, y = stand ? stand.homeY : TILE * 2;
+  g.players.push({
+    pid: seat.pid, name: seat.name, charId: null, x, y, fx: 0, fy: -1, cool: 0,
+    state: 'pick', pickIdx: 0, pickPrev: { left: true, right: true, fire: true },
+    respawn: 0, invuln: 3, specialCool: 0, dashT: 0, dashFx: 0, dashFy: -1,
+    stimT: 0, actPrev: false, specialPrev: false, itemPrev: false,
+    hp: 3, maxHp: 3, shield: 0, item: null, xp: 0, level: 1,
+    team: seat.team, kills: 0,
+  });
+  return true;
 }
 
 function endLevel(room) {
@@ -403,12 +512,14 @@ wss.on('connection', ws => {
           roster = save.roster;
         } catch { /* corrupt save: start fresh */ }
       }
-      // stronghold: the host's level-select pick rides the host message
-      // (narrow levelIdx passthrough for 'bastion' rooms, clamped; unlock
-      // gating is client-side by design — the host menu only offers unlocked levels)
-      if (mode === 'bastion' && m.levelIdx != null && bastionLevels.length) {
+      // stronghold + ctf: the host's level-select pick rides the host message
+      // (narrow levelIdx passthrough, clamped to the mode's own list; unlock
+      // gating is client-side by design — the host menu only offers unlocked
+      // levels, and ctf simply has two maps to choose from)
+      const pickList = mode === 'bastion' ? bastionLevels : mode === 'ctf' ? ctfLevels : null;
+      if (pickList && pickList.length && m.levelIdx != null) {
         const li = Math.floor(Number(m.levelIdx));
-        if (Number.isFinite(li)) levelIdx = Math.max(0, Math.min(bastionLevels.length - 1, li));
+        if (Number.isFinite(li)) levelIdx = Math.max(0, Math.min(pickList.length - 1, li));
       }
       // stronghold: the host's EARNED roster rides the host message too —
       // validate to known ids, dedupe, and always include every starter
@@ -419,7 +530,11 @@ wss.on('connection', ws => {
           .filter(id => charMap[id] && !startingRoster.includes(id));
         roster = [...startingRoster, ...extras].slice(0, characters.length);
       }
-      const r = { code, mode, hostPid: me.pid, players: new Map([[me.pid, me]]), levelIdx, roster, game: null, timer: null, phase: 'lobby', holds: [], tick: 0 };
+      // room visibility (wave 7): the client sends public:true|false from its
+      // Visibility toggle; absent (old clients) defaults versus modes public
+      // and co-op private — co-op behavior is exactly the pre-browser world.
+      const pub = m.public != null ? !!m.public : (mode === 'ctf' || mode === 'br');
+      const r = { code, mode, public: pub, hostPid: me.pid, players: new Map([[me.pid, me]]), levelIdx, roster, game: null, timer: null, phase: 'lobby', holds: [], tick: 0 };
       rooms.set(code, r);
       me.room = r;
       sendTo(me, { t: 'joined', you: me.pid });
@@ -435,7 +550,30 @@ wss.on('connection', ws => {
         // (case-insensitive) re-binds its seats to this connection
         pruneHolds(r);
         const hi = r.game ? r.holds.findIndex(h => h.name.toLowerCase() === me.name.toLowerCase()) : -1;
-        if (hi === -1) return sendTo(me, { t: 'error', error: 'Game in progress, wait for the level to end' });
+        if (hi === -1) {
+          // ctf mid-match join (wave 7): no hold to retake, but a live
+          // below-cap ctf room takes the newcomer onto the smaller team
+          if (r.mode === 'ctf' && r.phase === 'play' && r.game && r.game.status === 'play'
+              && r.players.size < roomCap(r)) {
+            const team = smallerTeam(r.game);
+            if (teamHasRoom(r, team) && insertMidGamePlayer(r.game, { pid: me.pid, name: me.name, team })) {
+              me.team = team;
+              me.room = r;
+              r.players.set(me.pid, me);
+              sendTo(me, { t: 'joined', you: me.pid, midmatch: true, team });
+              // levelStart-style full snapshot (the rejoin pattern) — pending
+              // events held aside so the room's tick doesn't lose them
+              const pending = r.game.events.splice(0);
+              // mode/levelIdx ride along so the joiner's synthesized lobby
+              // state names the right map in the mission panel
+              sendTo(me, { t: 'levelStart', s: snapshot(r.game, true), mode: r.mode, levelIdx: r.levelIdx });
+              r.game.events.push(...pending);
+              broadcast(r, { t: 'playerJoined', pid: me.pid, name: me.name, team, players: r.players.size, cap: roomCap(r), roster: rosterOf(r) });
+              return;
+            }
+          }
+          return sendTo(me, { t: 'error', error: 'Game in progress, wait for the level to end' });
+        }
         const hold = r.holds.splice(hi, 1)[0];
         const prim = hold.seats.find(s => s.primary) || hold.seats[0];
         me.pid = prim.pid; me.name = prim.name; me.charId = prim.charId; me.input = {};
@@ -449,22 +587,35 @@ wss.on('connection', ws => {
         // levelStart-style full snapshot (grid included) — held aside so the
         // tick's pending events aren't drained away from the room
         const pending = r.game.events.splice(0);
-        sendTo(me, { t: 'levelStart', s: snapshot(r.game, true) });
+        sendTo(me, { t: 'levelStart', s: snapshot(r.game, true), mode: r.mode, levelIdx: r.levelIdx });
         r.game.events.push(...pending);
         return;
       }
-      if (r.players.size >= 8) return sendTo(me, { t: 'error', error: 'Room is full' });
+      if (r.players.size >= roomCap(r)) return sendTo(me, { t: 'error', error: 'Room is full' });
       r.players.set(me.pid, me);
       me.room = r;
       sendTo(me, { t: 'joined', you: me.pid });
       broadcast(r, lobbyState(r));
     }
-    else if (m.t === 'addLocal' && room && room.phase === 'lobby' && !room.game) {
-      if (room.players.size >= 8 || ownedBy(room).length >= 4) return;
-      const p = { pid: nextPid++, ws, name: String(m.name || 'Player').slice(0, 12), charId: null, input: {}, primary: false };
-      room.players.set(p.pid, p);
-      sendTo(p, { t: 'localAdded', tag: m.tag, pid: p.pid });
-      broadcast(room, lobbyState(room));
+    else if (m.t === 'addLocal' && room) {
+      if (room.players.size >= roomCap(room) || ownedBy(room).length >= 4) return;
+      if (room.phase === 'lobby' && !room.game) {
+        const p = { pid: nextPid++, ws, name: String(m.name || 'Player').slice(0, 12), charId: null, input: {}, primary: false };
+        room.players.set(p.pid, p);
+        sendTo(p, { t: 'localAdded', tag: m.tag, pid: p.pid });
+        broadcast(room, lobbyState(room));
+      } else if (room.mode === 'ctf' && room.phase === 'play' && room.game && room.game.status === 'play') {
+        // wave 7: splitscreen seats can drop into a live ctf match too —
+        // same smaller-team insertion as a mid-match join (the ws already
+        // has the game view, so no snapshot replay is needed)
+        const team = smallerTeam(room.game);
+        if (!teamHasRoom(room, team)) return;
+        const p = { pid: nextPid++, ws, name: String(m.name || 'Player').slice(0, 12), charId: null, input: {}, primary: false, team };
+        if (!insertMidGamePlayer(room.game, { pid: p.pid, name: p.name, team })) return;
+        room.players.set(p.pid, p);
+        sendTo(p, { t: 'localAdded', tag: m.tag, pid: p.pid, midmatch: true, team });
+        broadcast(room, { t: 'playerJoined', pid: p.pid, name: p.name, team, players: room.players.size, cap: roomCap(room), roster: rosterOf(room) });
+      }
     }
     else if (m.t === 'removeLocal' && room && room.phase === 'lobby' && !room.game) {
       const p = room.players.get(Number(m.pid));
@@ -478,11 +629,10 @@ wss.on('connection', ws => {
       const id = String(m.charId || '');
       if (!id || target.charId === id) target.charId = null; // re-pick / empty = unlock
       else {
-        assignTeams(room);
-        // pvp relaxes uniqueness: ctf allows the same char on opposite teams,
-        // br is all-teams-of-one so duplicates are always fine
-        const taken = [...room.players.values()].some(p => p !== target && p.charId === id
-          && room.mode !== 'br' && (room.mode !== 'ctf' || p.team === target.team));
+        // versus drops uniqueness entirely (wave 7): ctf identity is name +
+        // team color, so same-team duplicates are fine at 16v16; br was
+        // already all-teams-of-one. Co-op keeps one-operative-per-seat.
+        const taken = !isPvp(room) && [...room.players.values()].some(p => p !== target && p.charId === id);
         if (room.roster.includes(id) && !taken) target.charId = id;
       }
       broadcast(room, lobbyState(room));
@@ -513,8 +663,10 @@ wss.on('connection', ws => {
     }
     // smoke-harness only (HOLDOUT_SMOKE=1): force-clear the running level so
     // raw-ws tests can exercise the endLevel/rankings path without playing
-    // a full mission. Inert in normal operation.
+    // a full mission (an optional winner injection lets ctf smoke walk the
+    // 16-name capNames board entry). Inert in normal operation.
     else if (m.t === 'debugClear' && process.env.HOLDOUT_SMOKE === '1' && room?.game) {
+      if (m.winner === 0 || m.winner === 1) room.game.winner = m.winner;
       room.game.status = 'cleared';
     }
   });

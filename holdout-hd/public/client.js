@@ -49,6 +49,22 @@ const PCOLORS = ['#4fc3f7', '#ffb74d', '#f06292', '#aed581'];
 // CTF team identity (badge color sets) + display names.
 const TEAMC = ['#5ea7ff', '#ff7a6a'];
 const TEAM_NAME = ['TEAM A', 'TEAM B'];
+// Per-mode room caps (client mirror of the server's MODE_CAPS — addLocal
+// gating + lobby copy; the server clamps authoritatively).
+const MODE_CAPS = { classic: 8, story: 8, bastion: 8, ctf: 32, br: 16 };
+const roomCapOf = mode => MODE_CAPS[mode] ?? 8;
+// Host visibility preference, persisted PER MODE GROUP: versus rooms (ctf/br)
+// default Public, co-op rooms (classic/story/bastion) default Private. The
+// host message always carries the explicit public flag (additive — an older
+// server simply ignores it).
+const VIS_KEY = 'holdout-hd.visibility'; // { coop: 'public'|'private', versus: ... }
+const VIS_GROUP = mode => (mode === 'ctf' || mode === 'br') ? 'versus' : 'coop';
+let visPrefs = {};
+try { visPrefs = JSON.parse(localStorage.getItem(VIS_KEY)) || {}; } catch {}
+function visOf(group) {
+  const v = visPrefs?.[group];
+  return v === 'public' || v === 'private' ? v : (group === 'versus' ? 'public' : 'private');
+}
 const ITEM_ICON = { cracker: '✷ ', medkit: '✚ ', shield: '⬡ ', toxin: '☣ ', controller: '◉ ', lythseal: '❖ ' };
 // item-slot display name overrides (default: kind.toUpperCase())
 const ITEM_LABEL = { controller: 'MIND LINK', lythseal: 'LYTH SEAL' };
@@ -349,6 +365,9 @@ function show(id) {
   hideBanner();
   hideToast();
   for (const s of ['menu', 'lobby', 'msg']) $(s).hidden = s !== id;
+  // back on the menu with the room browser still the current page: resume its
+  // 5s auto-refresh (it reaps itself whenever the page is not actually open)
+  if (id === 'menu' && menuPageId === 'pageBrowse') startBrowse();
 }
 function hideAll() {
   for (const s of ['menu', 'lobby', 'msg']) $(s).hidden = true;
@@ -486,18 +505,37 @@ function navTick(polled) {
   }
 }
 
-function renderLobby({ title, info, hint, players, roster, canStart, cursors = [], onCard }) {
+function renderLobby({ title, info, hint, players, roster, canStart, cursors = [], onCard, teamCols = false, allowDupes = false }) {
   $('lobbyTitle').textContent = title;
   $('roomInfo').innerHTML = info;
   $('lobbyHint').textContent = hint || '';
   const pl = $('playerList');
   pl.innerHTML = '';
-  for (const p of players) {
+  pl.classList.toggle('teamcols', !!teamCols);
+  const makeChip = p => {
     const chip = document.createElement('span');
     chip.className = 'pchip';
     const col = p.charId ? charMap[p.charId].color : (p.color || '#555');
     chip.innerHTML = `<span class="dot" style="background:${col}"></span>${p.badge ? p.badge + ' · ' : ''}${p.name}${p.isHost ? ' ★' : ''}${p.charId ? ' — ' + charMap[p.charId].name : ''}`;
-    pl.appendChild(chip);
+    return chip;
+  };
+  if (teamCols) {
+    // ctf at 32: two team columns of chips (wraps within each column). Chips
+    // are inert spans — pad nav only ever walks buttons, so nav is untouched.
+    for (const t of [0, 1]) {
+      const colEl = document.createElement('div');
+      colEl.className = 'tcol';
+      const members = players.filter(p => (p.team ?? 0) === t);
+      const head = document.createElement('div');
+      head.className = 'thead';
+      head.style.color = TEAMC[t];
+      head.textContent = `${TEAM_NAME[t]} — ${members.length}`;
+      colEl.appendChild(head);
+      for (const p of members) colEl.appendChild(makeChip(p));
+      pl.appendChild(colEl);
+    }
+  } else {
+    for (const p of players) pl.appendChild(makeChip(p));
   }
   const grid = $('charGrid');
   grid.innerHTML = '';
@@ -524,14 +562,19 @@ function renderLobby({ title, info, hint, players, roster, canStart, cursors = [
     let blocked = false;
     if (owner) {
       if (owner.me) card.classList.add('selected');
-      else if (owner.badge) {
+      else if (owner.badge || allowDupes) {
+        // versus: duplicates are allowed EVERYWHERE, so another player's pick
+        // never blocks a card — it just reads as claimed alongside yours
         card.classList.add('claimed');
         card.style.borderColor = owner.color || '#3fd9c0';
       } else {
         card.classList.add('taken');
         blocked = true;
       }
-      owners.forEach((o, i) => {
+      // 32-player ctf: a popular pick can have MANY owners — fan at most 3
+      // badges, then one count badge for the rest, so cards never overflow
+      const shown = owners.slice(0, 3);
+      shown.forEach((o, i) => {
         const b = document.createElement('div');
         b.className = 'pbadge';
         b.textContent = o.badge || '✓';
@@ -539,6 +582,14 @@ function renderLobby({ title, info, hint, players, roster, canStart, cursors = [
         if (i) b.style.right = (-6 + i * 26) + 'px'; // fan extra badges leftward
         card.appendChild(b);
       });
+      if (owners.length > 3) {
+        const b = document.createElement('div');
+        b.className = 'pbadge';
+        b.textContent = '+' + (owners.length - 3);
+        b.style.background = '#5E6B8C';
+        b.style.right = (-6 + 3 * 26) + 'px';
+        card.appendChild(b);
+      }
     }
     for (const cur of cursors) {
       if (cur.idx === idx && !cur.picked) {
@@ -1255,9 +1306,10 @@ class LocalSession {
           : this.expedition ? expeditions : campaign;
     this.levelIdx = this.story
       ? Math.max(0, Math.min((save?.chapter ?? 1) - 1, this.levels.length - 1))
-      : this.bastion
+      : (this.bastion || this.mode)
+        // bastion: the level-select pick; versus: the map choice (defaults 0)
         ? Math.max(0, Math.min(opts.levelIdx ?? 0, Math.max(0, this.levels.length - 1)))
-        : (this.expedition || this.mode) ? 0 : (save?.levelIdx ?? 0);
+        : this.expedition ? 0 : (save?.levelIdx ?? 0);
     // stronghold lobbies draw from the stronghold roster (starters + every
     // operative unlocked by beaten levels); other modes are untouched
     this.roster = save?.roster ?? (this.bastion ? strongholdRoster() : startingRoster.slice());
@@ -1317,12 +1369,14 @@ class LocalSession {
           : 'Hold ACT on a build site to construct — LYTH shards drop from fallen Entropy.'),
       players: this.players.map(p => ({
         name: p.name, charId: p.charId, isHost: p.pid === 0, me: false,
-        badge: 'P' + (p.pid + 1), color: colorOf(p),
+        badge: 'P' + (p.pid + 1), color: colorOf(p), team: this.teamOf(p),
       })),
       roster: this.roster,
       canStart: this.canStart(),
       cursors: this.players.map(p => ({ idx: p.cursor, color: colorOf(p), badge: 'P' + (p.pid + 1), picked: !!p.charId })),
       onCard: id => this.clickChar(id),
+      teamCols: ctf,
+      allowDupes: !!this.mode, // versus char select allows duplicates everywhere
     });
   }
   deviceOf(id) { return this.players.find(p => p.device === id); }
@@ -1353,11 +1407,10 @@ class LocalSession {
     if (p.charId === id) {
       p.charId = null;
     } else {
-      // versus relaxes uniqueness to same-team only (matches the server):
-      // ctf allows the same char on opposite teams; br teams are the pids so
-      // duplicates always pass. Classic/story/co-op stay strictly unique.
-      const taken = this.players.some(o => o !== p && o.charId === id
-        && (!this.mode || this.teamOf(o) === this.teamOf(p)));
+      // versus drops uniqueness entirely (matches the sim: identity = name +
+      // team color, so even same-team duplicates are fine in ctf/br).
+      // Classic/story/co-op stay strictly unique.
+      const taken = !this.mode && this.players.some(o => o !== p && o.charId === id);
       if (taken || !this.roster.includes(id)) return;
       p.charId = id;
       p.cursor = this.roster.indexOf(id);
@@ -1711,18 +1764,23 @@ class NetSession {
     this.pendingSeats = new Map(); // device -> request time, awaiting localAdded
     this.cursors = {};             // device -> roster pick cursor
     this.missingT = {};            // device -> seconds a bound pad has been gone
+    this.joinToasted = new Set();  // pids already toasted as mid-match joiners
     this.name = $('nameInput').value.trim() || 'Player';
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     this.ws = new WebSocket(`${proto}://${location.host}`);
     this.ws.onopen = () => {
       if (mode === 'host') {
         const msg = { t: 'host', name: this.name, resume: code };
-        // classic hosting stays byte-identical; story/ctf/br ride the mode field
+        // room visibility: always explicit (per-mode-group toggle on the
+        // Online page; versus defaults public, co-op private). Additive —
+        // an older server ignores the flag and keeps rooms private.
+        msg.public = visOf(VIS_GROUP(hostMode)) === 'public';
+        // classic hosting stays byte-identical otherwise; story/ctf/br ride the mode field
         if (hostMode && hostMode !== 'classic') msg.mode = hostMode;
         // stronghold: the host's level-select pick rides along (the server
         // clamps it; unlock gating is client-side — this menu only offers
-        // unlocked levels)
-        if (hostMode === 'bastion' && hostLevelIdx != null) msg.levelIdx = hostLevelIdx;
+        // unlocked levels). ctf reuses the same pattern for its map choice.
+        if ((hostMode === 'bastion' || hostMode === 'ctf') && hostLevelIdx != null) msg.levelIdx = hostLevelIdx;
         // stronghold: the host's earned roster rides along (the server
         // validates ids, dedupes and always keeps every starter)
         if (hostMode === 'bastion') msg.roster = strongholdRoster();
@@ -1871,6 +1929,21 @@ class NetSession {
         this.hostToastPid = newHost.pid;
         setTimeout(() => showToast(`HOST MIGRATED — ${String(newHost.name || 'PLAYER').toUpperCase()} LEADS`, 3200, true), 60);
       }
+      // mid-match joiners (ctf at 32): a lobby refresh lands while the level
+      // runs — render the newcomers as toasts, never stomp the live screen.
+      // The diff needs a REAL previous roster (a rejoiner's synthesized lobby
+      // has players: [] and must not toast the whole room at itself).
+      const prevPlayers = this.lobbyData?.players;
+      if (this.snap?.status === 'play' && prevPlayers?.length) {
+        const mine = new Set(this.seats.values());
+        for (const p of m.players) {
+          if (p.pid === this.myPid || mine.has(p.pid)) continue;
+          if (prevPlayers.some(q => q.pid === p.pid)) continue;
+          if (this.joinToasted.has(p.pid)) continue;
+          this.joinToasted.add(p.pid);
+          showToast(`${String(p.name || 'PLAYER').toUpperCase()} JOINED — ${TEAM_NAME[p.team] ?? 'THE MATCH'}`, 3000);
+        }
+      }
       this.lobbyData = m;
       // a seat whose pid the server no longer lists is dead — unbind it
       for (const [dev, pid] of [...this.seats]) {
@@ -1989,6 +2062,18 @@ class NetSession {
         if (def?.stronghold) for (const t of shRecordClear(def)) showToast(t, 3000, true);
       }
     }
+    else if (m.t === 'playerJoined') {
+      // explicit mid-match join broadcast (ctf): toast only, never a screen
+      // change. Deduped against the lobby-diff path above by pid; an optional
+      // players refresh keeps lobbyData honest for the levelEnd roster panel.
+      const pid = Number(m.pid);
+      const dupe = Number.isFinite(pid) && (this.joinToasted.has(pid) || pid === this.myPid || [...this.seats.values()].includes(pid));
+      if (!dupe) {
+        if (Number.isFinite(pid)) this.joinToasted.add(pid);
+        showToast(`${String(m.name || 'PLAYER').toUpperCase()} JOINED — ${TEAM_NAME[m.team] ?? 'THE MATCH'}`, 3000);
+      }
+      if (Array.isArray(m.roster) && this.lobbyData) this.lobbyData.players = m.roster;
+    }
     else if (m.t === 'error') {
       this.close();
       showMsg('Co-op', m.error, 'Main Menu', () => { show('menu'); refreshContinue(); });
@@ -2013,10 +2098,10 @@ class NetSession {
       info: m.lan
         ? `Room <b>${m.room}</b> — friends: ${m.lan} (or this machine's address)`
         : `Room code: <b>${m.room}</b> — friends join with this code`,
-      hint: 'Press FIRE to claim a seat — up to 4 couch players per machine, 8 per room. '
+      hint: `Press FIRE to claim a seat — up to 4 couch players per machine, ${roomCapOf(m.mode)} per room. `
         + 'Move your cursor with LEFT/RIGHT, FIRE to lock in; START on an unpicked extra seat hands it back. '
         + 'The mouse picks for the first seat.'
-        + (ctf ? ' Capture the Flag: badge colors are your team — seats alternate.'
+        + (ctf ? ' Capture the Flag: badge colors are your team — seats alternate. Duplicate operatives are allowed.'
           : vm === 'br' ? ' Battle Royale: free-for-all, 2+ players to start.' : ''),
       players: m.players.map(p => ({
         ...p,
@@ -2039,6 +2124,8 @@ class NetSession {
         picked: !!this.pickOf(pid),
       })),
       onCard: id => this.pickChar(id),
+      teamCols: ctf,
+      allowDupes: !!vm, // versus char select allows duplicates everywhere
     });
   }
   // mouse click — picks for the primary seat (legacy form, no pid)
@@ -2075,8 +2162,9 @@ class NetSession {
       this.renderLobby();
       return;
     }
-    if (this.seats.size + this.pendingSeats.size >= 4) return;                       // per-connection cap
-    if ((this.lobbyData?.players.length ?? 0) + this.pendingSeats.size >= 8) return; // room cap
+    if (this.seats.size + this.pendingSeats.size >= 4) return; // per-connection cap
+    // per-mode room cap (classic/story/bastion 8, ctf 32, br 16)
+    if ((this.lobbyData?.players.length ?? 0) + this.pendingSeats.size >= roomCapOf(this.lobbyData?.mode)) return;
     if (this.pendingSeats.has(dev)) return; // double FIRE before localAdded returns
     this.pendingSeats.set(dev, performance.now());
     this.ws.send(JSON.stringify({ t: 'addLocal', name: 'P' + (this.seats.size + this.pendingSeats.size), tag: dev }));
@@ -2479,9 +2567,18 @@ async function renderRankBoard() {
     const row = document.createElement('button');
     row.type = 'button';
     row.className = 'rrowt' + (e === mine ? ' mine' : '');
+    // 32-player ctf entries can carry 16 winner names — show the first few
+    // and fold the rest into '+N more' so the row never explodes
+    // the server stores at most 8 real names plus a literal '+N more' tail —
+    // strip the tail and fold from the true player count instead
+    const names = (Array.isArray(e.names) ? e.names : []).map(n => String(n)).filter(n => !/^\+\d+ more$/.test(n));
+    const total = Math.max(Number(e.players) || 0, names.length);
+    const nameTxt = total > 4
+      ? `${names.slice(0, 4).join(', ')} +${total - 4} more`
+      : (names.join(', ') || '—');
     const cells = [
       '#' + (i + 1),
-      (Array.isArray(e.names) ? e.names : []).map(n => String(n)).join(', ') || '—',
+      nameTxt,
       String(e.players ?? (Array.isArray(e.names) ? e.names.length : 1)),
       (Number(e.score) || 0).toLocaleString(),
       fmtT(e.timeS),
@@ -2496,12 +2593,95 @@ async function renderRankBoard() {
   });
 }
 
+// ---------- public room browser (Online > Browse Games) ----------
+// GET /api/rooms lists joinable PUBLIC rooms: lobby-phase rooms always, plus
+// CTF rooms joinable mid-match (joinableNow) — those get a LIVE tag. The list
+// auto-refreshes every 5s while the page is open; rows are pad-navigable
+// buttons and a press joins through the existing NetSession join flow.
+const BROWSE_MODE_LABEL = { classic: 'CLASSIC', story: 'STORY', bastion: 'STRONGHOLD', ctf: 'CTF', br: 'ROYALE' };
+let browseTimer = null;
+let browseSeq = 0; // stale-fetch guard: only the newest request may render
+function stopBrowse() {
+  if (browseTimer) { clearInterval(browseTimer); browseTimer = null; }
+  browseSeq++;
+}
+function startBrowse() {
+  stopBrowse();
+  renderBrowse();
+  browseTimer = setInterval(() => {
+    // left the page / joined a game: the interval reaps itself
+    if (menuPageId !== 'pageBrowse' || $('menu').hidden || session) return stopBrowse();
+    renderBrowse();
+  }, 5000);
+}
+async function renderBrowse() {
+  const seq = ++browseSeq;
+  let list = [];
+  let failed = false;
+  try {
+    const res = await fetch('/api/rooms');
+    if (res.ok) {
+      const d = await res.json();
+      list = Array.isArray(d) ? d : Array.isArray(d?.rooms) ? d.rooms : [];
+    } // non-ok (older server, no endpoint yet): graceful empty state below
+  } catch { failed = true; } // server down entirely: say so instead
+  if (seq !== browseSeq || menuPageId !== 'pageBrowse' || $('menu').hidden) return;
+  const host = $('browseList');
+  // a refresh rebuilds the rows — re-aim the pad focus ring at the same room
+  // so auto-refresh never yanks navigation back to the top
+  const focusCode = navEl?.dataset?.room ?? null;
+  host.innerHTML = '';
+  if (!list.length) {
+    const d = document.createElement('div');
+    d.className = 'bempty';
+    d.textContent = failed ? 'SERVER UNREACHABLE — TRY A ROOM CODE INSTEAD' : 'NO OPEN GAMES — HOST ONE!';
+    host.appendChild(d);
+    return;
+  }
+  for (const r of list) {
+    if (!r || typeof r !== 'object' || !r.code) continue;
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'brow';
+    row.dataset.room = String(r.code);
+    const live = !!r.joinableNow && !!r.phase && r.phase !== 'lobby';
+    const mode = document.createElement('i');
+    mode.className = 'bmode';
+    mode.textContent = BROWSE_MODE_LABEL[r.mode] ?? String(r.mode || '?').toUpperCase();
+    const map = document.createElement('span');
+    map.className = 'bmap';
+    map.textContent = String(r.levelTitle || r.levelName || '—');
+    const count = document.createElement('span');
+    count.className = 'bcount';
+    count.textContent = `${r.players ?? '?'}/${r.cap ?? roomCapOf(r.mode)}`;
+    row.append(mode, map, count);
+    if (live) {
+      const tag = document.createElement('i');
+      tag.className = 'blive';
+      tag.textContent = 'LIVE';
+      row.appendChild(tag);
+    }
+    row.onclick = e => {
+      e.currentTarget.blur();
+      if (session) return;
+      playUi('select');
+      stopBrowse();
+      session = new NetSession('join', String(r.code).toUpperCase());
+    };
+    host.appendChild(row);
+  }
+  if (focusCode) {
+    const again = [...host.querySelectorAll('button.brow')].find(b => b.dataset.room === focusCode);
+    if (again) setNavFocus(again);
+  }
+}
+
 // ---------- menu pages (MAIN / SINGLEPLAYER / VERSUS / ONLINE / SETTINGS /
-// REMAP / STRONGHOLD SELECT) — DOM screens inside #menu, pad-navigable ----
+// REMAP / STRONGHOLD SELECT / BROWSE) — DOM screens inside #menu, pad-navigable ----
 const MENU_PARENT = {
   pageSingle: 'pageMain', pageVersus: 'pageMain', pageOnline: 'pageMain',
   pageSettings: 'pageMain', pageRemap: 'pageSettings', pageSh: 'pageSingle',
-  pageRank: 'pageMain', pageRankBoard: 'pageRank',
+  pageRank: 'pageMain', pageRankBoard: 'pageRank', pageBrowse: 'pageOnline',
 };
 let menuPageId = 'pageMain';
 let shPurpose = 'local'; // why the level select is open: 'local' | 'host'
@@ -2514,6 +2694,8 @@ function showMenuPage(id) {
   if (id === 'pageRemap') renderRemap();
   if (id === 'pageRank') renderRankPicker();      // async: fills in when fetched
   if (id === 'pageRankBoard') renderRankBoard();  // async: fills in when fetched
+  if (id === 'pageBrowse') startBrowse();         // 5s auto-refresh while open
+  else stopBrowse();
 }
 // pageSh opens from Singleplayer (shPurpose 'local') AND from Online's Host
 // Stronghold ('host') — Back must return to whichever page opened it, so the
@@ -2719,6 +2901,13 @@ function refreshContinue() {
   $('btnHostCtf').hidden = !ctfLevels.length;
   $('btnBr').hidden = !brLevels.length;
   $('btnHostBr').hidden = !brLevels.length;
+  // visibility toggles and the browser need a live server (static builds
+  // have no online play at all); the couch map cycler works everywhere
+  $('btnVisCoop').hidden = IS_STATIC;
+  $('btnVisVersus').hidden = IS_STATIC || (!ctfLevels.length && !brLevels.length);
+  $('btnBrowse').hidden = IS_STATIC;
+  $('btnCtfMap').hidden = IS_STATIC || ctfLevels.length < 2; // map choice needs 2+ ctf maps
+  $('btnCtfMapV').hidden = ctfLevels.length < 2;
   // back on the menu with the level select up: re-read unlock/beaten states
   if (menuPageId === 'pageSh' && !$('menu').hidden) renderShGrid();
 }
@@ -2728,6 +2917,39 @@ refreshContinue();
 $('btnSingle').onclick = e => { e.currentTarget.blur(); showMenuPage('pageSingle'); };
 $('btnVersus').onclick = e => { e.currentTarget.blur(); showMenuPage('pageVersus'); };
 $('btnOnline').onclick = e => { e.currentTarget.blur(); showMenuPage('pageOnline'); };
+$('btnBrowse').onclick = e => { e.currentTarget.blur(); showMenuPage('pageBrowse'); };
+// room visibility toggles (Online page): cycle Public/Private per mode group,
+// persisted; the choice rides the next host message's explicit public flag
+const visSync = () => {
+  $('btnVisCoop').textContent = `Co-op visibility: ${visOf('coop') === 'public' ? 'Public' : 'Private'}`;
+  $('btnVisVersus').textContent = `Versus visibility: ${visOf('versus') === 'public' ? 'Public' : 'Private'}`;
+};
+for (const [btn, grp] of [['btnVisCoop', 'coop'], ['btnVisVersus', 'versus']]) {
+  $(btn).onclick = e => {
+    e.currentTarget.blur();
+    visPrefs[grp] = visOf(grp) === 'public' ? 'private' : 'public';
+    try { localStorage.setItem(VIS_KEY, JSON.stringify(visPrefs)); } catch {}
+    visSync();
+  };
+}
+visSync();
+// ctf map choice (2+ maps): cycles through the ctf list, persisted; rides the
+// host message levelIdx (stronghold pattern) and the local couch CTF lobby
+const CTFMAP_KEY = 'holdout-hd.ctfmap';
+let ctfMapIdx = Math.max(0, Math.min(Math.max(0, ctfLevels.length - 1), Math.floor(+(localStorage.getItem(CTFMAP_KEY) ?? 0)) || 0));
+const ctfMapSync = () => {
+  const label = `CTF map: ${ctfLevels[ctfMapIdx]?.name ?? '—'}`;
+  $('btnCtfMap').textContent = label;
+  $('btnCtfMapV').textContent = label; // versus-page mirror (couch CTF uses the same pick)
+};
+for (const id of ['btnCtfMap', 'btnCtfMapV']) $(id).onclick = e => {
+  e.currentTarget.blur();
+  if (!ctfLevels.length) return;
+  ctfMapIdx = (ctfMapIdx + 1) % ctfLevels.length;
+  try { localStorage.setItem(CTFMAP_KEY, String(ctfMapIdx)); } catch {}
+  ctfMapSync();
+};
+ctfMapSync();
 $('btnRankings').onclick = e => { e.currentTarget.blur(); showMenuPage('pageRank'); };
 $('btnSettings').onclick = e => { e.currentTarget.blur(); showMenuPage('pageSettings'); };
 $('btnRemap').onclick = e => { e.currentTarget.blur(); showMenuPage('pageRemap'); };
@@ -2870,7 +3092,7 @@ $('btnBastion').onclick = e => {
 $('btnCtf').onclick = e => {
   e.currentTarget.blur();
   if (!ctfLevels.length || session) return;
-  session = new LocalSession(null, { mode: 'ctf' });
+  session = new LocalSession(null, { mode: 'ctf', levelIdx: ctfMapIdx });
   session.lobby();
 };
 $('btnBr').onclick = e => {
@@ -2895,7 +3117,7 @@ $('btnHostBastion').onclick = e => {
 $('btnHostCtf').onclick = e => {
   e.currentTarget.blur();
   if (!ctfLevels.length || session) return;
-  session = new NetSession('host', $('joinCode').value.trim().toUpperCase(), 'ctf');
+  session = new NetSession('host', $('joinCode').value.trim().toUpperCase(), 'ctf', ctfMapIdx);
 };
 $('btnHostBr').onclick = e => {
   e.currentTarget.blur();

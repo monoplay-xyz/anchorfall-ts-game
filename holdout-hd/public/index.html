@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>HOLDOUT HD</title>
+  <title>Monolythium &mdash; The Anchorfall</title>
   <link rel="stylesheet" href="style.css">
   <style>
     /* client-owned HUD additions (style.css belongs to the render pass) */
@@ -120,6 +120,21 @@
     /* ---- CTF overtime chip (sudden-death escalation level: OVERTIME +n) ---- */
     #otChip { position: absolute; top: 22%; left: 50%; transform: translateX(-50%); padding: 5px 16px; font-size: 14px; font-weight: 800; letter-spacing: 3px; color: #ff7a6a; background: rgba(8,10,18,.78); border: 1px solid rgba(224,72,72,.55); pointer-events: none; white-space: nowrap; animation: cdblink 1.1s steps(2, jump-none) infinite; }
     #otChip[hidden] { display: none; }
+
+    /* ---- public room browser (Online > Browse Games) ---- */
+    #browseList { display: flex; flex-direction: column; gap: 5px; width: min(560px, 86vw); max-height: 52vh; overflow-y: auto; padding: 3px; }
+    button.brow { width: 100%; display: flex; align-items: baseline; gap: 10px; background: rgba(255,255,255,.06); color: #c2cde0; clip-path: none; border-radius: 4px; padding: 7px 14px; font-size: 12px; letter-spacing: 1px; font-weight: 500; }
+    button.brow .bmode { flex: none; font-style: normal; font-size: 9px; font-weight: 800; letter-spacing: 1px; color: var(--teal); border: 1px solid rgba(54,160,138,.55); border-radius: 3px; padding: 1px 5px; }
+    button.brow .bmap { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; font-weight: 800; letter-spacing: .5px; color: #eaf6ff; }
+    button.brow .bcount { flex: none; color: var(--amber); font-weight: 800; font-size: 11px; white-space: nowrap; }
+    button.brow .blive { flex: none; font-style: normal; font-size: 9px; font-weight: 800; letter-spacing: 1px; color: #0b121a; background: #ff7a6a; border-radius: 3px; padding: 1px 5px; animation: cdblink 1.1s steps(2, jump-none) infinite; }
+    #browseList .bempty { font-size: 11px; font-weight: 800; letter-spacing: 2px; color: #5E6B8C; padding: 14px 4px; text-align: center; }
+
+    /* ---- 32-player CTF lobby: two team columns of chips (chips stay inert
+       spans — pad nav only ever targets buttons) ---- */
+    #playerList.teamcols { display: flex; gap: 18px; justify-content: center; align-items: flex-start; flex-wrap: nowrap; width: min(880px, 92vw); max-height: 24vh; overflow-y: auto; }
+    #playerList.teamcols .tcol { flex: 1 1 0; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; align-content: flex-start; }
+    #playerList.teamcols .tcol .thead { width: 100%; text-align: center; font-size: 10px; font-weight: 800; letter-spacing: 2px; margin-bottom: 2px; }
   </style>
 </head>
 <body>
@@ -151,7 +166,8 @@
       <div id="menu" class="screen">
         <!-- MAIN -->
         <div class="mpage" id="pageMain">
-          <h1>HOLD<span>OUT</span> <em>HD</em></h1>
+          <h1>MONO<span>LYTHIUM</span></h1>
+          <p class="sub">&mdash; THE ANCHORFALL &mdash;</p>
           <p class="tag">Hold the line. Rescue the lost. Reach the exit.</p>
           <button id="btnSingle">Singleplayer</button>
           <button id="btnVersus">Versus</button>
@@ -179,6 +195,8 @@
           <h2>Versus &mdash; Couch</h2>
           <p class="tag">2&ndash;4 players, one screen</p>
           <button id="btnCtf" hidden>Capture the Flag</button>
+          <!-- mirrors the Online-page cycler: couch CTF uses the same persisted pick -->
+          <button id="btnCtfMapV" class="ghost" hidden>CTF map: &mdash;</button>
           <button id="btnBr" hidden>Battle Royale</button>
           <button class="ghost mback">Back</button>
         </div>
@@ -186,17 +204,33 @@
         <!-- ONLINE -->
         <div class="mpage" id="pageOnline" hidden>
           <h2>Online</h2>
-          <p class="tag">host a room, or join with a code &mdash; 4 couch seats per machine, 8 per room</p>
+          <p class="tag">host a room, browse public games, or join with a code &mdash; 4 couch seats per machine &middot; co-op rooms hold 8, CTF 32, Royale 16</p>
           <button id="btnHost">Host Classic</button>
           <button id="btnHostStory">Host Story</button>
           <button id="btnHostBastion" hidden>Host Stronghold</button>
           <button id="btnHostCtf" hidden>Host CTF</button>
           <button id="btnHostBr" hidden>Host Battle Royale</button>
+          <!-- ctf map choice (shows once 2+ ctf maps ship) — cycles, persisted;
+               rides the host message levelIdx like stronghold hosting does -->
+          <button id="btnCtfMap" class="ghost" hidden>CTF map: &mdash;</button>
+          <!-- room visibility for the NEXT hosted room, persisted per mode
+               group: co-op rooms default Private, versus rooms default Public -->
+          <button id="btnVisCoop" class="ghost">Co-op visibility: Private</button>
+          <button id="btnVisVersus" class="ghost" hidden>Versus visibility: Public</button>
+          <button id="btnBrowse">Browse Games</button>
           <div class="joinrow">
             <input id="joinCode" placeholder="CODE" maxlength="4" autocomplete="off">
             <button id="btnJoin">Join Online</button>
           </div>
           <button class="ghost mback">Back</button>
+        </div>
+
+        <!-- BROWSE PUBLIC GAMES -->
+        <div class="mpage" id="pageBrowse" hidden>
+          <h2>Browse Games</h2>
+          <p class="tag">public rooms &mdash; refreshes every 5s &middot; LIVE CTF matches are joinable mid-game</p>
+          <div id="browseList"></div>
+          <button class="ghost mback" data-back="pageOnline">Back</button>
         </div>
 
         <!-- SETTINGS -->
