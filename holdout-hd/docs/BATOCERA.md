@@ -45,10 +45,33 @@ The game uses the browser Gamepad API — pads just work, including DualSense
 | Fire | Cross or R2 | A or RT |
 | Talk / Build (hold) | Square | X |
 | Special | Circle or R1 | B or RB |
+| Item (use / drop weapon) | Triangle | Y |
+| Full-map overlay (hold) | Select (Create/Share) | Back/View |
 | Pause / menu nav | Options | Start |
 
+**Hold Select for the map**: on Story, Stronghold, and expedition missions the
+full-map overlay is fog-of-war aware — it only shows territory the squad has
+explored.
+
+These are the defaults. **Settings → Input remapping** rebinds any action per
+device (each keyboard seat and the shared gamepad layout): pick the action,
+press the new button, done — bindings persist in the browser, with a one-press
+reset per device. The in-game controls overlay always shows the live,
+remap-aware bindings.
+
 Everyone presses FIRE in the lobby to join — no keyboard or mouse needed
-anywhere, menus are fully pad-navigable.
+anywhere, menus are fully pad-navigable. With 2+ pads, Settings → Splitscreen
+(Off / Dynamic / Always) controls the couch camera; couch Battle Royale always
+splits.
+
+## Audio
+
+The full HOLDOUT audio pack (~460 ogg ambient/effects/voice clips plus the
+EVA `.m4a` voice pack) ships inside `dist/assets/` — no extra download.
+`play.sh` launches Chromium with autoplay enabled so sound starts immediately;
+in a plain browser, audio wakes on the first click or button press. If a clip
+ever fails to load, the built-in synth engine covers the cue — the game never
+goes silent. The audio toggle lives in Settings.
 
 ## Alternative: LAN server (enables online co-op too)
 

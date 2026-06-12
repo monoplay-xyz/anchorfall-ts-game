@@ -6,7 +6,7 @@ import { render, renderMinimap, addEventFX, initTextures, drawPortrait, drawWeap
 // Namespace import so optional renderer features (cutscenes, menu backdrop) can
 // ship independently — accessed via renderMod.* with runtime existence checks.
 import * as renderMod from './render.js';
-import { playEvent, playUi, setupAudioToggle } from './audio.js';
+import { playEvent, playUi, setupAudioToggle, setMusicVolume, setVoiceVolume, setSfxVolume } from './audio.js';
 
 const characters = await (await fetch('/shared/characters.json')).json();
 const charMap = charsById(characters);
@@ -407,6 +407,13 @@ function navTick(polled) {
     if (screen === 'menu' && (st.specialJust || st.startJust)) {
       st.specialJust = st.startJust = false;
       if (menuBack()) return;
+    }
+    // volume rows (Settings): LEFT/RIGHT nudges the focused row by 10%
+    if (screen === 'menu' && navEl?.dataset?.vol && (st.leftJust || st.rightJust)) {
+      const d = st.rightJust ? 10 : -10;
+      st.leftJust = st.rightJust = false;
+      adjustVolume(navEl.dataset.vol, d);
+      navDev = dev;
     }
     const gridEl = screen === 'menu' ? navEl?.closest?.('.navgrid') : null;
     if (gridEl && (st.leftJust || st.rightJust)) {
@@ -886,6 +893,115 @@ function fogActive() {
   return !!(session.story || session.bastionMode?.() || session.expedition);
 }
 
+// ---------- dynamic splitscreen (1..4 local viewports on the one canvas) ----
+// Settings: Off | Dynamic | Always (persisted). Off keeps today's shared
+// camera. Dynamic shares the camera while every local seat still fits at a
+// readable zoom and SPLITS once they spread past it — hysteresis (split when
+// they'd need < 0.62, merge once they'd fit again at >= 0.78) stops border
+// flicker, and the viewport bounds lerp through a fast 0.25s transition.
+// Always splits whenever 2+ local seats are in the field. Couch Battle
+// Royale FORCES Always while >1 local seat (opponents never share a camera).
+// The client only drives view rects each frame; renderMod.renderViews draws
+// them (typeof-guarded — until it ships, render() stays single-view). Demo
+// mode, menus, lobbies, cutscenes and all DOM overlays stay full-canvas.
+//
+// views[] contract (consumed by render.js renderViews):
+//   { id,            stable per-view camera key ('p<pid>' | 'map')
+//     kind,          'player' | 'map' (3 seats: the 4th cell is a full map)
+//     rect,          { x, y, w, h } viewport in canvas px (lerped in transit)
+//     pid,           the seat's player id (null for the map cell)
+//     seat,          cell index (seat order = cell order)
+//     name, color,   the cell's name+hearts chip styling
+//     mask, focus }  map cell only: fog mask (null = no fog) + local pid Set
+const SPLIT_KEY = 'holdout-hd.splitscreen';
+const SPLIT_MODES = ['off', 'dynamic', 'always'];
+const SPLIT_LABEL = { off: 'Off', dynamic: 'Dynamic', always: 'Always' };
+let splitMode = localStorage.getItem(SPLIT_KEY);
+if (!SPLIT_MODES.includes(splitMode)) splitMode = 'dynamic';
+const SPLIT_OUT = 0.62;     // dynamic: split when locals no longer fit at this zoom
+const SPLIT_IN = 0.78;      // dynamic: merge once they'd fit at this zoom again
+const SPLIT_T = 0.25;       // transition seconds (viewport bounds lerp)
+const CAM_PAD = TILE * 4.5; // matches the shared camera's bbox padding
+const split = { session: null, on: false, k: 0 };
+
+function localSeatInfo() {
+  if (!session || demoMode) return []; // demo/attract stays single-view
+  return session.localSeats?.() ?? [];
+}
+// Zoom at which ONE shared camera would fit every ACTIVE local seat (the
+// shared camera's own bbox-fit math). Infinity when 0-1 are active — a lone
+// survivor always "fits", so dynamic mode merges while teammates are down.
+function localFitZoom(snap, pids, vw, vh) {
+  // mirror computeCamera's whole-map branch (render.js): a map the shared
+  // camera frames whole-screen can never need a split
+  if (Math.min(vw / (snap.w * TILE), vh / (snap.h * TILE)) >= 0.8) return Infinity;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity, n = 0;
+  for (const p of snap.players ?? []) {
+    if (p.state !== 'active' || !pids.has(p.pid)) continue;
+    n++;
+    minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+    minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+  }
+  if (n < 2) return Infinity;
+  return Math.min(vw / (maxX - minX + CAM_PAD * 2), vh / (maxY - minY + CAM_PAD * 2));
+}
+// Per-frame split/merge state machine. Returns views[] while split (or mid-
+// transition), null for the classic single-view render().
+function splitViews(snap, dt) {
+  if (split.session !== session) { split.session = session; split.on = false; split.k = 0; }
+  // a seat only counts once its pid exists in the snapshot (net seats can be
+  // claimed mid-lobby; a dead seat's pid leaves the player list)
+  const seats = localSeatInfo()
+    .filter(s => (snap.players ?? []).some(p => p.pid === s.pid))
+    .slice(0, 4);
+  if (seats.length < 2) { split.on = false; split.k = 0; return null; }
+  let want;
+  if (session.versusMode?.() === 'br') want = true; // couch-BR: forced Always
+  else if (splitMode === 'always') want = true;
+  else if (splitMode === 'dynamic') {
+    const fz = localFitZoom(snap, new Set(seats.map(s => s.pid)), canvas.width, canvas.height);
+    want = fz < (split.on ? SPLIT_IN : SPLIT_OUT); // hysteresis — no flicker
+  } else want = false; // 'off'
+  split.on = want;
+  split.k = Math.max(0, Math.min(1, split.k + (dt / SPLIT_T) * (want ? 1 : -1)));
+  return split.k > 0 ? buildViews(snap, seats) : null;
+}
+// Layouts: 2 seats = vertical halves (P1 left); 3 seats = 2x2 grid with the
+// 4th cell a fog-aware FULL-MAP view; 4 seats = 2x2 quadrants in seat order.
+// During the transition the primary cell lerps from full-canvas while the
+// other cells grow in from their canvas edge/corner (a merge runs the same
+// lerp backwards, so secondary cells shrink away as P1 retakes the screen).
+function buildViews(snap, seats) {
+  const W = canvas.width, H = canvas.height;
+  const k = split.k, e = k * k * (3 - 2 * k); // smoothstep the bounds lerp
+  const L = (a, b) => Math.round(a + (b - a) * e);
+  const lerpRect = (a, b) => ({ x: L(a.x, b.x), y: L(a.y, b.y), w: L(a.w, b.w), h: L(a.h, b.h) });
+  const full = { x: 0, y: 0, w: W, h: H };
+  const hw = Math.round(W / 2), hh = Math.round(H / 2);
+  const two = seats.length === 2;
+  const cells = two
+    ? [{ x: 0, y: 0, w: hw, h: H }, { x: hw, y: 0, w: W - hw, h: H }]
+    : [{ x: 0, y: 0, w: hw, h: hh }, { x: hw, y: 0, w: W - hw, h: hh },
+       { x: 0, y: hh, w: hw, h: H - hh }, { x: hw, y: hh, w: W - hw, h: H - hh }];
+  const anchors = two
+    ? [full, { x: W, y: 0, w: 0, h: H }]
+    : [full, { x: W, y: 0, w: 0, h: 0 }, { x: 0, y: H, w: 0, h: 0 }, { x: W, y: H, w: 0, h: 0 }];
+  const views = seats.map((s, i) => ({
+    id: 'p' + s.pid, kind: 'player', pid: s.pid, seat: i,
+    name: s.name, color: PCOLORS[i],
+    rect: lerpRect(anchors[i], cells[i]),
+  }));
+  if (seats.length === 3) {
+    views.push({
+      id: 'map', kind: 'map', pid: null, seat: 3,
+      mask: fogActive() ? (renderMod.exploreMask?.(snap) ?? null) : null,
+      focus: new Set(seats.map(s => s.pid)),
+      rect: lerpRect(anchors[3], cells[3]),
+    });
+  }
+  return views;
+}
+
 // ---------- wave countdown (center-top blinking banner) ----------
 // Driven from snap.cycle (<15s to dusk), the BR zone clock and the CTF
 // sudden-death timer — every read optional so classic snapshots no-op.
@@ -936,6 +1052,11 @@ function updateControlsOverlay(snap, me) {
     `ITEM  ${k('item')} · ${pb('item')}`,
     `MAP   hold ${k('map')} · ${pb('map')}`,
   ];
+  // couch with 2+ seats: surface the live splitscreen mode (Settings cycles
+  // Off/Dynamic/Always; couch Battle Royale always splits, setting or not)
+  if (localSeatInfo().length > 1) {
+    rows.push(`VIEW  SPLIT ${session.versusMode?.() === 'br' ? 'ALWAYS (BR)' : SPLIT_LABEL[splitMode].toUpperCase()}`);
+  }
   let hint = '';
   if (me && me.state === 'active') {
     const near = (o) => o && ((o.x - me.x) ** 2 + (o.y - me.y) ** 2) < (1.5 * TILE) ** 2;
@@ -1079,6 +1200,9 @@ class LocalSession {
   }
   focusPids() { return new Set(this.players.map(p => p.pid)); }
   primaryPid() { return 0; }
+  // splitscreen seats: join order = cell order (demo bots never split —
+  // localSeatInfo gates on demoMode before this is consulted)
+  localSeats() { return this.players.map(p => ({ pid: p.pid, name: p.name })); }
   levelIdxView() { return this.levelIdx; }
   levelList() { return this.levels; }
   versusMode() { return this.mode; }
@@ -1554,6 +1678,17 @@ class NetSession {
   pickOf(pid) { return this.lobbyData?.players.find(p => p.pid === pid)?.charId || null; }
   focusPids() { return this.seats.size ? new Set(this.seats.values()) : new Set([this.myPid]); }
   primaryPid() { return this.myPid; }
+  // splitscreen: ONLY this machine's couch seats split (insertion order =
+  // seat order); a mouse-only machine (no bound seats) keeps the shared view
+  // and the server/other machines are untouched either way
+  localSeats() {
+    return [...this.seats.values()].map((pid, i) => ({
+      pid,
+      name: this.lobbyData?.players.find(p => p.pid === pid)?.name
+        ?? this.snap?.players?.find(p => p.pid === pid)?.name
+        ?? 'P' + (i + 1),
+    }));
+  }
   levelIdxView() { return this.lobbyData?.levelIdx ?? 0; }
   levelList() {
     const md = this.lobbyData?.mode;
@@ -2147,6 +2282,65 @@ $('btnCtrlHud').onclick = e => {
   ctrlHudSync();
 };
 ctrlHudSync();
+// splitscreen mode: Off -> Dynamic -> Always (persisted; default Dynamic)
+const splitSync = () => { $('btnSplitscreen').textContent = `Splitscreen: ${SPLIT_LABEL[splitMode]}`; };
+$('btnSplitscreen').onclick = e => {
+  e.currentTarget.blur();
+  splitMode = SPLIT_MODES[(SPLIT_MODES.indexOf(splitMode) + 1) % SPLIT_MODES.length];
+  try { localStorage.setItem(SPLIT_KEY, splitMode); } catch {}
+  splitSync();
+};
+splitSync();
+// game zoom: 100% -> 115% -> 130% -> 150% (persisted; pad-cyclable like the
+// splitscreen button). Scales every camera's zoom bounds in render.js so the
+// world reads larger on couch TVs — single view and split views alike.
+const ZOOM_KEY = 'holdout-hd.zoom';
+const ZOOM_STEPS = [100, 115, 130, 150];
+let gameZoom = +(localStorage.getItem(ZOOM_KEY) || 100);
+if (!ZOOM_STEPS.includes(gameZoom)) gameZoom = 100;
+const zoomSync = () => {
+  $('btnGameZoom').textContent = `Game zoom: ${gameZoom}%`;
+  renderMod.setViewZoom?.(gameZoom / 100); // applied on boot + every change
+};
+$('btnGameZoom').onclick = e => {
+  e.currentTarget.blur();
+  gameZoom = ZOOM_STEPS[(ZOOM_STEPS.indexOf(gameZoom) + 1) % ZOOM_STEPS.length];
+  try { localStorage.setItem(ZOOM_KEY, String(gameZoom)); } catch {}
+  zoomSync();
+};
+zoomSync();
+// volume rows: Music & ambience / Voice (EVA + dialogue) / Effects, persisted
+// 0-100 in steps of 10 (defaults 70/100/100). Pad/keys LEFT-RIGHT adjust the
+// focused row (see navTick); FIRE/click steps up and wraps past 100 to 0.
+// The master Audio toggle above is unchanged and still gates everything.
+const VOL_KEY = 'holdout-hd.volumes';
+const VOL_DEF = { music: 70, voice: 100, sfx: 100 };
+const VOL_BTN = { music: 'btnVolMusic', voice: 'btnVolVoice', sfx: 'btnVolSfx' };
+const VOL_NAME = { music: 'Music & ambience', voice: 'Voice (EVA + dialogue)', sfx: 'Effects' };
+const VOL_SET = { music: setMusicVolume, voice: setVoiceVolume, sfx: setSfxVolume };
+let vols = {};
+try { vols = JSON.parse(localStorage.getItem(VOL_KEY)) || {}; } catch {}
+for (const k of Object.keys(VOL_DEF)) {
+  const v = +vols[k];
+  vols[k] = Number.isFinite(v) ? Math.max(0, Math.min(100, Math.round(v / 10) * 10)) : VOL_DEF[k];
+}
+const volSync = k => {
+  $(VOL_BTN[k]).textContent = `${VOL_NAME[k]}: ${vols[k]}%`;
+  VOL_SET[k](vols[k] / 100); // applied on boot + every change
+};
+function adjustVolume(k, d) {
+  // d = ±10 (pad LEFT/RIGHT, clamped); d = 0 means click/FIRE (wrap upward)
+  vols[k] = d === 0
+    ? (vols[k] >= 100 ? 0 : vols[k] + 10)
+    : Math.max(0, Math.min(100, vols[k] + d));
+  try { localStorage.setItem(VOL_KEY, JSON.stringify(vols)); } catch {}
+  volSync(k);
+  playUi('uiTick'); // audible feedback at the new mix
+}
+for (const k of Object.keys(VOL_DEF)) {
+  $(VOL_BTN[k]).onclick = e => { e.currentTarget.blur(); adjustVolume(k, 0); };
+  volSync(k);
+}
 $('nameInput').value = localStorage.getItem('holdout.name') || '';
 $('nameInput').onchange = () => localStorage.setItem('holdout.name', $('nameInput').value);
 
@@ -2339,7 +2533,13 @@ function frame(now) {
     } else {
       const snap = session.snap;
       if (snap) {
-        render(ctx, snap, charMap, session.focusPids(), now / 1000, dt);
+        // dynamic splitscreen: views[] while split (or mid-transition), null
+        // for the classic shared camera. renderViews is typeof-guarded — the
+        // render module's split pass ships separately, and until it lands
+        // (or with 0-1 local seats / Off / demo) render() stays single-view.
+        const views = typeof renderMod.renderViews === 'function' ? splitViews(snap, dt) : null;
+        if (views) renderMod.renderViews(ctx, snap, charMap, views, now / 1000, dt);
+        else render(ctx, snap, charMap, session.focusPids(), now / 1000, dt);
         updateHUD(snap);
         // hold-MAP full-map overlay (pad SELECT / Tab / M) — play only;
         // lobbies, menus and dialogs ignore the map button entirely

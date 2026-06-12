@@ -1,5 +1,15 @@
 let ctx = null;
 let master = null;
+// Settings volume buses, all feeding master (so the Audio toggle still gates
+// everything): musicBus carries the ambient bed + every music-ish bed (the
+// whole amb.out field), voiceBus carries the EVA announcer + NPC dialogue
+// clips, sfxBus carries everything else (synth engine, pack cues, combat
+// vocals). Defaults 70/100/100, persisted client-side; see the exported
+// setMusicVolume/setVoiceVolume/setSfxVolume setters below.
+let musicBus = null;
+let voiceBus = null;
+let sfxBus = null;
+const vols = { music: 0.7, voice: 1, sfx: 1 };
 let muted = false;
 let storageKey = 'holdout.audio.muted';
 
@@ -11,6 +21,10 @@ function ensureAudio() {
     ctx = new AudioCtx();
     master = ctx.createGain();
     master.connect(ctx.destination);
+    const bus = v => { const g = ctx.createGain(); g.gain.value = v; g.connect(master); return g; };
+    musicBus = bus(vols.music);
+    voiceBus = bus(vols.voice);
+    sfxBus = bus(vols.sfx);
   }
   if (ctx.state === 'suspended') ctx.resume().catch(() => {});
   master.gain.value = muted ? 0 : 0.55;
@@ -19,16 +33,32 @@ function ensureAudio() {
   return ctx;
 }
 
+// Settings > volume rows. v in 0..1; values land before OR after the ctx is
+// born (the buses pick vols up at creation). The master toggle is unchanged.
+const vol01 = v => { const n = +v; return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 1; };
+export function setMusicVolume(v) {
+  vols.music = vol01(v);
+  if (musicBus) musicBus.gain.value = vols.music;
+}
+export function setVoiceVolume(v) {
+  vols.voice = vol01(v);
+  if (voiceBus) voiceBus.gain.value = vols.voice;
+}
+export function setSfxVolume(v) {
+  vols.sfx = vol01(v);
+  if (sfxBus) sfxBus.gain.value = vols.sfx;
+}
+
 // ============================== ASSET LIBRARY ==============================
-// The HOLDOUT audio pack lives at /assets/audio/<category>/... (465 opus .ogg
+// The HOLDOUT audio pack lives at /assets/audio/<category>/... (463 opus .ogg
 // clips: ambient beds, sci-fi interaction cues, enemy combat vocals, Karen &
 // Ian NPC voice lines, crash effects). This layer is ASSET-FIRST: each cue
 // names a list of files; playback rotates through the list DETERMINISTICALLY
 // via a per-mission counter (never Math.random — every couch hears the same
 // take order). Clips lazy-load on first use, are gesture-gated by riding the
-// existing ctx, route through `master` (audio toggle silences them), and a
-// missing/still-loading clip silently falls back to the synth engine below —
-// the game never goes quiet and never throws.
+// existing ctx, route through the sfx bus into `master` (audio toggle
+// silences them), and a missing/still-loading clip silently falls back to the
+// synth engine below — the game never goes quiet and never throws.
 const FILES = new Map(); // rel -> { state: 'loading'|'ready'|'missing', buf }
 let seq = new Map();     // cue key -> per-mission rotation counter
 let cueGateAt = new Map(); // cue key -> earliest next allowed play (cooldowns)
@@ -71,7 +101,7 @@ function playFile(list, key, vol = 0.5, rate = 1, dest = null) {
     const g = ctx.createGain();
     g.gain.value = vol;
     src.connect(g);
-    g.connect(dest || master);
+    g.connect(dest || sfxBus);
     src.start();
     return true;
   } catch {
@@ -160,16 +190,17 @@ function npcVoice(id) {
 
 // ============================== AMBIENT LOOP ==============================
 // A very quiet generative bed — low drone + sparse pentatonic plucks, the
-// Monolythium night mood under couch-TV gameplay. Routed through `master`,
-// so the existing audio toggle silences it instantly. Started once, lazily,
-// from ensureAudio (which only ever runs off a user gesture or game sound).
+// Monolythium night mood under couch-TV gameplay. Routed through the music
+// bus into `master`, so the Music & ambience volume scales it and the audio
+// toggle still silences it instantly. Started once, lazily, from ensureAudio
+// (which only ever runs off a user gesture or game sound).
 let amb = null;
 
 function startAmbient() {
   if (amb || !ctx) return;
   const now = ctx.currentTime;
   const out = ctx.createGain(); // the whole bed routes through here so EVA can duck it
-  out.connect(master);
+  out.connect(musicBus); // amb.out carries every music-ish bed -> music volume
   const bed = ctx.createGain();
   bed.gain.setValueAtTime(0.0001, now);
   bed.gain.exponentialRampToValueAtTime(0.16, now + 8); // slow fade-in
@@ -628,7 +659,8 @@ function evaLoad(id) {
 }
 
 // The comms chain: telephone-band bandpass (hp 320 / lp 3400) with a small
-// presence peak. Built once, feeds master so the audio toggle governs it.
+// presence peak. Built once, feeds the voice bus into master so the Voice
+// volume scales her and the audio toggle still governs it.
 function evaOut() {
   if (evaChain) return evaChain;
   const inG = ctx.createGain();
@@ -639,7 +671,7 @@ function evaOut() {
   lp.type = 'lowpass'; lp.frequency.value = 3400; lp.Q.value = 0.8;
   const pres = ctx.createBiquadFilter();
   pres.type = 'peaking'; pres.frequency.value = 1800; pres.gain.value = 4; pres.Q.value = 1;
-  inG.connect(hp); hp.connect(lp); lp.connect(pres); pres.connect(master);
+  inG.connect(hp); hp.connect(lp); lp.connect(pres); pres.connect(voiceBus);
   evaChain = inG;
   return evaChain;
 }
@@ -763,7 +795,7 @@ function tone(freq, dur, type = 'square', gain = 0.14, slide = 1, dest = null) {
   vol.gain.exponentialRampToValueAtTime(gain, now + 0.01);
   vol.gain.exponentialRampToValueAtTime(0.0001, now + dur);
   osc.connect(vol);
-  vol.connect(dest || master);
+  vol.connect(dest || sfxBus);
   osc.start(now);
   osc.stop(now + dur + 0.02);
 }
@@ -785,7 +817,7 @@ function noise(dur, gain = 0.12, filterFreq = 1200, dest = null) {
   vol.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + dur);
   src.connect(filt);
   filt.connect(vol);
-  vol.connect(dest || master);
+  vol.connect(dest || sfxBus);
   src.start();
 }
 
@@ -832,11 +864,12 @@ const GLYPH_TONES = [261.63, 293.66, 329.63, 392, 440, 523.25, 587.33, 659.25];
 
 // One NPC voice line, polarity-matched, twice gated (a global breath between
 // any two lines plus a per-polarity cooldown). Returns true when VO played.
+// Dialogue rides the voice bus (with EVA), not the sfx bus.
 function sayVO(pol, voice, vol = 0.55, cd = 1.2) {
   const lines = DIALOGUE[pol]?.[voice];
   if (!lines) return false;
   if (!cueGate('vo-any', 0.8) || !cueGate(`vo-${pol}`, cd)) return false;
-  return playFile(lines, `vo-${pol}-${voice}`, vol);
+  return playFile(lines, `vo-${pol}-${voice}`, vol, 1, voiceBus);
 }
 
 // Additive combat-vocal flavor on top of the synth hits (never replaces the

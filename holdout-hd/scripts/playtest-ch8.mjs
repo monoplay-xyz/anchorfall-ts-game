@@ -1,10 +1,23 @@
 // Headless playtest: STORY CHAPTER VIII (levels/story/ch08.json, "The Prover Array").
 // Four scripted operatives drive the full chapter through the real sim:
 //
-//   pid 0  LANCE  sniper  pillar demolition (rail + railcannon), sw4
-//   pid 1  RUNNER scout   quest talks, proof fragment, seal forge, vault, sw5-8
-//   pid 2  GHOST  shade   chest economy, sw3, the completion-talk round trip
-//   pid 3  SPARK  volt    chests, stormgun, save beacon, sw9
+//   pid 0  LANCE  sniper  the ball's long gun (rail only — no railcannon ammo
+//                         to waste on husks), pillar finisher, sw4
+//   pid 1  RUNNER scout   quest talks, proof fragment, seal forge, vault sweep, sw5-8
+//   pid 2  GHOST  shade   deep-slot pillar finisher, sw3, the completion-talk round trip
+//   pid 3  SPARK  volt    stormgun, save beacon, sweep support, sw9
+//
+// DEATHBALL DOCTRINE: the whole squad marches as one 4-gun ball through the
+// entire prep arc (sel-brakka -> forge quarter -> NW pillar camp -> mint ->
+// archive strip -> eastern colonnade -> muster -> boss nook -> vault sweep),
+// with regroup waits stitching the legs. Solo errands kept dying to camps.
+// The vault assault is GATED: nobody engages until every seat is parked on
+// its muster wait with every pillar down (flags.muster), the boss is pulled
+// up the nook corridor into four anchored guns, and the vault interior (ward
+// acolytes + the phase stalker that assassinated Runner in earlier drafts)
+// is swept clean (flags.vaultSwept) before the first relay is thrown. The
+// sleeping brood south of the vault (spawner @78,53) and the nest sniper
+// @85,42 are walled off LOS-wise and deliberately never woken.
 //
 // Mission beats verified, in order:
 //   - quests activate at sel-brakka; untimed story clock (timeLeft frozen)
@@ -33,6 +46,7 @@ const charMap = charsById(characters);
 
 const DT = 1 / 30;
 const DEBUG = +(process.env.CH8_DEBUG || 0);
+const TRACE = process.env.CH8_TRACE ? process.env.CH8_TRACE.split(',').map(Number) : []; // [pid, fromT, toT]
 const checks = [];
 const issues = [];
 function check(name, ok, detail = '') {
@@ -176,6 +190,7 @@ function combatReflex(g, bot, p, inp, engageT) {
   let tgt = null, bd = Infinity, aco = null, ad = Infinity;
   for (const e of g.enemies) {
     if (e.dead) continue;
+    if ((bot.mem.banUntil?.get(e.id) ?? -1) > bot.mem.frame) continue; // proven whiff target
     const d = Math.hypot(e.x - p.x, e.y - p.y);
     const interested = (e.awake && d < engageT * TILE) || d < 4.5 * TILE;
     if (!interested) continue;
@@ -185,16 +200,37 @@ function combatReflex(g, bot, p, inp, engageT) {
   }
   if (!tgt) return false;
   if (aco && ad < engageT * TILE) { tgt = aco; bd = ad; } // priority kill
-  if (bd < 1.6 * TILE) {
-    // too close: give ground (movement sets facing, so no fire this frame)
+  // too close: give ground (movement sets facing, so no fire this frame) —
+  // EXCEPT from acolytes: they never raise a hand, so backing off from one
+  // is an endless no-fire dance. Stand on its toes and shoot it.
+  if (bd < 1.6 * TILE && tgt.kind !== 'acolyte') {
     const ux = (p.x - tgt.x) / (bd || 1), uy = (p.y - tgt.y) / (bd || 1);
     if (ux < -0.3) inp.left = true; else if (ux > 0.3) inp.right = true;
     if (uy < -0.3) inp.up = true; else if (uy > 0.3) inp.down = true;
     return true;
   }
-  if (bd > weaponRange(g, p) * TILE) return false; // out of reach: keep tasking
+  // out of true reach: keep tasking. Projectiles die at exactly range*TILE,
+  // so an enemy parked AT max range eats infinite whiffs while the reflex
+  // pins the bot in place — engage only what the shots can actually touch.
+  if (bd > (weaponRange(g, p) - 0.5) * TILE) return false;
   // never stand-and-fight ON a live pad — sidestep first
   if (onPadTile(g, p) && !bot.mem.padWait) { sidestepPad(g, p, inp); return true; }
+  // WHIFF BREAKER: bot losShot is a 12px-sampled ray — a corner the sampler
+  // misses can eat every real projectile, pinning the bot in an infinite
+  // stand-and-fire. 4s of zero hp progress on a distant target bans it for
+  // 10s and gives the task its legs back (close targets always stay live).
+  if (bd > 2.5 * TILE) {
+    const w = bot.mem.whiff;
+    if (w && w.id === tgt.id && tgt.hp >= w.hp) {
+      if (bot.mem.frame - w.t > 120) {
+        (bot.mem.banUntil ??= new Map()).set(tgt.id, bot.mem.frame + 300);
+        bot.mem.whiff = null;
+        return false;
+      }
+    } else {
+      bot.mem.whiff = { id: tgt.id, hp: tgt.hp, t: bot.mem.frame };
+    }
+  }
   aimAt(p, tgt.x, tgt.y, inp);
   return true;
 }
@@ -251,6 +287,7 @@ function walkTo(g, bot, p, gx, gy, inp, allowExit = false) {
 function think(g, bot, flags, frame) {
   const p = g.players[bot.pid];
   const inp = {};
+  bot.mem.frame = frame; // whiff-breaker clock
   if (!p || p.state !== 'active') {
     // down -> pick: confirm the first free operative so the seat comes back
     if (p && p.state === 'pick') { if (frame % 8 === 0) inp.fire = true; }
@@ -280,7 +317,10 @@ function think(g, bot, flags, frame) {
       break;
     }
     case 'wait': {
-      if (task.until(g, flags)) bot.ti++;
+      // optional timeout (frames): a regroup must never hang the campaign on
+      // one wedged straggler — the ball moves on and the straggler catches up
+      bot.mem.waitT = (bot.mem.waitT || 0) + 1;
+      if (task.until(g, flags) || (task.timeout && bot.mem.waitT > task.timeout)) { bot.ti++; bot.mem.waitT = 0; }
       else if (onPadTile(g, p)) sidestepPad(g, p, inp);
       break;
     }
@@ -304,6 +344,20 @@ function think(g, bot, flags, frame) {
     case 'shoot': { // stand off and pour fire until the condition clears
       if (task.until(g, flags)) { bot.ti++; break; }
       const tx = task.x * TILE, ty = task.y * TILE;
+      // ANCHORED fire: hold a fixed stand and shoot only from there (no
+      // creeping toward the target down a death alley); combatReflex still
+      // owns anything that closes — the anchor is where the fight is taken
+      if (task.holdX !== undefined) {
+        const hx = task.holdX * TILE, hy = task.holdY * TILE;
+        if (Math.hypot(hx - p.x, hy - p.y) > 1.0 * TILE) {
+          walkTo(g, bot, p, hx, hy, inp);
+        } else if (onPadTile(g, p)) {
+          sidestepPad(g, p, inp);
+        } else if (losShot(g, p.x, p.y, tx, ty) && Math.hypot(tx - p.x, ty - p.y) <= weaponRange(g, p) * TILE) {
+          aimAt(p, tx, ty, inp);
+        }
+        break;
+      }
       const standoff = Math.min(task.range ?? 7, weaponRange(g, p) - 0.8);
       const d = Math.hypot(tx - p.x, ty - p.y);
       if (d > standoff * TILE || !losShot(g, p.x, p.y, tx, ty)) {
@@ -318,7 +372,16 @@ function think(g, bot, flags, frame) {
     case 'touchdoor': { // sealLock doors swing on lythseal touch
       const d = g.doors.find(dd => dd.id === task.id);
       if (!d || d.open) { bot.ti++; break; }
-      walkTo(g, bot, p, (d.x + 0.5) * TILE, (d.y + d.h / 2) * TILE, inp);
+      const cx = (d.x + d.w / 2) * TILE, cy = (d.y + d.h / 2) * TILE;
+      if (Math.hypot(cx - p.x, cy - p.y) > TILE * 2.2) {
+        walkTo(g, bot, p, cx, cy, inp);
+      } else {
+        // close: walkTo would declare arrival a hair OUTSIDE the touch ring
+        // (the goal tile is the door itself), so nudge straight into the
+        // rect until the seal registers — collision pins us at contact
+        if (cx < p.x - 2) inp.left = true; else if (cx > p.x + 2) inp.right = true;
+        if (cy < p.y - 2) inp.up = true; else if (cy > p.y + 2) inp.down = true;
+      }
       break;
     }
   }
@@ -327,6 +390,9 @@ function think(g, bot, flags, frame) {
 
 // --- mission script ---------------------------------------------------------------
 const PILL = id => g => !g.pillars.some(pl => pl.id === id);
+// stationary kinds can be addressed by their home tile (they never move)
+const NEST = (kind, tx, ty) => g => !g.enemies.some(e => !e.dead && e.kind === kind
+  && Math.floor(e.x / TILE) === tx && Math.floor(e.y / TILE) === ty);
 const SW = id => g => !!g.switches.find(s => s.id === id)?.on;
 const CHEST = (tx, ty) => g => !!g.chests.find(c => Math.floor(c.x / TILE) === tx && Math.floor(c.y / TILE) === ty)?.opened;
 const at = (g, pid, tx, ty, r = 3) => {
@@ -336,119 +402,214 @@ const at = (g, pid, tx, ty, r = 3) => {
 const VAULT_BOSS = { x: 69.5, y: 46.5 };
 const CORE_BOSS = { x: 86.5, y: 32.5 };
 const MUSTER = { x: 57.5, y: 37.5 };
-const vaultAssault = [
-  { t: 'walk', x: MUSTER.x, y: MUSTER.y },
-  { t: 'wait', until: (g, f) => f.muster },
-  { t: 'shoot', x: VAULT_BOSS.x, y: VAULT_BOSS.y, range: 9, until: (g, f) => f.vaultBossDead },
-];
-const coreAssault = pid => [
-  { t: 'wait', until: (g, f) => f.coreOpen },
-  { t: 'walk', x: 78.5, y: 31.5 + (pid % 2) },
-  { t: 'shoot', x: CORE_BOSS.x, y: CORE_BOSS.y, range: 9, until: (g, f) => f.coreBossDead || g.elapsed > f.coreOpenT + 120 },
-];
 
-// after their own success throw, each outer bot backs up a missing voice
-const backup = (pid, sx, standX, standY) => ([
-  { t: 'wait', until: (g, f) => f.quorum || g.elapsed > f.goSuccessT + 25 + pid * 18 },
-  { t: 'walk', x: standX, y: standY, skipIf: (g, f) => f.quorum },
-  { t: 'act', check: g => SW(sx)(g), skipIf: (g, f) => f.quorum },
+// DEATHBALL DOCTRINE. Every camp on this map can kill one or two 3-hp
+// operatives but folds to four overlapping guns, so the squad moves as ONE
+// BALL through the whole prep arc: sel-brakka -> forge quarter -> NW pillar
+// camp -> forge mint -> archive strip -> eastern colonnade -> muster -> boss
+// nook -> vault sweep. Regroup waits stitch the legs together, and the
+// respawn-beside-an-ally rule means a lost operative re-picks and rejoins the
+// ball in seconds instead of soloing a hot map crossing.
+const together = g => {
+  const act = g.players.filter(p => p.state === 'active');
+  if (act.length <= 1) return true;
+  const cx = act.reduce((s, p) => s + p.x, 0) / act.length;
+  const cy = act.reduce((s, p) => s + p.y, 0) / act.length;
+  return act.every(p => Math.hypot(p.x - cx, p.y - cy) < 7 * TILE);
+};
+const REGROUP = { t: 'wait', until: together, timeout: 30 * 45 };
+
+// The shared ball march: sel-brakka muster -> west pad -> hask -> fragment
+// corner -> NW pillar-camp anchors -> forge yard -> north pad -> the archive
+// strip (regrouped at three checkpoints) -> east pad -> colonnade east
+// entrance. Per-seat business (talks, the mint, the scoop) rides on top.
+const ballTo = wps => wps.flatMap(([x, y]) => ([{ t: 'walk', x, y }, REGROUP]));
+
+// The boss assault: hold an ANCHOR at the nook corridor mouth and let the
+// boss walk INTO the guns — Lance's rail wakes and bleeds it from 9 tiles,
+// the corridor funnels it, and the open rows 31-32 behind the anchors give
+// every back-off somewhere safe to go. (The free-roaming version walked the
+// squishies down the canal dead-end at x65 and they died there one by one.)
+const bossAssault = (hx, hy) => ([
+  { t: 'walk', x: MUSTER.x, y: MUSTER.y },
+  { t: 'wait', tag: 'muster', until: (g, f) => f.muster },
+  { t: 'shoot', x: VAULT_BOSS.x, y: VAULT_BOSS.y, holdX: hx, holdY: hy, until: (g, f) => f.vaultBossDead },
 ]);
 
+// Colonnade pillar fire from a fixed anchor; a pillar beyond this seat's
+// reach leaves the seat standing guard at the anchor until the rail (or the
+// advancing pair) fells it — the until() passes either way.
+const PILL_X = { pl0: 20.5, pl1: 23.5, pl2: 26.5, pl3: 58.5, pl4: 61.5, pl5: 64.5 };
+const PILL_Y = { pl0: 8.5, pl1: 8.5, pl2: 8.5, pl3: 22.5, pl4: 22.5, pl5: 22.5 };
+const pillShots = (holdX, holdY, pills) => pills.map(id => ({
+  t: 'shoot', x: PILL_X[id], y: PILL_Y[id], holdX, holdY, until: PILL(id),
+}));
+// the colonnade is taken from its EAST entrance: the nest sniper dies first
+// to four anchored guns parked inside its blind pocket
+const snipeNest = (hx, hy) => ({ t: 'shoot', x: 65.5, y: 26.5, holdX: hx, holdY: hy, until: NEST('sniper', 65, 26) });
+
+// Quorum throws are FIXED ASSIGNMENTS — exactly 6 voices in the deliberate
+// fail (Lance sw4, Runner sw5+6+7, Ghost sw3, Spark sw9) and exactly 7 in the
+// success run (the same six plus Runner's sw8), so the precise event counts
+// the verdicts demand can never drift.
+const coreAssault = (sx, sy, range) => ([
+  { t: 'wait', until: (g, f) => f.coreOpen },
+  { t: 'walk', x: sx, y: sy },
+  { t: 'shoot', x: CORE_BOSS.x, y: CORE_BOSS.y, range, until: (g, f) => f.coreBossDead || g.elapsed > f.coreOpenT + 120 },
+]);
+
+// the shared march, by leg (regroups included); the NW pillar-camp anchors
+// and colonnade anchors are per-seat and ride between these legs
+const MARCH = {
+  gather: [[12.5, 45.5]],            // form the ball at sel-brakka
+  west: [[14.5, 22.5], [13.5, 19.5]], // west pad a->b into the forge quarter
+  fragment: [[5.5, 5.5]],            // the proof-fragment corner
+  forgeYard: [[10.5, 12.5]],         // guard the mint
+  strip: [[27.5, 5.5], [42.5, 4.5], [57.5, 4.5], [70.5, 4.5], [84.5, 17.5], [82.5, 19.5], [70.5, 19.5]],
+};
+
 function buildBots() {
-  // pid 0 LANCE (sniper): NW pillar row, then the eastern colonnade with the railcannon
+  // pid 0 LANCE (sniper): the ball's long gun — rail lance only (the
+  // railcannon stays on its rack: reflex fire was draining it on husks long
+  // before any boss saw a shot). Solo-finishes whatever outranges the others.
   const lance = makeBot(0, [
     { t: 'wait', until: (g, f) => f.questsActive },
-    { t: 'walk', x: 14.5, y: 22.5 }, // pad route W into the forge quarter
+    ...ballTo([...MARCH.gather, ...MARCH.west, ...MARCH.fragment]),
     { t: 'walk', x: 17.5, y: 12.5 },
-    { t: 'shoot', x: 20.5, y: 8.5, range: 9, until: PILL('pl0') },
-    { t: 'shoot', x: 23.5, y: 8.5, range: 9, until: PILL('pl1') },
+    ...pillShots(17.5, 12.5, ['pl0']),
+    { t: 'shoot', x: 23.5, y: 8.5, range: 9, until: PILL('pl1') }, // approach: the camp is engaged by now
     { t: 'shoot', x: 26.5, y: 8.5, range: 9, until: PILL('pl2') },
-    { t: 'walk', x: 29.5, y: 13.6 }, { t: 'act', check: CHEST(29, 12) }, // medkit chest
-    { t: 'walk', x: 42.5, y: 4.5 },  // north pad -> archive strip
-    { t: 'walk', x: 50.5, y: 4.4 }, { t: 'act', check: CHEST(50, 3) },   // shard chest +10
-    { t: 'walk', x: 55.5, y: 6.5 }, { t: 'act', check: g => g.players[0].fieldWeapon?.kind === 'railcannon' }, // railcannon
-    { t: 'walk', x: 84.5, y: 17.5 }, // east pad pair down into the array floor
-    { t: 'walk', x: 70.5, y: 19.5 },
-    { t: 'shoot', x: 64.5, y: 22.5, range: 11, until: PILL('pl5') },
-    { t: 'shoot', x: 61.5, y: 22.5, range: 11, until: PILL('pl4') },
-    { t: 'shoot', x: 58.5, y: 22.5, range: 11, until: PILL('pl3') },
-    ...vaultAssault,
-    { t: 'walk', x: 60.5, y: 36.5 }, // hold OFF sw4 through the deliberate fail
+    ...ballTo(MARCH.forgeYard),
+    { t: 'wait', until: (g, f) => f.sealForged }, // guard the mint + settle talk
+    ...ballTo(MARCH.strip),
+    { t: 'wait', tag: 'east', until: (g, f) => f.eastReady },
+    snipeNest(69.5, 24.5),
+    ...pillShots(70.5, 20.5, ['pl5', 'pl4', 'pl3']), // pl3 anchors him as rear guard
+    ...bossAssault(69.5, 37.5), // rail reaches the sleeping boss from here
+    { t: 'walk', x: 68.5, y: 40.5 }, // cover the sweep from the nook mouth
+    { t: 'wait', until: (g, f) => f.vaultSwept },
+    { t: 'walk', x: 60.5, y: 39.6 }, // sw4 station (60,38)
+    { t: 'wait', until: (g, f) => f.goFail },
+    { t: 'act', check: SW('voice-4') }, // fail throw 1 of exactly 6
     { t: 'wait', until: (g, f) => f.switchReset },
     { t: 'walk', x: 60.5, y: 39.6 },
     { t: 'wait', until: (g, f) => f.goSuccess },
-    { t: 'act', check: SW('voice-4') }, // sw4 at (60,38)
-    ...backup(0, 'voice-2', 72.5, 27.6), // sw2 (72,26) if the quorum hangs
-    ...coreAssault(0),
+    { t: 'act', check: SW('voice-4') }, // success throw 1 of exactly 7
+    ...coreAssault(78.5, 31.5, 10),
     { t: 'walk', x: 85.5, y: 31.5 },
     { t: 'walk', x: 88.5, y: 31.5, allowExit: true }, // extract
   ]);
   lance.engageT = 10;
 
-  // pid 1 RUNNER (scout): quest giver, fragment, forge, vault, the inner four relays
+  // pid 1 RUNNER (scout): quest giver, fragment, forge, then the seal-bearer's
+  // duties — open the vault, sweep its wards, and throw the inner relays
   const runner = makeBot(1, [
     { t: 'walk', x: 10.5, y: 44.4 }, { t: 'act', check: (g, f) => f.questsActive }, // sel-brakka
-    { t: 'walk', x: 14.5, y: 22.5 }, // west pad pair
+    REGROUP,
+    ...ballTo(MARCH.west.slice(0, 1)),
     { t: 'walk', x: 12.5, y: 17.3 }, { t: 'act', check: g => g.quests.find(q => q.id === 'q-seal').state !== 'hidden' }, // hask
+    REGROUP,
     { t: 'walk', x: 4.5, y: 4.5 },   // proof fragment (touch-scoop)
+    REGROUP,
+    { t: 'walk', x: 19.5, y: 11.5 },
+    ...pillShots(19.5, 11.5, ['pl0', 'pl1', 'pl2']), // pl2 anchors him as guard
     { t: 'walk', x: 9.5, y: 12.5 },
     { t: 'wait', until: g => g.shards >= 20 },
     { t: 'walk', x: 8.6, y: 12.5 },
     { t: 'holdact', until: (g, f) => f.sealForged },
     { t: 'walk', x: 12.5, y: 17.3 }, { t: 'act', check: g => g.quests.find(q => q.id === 'q-seal').state === 'done' }, // settle q-seal
-    ...vaultAssault,
+    ...ballTo(MARCH.strip),
+    { t: 'wait', tag: 'east', until: (g, f) => f.eastReady },
+    snipeNest(68.5, 24.5),
+    ...pillShots(68.5, 20.5, ['pl5']),
+    { t: 'shoot', x: 61.5, y: 22.5, range: 5, until: PILL('pl4') }, // advance the cleared slot
+    { t: 'shoot', x: 58.5, y: 22.5, range: 5, until: PILL('pl3') },
+    ...bossAssault(68.5, 36.5),
     { t: 'touchdoor', id: 'vault' },
-    { t: 'walk', x: 74.5, y: 42.6 }, // inner cluster: stand by sw5
+    // interior sweep: wake and drop the ward acolytes and the phase stalker
+    // BEFORE anyone stands still at a relay (the stalker's blink-maul is what
+    // kept killing the bearer mid-sequence)
+    { t: 'walk', x: 74.5, y: 42.6 },
+    { t: 'walk', x: 76.5, y: 44.5 },
+    { t: 'walk', x: 78.5, y: 46.4 },
+    { t: 'walk', x: 80.5, y: 49.6 }, { t: 'act', check: CHEST(80, 48) }, // vault token (+1 dmg)
+    { t: 'walk', x: 76.5, y: 44.5 },
+    { t: 'wait', until: (g, f) => f.vaultSwept },
+    { t: 'walk', x: 74.5, y: 42.6 }, // sw5 station
     { t: 'wait', until: (g, f) => f.goFail },
     { t: 'act', check: SW('voice-5') },                                  // sw5 (74,41)
     { t: 'walk', x: 78.5, y: 42.6 }, { t: 'act', check: SW('voice-6') }, // sw6 (78,41)
-    { t: 'walk', x: 74.5, y: 46.4 }, { t: 'act', check: SW('voice-7') }, // sw7 (74,47)
-    { t: 'walk', x: 78.5, y: 46.4 }, { t: 'act', check: SW('voice-8') }, // sw8 (78,47) = 6th throw
-    { t: 'walk', x: 80.5, y: 49.6 }, { t: 'act', check: CHEST(80, 48) }, // vault token chest
+    { t: 'walk', x: 74.5, y: 46.4 }, { t: 'act', check: SW('voice-7') }, // sw7 (74,47) = 6th throw
+    { t: 'walk', x: 76.5, y: 44.5 }, // hold the swept vault through the window
     { t: 'wait', until: (g, f) => f.switchReset },
     { t: 'walk', x: 74.5, y: 42.6 },
     { t: 'wait', until: (g, f) => f.goSuccess },
     { t: 'act', check: SW('voice-5') },
     { t: 'walk', x: 78.5, y: 42.6 }, { t: 'act', check: SW('voice-6') },
     { t: 'walk', x: 74.5, y: 46.4 }, { t: 'act', check: SW('voice-7') },
-    { t: 'walk', x: 78.5, y: 46.4 }, { t: 'act', check: SW('voice-8') },
-    ...coreAssault(1),
+    { t: 'walk', x: 78.5, y: 46.4 }, { t: 'act', check: SW('voice-8') }, // 7th voice = quorum
+    ...coreAssault(78.5, 32.5, 9),
     { t: 'walk', x: 85.5, y: 32.5 }, // the Array core: q-core 'reach'
     { t: 'walk', x: 88.5, y: 32.5, allowExit: true },
   ]);
 
-  // pid 2 GHOST (shade): south chests, sw3, then the settle-the-ledger talk run
+  // pid 2 GHOST (shade): ball gun, the colonnade's deep-slot finisher, sw3,
+  // then the settle-the-ledger talk run (no solo chest economy any more —
+  // every lone errand on this map was a death sentence)
   const ghost = makeBot(2, [
     { t: 'wait', until: (g, f) => f.questsActive },
-    { t: 'shoot', x: 14.5, y: 36.5, range: 6, until: g => !g.crystals.some(c => Math.floor(c.x / TILE) === 14 && Math.floor(c.y / TILE) === 36) },
-    { t: 'walk', x: 24.5, y: 43.6 }, { t: 'act', check: CHEST(24, 42) }, // chest +8
-    { t: 'walk', x: 42.5, y: 52.5 }, // south pads east
-    { t: 'walk', x: 40.5, y: 55.4 }, { t: 'act', check: CHEST(40, 57) }, // chest +9
-    ...vaultAssault,
-    { t: 'walk', x: 43.5, y: 34.6 }, // stage at sw3 (43,34)
+    ...ballTo([...MARCH.gather, ...MARCH.west, ...MARCH.fragment]),
+    { t: 'walk', x: 17.5, y: 11.5 },
+    ...pillShots(18.5, 11.5, ['pl0', 'pl1', 'pl2']), // pl2 anchors him as guard
+    ...ballTo(MARCH.forgeYard),
+    { t: 'wait', until: (g, f) => f.sealForged },
+    ...ballTo(MARCH.strip),
+    { t: 'wait', tag: 'east', until: (g, f) => f.eastReady },
+    snipeNest(69.5, 25.5),
+    ...pillShots(68.5, 21.5, ['pl5']),
+    ...pillShots(63.5, 21.5, ['pl4', 'pl3']), // shade reaches both down the slot
+    ...bossAssault(69.5, 35.5),
+    { t: 'walk', x: 56.5, y: 40.5 }, // south route: the rows-40/42 canal gap
+    { t: 'walk', x: 43.5, y: 34.6 }, // stage at sw3 (43,34) — the row-26 bridge
+                                     // is a phase-stalker ambush, never again
     { t: 'wait', until: (g, f) => f.goFail },
     { t: 'act', check: SW('voice-3') },
     { t: 'wait', until: (g, f) => f.switchReset },
     { t: 'walk', x: 43.5, y: 34.6 },
     { t: 'wait', until: (g, f) => f.goSuccess },
     { t: 'act', check: SW('voice-3') },
-    ...backup(2, 'voice-1', 46.5, 19.6), // sw1 (46,18) if the quorum hangs
     { t: 'wait', until: (g, f) => f.reachDone },
     { t: 'walk', x: 10.5, y: 44.4 }, { t: 'act', check: g => g.quests.find(q => q.id === 'q-migration').state === 'done' },
-    { t: 'walk', x: 85.5, y: 31.5 },
+    // return leg rides the pads and stays north of the sleeping brood camp
+    { t: 'walk', x: 50.5, y: 44.5 },
+    { t: 'walk', x: 69.5, y: 33.5 },
+    { t: 'walk', x: 78.5, y: 31.5 },
     { t: 'walk', x: 88.5, y: 31.5, allowExit: true },
   ]);
 
-  // pid 3 SPARK (volt): stormgun, beacon, sw9
+  // pid 3 SPARK (volt): ball gun, stormgun off the rack once the nest sniper
+  // covering it is dead, sweep support, the beacon, then sw9
   const spark = makeBot(3, [
     { t: 'wait', until: (g, f) => f.questsActive },
-    { t: 'walk', x: 28.5, y: 50.5 }, // south pad east with GHOST
-    { t: 'walk', x: 50.5, y: 44.5 },
-    { t: 'walk', x: 56.5, y: 31.6 }, { t: 'act', check: g => g.players[3].fieldWeapon?.kind === 'stormgun' }, // stormgun
-    { t: 'wait', until: (g, f) => f.sealForged && g.shards >= 12 },
+    ...ballTo([...MARCH.gather, ...MARCH.west, ...MARCH.fragment]),
+    { t: 'walk', x: 18.5, y: 12.5 },
+    ...pillShots(20.5, 11.5, ['pl0', 'pl1', 'pl2']), // pl2 anchors him as guard
+    ...ballTo(MARCH.forgeYard),
+    { t: 'wait', until: (g, f) => f.sealForged },
+    ...ballTo(MARCH.strip),
+    { t: 'wait', tag: 'east', until: (g, f) => f.eastReady },
+    snipeNest(68.5, 25.5),
+    ...pillShots(68.5, 21.5, ['pl5']),
+    { t: 'shoot', x: 61.5, y: 22.5, range: 5, until: PILL('pl4') }, // advance with Runner
+    { t: 'shoot', x: 58.5, y: 22.5, range: 5, until: PILL('pl3') },
+    { t: 'walk', x: 56.5, y: 31.6 }, { t: 'act', check: g => g.players[3].fieldWeapon?.kind === 'stormgun' }, // the rack is safe now
+    ...bossAssault(68.5, 35.5),
+    { t: 'walk', x: 74.5, y: 41.6 }, // sweep support: north relay row
+    { t: 'walk', x: 74.5, y: 46.4 }, // south relay row
+    { t: 'wait', until: (g, f) => f.vaultSwept },
+    { t: 'walk', x: 52.5, y: 41.5 }, // canal gap, then the beacon on the way to sw9
     { t: 'walk', x: 45.5, y: 50.4 },
     { t: 'holdact', until: (g, f) => f.beaconBuilt },
-    ...vaultAssault,
     { t: 'walk', x: 50.5, y: 49.4 }, // stage at sw9 (50,50)
     { t: 'wait', until: (g, f) => f.goFail },
     { t: 'act', check: SW('voice-9') },
@@ -456,7 +617,7 @@ function buildBots() {
     { t: 'walk', x: 50.5, y: 49.4 },
     { t: 'wait', until: (g, f) => f.goSuccess },
     { t: 'act', check: SW('voice-9') },
-    ...coreAssault(3),
+    ...coreAssault(78.5, 33.4, 7),
     { t: 'walk', x: 85.5, y: 33.0 },
     { t: 'walk', x: 89.5, y: 32.5, allowExit: true },
   ]);
@@ -496,27 +657,46 @@ function runChapter(capSeconds) {
     // mission control: derive squad-level flags from live state
     flags.vaultBossDead = !g.enemies.some(e => e.id === vaultBossId);
     flags.coreBossDead = !g.enemies.some(e => e.id === coreBossId);
+    // the eastern colonnade is a TRIO job: nobody engages its guard camp
+    // (two bulwarks, an acolyte, the nest sniper) until at least two bots
+    // stand parked AT the tagged staging wait (a stormgun shopper passing
+    // through the pocket must never trip it)
+    const staged = tag => bots.filter(b => b.tasks[b.ti]?.tag === tag && g.players[b.pid]?.state === 'active').length;
+    if (!flags.eastReady) flags.eastReady = staged('east') >= 3 || g.elapsed > 300;
+    // the assault is a FOUR-gun affair behind a finished pillar quest: nobody
+    // pokes the vault until every seat is PARKED on its muster wait (counting
+    // bodies near the spot once latched it for a respawner passing through)
     if (!flags.muster) {
-      let near = 0;
-      for (const p of g.players) {
-        if (p.state === 'active' && Math.hypot(p.x - MUSTER.x * TILE, p.y - MUSTER.y * TILE) < 9 * TILE) near++;
-      }
-      flags.muster = near >= 3 || g.elapsed > 420;
+      flags.muster = (staged('muster') >= 4 && g.pillars.length === 0) || g.elapsed > 600;
     }
-    if (!flags.switchReset) {
-      flags.goFail = flags.goFail
-        || (flags.vaultOpen && at(g, 1, 74, 42, 4) && at(g, 2, 43, 34, 3) && at(g, 3, 50, 49, 3));
-    } else if (!flags.goSuccess) {
-      flags.goSuccess = (at(g, 1, 74, 42, 4) && at(g, 2, 43, 34, 3) && at(g, 3, 50, 49, 3) && at(g, 0, 60, 39, 3))
-        || g.elapsed > (flags.switchResetT ?? Infinity) + 200;
+    // vault swept (latched): no live enemy anywhere in the nook + vault
+    // compartment — the relay sequence only starts on clean ground
+    if (!flags.vaultSwept && flags.vaultOpen) {
+      let hot = false;
+      for (const e of g.enemies) {
+        if (e.dead) continue;
+        const tx = Math.floor(e.x / TILE), ty = Math.floor(e.y / TILE);
+        if (tx >= 67 && tx <= 82 && ty >= 38 && ty <= 50) { hot = true; break; }
+      }
+      if (!hot || g.elapsed > (flags.vaultOpenT ?? Infinity) + 120) flags.vaultSwept = true;
+    }
+    const stationed = at(g, 0, 60, 39, 3) && at(g, 1, 74, 42, 4) && at(g, 2, 43, 34, 3) && at(g, 3, 50, 49, 3);
+    if (!flags.goFail) {
+      flags.goFail = flags.vaultSwept && stationed;
+    } else if (flags.switchReset && !flags.goSuccess) {
+      flags.goSuccess = stationed || g.elapsed > (flags.switchResetT ?? Infinity) + 90;
       if (flags.goSuccess) flags.goSuccessT = g.elapsed;
     }
     // door state is read straight off the sim so a drained event can never
     // stall the script (events drive the verdicts, state drives the bots)
-    if (g.doors.find(d => d.id === 'vault')?.open) flags.vaultOpen = true;
+    if (g.doors.find(d => d.id === 'vault')?.open && !flags.vaultOpen) { flags.vaultOpen = true; flags.vaultOpenT = g.elapsed; }
     if (g.doors.find(d => d.id === 'core-gate')?.open && !flags.coreOpen) { flags.coreOpen = true; flags.coreOpenT = g.elapsed; }
     const inputs = {};
     for (const bot of bots) inputs[bot.pid] = think(g, bot, flags, frame);
+    if (TRACE.length === 3 && g.elapsed >= TRACE[1] && g.elapsed <= TRACE[2] && frame % 15 === 0) {
+      const b = bots[TRACE[0]], p = g.players[TRACE[0]], tk = b.tasks[b.ti];
+      console.log(`TRACE t=${g.elapsed.toFixed(1)} p=(${(p.x / TILE).toFixed(2)},${(p.y / TILE).toFixed(2)}) hp=${p.hp} st=${p.state} ti=${b.ti} task=${tk?.t}@${tk?.x},${tk?.y} path=${b.path.length}${b.path[0] ? ` wp0=(${(b.path[0].x / TILE).toFixed(1)},${(b.path[0].y / TILE).toFixed(1)})j${+b.path[0].jump}` : ''} padWait=${+!!b.mem.padWait} stuck=${b.stuck} inp=${JSON.stringify(inputs[TRACE[0]])} f=(${p.fx?.toFixed(2)},${p.fy?.toFixed(2)})`);
+    }
     if (beacon && tail.inputs.length < 1500) {
       // record facing too: bots aim by writing p.fx/fy (twin-stick style), so
       // a faithful replay must restore the same pre-step facing
@@ -564,7 +744,7 @@ function runChapter(capSeconds) {
       }
       if (ev.type === 'quest' && ev.state === 'active') flags.questsActive = true;
       if (ev.type === 'sealForged') { flags.sealForged = true; rec.shardsAfter = g.shards; }
-      if (ev.type === 'doorOpen' && ev.id === 'vault') flags.vaultOpen = true;
+      if (ev.type === 'doorOpen' && ev.id === 'vault' && !flags.vaultOpen) { flags.vaultOpen = true; flags.vaultOpenT = g.elapsed; }
       if (ev.type === 'doorOpen' && ev.id === 'core-gate') { flags.coreOpen = true; flags.coreOpenT = g.elapsed; }
       if (ev.type === 'switchReset') { flags.switchReset = true; flags.switchResetT = g.elapsed; rec.onAfter = g.switches.filter(s => s.on).length; }
       if (ev.type === 'quorum') { flags.quorum = true; rec.onAt = g.switches.filter(s => s.on).length; }
@@ -580,7 +760,17 @@ function runChapter(capSeconds) {
     }
     if (DEBUG && frame % (30 * 15) === 0) {
       console.log(`t=${g.elapsed.toFixed(0)} shards=${g.shards.toFixed(0)} pillars=${g.pillars.length} on=${g.switches.filter(s => s.on).length} `
-        + g.players.map(p => `${p.pid}:${p.state[0]}${p.hp ?? ''}@${(p.x / TILE).toFixed(0)},${(p.y / TILE).toFixed(0)}${bots[p.pid] ? '#' + bots[p.pid].ti : ''}`).join(' '));
+        + g.players.map(p => `${p.pid}:${p.state[0]}${p.hp ?? ''}@${(p.x / TILE).toFixed(0)},${(p.y / TILE).toFixed(0)}${bots[p.pid] ? '#' + bots[p.pid].ti : ''}`).join(' ')
+        + ` seal=${g.players.filter(p => p.lythseal).map(p => p.pid).join('/') || '-'}`
+        + ` flags=${['muster', 'vaultOpen', 'vaultSwept', 'goFail', 'switchReset', 'goSuccess', 'quorum', 'coreOpen'].filter(k => flags[k]).join(',') || '-'}`);
+      if (DEBUG > 1) {
+        const hot = g.enemies.filter(e => {
+          if (e.dead) return false;
+          const tx = Math.floor(e.x / TILE), ty = Math.floor(e.y / TILE);
+          return tx >= 67 && tx <= 82 && ty >= 38 && ty <= 50;
+        });
+        if (hot.length) console.log('      rect: ' + hot.map(e => `${e.kind}#${e.id}@${(e.x / TILE).toFixed(1)},${(e.y / TILE).toFixed(1)} hp${e.hp}${e.shielded ? '+w' : ''}${e.awake ? '' : ' zZ'}`).join(' | '));
+      }
     }
   }
   return { g, log, hash, flags, beacon, tail, phantom, timeLeftDrift, pillarPressure, frames: frame, snap: snapshot(g) };

@@ -1808,9 +1808,14 @@ export function addEventFX(ev) {
 // ============================== POSE / WALK CYCLE ==============================
 // Module-level memory of previous positions: walk cycles are driven purely by
 // how far an entity actually moved (works for local sim AND net snapshots).
+// Splitscreen: each viewport advances its own namespaced ledger ('p3' drawn
+// in two cells = two independent states), so multi-pass frames can't double-
+// step or decay anyone's stride. '' = the shared single camera (today's keys).
 const pose = new Map();
+let poseNs = '';
 function poseFor(key, x, y, dt) {
   if (!key) return { ph: 0, amp: 0, fx: 0, fy: 1 };
+  if (poseNs) key = poseNs + key;
   if (pose.size > 900) pose.clear(); // long expeditions: ids keep growing
   let st = pose.get(key);
   if (!st) { st = { x, y, ph: 0, sp: 0, fx: 0, fy: 1 }; pose.set(key, st); }
@@ -5930,31 +5935,52 @@ function drawPrompt(ctx, x, y, text, t) {
   ctx.restore();
 }
 
-// --- camera (shared couch camera: follows the focus players, zooms to fit) ---
+// --- camera (the couch camera, evolved: one camera object per viewport) ---
+// `cam` stays the shared/primary camera: the classic single fullscreen view
+// renders through it, and the minimap + full-map camera rects read it. Split
+// viewports each own a camera in `viewCams`, keyed by the view id, with the
+// exact same follow/zoom/smoothing rules — just sized to their cell.
 const cam = { x: 0, y: 0, z: 1, key: null, vw: 1280, vh: 720 };
+const viewCams = new Map(); // view id ('p<pid>') -> camera object
 const ZOOM_MIN = 0.5;
 const ZOOM_MAX = 1.15;
+// Settings > Game zoom (100/115/130/150%): one factor scaling every camera's
+// zoom bounds — ZOOM_MIN/ZOOM_MAX and the whole-map-fit threshold — so the
+// world renders larger for readability. computeCamera serves the shared
+// camera AND every split-view camera, so all of them inherit it; a level that
+// no longer "fits whole" at the scaled threshold falls into the follow
+// branch, whose map clamps (and the never-wider-than-the-map zoom floor)
+// keep zoomed views inside the map exactly as before.
+let viewZoom = 1;
+export function setViewZoom(factor) {
+  const f = +factor;
+  viewZoom = Number.isFinite(f) ? Math.min(2, Math.max(1, f)) : 1;
+}
 
-function computeCamera(snap, focus, dt) {
-  const VW = cam.vw, VH = cam.vh;
+function computeCamera(camera, snap, focus, dt) {
+  const VW = camera.vw, VH = camera.vh;
   const W = snap.w * TILE, H = snap.h * TILE;
   const fitZ = Math.min(VW / W, VH / H);
   let tx, ty, tz;
-  if (fitZ >= 0.8) {
+  if (fitZ >= 0.8 * viewZoom) {
     // Classic single-screen levels: frame the whole map, centered.
-    tx = W / 2; ty = H / 2; tz = Math.min(fitZ, ZOOM_MAX);
+    tx = W / 2; ty = H / 2; tz = Math.min(fitZ, ZOOM_MAX * viewZoom);
   } else {
     let pts = snap.players.filter(p => p.state === 'active' && focus.has(p.pid));
     if (!pts.length) pts = snap.players.filter(p => p.state === 'active');
-    if (!pts.length) pts = [{ x: cam.x, y: cam.y }];
+    if (!pts.length) pts = [{ x: camera.x, y: camera.y }];
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const p of pts) {
       minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
       minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
     }
-    const pad = TILE * 4.5;
+    // the 4.5-tile breathing room stays constant in SCREEN pixels as the Game
+    // zoom rises (i.e. shrinks in world px), so 150% really renders ~1.5x
+    // larger instead of being capped by the solo padding fit; the focus
+    // group itself is always framed (spread dominates bw/bh when it matters)
+    const pad = TILE * 4.5 / viewZoom;
     const bw = maxX - minX + pad * 2, bh = maxY - minY + pad * 2;
-    tz = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, VW / bw, VH / bh));
+    tz = Math.max(ZOOM_MIN * viewZoom, Math.min(ZOOM_MAX * viewZoom, VW / bw, VH / bh));
     tz = Math.max(tz, fitZ); // never zoom wider than the whole map
     const hw = VW / 2 / tz, hh = VH / 2 / tz;
     tx = (minX + maxX) / 2;
@@ -5963,24 +5989,38 @@ function computeCamera(snap, focus, dt) {
     ty = H <= hh * 2 ? H / 2 : Math.max(hh, Math.min(H - hh, ty));
   }
   const key = snap.grid || snap.name;
-  if (cam.key !== key) {
-    cam.key = key;
-    cam.x = tx; cam.y = ty; cam.z = tz;
+  if (camera.key !== key) {
+    camera.key = key;
+    camera.x = tx; camera.y = ty; camera.z = tz;
   } else {
     const k = 1 - Math.exp(-dt * 6);
     const kz = 1 - Math.exp(-dt * 3.5);
-    cam.x += (tx - cam.x) * k;
-    cam.y += (ty - cam.y) * k;
-    cam.z += (tz - cam.z) * kz;
+    camera.x += (tx - camera.x) * k;
+    camera.y += (ty - camera.y) * k;
+    camera.z += (tz - camera.z) * kz;
   }
 }
 
-function inView(x, y, m = 70) {
-  return Math.abs(x - cam.x) < cam.vw / 2 / cam.z + m && Math.abs(y - cam.y) < cam.vh / 2 / cam.z + m;
+// A fresh viewport camera opens exactly where the shared camera was looking,
+// then glides to its own target — so the split transition reads as one motion.
+function viewCamFor(id, rect) {
+  let c = viewCams.get(id);
+  if (!c) {
+    c = { x: cam.x, y: cam.y, z: cam.z, key: cam.key, vw: rect.w, vh: rect.h };
+    viewCams.set(id, c);
+  }
+  c.vw = Math.max(1, rect.w);
+  c.vh = Math.max(1, rect.h);
+  return c;
 }
 
-function toScreen(x, y) {
-  return [(x - cam.x) * cam.z + cam.vw / 2, (y - cam.y) * cam.z + cam.vh / 2];
+function camInView(camera, x, y, m = 70) {
+  return Math.abs(x - camera.x) < camera.vw / 2 / camera.z + m
+    && Math.abs(y - camera.y) < camera.vh / 2 / camera.z + m;
+}
+
+function camToScreen(camera, x, y) {
+  return [(x - camera.x) * camera.z + camera.vw / 2, (y - camera.y) * camera.z + camera.vh / 2];
 }
 
 // Exit tiles never move; scan the grid once per level.
@@ -5996,9 +6036,9 @@ function exitTiles(snap) {
   return cols;
 }
 
-function drawEdgeArrow(ctx, wx, wy, color, label) {
-  const VW = cam.vw, VH = cam.vh, M = 30;
-  let [sx, sy] = toScreen(wx, wy);
+function drawEdgeArrowFor(ctx, camera, wx, wy, color, label) {
+  const VW = camera.vw, VH = camera.vh, M = 30;
+  let [sx, sy] = camToScreen(camera, wx, wy);
   const cx = VW / 2, cy = VH / 2;
   const dx = sx - cx, dy = sy - cy;
   // scale the offscreen point back onto the screen edge rectangle
@@ -6274,55 +6314,100 @@ function drawBeaconPips(ctx, VW, cores, t) {
 }
 
 // ============================== MAIN RENDER ==============================
+// render(): the classic single-view entry point — a thin wrapper over
+// renderViews with one full-canvas view through the shared camera. Byte-for-
+// byte today's output: same camera object, same op order, no clip/chip pass.
 export function render(ctx, snap, charMap, focusPids, t, dt) {
+  renderViews(ctx, snap, charMap, [{
+    id: 'shared', kind: 'player', pid: null, focus: focusPids,
+    rect: { x: 0, y: 0, w: ctx.canvas.width, h: ctx.canvas.height },
+  }], t, dt);
+}
+
+function toPidSet(f) {
+  return f instanceof Set ? f : new Set(Array.isArray(f) ? f : f != null ? [f] : []);
+}
+
+// renderViews(): dynamic splitscreen. views = [{ id, kind: 'player'|'map',
+// pid, rect{x,y,w,h}, seat, name, color, mask, focus }] (see client.js).
+// Each 'player' view renders the full world + screen-space pass into its
+// rect through its own camera; a 'map' view reuses drawFullMap (fog-aware)
+// inside its cell. Global alerts (banners, wave countdown, beacon pips) and
+// the seam dividers draw once, full-canvas, after the cells.
+export function renderViews(ctx, snap, charMap, views, t, dt) {
   setScene(snap); // ambience beds/music/weather follow the live snapshot
   // a lite snapshot can arrive before levelStart re-attaches the cached grid
-  if (!snap.grid) return;
-  const focus = focusPids instanceof Set ? focusPids
-    : new Set(Array.isArray(focusPids) ? focusPids : [focusPids]);
-  // new snapshot fields are optional: classic levels must keep rendering
-  const builds = snap.builds ?? [];
-  const crystals = snap.crystals ?? [];
-  const drops = snap.drops ?? [];
-  const npcs = snap.npcs ?? [];
-  const gate = snap.gate ?? null;
-  const chests = snap.chests ?? [];
-  const vehicles = snap.vehicles ?? [];
-  const towers = snap.towers ?? [];
-  const shops = snap.shops ?? [];
-  const hires = snap.hires ?? [];
-  const flags = snap.flags ?? [];
-  const core = snap.core ?? null;
-  const cycle = snap.cycle ?? null;
-  const zone = snap.zone ?? null;
-  const patches = snap.patches ?? []; // burn/toxin ground pools
-  const followers = snap.followers ?? []; // combat hires (hound/archer/caster)
-  // --- frontier III (all optional) ---
-  const pickups = snap.pickups ?? []; // field weapons on the ground
-  const qitems = snap.qitems ?? []; // quest items / proof fragments
-  const switches = snap.switches ?? []; // relay switch consoles
-  const glyphs = snap.glyphs ?? []; // rune stones
-  const pillars = snap.pillars ?? []; // BLS colonnade pillars
-  const forges = snap.forges ?? []; // seal forges
-  const doors = snap.doors ?? []; // sliding bulkheads
-  const teleports = snap.teleports ?? []; // settled corridor pads
-  const quests = snap.quests ?? null; // for npc quest markers
-  // lythseal bearers light up Classical Phantoms within 6 tiles (drawEnemy);
-  // the seal rides its own snapshot field now (hasSeal/lythseal), never the
-  // item slot — every alias is honored for older snapshots
-  sealCarriers = (snap.players ?? []).filter(p => p.state === 'active' && (p.hasSeal || p.lythseal || p.seal));
-  const lights = []; // per-frame light pools (campfires, LYTH, pylons...)
-  // night grade: story dark missions are full night; bastion maps breathe
-  // through a smooth dusk/dawn tint driven by the cycle clock (last 6s).
-  let nightK = snap.dark ? 1 : 0;
-  if (cycle) {
-    if (cycle.phase === 'night') nightK = Math.max(nightK, Math.min(1, (cycle.t ?? 0) / 6));
-    else nightK = Math.max(nightK, 1 - Math.min(1, (cycle.t ?? 1e9) / 6));
+  if (!snap.grid || !Array.isArray(views) || !views.length) return;
+  const CW = ctx.canvas.width, CH = ctx.canvas.height;
+  advanceFrameFx(snap, dt); // FX/anim ledgers tick ONCE per frame, not per view
+  cam.vw = CW; cam.vh = CH; // the shared camera always spans the full canvas
+  // union of local seats: focus rings + prompts read the same in every cell
+  const union = new Set();
+  for (const v of views) {
+    if (v.pid != null) union.add(v.pid);
+    if (v.focus != null) for (const pid of toPidSet(v.focus)) union.add(pid);
   }
-  const bloodK = cycle?.bloodMoon && cycle.phase === 'night' ? nightK : 0;
-  darkWorld = nightK > 0.55; // full night = the existing dark treatment
+  const r0 = views[0].rect;
+  const single = views.length === 1 && views[0].kind !== 'map'
+    && r0 && r0.x === 0 && r0.y === 0 && r0.w === CW && r0.h === CH;
+  // split: keep the shared camera warm (minimap rect + a seamless merge back)
+  if (!single) {
+    computeCamera(cam, snap, union, dt);
+    // mid-transition the 3P/4P cells grow in from corner anchors, so the view
+    // rects need not tile the canvas — flood the frame first so any gap reads
+    // as intentional letterboxing instead of stale previous-frame pixels.
+    ctx.fillStyle = PAL.voidNight;
+    ctx.fillRect(0, 0, CW, CH);
+  }
+  updateExplore(snap); // fog-of-war ledger: shared by minimap + full map
+  if (viewCams.size) { // prune cameras of views that vanished (re-split re-seeds)
+    const live = new Set(views.map(v => String(v.id ?? (v.pid != null ? 'p' + v.pid : 'shared'))));
+    for (const k of viewCams.keys()) if (!live.has(k)) viewCams.delete(k);
+  }
+  let first = true;
+  for (const view of views) {
+    const rect = view.rect;
+    if (!rect || rect.w < 1 || rect.h < 1) continue; // transition slivers
+    // merging cells under 200px: skip the world/map pass entirely (perf
+    // budget) — they only exist for a beat mid-transition before the layout
+    // settles. Sits ABOVE the map branch so a map-cell sliver skips too.
+    if (!single && (rect.w < 200 || rect.h < 200)) {
+      ctx.save();
+      ctx.fillStyle = PAL.voidNight;
+      ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+      ctx.restore();
+      continue;
+    }
+    if (view.kind === 'map') {
+      drawMapCell(ctx, snap, view, rect);
+      continue;
+    }
+    const id = String(view.id ?? (view.pid != null ? 'p' + view.pid : 'shared'));
+    const focus = single ? toPidSet(view.focus ?? view.pid) : union;
+    renderWorldView(ctx, snap, charMap, t, dt, {
+      view, rect,
+      camera: single ? cam : viewCamFor(id, rect),
+      // each cell's camera follows its own seat (solo zoom rules); shared
+      // and merged views frame the whole focus group exactly as today
+      camFocus: view.pid != null && !single ? new Set([view.pid]) : focus,
+      focus,
+      stateDt: first ? dt : 0, // dt-stateful draws (doors) advance once/frame
+      clipped: !single,
+      globalUi: single, // split: banners/countdown/pips move to the global pass
+      ns: single ? '' : id + '|',
+    });
+    first = false;
+  }
+  if (!single) {
+    drawGlobalScreenFx(ctx, snap, t, CW, CH);
+    drawDividers(ctx, views, CW, CH);
+  }
+}
 
-  // particles, flashes, popups, rings
+// FX particles, flashes, popups, rings, door/level ledgers: shared world
+// state, decayed once per frame and then drawn per viewport with that
+// viewport's culling. (Hoisted out of the old render() body verbatim.)
+function advanceFrameFx(snap, dt) {
   shake = Math.max(0, shake - dt * 18);
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
@@ -6372,13 +6457,72 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
     const p = snap.players.find(pl => pl.pid === lu.pid && pl.state === 'active');
     if (p) levelUpFX(p.x, p.y, lu.level);
   }
+}
 
-  cam.vw = ctx.canvas.width;
-  cam.vh = ctx.canvas.height;
-  const VW = cam.vw, VH = cam.vh;
-  computeCamera(snap, focus, dt);
-  const z = cam.z;
-  updateExplore(snap); // fog-of-war ledger: shared by minimap + full map
+// One world + screen-space pass into a viewport rect through its camera.
+function renderWorldView(ctx, snap, charMap, t, dt, opts) {
+  const { view, rect, camera, clipped, globalUi, stateDt } = opts;
+  const focus = opts.focus;
+  if (clipped) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(rect.x, rect.y, rect.w, rect.h);
+    ctx.clip();
+    ctx.translate(rect.x, rect.y);
+  }
+  poseNs = opts.ns || '';
+  // camera-space helpers, bound to THIS viewport's camera
+  const inView = (x, y, m = 70) => camInView(camera, x, y, m);
+  const drawEdgeArrow = (ectx, wx, wy, color, label) => drawEdgeArrowFor(ectx, camera, wx, wy, color, label);
+  // new snapshot fields are optional: classic levels must keep rendering
+  const builds = snap.builds ?? [];
+  const crystals = snap.crystals ?? [];
+  const drops = snap.drops ?? [];
+  const npcs = snap.npcs ?? [];
+  const gate = snap.gate ?? null;
+  const chests = snap.chests ?? [];
+  const vehicles = snap.vehicles ?? [];
+  const towers = snap.towers ?? [];
+  const shops = snap.shops ?? [];
+  const hires = snap.hires ?? [];
+  const flags = snap.flags ?? [];
+  const core = snap.core ?? null;
+  const cycle = snap.cycle ?? null;
+  const zone = snap.zone ?? null;
+  const patches = snap.patches ?? []; // burn/toxin ground pools
+  const followers = snap.followers ?? []; // combat hires (hound/archer/caster)
+  // --- frontier III (all optional) ---
+  const pickups = snap.pickups ?? []; // field weapons on the ground
+  const qitems = snap.qitems ?? []; // quest items / proof fragments
+  const switches = snap.switches ?? []; // relay switch consoles
+  const glyphs = snap.glyphs ?? []; // rune stones
+  const pillars = snap.pillars ?? []; // BLS colonnade pillars
+  const forges = snap.forges ?? []; // seal forges
+  const doors = snap.doors ?? []; // sliding bulkheads
+  const teleports = snap.teleports ?? []; // settled corridor pads
+  const quests = snap.quests ?? null; // for npc quest markers
+  // lythseal bearers light up Classical Phantoms within 6 tiles (drawEnemy);
+  // the seal rides its own snapshot field now (hasSeal/lythseal), never the
+  // item slot — every alias is honored for older snapshots
+  sealCarriers = (snap.players ?? []).filter(p => p.state === 'active' && (p.hasSeal || p.lythseal || p.seal));
+  const lights = []; // per-frame light pools (campfires, LYTH, pylons...)
+  // night grade: story dark missions are full night; bastion maps breathe
+  // through a smooth dusk/dawn tint driven by the cycle clock (last 6s).
+  let nightK = snap.dark ? 1 : 0;
+  if (cycle) {
+    if (cycle.phase === 'night') nightK = Math.max(nightK, Math.min(1, (cycle.t ?? 0) / 6));
+    else nightK = Math.max(nightK, 1 - Math.min(1, (cycle.t ?? 1e9) / 6));
+  }
+  const bloodK = cycle?.bloodMoon && cycle.phase === 'night' ? nightK : 0;
+  darkWorld = nightK > 0.55; // full night = the existing dark treatment
+
+  // viewport camera: sized to this cell, following this cell's seats
+  // (FX decay + the explore ledger already ticked once in renderViews)
+  camera.vw = rect.w;
+  camera.vh = rect.h;
+  const VW = camera.vw, VH = camera.vh;
+  computeCamera(camera, snap, opts.camFocus, dt);
+  const z = camera.z;
 
   ctx.fillStyle = PAL.voidNight;
   ctx.fillRect(0, 0, VW, VH);
@@ -6386,13 +6530,13 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
   ctx.translate(VW / 2, VH / 2);
   if (shake > 0) ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
   ctx.scale(z, z);
-  ctx.translate(-cam.x, -cam.y);
+  ctx.translate(-camera.x, -camera.y);
 
-  // visible tile range (camera culling)
-  const tx0 = Math.max(0, Math.floor((cam.x - VW / 2 / z) / TILE) - 1);
-  const tx1 = Math.min(snap.w - 1, Math.ceil((cam.x + VW / 2 / z) / TILE) + 1);
-  const ty0 = Math.max(0, Math.floor((cam.y - VH / 2 / z) / TILE) - 1);
-  const ty1 = Math.min(snap.h - 1, Math.ceil((cam.y + VH / 2 / z) / TILE) + 1);
+  // visible tile range (per-viewport camera culling)
+  const tx0 = Math.max(0, Math.floor((camera.x - VW / 2 / z) / TILE) - 1);
+  const tx1 = Math.min(snap.w - 1, Math.ceil((camera.x + VW / 2 / z) / TILE) + 1);
+  const ty0 = Math.max(0, Math.floor((camera.y - VH / 2 / z) / TILE) - 1);
+  const ty1 = Math.min(snap.h - 1, Math.ceil((camera.y + VH / 2 / z) / TILE) + 1);
 
   // --- terrain (one distinct baked look per floor letter) ---
   const gateOpen = !gate || gate.open;
@@ -6579,7 +6723,7 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
   for (const d of doors) {
     const dw = (d.w ?? 1) * TILE, dh = (d.h ?? 1) * TILE;
     if (inView(d.x * TILE + dw / 2, d.y * TILE + dh / 2, Math.max(dw, dh) / 2 + 60)) {
-      drawDoor(ctx, d, t, dt, lights);
+      drawDoor(ctx, d, t, stateDt, lights); // slide ledger advances once/frame
     }
   }
 
@@ -6809,6 +6953,10 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
   for (const f of flags) if ((f.carrier ?? null) != null) flagByCarrier.set(f.carrier, f);
   for (const p of snap.players) {
     if (p.state !== 'active') continue;
+    // per-view cull (margin covers the name/hearts/aura overdraw). Safe in
+    // single view: the shared camera pads the focus bbox by 4.5 tiles, so a
+    // focused operator is always in view.
+    if (!inView(p.x, p.y, 90)) continue;
     const ch = charMap[p.charId];
     const col = ch?.color || '#fff';
     // raised when manning a tower platform or in the saddle
@@ -6997,8 +7145,10 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
     }
     if (bestC) promptOthers.add(bestC);
   }
-  for (const b of promptSites) drawPrompt(ctx, b.x, b.y - 34, `[hold E/X] BUILD ${(b.kind || '').toUpperCase()} ${b.cost ?? ''}◆`, t);
-  for (const c of promptOthers) drawPrompt(ctx, c.x, c.py, c.text, t);
+  // prompts anchor to union-focus seats, so cull per view: another cell's
+  // seat may be far outside this cell's camera
+  for (const b of promptSites) if (inView(b.x, b.y, 90)) drawPrompt(ctx, b.x, b.y - 34, `[hold E/X] BUILD ${(b.kind || '').toUpperCase()} ${b.cost ?? ''}◆`, t);
+  for (const c of promptOthers) if (inView(c.x, c.py, 90)) drawPrompt(ctx, c.x, c.py, c.text, t);
 
   // --- shots ---
   // weapon evolutions (L3+): per-pid lookup so shot trails read evolved.
@@ -7305,8 +7455,9 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
     ctx.restore();
   }
 
-  // --- particles ---
+  // --- particles (shared state, culled per viewport) ---
   for (const p of particles) {
+    if (!inView(p.x, p.y, 10)) continue;
     ctx.globalAlpha = Math.max(0, p.life / p.max);
     ctx.fillStyle = p.color;
     ctx.beginPath();
@@ -7330,7 +7481,7 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
   ctx.globalAlpha = 1;
 
   for (const p of popups) {
-    if (p.screen) continue;
+    if (p.screen || !inView(p.x, p.y, 80)) continue;
     ctx.globalAlpha = Math.max(0, p.life / p.max);
     ctx.fillStyle = p.color;
     ctx.font = 'bold 14px monospace';
@@ -7495,25 +7646,29 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
     else ctx.fillRect(VW - th, 0, th, VH);
   }
 
-  // --- screen-space banners (LOW TIME / THE ANCHOR WAKES) ---
-  for (const p of popups) {
-    if (!p.screen) continue;
-    ctx.globalAlpha = Math.max(0, p.life / p.max);
-    ctx.fillStyle = p.color;
-    ctx.font = `bold ${p.size || 26}px monospace`;
-    ctx.textAlign = 'center';
-    ctx.shadowColor = p.color;
-    ctx.shadowBlur = 14;
-    ctx.fillText(p.text, VW / 2, 64);
-    ctx.shadowBlur = 0;
+  // --- global screen alerts: single view draws them here (today's op
+  // order); splitscreen defers them to the full-canvas pass after the cells ---
+  if (globalUi) {
+    // screen-space banners (LOW TIME / THE ANCHOR WAKES)
+    for (const p of popups) {
+      if (!p.screen) continue;
+      ctx.globalAlpha = Math.max(0, p.life / p.max);
+      ctx.fillStyle = p.color;
+      ctx.font = `bold ${p.size || 26}px monospace`;
+      ctx.textAlign = 'center';
+      ctx.shadowColor = p.color;
+      ctx.shadowBlur = 14;
+      ctx.fillText(p.text, VW / 2, 64);
+      ctx.shadowBlur = 0;
+    }
+    ctx.globalAlpha = 1;
+
+    // big blinking countdown (wave inbound / zone shrink / sudden death)
+    drawCountdownBanner(ctx, VW, snap, t);
+
+    // beacon pips: the four monoliths' state, always on screen
+    if (cores.length > 1) drawBeaconPips(ctx, VW, cores, t);
   }
-  ctx.globalAlpha = 1;
-
-  // --- big blinking countdown (wave inbound / zone shrink / sudden death) ---
-  drawCountdownBanner(ctx, VW, snap, t);
-
-  // --- beacon pips: the four monoliths' state, always on screen ---
-  if (cores.length > 1) drawBeaconPips(ctx, VW, cores, t);
 
   // --- offscreen pointers: teammates, stranded captives, the Anchor ---
   for (const p of snap.players) {
@@ -7523,7 +7678,7 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
   }
   const farCaptives = snap.captives
     .filter(c => !c.owner && !inView(c.x, c.y, -20))
-    .map(c => ({ c, d: (c.x - cam.x) ** 2 + (c.y - cam.y) ** 2 }))
+    .map(c => ({ c, d: (c.x - camera.x) ** 2 + (c.y - camera.y) ** 2 }))
     .sort((a, b) => a.d - b.d)
     .slice(0, 6);
   for (const { c } of farCaptives) drawEdgeArrow(ctx, c.x, c.y, '#5fd2b4', 'RESCUE');
@@ -7531,7 +7686,7 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
     let near = null, best = Infinity;
     for (const e of exitCols) {
       const px = (e.x + 0.5) * TILE, py = (e.y + 0.5) * TILE;
-      const d = (px - cam.x) ** 2 + (py - cam.y) ** 2;
+      const d = (px - camera.x) ** 2 + (py - camera.y) ** 2;
       if (d < best) { best = d; near = { px, py }; }
     }
     if (near && !inView(near.px, near.py, -20)) {
@@ -7542,10 +7697,12 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
     drawEdgeArrow(ctx, ship.x, ship.y, PAL.lythGold, 'SHIP');
   }
 
-  // --- respawn pick bars: fallen players choose their next operative ---
+  // --- respawn pick bars: fallen players choose their next operative
+  // (splitscreen: each cell only carries its own seat's pick bar) ---
   let pickRow = 0;
   for (const p of snap.players) {
     if (p.state !== 'pick' || !p.pick?.choices?.length) continue;
+    if (!globalUi && view.pid != null && p.pid !== view.pid) continue;
     const ch = charMap[p.pick.choices[Math.min(p.pick.idx, p.pick.choices.length - 1)]];
     if (!ch) continue;
     const label = `${p.name.toUpperCase()}   ◄  ${ch.name.toUpperCase()}  ►   FIRE TO DEPLOY`;
@@ -7565,6 +7722,119 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
     ctx.shadowBlur = 0;
     pickRow++;
   }
+
+  // --- seat chip: the cell owner's name + hearts, pinned in-cell ---
+  if (!globalUi) drawViewChip(ctx, snap, charMap, view, rect);
+  poseNs = '';
+  if (clipped) ctx.restore();
+}
+
+// Name + hearts chip in the lower-left corner of a splitscreen cell, in the
+// seat's color (drawn in view-local coords — the cell clip/translate is live).
+function drawViewChip(ctx, snap, charMap, view, rect) {
+  if (view.pid == null) return;
+  const p = (snap.players ?? []).find(pl => pl.pid === view.pid);
+  const name = (String(view.name ?? p?.name ?? '').toUpperCase()
+    || 'P' + ((view.seat ?? 0) + 1)).slice(0, 10);
+  const col = view.color || (p && charMap[p.charId]?.color) || PAL.relay;
+  const hearts = p && p.maxHp != null && p.hp != null;
+  ctx.save();
+  if (p && p.state !== 'active') ctx.globalAlpha = 0.6; // down/picking: dimmed
+  ctx.font = 'bold 10px monospace';
+  const tw = ctx.measureText(name).width;
+  const hw = hearts ? p.maxHp * 7 + 6 : 0;
+  const w = tw + hw + 16, h = 18;
+  const x = 8, y = rect.h - h - 8;
+  ctx.fillStyle = 'rgba(11,10,20,0.82)';
+  ctx.strokeStyle = 'rgba(111,216,242,0.45)';
+  ctx.lineWidth = 1;
+  ctx.fillRect(x, y, w, h);
+  ctx.strokeRect(x, y, w, h);
+  ctx.fillStyle = col;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(name, x + 8, y + h / 2 + 0.5);
+  if (hearts) drawHeartPips(ctx, x + 8 + tw + 6 + (p.maxHp * 7) / 2, y + h / 2 - 1, p.hp, p.maxHp);
+  ctx.restore();
+}
+
+// The 3-seat layout's 4th cell: the live field map (fog-aware, objectives),
+// reusing drawFullMap with the client-passed fog mask. A ctx proxy narrows
+// the perceived canvas to the cell so drawFullMap's own layout math fits.
+function drawMapCell(ctx, snap, view, rect) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(rect.x, rect.y, rect.w, rect.h);
+  ctx.clip();
+  ctx.translate(rect.x, rect.y);
+  ctx.fillStyle = PAL.voidNight;
+  ctx.fillRect(0, 0, rect.w, rect.h);
+  drawFullMap(viewportCtx(ctx, rect.w, rect.h), snap, view.mask ?? null, view.focus,
+    { hint: false, camRect: false }); // a persistent cell: no 'release' hint
+  ctx.restore();
+}
+
+// A pass-through ctx whose .canvas reports the viewport's size — lets
+// full-canvas painters (drawFullMap) render inside a cell unmodified.
+function viewportCtx(ctx, w, h) {
+  const fakeCanvas = { width: w, height: h };
+  return new Proxy(ctx, {
+    get(target, prop) {
+      if (prop === 'canvas') return fakeCanvas;
+      const v = target[prop];
+      return typeof v === 'function' ? v.bind(target) : v;
+    },
+    set(target, prop, value) { target[prop] = value; return true; },
+  });
+}
+
+// Splitscreen global pass: screen alerts that belong to the whole couch, not
+// a cell — banners (LOW TIME / THE ANCHOR WAKES), the blinking countdown,
+// beacon pips. Drawn once, full-canvas, after every viewport has rendered.
+function drawGlobalScreenFx(ctx, snap, t, VW, VH) {
+  ctx.save();
+  for (const p of popups) {
+    if (!p.screen) continue;
+    ctx.globalAlpha = Math.max(0, p.life / p.max);
+    ctx.fillStyle = p.color;
+    ctx.font = `bold ${p.size || 26}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.shadowColor = p.color;
+    ctx.shadowBlur = 14;
+    ctx.fillText(p.text, VW / 2, 64);
+    ctx.shadowBlur = 0;
+  }
+  ctx.globalAlpha = 1;
+  drawCountdownBanner(ctx, VW, snap, t);
+  const cores = snap.cores ?? [];
+  if (cores.length > 1) drawBeaconPips(ctx, VW, cores, t);
+  ctx.restore();
+}
+
+// Thin seam lines over the viewport edges: a 2px Void Night core with a teal
+// energy edge on each side. Drawn from the live rects, so the dividers track
+// the 0.25s split/merge transition exactly.
+function drawDividers(ctx, views, CW, CH) {
+  ctx.save();
+  for (const v of views) {
+    const r = v.rect;
+    if (!r || r.w < 1 || r.h < 1) continue;
+    if (r.x > 0.5 && r.x < CW - 0.5) { // seam on this cell's left edge
+      ctx.fillStyle = PAL.voidNight;
+      ctx.fillRect(r.x - 1, r.y, 2, r.h);
+      ctx.fillStyle = 'rgba(111,216,242,0.4)';
+      ctx.fillRect(r.x - 2, r.y, 1, r.h);
+      ctx.fillRect(r.x + 1, r.y, 1, r.h);
+    }
+    if (r.y > 0.5 && r.y < CH - 0.5) { // seam on this cell's top edge
+      ctx.fillStyle = PAL.voidNight;
+      ctx.fillRect(r.x, r.y - 1, r.w, 2);
+      ctx.fillStyle = 'rgba(111,216,242,0.4)';
+      ctx.fillRect(r.x, r.y - 2, r.w, 1);
+      ctx.fillRect(r.x, r.y + 1, r.w, 1);
+    }
+  }
+  ctx.restore();
 }
 
 // Static minimap backdrop is baked once per level and reused every frame.
@@ -7708,7 +7978,7 @@ export function renderMinimap(ctx, snap, focusPids) {
 // The client calls this on top of its normal frame while the button is held;
 // pass mask=null to use the renderer's own exploration ledger.
 let fmCache = { key: null, canvas: null };
-export function drawFullMap(ctx, snap, mask, focus) {
+export function drawFullMap(ctx, snap, mask, focus, opts = {}) {
   if (!snap?.grid) return;
   updateExplore(snap);
   const m = mask ?? (fogEnabled ? explore.mask : null); // fog off: internal path shows all
@@ -7872,19 +8142,23 @@ export function drawFullMap(ctx, snap, mask, focus) {
     ctx.fillStyle = isFocus ? '#FFFFFF' : 'rgba(191,208,232,0.85)';
     ctx.fillText(String(p.name ?? '').toUpperCase().slice(0, 8), px(p.x), py(p.y) - ds - 4);
   }
-  // camera rect
-  ctx.strokeStyle = 'rgba(191,208,232,0.6)';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(
-    px(cam.x - cam.vw / 2 / cam.z), py(cam.y - cam.vh / 2 / cam.z),
-    (cam.vw / cam.z) * sc, (cam.vh / cam.z) * sc);
-  // header + hint
+  // camera rect (suppressed in a splitscreen map cell: no single camera)
+  if (opts.camRect !== false) {
+    ctx.strokeStyle = 'rgba(191,208,232,0.6)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(
+      px(cam.x - cam.vw / 2 / cam.z), py(cam.y - cam.vh / 2 / cam.z),
+      (cam.vw / cam.z) * sc, (cam.vh / cam.z) * sc);
+  }
+  // header + hint (the hold-to-view hint is dropped for persistent map cells)
   ctx.font = `bold ${Math.max(13, Math.round(H / 38))}px monospace`;
   ctx.fillStyle = PAL.anchor;
   ctx.fillText(`${String(snap.name ?? 'FIELD').toUpperCase()} — FIELD MAP`, W / 2, oy - 20);
-  ctx.font = `bold ${Math.max(9, Math.round(H / 60))}px monospace`;
-  ctx.fillStyle = 'rgba(138,152,184,0.85)';
-  ctx.fillText('RELEASE TO CLOSE', W / 2, oy + mh + 18);
+  if (opts.hint !== false) {
+    ctx.font = `bold ${Math.max(9, Math.round(H / 60))}px monospace`;
+    ctx.fillStyle = 'rgba(138,152,184,0.85)';
+    ctx.fillText('RELEASE TO CLOSE', W / 2, oy + mh + 18);
+  }
   ctx.restore();
 }
 

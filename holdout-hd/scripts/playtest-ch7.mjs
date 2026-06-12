@@ -765,6 +765,12 @@ check('CHAPTER CLEARS: sim reaches status=cleared after the launch chain',
   `status='${A.g.status}' after all 8 quests done + 10s observation — ` +
   (A.g.status === 'cleared' ? `clear event ${clearedAtHelm}` :
     'no clear path exists: level17 has no E exit tiles and no gate, and the sim only clears non-mode maps when every enemy is dead or all players extract'));
+// the outro itself is client-side (client.js startCutscene(lvl.outro) on cleared) —
+// certify the chapter ships one so the cleared path has a finale to play
+const outroSlides = Array.isArray(def.outro) ? def.outro : [];
+check('outro defined for the cleared cutscene (client plays def.outro on clear)',
+  outroSlides.length > 0 && outroSlides.every(s => s.title && Array.isArray(s.lines) && s.lines.length > 0),
+  `${outroSlides.length} slides: ${outroSlides.map(s => `'${s.title}'`).join(', ')}`);
 
 // 8. determinism: full mission rerun must replay byte-identically
 const t1 = Date.now();
