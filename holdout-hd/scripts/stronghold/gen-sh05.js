@@ -4,7 +4,7 @@
 // diamond redoubts around a central supply fort. A dark beacon is relit by
 // day (act-hold + 8 shards); lose only if all four go dark at once; all four
 // lit at night (from night 2) lands the Anchorcraft for an early extraction.
-// Unlock: ENGINEER. Six nights, blood moons on the fourth and sixth.
+// Unlock: ENGINEER. Four nights, blood moon on the third (budget: 5 waves).
 import { createMap, waveTable, assembleDef, writeDef, report } from './framework.mjs';
 
 const W = 84, H = 62, LEVEL = 5;
@@ -91,7 +91,7 @@ m.paintShores(':');
 // --- decoration: vale grass ---
 m.decorate((x, y, rnd) => (rnd() < 0.4 ? ',' : null));
 
-const table = waveTable({ level: LEVEL, nights: 6, bloodMoons: [4, 6] });
+const table = waveTable({ level: LEVEL, nights: 4, bloodMoons: [3] });
 const def = assembleDef({
   level: LEVEL,
   name: 'The Four Lights',
@@ -103,7 +103,7 @@ const def = assembleDef({
     'Relight dark beacons by day — 8 shards',
     'All four lit at night calls the Anchorcraft',
   ],
-  objective: 'Keep at least one beacon lit through six nights — or light all four at night and board the Anchorcraft',
+  objective: 'Keep at least one beacon lit through four nights — or light all four at night and board the Anchorcraft',
   intro: [{
     title: 'The Four Lights',
     lines: [

@@ -1,18 +1,17 @@
 {
   "name": "The Drowned Ring",
-  "objective": "Keep at least one of the four drowned monoliths lit through seven nights — all four dark at once and the ring goes under",
+  "objective": "Keep at least one of the four drowned monoliths lit through six nights — all four dark at once and the ring goes under",
   "time": 600,
   "expedition": true,
   "mode": "bastion",
   "bastionVariant": "beacons",
   "bastion": {
-    "nights": 7,
+    "nights": 6,
     "dayLen": 80,
     "nightLen": 80,
     "bloodMoons": [
       6
     ],
-    "wavesPerNight": 2,
     "waveMult": 1.67
   },
   "stronghold": {
@@ -20,7 +19,7 @@
     "name": "The Drowned Ring",
     "sizeLabel": "L",
     "difficulty": 4,
-    "waves": 16,
+    "waves": 7,
     "hpMult": 1.33,
     "blurb": "Four monoliths on a drowned ring, four causeways, one skiff. Relight by day what the night puts out.",
     "newFeatures": [

@@ -599,6 +599,9 @@ const EVA_WIRES = {
   shieldUp: () => 'shields-up',
   quest: ev => ev.state === 'done' ? 'quest-done' : ev.state === 'active' ? 'quest-new' : null,
   wave: () => 'wave-incoming',
+  // the horn calls the night early: no dedicated line fits, so EVA gives the
+  // wave warning (dusk itself still announces 'nightfall' 5s later)
+  horn: () => 'wave-incoming',
   clear: () => 'match-won',
   fail: () => 'match-lost',
   flagTaken: () => 'flag-taken',
@@ -1031,6 +1034,23 @@ export function playEvent(ev) {
     tone(98, 0.9, 'sawtooth', 0.09, 1.0);
     tone(147, 0.9, 'triangle', 0.05, 1.0);
     setTimeout(() => { tone(98, 1.2, 'sawtooth', 0.08, 1.26); tone(196, 1.0, 'triangle', 0.04, 1.0); }, 700);
+  }
+  else if (ev.type === 'horn') {
+    // the operators answer first: the dusk horn's calls, a fourth up —
+    // defiant rather than dreadful (the real dusk follows 5s later)
+    tone(131, 0.8, 'sawtooth', 0.09, 1.05);
+    tone(196, 0.8, 'triangle', 0.05, 1.0);
+    setTimeout(() => { tone(131, 1.0, 'sawtooth', 0.08, 1.3); tone(262, 0.8, 'triangle', 0.04, 1.0); }, 600);
+  }
+  else if (ev.type === 'probe') {
+    // scavengers on the wind — one short uneasy knock
+    tone(311, 0.12, 'square', 0.06, 0.8);
+    noise(0.18, 0.04, 240);
+  }
+  else if (ev.type === 'supplyDrop') {
+    // inbound whistle falling to a thump
+    tone(1175, 0.55, 'sine', 0.05, 0.5);
+    setTimeout(() => { tone(70, 0.22, 'sawtooth', 0.14, 0.5); noise(0.16, 0.1, 220); }, 500);
   }
   else if (ev.type === 'dawn') {
     // first light — rising soft chime

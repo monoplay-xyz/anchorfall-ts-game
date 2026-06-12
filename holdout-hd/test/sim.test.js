@@ -1449,7 +1449,10 @@ function bastionDef(b = {}, extraRows = []) {
   for (const [y, row] of extraRows) tiles[y] = row;
   return {
     name: 'Bastion Test', time: 600, captiveChars: [], mode: 'bastion',
-    bastion: { nights: 2, dayLen: 5, nightLen: 4, bloodMoons: [2], ...b },
+    // dayEvents off by default: most bastion tests probe one mechanic over a
+    // synthetic day and must not meet a scavenger pack at day+25s — the day
+    // events suite re-enables them explicitly (dayEvents: true)
+    bastion: { nights: 2, dayLen: 5, nightLen: 4, bloodMoons: [2], dayEvents: false, ...b },
     tiles,
   };
 }
@@ -5114,7 +5117,8 @@ function beaconsDef(b = {}, extraRows = []) {
   return {
     name: 'Beacons Test', time: 600, captiveChars: [], mode: 'bastion',
     bastionVariant: 'beacons',
-    bastion: { nights: 3, dayLen: 5, nightLen: 300, bloodMoons: [], ...b },
+    // dayEvents off by default, like bastionDef (re-enable per test)
+    bastion: { nights: 3, dayLen: 5, nightLen: 300, bloodMoons: [], dayEvents: false, ...b },
     tiles,
   };
 }
@@ -6183,6 +6187,223 @@ function testCtfOvertimeEscalation() {
   assert.equal(g.winner, 0, 'more grabs still takes the capped match');
 }
 
+// --- THE HORN: call the night early (bastion days) --------------------------
+// Hold-act 1.5s at the core (or a LIT beacon) during a day: 5s dusk warning,
+// then night; pool bonus floor(skipped/6) min 3; event 'horn'. Refused at
+// night, inside a blood-moon warning window, and in a day's last 5s. The horn
+// rides the parallel hold rail (stepHorn) — never the act edge chain.
+function testHornCallsTheNightEarly() {
+  const def = bastionDef({ nights: 2, dayLen: 60, nightLen: 4, bloodMoons: [2] });
+  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  g.graceT = 1e9; // freeze enemy AI: this test inspects the horn and the clock
+  const p = g.players[0];
+  p.invuln = 1e9;
+  p.x = g.core.x + TILE;
+  p.y = g.core.y;
+  const shards0 = g.shards;
+  // out of reach: a held act far from the core never charges the horn
+  p.x = g.core.x + TILE * 4;
+  run(g, () => ({ 0: { act: true } }), 2);
+  assert.ok(!g.events.some(ev => ev.type === 'horn'), 'no horn from beyond reach');
+  assert.equal(g.cycle.hornT, 0, 'out-of-reach holds never accumulate');
+  // at the core: 1.5s of act-hold sounds it — 45 ticks in, cy.t reads 58.5,
+  // so the call skips 53.5 day-seconds and banks floor(53.5/6) = 8 shards
+  p.x = g.core.x + TILE;
+  run(g, () => ({ 0: { act: true } }), 1.6);
+  const horn = g.events.find(ev => ev.type === 'horn');
+  assert.ok(horn, 'the horn sounded');
+  assert.equal(horn.nightNo, 1, 'the horn names the night it calls');
+  assert.equal(horn.bonus, 8, 'bonus = floor(skipped day seconds / 6)');
+  assert.equal(g.shards, shards0 + 8, 'the bonus lands in the squad pool');
+  assert.ok(Math.abs(g.cycle.t - 5) < 0.2, 'the day collapses to the 5s dusk warning');
+  assert.equal(g.cycle.phase, 'day', 'the warning seconds still elapse as day');
+  // a second hold inside the warning window cannot double-call (t <= 5)
+  run(g, () => ({ 0: { act: true } }), 2);
+  assert.equal(g.events.filter(ev => ev.type === 'horn').length, 1, 'one horn per day');
+  run(g, () => ({ 0: {} }), 3.5);
+  const dusk = g.events.find(ev => ev.type === 'dusk');
+  assert.ok(dusk && g.cycle.phase === 'night' && g.cycle.nightNo === 1,
+    'night begins ~5s after the horn');
+  snapshot(g, false); // drain
+  // NIGHT: the horn post is silent
+  run(g, () => ({ 0: { act: true } }), 2);
+  assert.ok(!g.events.some(ev => ev.type === 'horn'), 'no horn at night');
+  assert.equal(g.cycle.hornT, 0, 'night holds never accumulate');
+  // day 2 leads the BLOOD moon (night 2): inside the 30s warning window the
+  // horn refuses — the moonrise keeps its own drama
+  run(g, () => ({ 0: {} }), 2.2); // dawn -> day 2 (t 60)
+  assert.equal(g.cycle.phase, 'day');
+  run(g, () => ({ 0: {} }), 31); // t ~29: bloodWarn has fired, warned = true
+  assert.ok(g.events.some(ev => ev.type === 'bloodWarn'), 'the blood warning sounded');
+  run(g, () => ({ 0: { act: true } }), 2.5);
+  assert.ok(!g.events.some(ev => ev.type === 'horn'), 'no horn inside a blood-moon warning window');
+  // MIN BONUS: a short day pays the floor of 3
+  const g2 = createGame(bastionDef({ nights: 1, dayLen: 12, nightLen: 4, bloodMoons: [] }),
+    [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  g2.players[0].invuln = 1e9;
+  g2.players[0].x = g2.core.x + TILE;
+  g2.players[0].y = g2.core.y;
+  const pool2 = g2.shards;
+  run(g2, () => ({ 0: { act: true } }), 1.6);
+  const horn2 = g2.events.find(ev => ev.type === 'horn');
+  assert.ok(horn2, 'short-day horn still sounds');
+  assert.equal(horn2.bonus, 3, 'skipping under 18s pays the 3-shard floor');
+  assert.equal(g2.shards, pool2 + 3);
+  // LAST 5s: nothing left to skip — the hold never completes
+  const g3 = createGame(bastionDef({ nights: 1, dayLen: 6.2, nightLen: 4, bloodMoons: [] }),
+    [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  g3.players[0].invuln = 1e9;
+  g3.players[0].x = g3.core.x + TILE;
+  g3.players[0].y = g3.core.y;
+  run(g3, () => ({ 0: { act: true } }), 6.5);
+  assert.ok(!g3.events.some(ev => ev.type === 'horn'), 'no horn inside a day\'s last 5s');
+  assert.ok(g3.events.some(ev => ev.type === 'dusk'), 'the natural dusk still arrives');
+  // CLAIM RULE: a held act with a NEARER (or tied) hold-claimant in reach —
+  // here an unbuilt barricade site beside the core — must never charge the
+  // horn; the same hold from the core's far side (site out of reach) does
+  const put = (str, x, c) => str.slice(0, x) + c + str.slice(x + 1);
+  const def4 = bastionDef({ nights: 1, dayLen: 60, nightLen: 4, bloodMoons: [] });
+  def4.tiles[10] = put(def4.tiles[10], 21, 'B'); // site one tile east of the K core
+  def4.builds = [{ kind: 'barricade', cost: 4 }];
+  const g4 = createGame(def4, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  g4.graceT = 1e9;
+  g4.shards = 10; // fund the barricade so the claimed hold visibly works it
+  g4.players[0].invuln = 1e9;
+  g4.players[0].x = g4.builds[0].x; // standing ON the site: the work owns the hold
+  g4.players[0].y = g4.builds[0].y + TILE;
+  run(g4, () => ({ 0: { act: true } }), 2.5);
+  assert.ok(!g4.events.some(ev => ev.type === 'horn'), 'a hold claimed by nearer structure work never horns');
+  assert.ok(g4.builds[0].progress > 0, 'the hold went to the barricade build');
+  g4.players[0].x = g4.core.x - TILE; // far side of the core: the site is out of reach
+  g4.players[0].y = g4.core.y;
+  run(g4, () => ({ 0: { act: true } }), 1.6);
+  assert.ok(g4.events.some(ev => ev.type === 'horn'), 'clear of claimants, the same hold sounds the horn');
+}
+
+// --- the horn on the beacon variant: any LIT monolith is a horn post --------
+function testHornAtLitBeacon() {
+  const def = beaconsDef({ nights: 2, dayLen: 60, nightLen: 4, bloodMoons: [] });
+  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const p = g.players[0];
+  p.invuln = 1e9;
+  // douse beacon 0 and empty the pool so the relight rail stays inert too
+  g.cores[0].lit = false;
+  g.cores[0].hp = 0;
+  g.shards = 0;
+  p.x = g.cores[0].x + TILE;
+  p.y = g.cores[0].y;
+  run(g, () => ({ 0: { act: true } }), 2);
+  assert.ok(!g.events.some(ev => ev.type === 'horn'), 'a DARK beacon is no horn post');
+  assert.equal(g.cycle.phase, 'day', 'day still running');
+  // a lit one answers: serialize mid-hold first — the charge survives a
+  // beacon save/restore and the twin finishes the call identically
+  p.x = g.cores[1].x + TILE;
+  p.y = g.cores[1].y;
+  run(g, () => ({ 0: { act: true } }), 1.0);
+  assert.ok(g.cycle.hornT > 0.9, 'mid-hold charge accumulating');
+  const twin = restoreGame(serializeGame(g), charMap);
+  for (const gx of [g, twin]) run(gx, () => ({ 0: { act: true } }), 0.6);
+  for (const gx of [g, twin]) {
+    const horn = gx.events.find(ev => ev.type === 'horn');
+    assert.ok(horn, 'the lit beacon sounds the horn (original and restored twin)');
+    assert.equal(horn.x, gx.cores[1].x, 'the event marks the post that called it');
+  }
+  assert.equal(snapshot(g, false).cycle.t, snapshot(twin, false).cycle.t,
+    'twin clocks agree after the call');
+}
+
+// --- DAY EVENTS: scavenger probe at day+25s, supply drop at day+45s ---------
+// Deterministic (seeded by the day's nightNo), skipped by a horn-shortened
+// day, re-armed each dawn; probes prowl to the base perimeter on normal
+// aggro/leash and are never core-targeted.
+function testDayEventsProbeAndSupplyDrop() {
+  const def = bastionDef({ nights: 2, dayLen: 90, nightLen: 4, bloodMoons: [], dayEvents: true });
+  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  g.players[0].invuln = 1e9;
+  run(g, () => ({ 0: {} }), 24);
+  assert.equal(g.enemies.length, 0, 'nothing prowls before day+25s');
+  assert.ok(!g.events.some(ev => ev.type === 'probe'), 'no probe event yet');
+  // determinism twin: a beacon saved before the beats replays them exactly
+  const twin = restoreGame(serializeGame(g), charMap);
+  run(g, () => ({ 0: {} }), 1.5);
+  const probe = g.events.find(ev => ev.type === 'probe');
+  assert.ok(probe, 'the scavenger probe lands at day+25s');
+  assert.equal(probe.edge, 'e', 'day 0 probes the east edge ((0*3+1) % 4)');
+  assert.equal(probe.count, 5, 'day 0 packs 3 + ((0*7+2) % 3) = 5 scavengers');
+  const pack = g.enemies.slice();
+  assert.equal(pack.length, 5);
+  assert.deepEqual(pack.map(e => e.letter), ['z', 'z', 'w', 'z', 'z'], 'light enemies only');
+  for (const e of pack) {
+    assert.ok(e.x > TILE * 36, 'spawned on the east band');
+    assert.equal(e.awake, true, 'probes prowl awake');
+    assert.equal(e.returning, true, 'prowling = walking home to the base ring');
+    assert.ok(!e.targetCore, 'NEVER core-targeted');
+    assert.ok(e.aggro < TILE * 50, 'normal aggro (no x100 hunter bump)');
+    const dHome = Math.hypot(e.homeX - g.core.x, e.homeY - g.core.y) / TILE;
+    assert.ok(dHome >= 4 && dHome <= 10, `prowl home rings the base (${dHome.toFixed(1)} tiles)`);
+  }
+  // supply drop at day+45s: a loot chest 8-14 tiles off the base
+  run(g, () => ({ 0: {} }), 21);
+  const drop = g.events.find(ev => ev.type === 'supplyDrop');
+  assert.ok(drop, 'the supply drop lands at day+45s');
+  assert.equal(g.chests.length, 1, 'one chest landed');
+  const chest = g.chests[0];
+  assert.equal(chest.x, drop.x, 'event marks the landing tile');
+  assert.equal(chest.y, drop.y);
+  assert.equal(chest.opened, false);
+  assert.equal(chest.loot, 'shards', 'day 0 drops shards');
+  assert.equal(chest.amount, 10, 'day 0 pays 10');
+  const dBase = Math.hypot(chest.x - g.core.x, chest.y - g.core.y) / TILE;
+  assert.ok(dBase >= 7 && dBase <= 15, `landing band 8-14 tiles (tile-rounded: ${dBase.toFixed(1)})`);
+  assert.ok(snapshot(g, false).chests.some(c => c.x === chest.x && !c.opened), 'snapshot ships the chest');
+  // the saved twin replays both beats to the same field
+  run(twin, () => ({ 0: {} }), 22.5);
+  const sg = snapshot(g, false), st = snapshot(twin, false);
+  assert.deepEqual(st.enemies, sg.enemies, 'twin probe pack matches exactly');
+  assert.deepEqual(st.chests, sg.chests, 'twin supply chest matches exactly');
+  // by late day the pack has prowled in and bedded down on the base ring
+  run(g, () => ({ 0: {} }), 35);
+  assert.ok(g.enemies.some(e => !e.awake), 'scavengers bed down at the perimeter');
+  assert.ok(g.core.hp === 30, 'the core was never their target');
+}
+
+// --- day events: a horn-called day skips its unfired beats; dawns re-arm ----
+function testDayEventsSkippedByHornAndRearm() {
+  const def = bastionDef({ nights: 2, dayLen: 90, nightLen: 4, bloodMoons: [], dayEvents: true });
+  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  g.graceT = 1e9; // freeze enemy AI: scheduling only — the night wave must not eat the core
+  const p = g.players[0];
+  p.invuln = 1e9;
+  p.x = g.core.x + TILE;
+  p.y = g.core.y;
+  // call the night at once: day 1's probe AND drop never fire
+  const inputs = gx => ({ 0: { act: gx.cycle.phase === 'day' && gx.cycle.nightNo === 0 } });
+  run(g, inputs, 8); // horn ~1.5s, warning 5s, dusk
+  assert.ok(g.events.some(ev => ev.type === 'horn'), 'horn called');
+  assert.equal(g.cycle.phase, 'night');
+  assert.ok(!g.events.some(ev => ev.type === 'probe'), 'horn skipped the unfired probe');
+  assert.ok(!g.events.some(ev => ev.type === 'supplyDrop'), 'horn skipped the unfired drop');
+  assert.equal(g.chests.length, 0, 'no chest landed on the skipped day');
+  snapshot(g, false); // drain night-1 events
+  // dawn re-arms day 2 (nightNo 1): probe at +25s off the north edge, 3 strong
+  run(g, () => ({ 0: {} }), 4.5); // through the night
+  assert.equal(g.cycle.phase, 'day');
+  const before = g.enemies.length;
+  run(g, () => ({ 0: {} }), 26);
+  const probe = g.events.find(ev => ev.type === 'probe');
+  assert.ok(probe, 'the next dawn re-arms the probe');
+  assert.equal(probe.edge, 'n', 'day 1 probes the north edge ((1*3+1) % 4)');
+  assert.equal(probe.count, 3, 'day 1 packs 3 + ((1*7+2) % 3) = 3');
+  const pack = g.enemies.slice(before);
+  assert.equal(pack.length, 3);
+  assert.ok(pack.every(e => e.y < TILE * 2), 'north band entries');
+  // and the drop re-arms too, with the day-1 loot row
+  run(g, () => ({ 0: {} }), 21);
+  const drop = g.events.find(ev => ev.type === 'supplyDrop');
+  assert.ok(drop, 'day 2 supply drop landed');
+  assert.equal(g.chests[0].loot, 'medkit', 'day 1 drops medkits');
+}
+
 testEnemyShotsBlockedByStructures();
 testCoreGnawNeedsWaveOrSealedTarget();
 testShipBoardingEdgeWalkAwayAndLaunch();
@@ -6191,5 +6412,9 @@ testPathBudgetThrottleAndDormancy();
 testNextBloodMoonCountdownFlag();
 testRevivePlayerRejoinFlow();
 testCtfOvertimeEscalation();
+testHornCallsTheNightEarly();
+testHornAtLitBeacon();
+testDayEventsProbeAndSupplyDrop();
+testDayEventsSkippedByHornAndRearm();
 
 console.log('sim tests passed');

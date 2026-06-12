@@ -4,7 +4,7 @@
 // rivers quarter the land, meeting in a confluence lake with a skiff-only
 // island hoard. BEACON DEFENSE: four monolith redoubts, one per bank, with
 // the fords as chokepoints. Two skiffs and a stag are stabled.
-// Unlock: none (feature debut level). Seven nights, blood moons 3/5/7.
+// Unlock: none (feature debut level). Four nights, blood-moon finale on 4 (budget: 5 waves).
 import { createMap, waveTable, assembleDef, writeDef, report } from './framework.mjs';
 
 const W = 96, H = 70, LEVEL = 7;
@@ -121,7 +121,7 @@ m.paintShores(':');
 // --- decoration: bank grass ---
 m.decorate((x, y, rnd) => (rnd() < 0.35 ? ',' : null));
 
-const table = waveTable({ level: LEVEL, nights: 7, bloodMoons: [3, 5, 7] });
+const table = waveTable({ level: LEVEL, nights: 4, bloodMoons: [4] });
 const def = assembleDef({
   level: LEVEL,
   name: 'Two Rivers',
@@ -129,7 +129,7 @@ const def = assembleDef({
   difficulty: 3,
   blurb: 'Two rivers quarter the land and a beacon burns on every bank. Hold the fords — or flank by skiff.',
   newFeatures: ['Hold the fords — four banks, four beacons', 'Skiff flanking on open water', 'Island hoard in the confluence'],
-  objective: 'Keep at least one beacon lit through seven rain-soaked nights — the fords decide everything',
+  objective: 'Keep at least one beacon lit through four rain-soaked nights — the fords decide everything',
   intro: [{
     title: 'Two Rivers',
     lines: [
@@ -142,7 +142,7 @@ const def = assembleDef({
   outro: [{
     title: 'The Confluence Holds',
     lines: [
-      'Seven nights of rain, and light still stands on every bank that mattered.',
+      'Four nights of rain, and light still stands on every bank that mattered.',
       'The rivers run dark and quiet. Downstream, somebody owes you a bridge.',
     ],
     art: 'dawn',

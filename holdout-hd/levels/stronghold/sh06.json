@@ -1,17 +1,16 @@
 {
   "name": "Quarry Bastion",
-  "objective": "Hold Quarry Bastion through six nights — and clear the claim-jumpers from the pit for Bel",
+  "objective": "Hold Quarry Bastion through three nights — and clear the claim-jumpers from the pit for Bel",
   "time": 600,
   "expedition": true,
   "mode": "bastion",
   "bastion": {
-    "nights": 6,
+    "nights": 3,
     "dayLen": 90,
     "nightLen": 75,
     "bloodMoons": [
       2,
-      4,
-      6
+      3
     ],
     "waveMult": 1.33
   },
@@ -20,13 +19,13 @@
     "name": "Quarry Bastion",
     "sizeLabel": "M",
     "difficulty": 3,
-    "waves": 9,
+    "waves": 5,
     "hpMult": 1.17,
     "unlock": "bastion",
     "blurb": "Stone country: ridge spines, rubble, a pit full of claim-jumpers — and six towers begging for gunners.",
     "newFeatures": [
       "Six watchtowers to crew",
-      "Blood moons every other night",
+      "Back-to-back blood moons",
       "Camp-clearing bounty"
     ]
   },
@@ -37,7 +36,7 @@
       "lines": [
         "The quarry cut the stone that walls half the frontier. Tonight the frontier owes it a garrison.",
         "Six watchtowers stand along the lanes — crewed towers win sieges. The pit southeast hides charger claim-jumpers; Bel pays for four.",
-        "Three blood moons this tour. Stack shards, stack walls, sleep never."
+        "Two blood moons this tour, back to back. Stack shards, stack walls, sleep never."
       ],
       "art": "siege"
     }
@@ -47,7 +46,7 @@
       "title": "Stone Holds Stone",
       "lines": [
         "Six dawns and the quarry still rings — hammer on rock, not claw on gate.",
-        "Bel chalks the tally on the wall: three blood moons, zero refunds."
+        "Bel chalks the tally on the wall: two blood moons, zero refunds."
       ],
       "art": "dawn"
     }

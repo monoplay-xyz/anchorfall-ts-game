@@ -8,17 +8,14 @@
     "nights": 5,
     "dayLen": 90,
     "nightLen": 75,
-    "bloodMoons": [
-      3,
-      5
-    ]
+    "bloodMoons": []
   },
   "stronghold": {
     "level": 1,
     "name": "The Last Bastion",
     "sizeLabel": "S",
     "difficulty": 1,
-    "waves": 7,
+    "waves": 5,
     "blurb": "One walled bastion, four lanes, five nights. Hold the line where the campaign begins.",
     "newFeatures": [
       "The first stronghold",
@@ -30,7 +27,7 @@
       "title": "The Last Bastion",
       "lines": [
         "One bastion still answers on the frontier band: five nights from relief.",
-        "Every dusk the Entropy marches a lane. Two moons will rise blood.",
+        "Every dusk the Entropy marches a lane, harder each night than the last.",
         "Wall the gaps. Crew the towers. The core must not fall."
       ],
       "art": "siege"

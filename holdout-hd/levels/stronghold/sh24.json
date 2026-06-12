@@ -1,18 +1,18 @@
 {
   "name": "Night Unending",
-  "objective": "Raise the comm mast before dark, then outlast ten unending nights",
+  "objective": "Raise the comm mast before dark, then outlast seven unending nights",
   "time": 600,
   "expedition": true,
   "mode": "bastion",
   "bastion": {
-    "nights": 10,
+    "nights": 7,
     "dayLen": 60,
     "nightLen": 130,
     "bloodMoons": [
+      4,
       6,
-      10
+      7
     ],
-    "wavesPerNight": 2,
     "waveMult": 2.53
   },
   "stronghold": {
@@ -20,11 +20,11 @@
     "name": "Night Unending",
     "sizeLabel": "XL",
     "difficulty": 5,
-    "waves": 24,
+    "waves": 10,
     "hpMult": 1.77,
-    "blurb": "Ten nights that barely break. Void cracks split the ash plain, the days are short and the dark is twenty-two waves deep.",
+    "blurb": "Seven nights that barely break. Void cracks split the ash plain, the days are short and the last three dusks rise blood.",
     "newFeatures": [
-      "Ten near-endless nights",
+      "Seven near-endless nights",
       "Void-shattered ground",
       "Comm-mast repair",
       "A teleport pair"
@@ -47,7 +47,7 @@
     {
       "title": "The Long Dark Ends",
       "lines": [
-        "The tenth dawn arrives like it owes you money.",
+        "The seventh dawn arrives like it owes you money.",
         "One more hold. One more light. FINALITY waits."
       ],
       "art": "dawn"
@@ -640,7 +640,7 @@
       "id": "vex",
       "name": "Signaller Vex",
       "lines": [
-        "Ten nights, they said. The sun barely bothers anymore.",
+        "Seven nights, they said. The sun barely bothers anymore.",
         "Raise the comm mast and relief drops a cache. Raise it BEFORE dark."
       ]
     }

@@ -1,25 +1,23 @@
 {
   "name": "FINALITY",
-  "objective": "Keep an anchor lit through nine nights — or light all four under a night sky and board the Anchorcraft",
+  "objective": "Keep an anchor lit through four dense nights — or light all four under a night sky and board the Anchorcraft",
   "time": 600,
   "expedition": true,
   "mode": "bastion",
   "bastionVariant": "beacons",
   "bastion": {
-    "nights": 9,
+    "nights": 4,
     "dayLen": 110,
     "nightLen": 95,
     "bloodMoons": [
-      3,
-      6,
-      9
+      4
     ],
     "wavesPerNight": 2,
     "waveMult": 1.8,
     "bossNights": [
-      5,
-      7,
-      9
+      2,
+      3,
+      4
     ]
   },
   "stronghold": {
@@ -27,11 +25,11 @@
     "name": "FINALITY",
     "sizeLabel": "XL",
     "difficulty": 5,
-    "waves": 24,
+    "waves": 10,
     "hpMult": 1.5,
-    "blurb": "Every terrain. Every horror. Twenty-four waves over nine nights, three blood moons, and three Entropy bosses. The end of the arc.",
+    "blurb": "Every terrain. Every horror. Ten dense waves over four nights, a blood-moon finale, and three Entropy bosses. The end of the arc.",
     "newFeatures": [
-      "Three Entropy bosses (nights 5, 7, 9)",
+      "Three Entropy bosses (nights 2, 3, 4)",
       "Every terrain on one field",
       "The Anchorcraft descends for the worthy"
     ]
@@ -42,7 +40,7 @@
       "title": "FINALITY",
       "lines": [
         "Every biome the frontier ever grew, stitched into one battlefield.",
-        "Three blood moons. Three Entropy warlords — nights five, seven, nine.",
+        "A blood-moon finale. Three Entropy warlords — every night after the first.",
         "All four anchors lit in the dark, and the Anchorcraft itself descends."
       ],
       "art": "anchorcraft"

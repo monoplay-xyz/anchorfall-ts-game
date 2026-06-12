@@ -35,7 +35,13 @@ npm run build-static   # serverless dist/ build for Batocera (docs/BATOCERA.md)
 - **Stronghold** — a 25-level siege-survival campaign (`sh01`–`sh25`).
   Day/night cycles with blood-moon nights, LYTH-shard economy, build sites
   (walls, barricades, farms, and Gun / Prism / Tesla / Toxin turrets), and a
-  core (or four beacon monoliths) to keep alive. Beating a stronghold unlocks
+  core (or four beacon monoliths) to keep alive. Days carry scheduled beats —
+  a scavenger probe noses in at day+25s and a supply drop lands at day+45s —
+  and any operative can hold ACT at the core (or a lit beacon) to **sound the
+  horn**: the night comes early and the pool banks the skipped time as shards.
+  Every level's TOTAL waves (blood-moon second edges included) fits a
+  {3, 5, 7, 10} budget — early levels run 5, the mid arc 7, the late arc up
+  to 10, and no stronghold ever exceeds 10. Beating a stronghold unlocks
   the next; clears also unlock new operatives — the roster grows from the 4
   starters (Scout, Soldier, Grenadier, Medic) toward all 17.
 - **Versus — couch** (2–4 players, one screen, no AI enemies):

@@ -1,17 +1,16 @@
 {
   "name": "The Four Lights",
-  "objective": "Keep at least one beacon lit through six nights — or light all four at night and board the Anchorcraft",
+  "objective": "Keep at least one beacon lit through four nights — or light all four at night and board the Anchorcraft",
   "time": 600,
   "expedition": true,
   "mode": "bastion",
   "bastionVariant": "beacons",
   "bastion": {
-    "nights": 6,
+    "nights": 4,
     "dayLen": 90,
     "nightLen": 75,
     "bloodMoons": [
-      4,
-      6
+      3
     ],
     "waveMult": 1.27
   },
@@ -20,7 +19,7 @@
     "name": "The Four Lights",
     "sizeLabel": "M",
     "difficulty": 2,
-    "waves": 8,
+    "waves": 5,
     "hpMult": 1.13,
     "unlock": "engineer",
     "blurb": "Four beacon monoliths in four redoubts. Keep one lit to dawn — or light all four at night and call the ship.",

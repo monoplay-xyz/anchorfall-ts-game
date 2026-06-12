@@ -1,17 +1,16 @@
 {
   "name": "The Long Night",
-  "objective": "Survive the long night — eight short days, eight long dusks, and the last night rises blood",
+  "objective": "Survive the long night — six short days, six long dusks, and the last night rises blood",
   "time": 600,
   "expedition": true,
   "mode": "bastion",
   "bastion": {
-    "nights": 8,
+    "nights": 6,
     "dayLen": 70,
     "nightLen": 95,
     "bloodMoons": [
-      8
+      6
     ],
-    "wavesPerNight": 2,
     "waveMult": 1.87
   },
   "stronghold": {
@@ -19,13 +18,13 @@
     "name": "The Long Night",
     "sizeLabel": "L",
     "difficulty": 4,
-    "waves": 18,
+    "waves": 7,
     "hpMult": 1.43,
     "unlock": "warden",
-    "blurb": "Eight nights, short days, a lake of ice underfoot. The walls ship hardened — they will need to be.",
+    "blurb": "Six nights, short days, a lake of ice underfoot. The walls ship hardened — they will need to be.",
     "newFeatures": [
       "Warden joins the roster",
-      "Eight-night siege",
+      "Long-night siege",
       "Ice fields + snowstorm"
     ]
   },
@@ -33,7 +32,7 @@
     {
       "title": "The Long Night",
       "lines": [
-        "Eight dusks stand between this fort and relief — the days up here are short.",
+        "Six dusks stand between this fort and relief — the days up here are short.",
         "The lake is ice: everything that crosses it keeps sliding, you included.",
         "The walls ship hardened. Repair them by day; the Warden watches the rest."
       ],

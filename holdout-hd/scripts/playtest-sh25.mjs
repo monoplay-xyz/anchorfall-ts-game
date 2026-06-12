@@ -1,6 +1,7 @@
 // Headless playtest: STRONGHOLD sh25 "FINALITY" (levels/stronghold/sh25.json).
-// XL 110x80, beacon-defense variant: 10 nights, wavesPerNight 2, waveMult 2.6,
-// hpMult 1.8, blood moons on 2/4/6/8/10, Entropy bosses on nights 6/8/10.
+// XL 110x80, beacon-defense variant: 4 DENSE nights, wavesPerNight 2,
+// waveMult 1.8, hpMult 1.5, blood-moon finale on night 4, Entropy bosses on
+// nights 2/3/4 (wave-cap law: budget 10 = 4 nights x2 + the moon's doubles).
 //
 // Four scripted late-game operatives, one per beacon fort:
 //   pid 0  ATLAS   atlas      NW fort (28,22)  overWalls comet bombardier
@@ -559,7 +560,19 @@ function botTick(g, bot, p, mode) {
   }
   if (p.state !== 'active') return inp;
   refreshBot(g, bot, p);
-  if (mode === 'idle') return inp;
+  if (mode === 'idle') {
+    // self-defense only (the day-event scavenger probes prowl the squad's
+    // idle ground now): fight whatever closes in, but tend NO beacon.
+    // botCombat's flee logic anchors on bot.guardCore — give the idler the
+    // nearest monolith as its fallback ground without ever defending it.
+    if (!bot.guardCore) {
+      let bd2 = Infinity;
+      for (const c of g.cores) { const dd = dist2(p, c); if (dd < bd2) { bd2 = dd; bot.guardCore = c; } }
+    }
+    const tgt = pickTarget(g, p, bot.range, null);
+    if (tgt && Math.sqrt(tgt.d2) / TILE < 6) botCombat(g, bot, p, tgt, inp, p);
+    return inp;
+  }
   if (mode === 'board') {
     if (g.ship) {
       bot.tripping = true;
@@ -664,7 +677,7 @@ function run(mode, maxS) {
     step(g, inputs, DT);
     const ms = performance.now() - t0;
     // god-mode schedule audit: pin the monoliths lit and the squad immortal
-    // so the full 10-night wave/boss calendar and the final-dawn clear can be
+    // so the full 4-night wave/boss calendar and the final-dawn clear can be
     // verified mechanically (also: clean max-entity perf, nobody thins the horde)
     if (mode === 'schedule') {
       for (const c of g.cores) { c.lit = true; c.hp = c.maxHp; }
@@ -748,11 +761,11 @@ for (const l of st.log) note(l);
 if (DEBUG) for (const l of st.darkTimeline) note(l);
 
 if (MODE === 'win') {
-  check('mission cleared at final dawn', st.status === 'cleared' && st.nightNo === 10,
+  check('mission cleared at final dawn', st.status === 'cleared' && st.nightNo === 4,
     `status=${st.status} night=${st.nightNo} elapsed=${Math.round(st.elapsed)}s`);
   check('>= 1 beacon lit at the end', st.litEnd >= 1, `lit=${st.litEnd}`);
   check('all 3 Entropy bosses marched', st.bossSeen >= 3, `bossSeen=${st.bossSeen}`);
-  check('25 night waves fired (incl. blood-moon doubles)', st.waves >= 25, `waves=${st.waves}`);
+  check('10 night waves fired (incl. the finale blood-moon doubles)', st.waves >= 10, `waves=${st.waves}`);
   check('run was HARD (beacons went dark or squad got downed)', st.beaconDowns + st.downs > 0,
     `beaconDowns=${st.beaconDowns} relights=${st.relights} downs=${st.downs}`);
   note(`kills=${st.kills} score=${Math.round(st.score)} relights=${st.relights} beaconDowns=${st.beaconDowns} downs=${st.downs}`);
@@ -767,11 +780,11 @@ if (MODE === 'win') {
   check('early extraction cleared the mission', st.status === 'cleared',
     `status=${st.status} t=${Math.round(st.elapsed)}s score=${Math.round(st.score)}`);
 } else if (MODE === 'schedule') {
-  check('cleared at the final dawn (night 10)', st.status === 'cleared' && st.nightNo === 10,
+  check('cleared at the final dawn (night 4)', st.status === 'cleared' && st.nightNo === 4,
     `status=${st.status} night=${st.nightNo} t=${Math.round(st.elapsed)}s`);
-  check('exactly 3 Entropy bosses marched (nights 6/8/10)', st.bossSeen === 3, `bossSeen=${st.bossSeen}`);
-  check('wave calendar: 20 spawns / 30 edge-events over 10 nights', st.waves === 30,
-    `edge-events=${st.waves} (def labels waves:25)`);
+  check('exactly 3 Entropy bosses marched (nights 2/3/4)', st.bossSeen === 3, `bossSeen=${st.bossSeen}`);
+  check('wave calendar: 8 spawns / 10 edge-events over 4 nights', st.waves === 10,
+    `edge-events=${st.waves} (def labels waves:10 — truthful, doubles counted)`);
 }
 
 console.log(`PERF  ticks=${st.ticks} avg=${st.avg.toFixed(3)}ms p50=${st.p50.toFixed(3)}ms p99=${st.p99.toFixed(3)}ms max=${st.maxMs.toFixed(2)}ms peakEnemies=${st.peakEnemies}`);

@@ -1,18 +1,16 @@
 {
   "name": "Emberfall",
-  "objective": "Survive nine nights under the ashfall — the air itself is poison until the second day",
+  "objective": "Survive three double-wave nights under the ashfall — the air itself is poison until the second day",
   "time": 600,
   "expedition": true,
   "mode": "bastion",
   "bastion": {
-    "nights": 9,
+    "nights": 3,
     "dayLen": 95,
     "nightLen": 85,
     "bloodMoons": [
-      3,
-      5,
-      7,
-      9
+      2,
+      3
     ],
     "wavesPerNight": 2,
     "waveMult": 2.33
@@ -22,12 +20,12 @@
     "name": "Emberfall",
     "sizeLabel": "XL",
     "difficulty": 5,
-    "waves": 26,
+    "waves": 10,
     "hpMult": 1.67,
-    "blurb": "Lava veins off a live cone, ash on every wind — and a blood moon every other night. Mask up before the first dusk.",
+    "blurb": "Lava veins off a live cone, ash on every wind — and back-to-back blood moons. Mask up before the first dusk.",
     "newFeatures": [
       "Toxic ash air — mask up",
-      "Blood moons every other night",
+      "Back-to-back blood moons",
       "Lava-field warfare"
     ]
   },
@@ -44,7 +42,7 @@
       "lines": [
         "The cone woke last month and the sky has not closed since.",
         "Until the second day burns off, unmasked lungs pay in blood.",
-        "Four blood moons. Lava on every lane. Welcome to Emberfall."
+        "Two blood moons, back to back. Lava on every lane. Welcome to Emberfall."
       ],
       "art": "entropy"
     }

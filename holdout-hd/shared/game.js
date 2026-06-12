@@ -217,6 +217,25 @@ const RELIGHT_HOLD_T = 1.5; // seconds of act-hold at the dark monolith
 // lands the ship; boarding everyone launches with a full-clear bonus.
 const SHIP_BOARD_TILES = 1.5; // act reach to board, like extraction
 const SHIP_CLEAR_BONUS = 2000;
+// THE HORN: during a bastion DAY any operative may hold act at the base core
+// (or any LIT beacon) to call the night early — a 5s dusk warning, then night.
+// The pool is paid floor(skipped-day-seconds / 6) shards (min 3) for the time
+// bought back. Refused at night, while a blood-moon warning sounds, and in a
+// day's last 5s (nothing left to skip).
+const HORN_HOLD_T = 1.5;  // seconds of act-hold, scaled by holders (relight rule)
+const HORN_LEAD = 5;      // the dusk warning the horn leaves on the clock
+const HORN_BONUS_DIV = 6; // shards = floor(skipped seconds / 6) ...
+const HORN_MIN_BONUS = 3; // ... but never less than 3
+// DAY EVENTS (bastion): every day carries two deterministic beats seeded by
+// the day's nightNo — a SCAVENGER PROBE at day+25s (3-5 light enemies off a
+// deterministic edge, prowling to the base perimeter on normal aggro/leash,
+// never core-targeted) and a SUPPLY DROP at day+45s (a loot chest landing
+// 8-14 tiles from the base). A horn-shortened day skips whatever hasn't
+// fired. def.bastion.dayEvents === false opts a map out (default on).
+const PROBE_AT = 25;     // seconds into the day
+const PROBE_HOME_TILES = [5, 9];  // probe prowl ring around the base
+const DROP_AT = 45;      // seconds into the day
+const DROP_TILES = [8, 14];       // supply chest landing band
 // Terrain: '=' sand drags, '^' ice skates and drifts, '!' lava sears,
 // '%' void blocks everything (move, sight, shots).
 const SAND_SLOW = 0.85;
@@ -652,7 +671,7 @@ export function createGame(def, party, charMap, roster) {
     // classic defs carry no mode so nothing changes for them.
     mode: def.mode || null,
     bastion,
-    cycle: bastion ? { phase: 'day', nightNo: 0, t: bastion.dayLen, bloodMoon: false, warned: false, waveN: 0 } : null,
+    cycle: bastion ? { phase: 'day', nightNo: 0, t: bastion.dayLen, bloodMoon: false, warned: false, waveN: 0, dayE: 0, hornT: 0, probeDone: false, dropDone: false } : null,
     // CTF score and BR shrink zone. Null on every other mode (snapshot omits).
     caps: def.mode === 'ctf' ? [0, 0] : null,
     // CTF per-team shard pools; null everywhere else (g.shards rules there —
@@ -2993,12 +3012,21 @@ function stepCycle(g, dt) {
       cy.warned = true;
       g.events.push({ type: 'bloodWarn', nightNo: nextNight, x: evX, y: evY });
     }
+    // DAY EVENTS run on the day's own ELAPSED clock (dayE), not on cy.t —
+    // the horn collapses cy.t, so a horn-shortened day simply never reaches
+    // an unfired beat (the contract: early call skips what hasn't fired)
+    if (g.bastion.dayEvents !== false) {
+      cy.dayE = (cy.dayE || 0) + dt;
+      if (!cy.probeDone && cy.dayE >= PROBE_AT) { cy.probeDone = true; spawnDayProbe(g); }
+      if (!cy.dropDone && cy.dayE >= DROP_AT) { cy.dropDone = true; spawnSupplyDrop(g); }
+    }
     if (cy.t <= 0) {
       cy.phase = 'night';
       cy.nightNo = nextNight;
       cy.t = g.bastion.nightLen;
       cy.bloodMoon = g.bastion.bloodMoons.includes(cy.nightNo);
       cy.warned = false;
+      cy.dayE = 0;
       g.events.push({ type: 'dusk', nightNo: cy.nightNo, bloodMoon: cy.bloodMoon, x: evX, y: evY });
       spawnNightWave(g, 0);
       cy.waveN = 1;
@@ -3022,7 +3050,162 @@ function stepCycle(g, dt) {
     cy.phase = 'day';
     cy.bloodMoon = false;
     cy.t = g.bastion.dayLen;
+    // a fresh day re-arms its two scheduled beats
+    cy.dayE = 0;
+    cy.probeDone = false;
+    cy.dropDone = false;
   }
+}
+
+// --- bastion day events: scavenger probes, supply drops, the horn ----------
+
+// The base's center: the single core, or the beacons' centroid.
+function baseCenter(g) {
+  if (g.core) return { x: g.core.x, y: g.core.y };
+  if (g.cores && g.cores.length) {
+    return {
+      x: g.cores.reduce((s, c) => s + c.x, 0) / g.cores.length,
+      y: g.cores.reduce((s, c) => s + c.y, 0) / g.cores.length,
+    };
+  }
+  return { x: g.w * TILE / 2, y: g.h * TILE / 2 };
+}
+
+// First OPEN tile (walkable, unsearing, not inside a structure) scanned
+// deterministically over a radius band around a world point: radii step
+// outward tile by tile, 16 angle spokes per ring starting on a seeded spoke.
+// Returns tile-center world coords or null when the whole band is blocked.
+function openTileNear(g, wx, wy, rMin, rMax, seed) {
+  for (let r = rMin; r <= rMax; r++) {
+    for (let k = 0; k < 16; k++) {
+      const a = (((seed + k) % 16) / 16) * Math.PI * 2;
+      const tx = Math.round(wx / TILE + Math.cos(a) * r - 0.5);
+      const ty = Math.round(wy / TILE + Math.sin(a) * r - 0.5);
+      if (tx < 1 || ty < 1 || tx >= g.w - 1 || ty >= g.h - 1) continue;
+      const c = g.grid[ty][tx];
+      if (blocksMove(c) || c === '!') continue;
+      const x = (tx + 0.5) * TILE, y = (ty + 0.5) * TILE;
+      if (collides(g, x, y, CAPTIVE_R)) continue; // builds/towers/cores
+      return { x, y };
+    }
+  }
+  return null;
+}
+
+// SCAVENGER PROBE (day+25s): a small pack of light enemies off a deterministic
+// edge that PROWLS to the base perimeter and beds down there — they ride the
+// normal walk-home machinery (awake + returning toward a home ring 5-9 tiles
+// off the base center), so they aggro/leash/fight exactly like any wanderer
+// and are NEVER core-targeted. Composition deepens with the night count, hp
+// scales with the stronghold arc (g.hpMult). All seeded by nightNo: same day,
+// same probe — and the probe edge (3n+1 mod 4) provably never matches the
+// coming night's first wave edge (n mod 4), so days read different from dusks.
+function spawnDayProbe(g) {
+  const n = g.cycle.nightNo;
+  const count = 3 + ((n * 7 + 2) % 3); // 3-5
+  const mix = n >= 4 ? 'zwug' : n >= 2 ? 'zwu' : 'zzw';
+  const edge = WAVE_EDGES[(n * 3 + 1) % 4];
+  const room = Math.max(0, 90 - g.enemies.length);
+  const pts = waveEntryPoints(g, edge, Math.min(count, room));
+  if (!pts.length) return;
+  const base = baseCenter(g);
+  for (let i = 0; i < pts.length; i++) {
+    const e = makeEnemy(mix[i % mix.length], pts[i].x, pts[i].y, g.nextEnemyId++);
+    scaleEnemyHp(g.hpMult, e); // stronghold strength arc, like the night waves
+    const home = openTileNear(g, base.x, base.y, PROBE_HOME_TILES[0], PROBE_HOME_TILES[1], n * 5 + i * 3);
+    if (home) { e.homeX = home.x; e.homeY = home.y; }
+    e.awake = true;
+    e.returning = true; // walk-home = the prowl in; aggro normal, leash normal
+    g.enemies.push(e);
+  }
+  const cx = edge === 'w' ? TILE : edge === 'e' ? (g.w - 1) * TILE : g.w * TILE / 2;
+  const cy2 = edge === 'n' ? TILE : edge === 's' ? (g.h - 1) * TILE : g.h * TILE / 2;
+  g.events.push({ type: 'probe', edge, count: pts.length, x: cx, y: cy2 });
+}
+
+// SUPPLY DROP (day+45s): a loot chest lands on an open tile 8-14 tiles from
+// the base. Loot is deterministic by nightNo; the event carries the landing
+// spot for the client's banner/map ping and the renderer's crate flare.
+function spawnSupplyDrop(g) {
+  const n = g.cycle.nightNo;
+  const base = baseCenter(g);
+  const spot = openTileNear(g, base.x, base.y, DROP_TILES[0], DROP_TILES[1], n * 11 + 5);
+  if (!spot) return;
+  const menu = [['shards', 10 + n * 2], ['medkit', 2], ['cracker', 2], ['shield', 1], ['toxin', 2]];
+  const [loot, amount] = menu[n % menu.length];
+  g.chests.push({ x: spot.x, y: spot.y, opened: false, loot, amount });
+  g.events.push({ type: 'supplyDrop', x: spot.x, y: spot.y, loot });
+}
+
+// THE HORN: hold act HORN_HOLD_T at the base core (or any LIT beacon) during
+// a day to call the night early — cy.t collapses to a 5s dusk warning and the
+// squad pool banks floor(skipped/6) shards, min 3. ACT PRIORITY: like beacon
+// relight (stepBeacons), the horn rides the PARALLEL hold rail — it never
+// claims or consumes the edge-triggered act chain in stepPlayers, and busy
+// seats (tower/vehicle/shop/carousel) never charge it. UNLIKE relight (whose
+// dark-beacon gate makes accidents impossible), the horn only charges when
+// the post is the player's NEAREST hold-claimant — a held act that is
+// building, repairing, upgrading, shopping, forging or rebuilding something
+// closer must never ALSO skip the day (mirror of the renderer's nearest-
+// prompt rule). Refused at night, while a blood-moon warning sounds
+// (cy.warned), and inside a day's last 5s.
+function hornClaimDist2(g, p) {
+  // squared distance to the nearest OTHER act-hold claimant in reach
+  const r2b = (TILE * BUILD_REACH) ** 2;
+  let best = Infinity;
+  for (const b of g.builds) {
+    if (b.built && b.kind === 'farm') continue; // harvest is a press, not a hold
+    const d = dist2(p, b);
+    if (d < r2b && d < best) best = d;
+  }
+  for (const t of g.towers) {
+    if ((t.hp ?? 1) > 0) continue; // occupy is a press; only REBUILD holds
+    const d = dist2(p, t);
+    if (d < r2b && d < best) best = d;
+  }
+  const r2s = (TILE * SHOP_REACH) ** 2;
+  for (const s of g.shops) {
+    const d = dist2(p, s);
+    if (d < r2s && d < best) best = d;
+  }
+  for (const f of g.forges) {
+    const d = dist2(p, f);
+    if (d < r2b && d < best) best = d;
+  }
+  return best;
+}
+function stepHorn(g, inputs, dt) {
+  const cy = g.cycle;
+  if (!cy || g.status !== 'play') return;
+  if (cy.phase !== 'day' || cy.warned || cy.t <= HORN_LEAD) { cy.hornT = 0; return; }
+  const posts = g.cores ? g.cores.filter(c => c.lit) : (g.core ? [g.core] : []);
+  if (!posts.length) { cy.hornT = 0; return; }
+  const r2 = (TILE * BUILD_REACH) ** 2;
+  let holders = 0;
+  let at = null;
+  for (const p of g.players) {
+    if (p.state !== 'active' || p.towerId != null || p.riding || p.shopping || p.selecting) continue;
+    const inp = inputs[p.pid] || {};
+    if (!inp.act) continue;
+    let dPost = Infinity;
+    let post = null;
+    for (const c of posts) {
+      const d = dist2(p, c);
+      if (d < r2 && d < dPost) { dPost = d; post = c; }
+    }
+    if (!post || dPost >= hornClaimDist2(g, p)) continue; // ties go to the work
+    holders++;
+    if (!at) at = post;
+  }
+  if (!holders) { cy.hornT = 0; return; }
+  cy.hornT = (cy.hornT || 0) + dt * holders;
+  if (cy.hornT < HORN_HOLD_T) return;
+  cy.hornT = 0;
+  const skipped = Math.max(0, cy.t - HORN_LEAD); // the warning seconds still elapse
+  const bonus = Math.max(HORN_MIN_BONUS, Math.floor(skipped / HORN_BONUS_DIV));
+  g.shards += bonus; // bastion is co-op: the one squad pool
+  cy.t = HORN_LEAD;
+  g.events.push({ type: 'horn', nightNo: cy.nightNo + 1, bonus, x: at.x, y: at.y });
 }
 
 // --- beacon-defense: day relight + the Anchorcraft early extraction ---------
@@ -3791,7 +3974,15 @@ export function step(g, inputs, dt) {
     //  12. npc talk              13. board the landed Anchorcraft (lowest)
     // The dismantle-chain on BUILT structures runs LAST, on the held bool in
     // the structures block below: repair while damaged > upgrade below max
-    // level > dismantle. ---
+    // level > dismantle.
+    // PARALLEL HOLD RAIL (not in this chain, claims nothing, consumes
+    // nothing): beacon relight (stepBeacons, dark monolith by day) and THE
+    // HORN (stepHorn, core/lit beacon by day) accumulate on the raw held
+    // bool alongside whatever the chain is doing — they are mutually
+    // exclusive per monolith (dark vs lit) and inert for busy seats. The
+    // horn additionally yields to any NEAREST-or-tied hold-claimant (site/
+    // structure work/shop/forge/tower rebuild) so a working hold can never
+    // skip the day by accident. ---
     const actEdge = !!inp.act && !p.actPrev && !shopEngaged && !selEngaged;
     p.actPrev = !!inp.act;
     if (actEdge) {
@@ -4463,6 +4654,7 @@ export function step(g, inputs, dt) {
   // --- beacon-defense: day relights, the Anchorcraft landing/boarding (can
   // clear the mission outright on an all-aboard launch) ---
   stepBeacons(g, inputs, dt);
+  stepHorn(g, inputs, dt);
   stepShip(g, inputs, dt);
   if (g.status !== 'play') return;
 

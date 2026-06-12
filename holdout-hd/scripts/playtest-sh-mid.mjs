@@ -677,7 +677,7 @@ for (const id of ['sh12', 'sh16']) {
   if (only && only !== id) continue;
   const def = readDef(id);
   console.log(`\n=== ${id} "${def.stronghold.name}" — full run: ${def.bastion.nights} nights, `
-    + `wavesPerNight ${def.bastion.wavesPerNight}, waveMult ${def.bastion.waveMult}, hpMult ${def.stronghold.hpMult}, `
+    + `wavesPerNight ${def.bastion.wavesPerNight ?? 1}, waveMult ${def.bastion.waveMult}, hpMult ${def.stronghold.hpMult}, `
     + `bloodMoons [${def.bastion.bloodMoons}] — seats: ${SEATS[id].join('/')} of roster(${ROSTERS[id].length}) ===`);
   const t0 = Date.now();
   const { g, stats, frames } = runLevel(id);
@@ -688,10 +688,12 @@ for (const id of ['sh12', 'sh16']) {
     `status=${g.status} after ${g.elapsed.toFixed(0)}s sim (${wallS}s wall), nights survived: ${stats.nights.length}/${def.bastion.nights}`);
   check(`${id}: the core never fell to critical (final hp ${g.core.hp}/30)`,
     g.core.hp > 0, `min core hp ${stats.minCoreHp}, total core hits ${stats.coreHits}`);
-  // def.stronghold.waves is the UI count: nights*wpn + one extra per blood
-  // moon; at runtime each blood-moon wave fires from TWO edges (2 events).
-  const uiWaves = def.bastion.nights * def.bastion.wavesPerNight + def.bastion.bloodMoons.length;
-  const expEvents = def.bastion.nights * def.bastion.wavesPerNight + def.bastion.bloodMoons.length * def.bastion.wavesPerNight;
+  // def.stronghold.waves is the TRUTHFUL count (nights*wpn + moons*wpn):
+  // each blood-moon wave fires from TWO edges, and every second edge counts.
+  // wavesPerNight is omitted at 1 since the wave-cap retune (budget {3,5,7,10}).
+  const wpn = def.bastion.wavesPerNight ?? 1;
+  const uiWaves = def.bastion.nights * wpn + def.bastion.bloodMoons.length * wpn;
+  const expEvents = uiWaves;
   check(`${id}: def waves field matches the schedule (waves=${def.stronghold.waves})`,
     def.stronghold.waves === uiWaves,
     `nights*wpn + bloodMoons = ${uiWaves}; runtime wave events seen ${stats.waves.length}` +

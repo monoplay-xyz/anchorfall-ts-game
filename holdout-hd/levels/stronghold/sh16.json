@@ -1,18 +1,17 @@
 {
   "name": "Glasswater",
-  "objective": "Hold the bluff fort for eight nights — the dunes drag every stride, theirs included",
+  "objective": "Hold the bluff fort for five nights — the dunes drag every stride, theirs included",
   "time": 600,
   "expedition": true,
   "mode": "bastion",
   "bastion": {
-    "nights": 8,
-    "dayLen": 80,
+    "nights": 5,
+    "dayLen": 100,
     "nightLen": 85,
     "bloodMoons": [
-      5,
-      8
+      3,
+      5
     ],
-    "wavesPerNight": 2,
     "waveMult": 2
   },
   "stronghold": {
@@ -20,7 +19,7 @@
     "name": "Glasswater",
     "sizeLabel": "L",
     "difficulty": 5,
-    "waves": 20,
+    "waves": 7,
     "hpMult": 1.5,
     "unlock": "shade",
     "blurb": "A crescent of dunes between glass lagoons and open sea. Sand slows the march — use every dragged stride.",

@@ -3,10 +3,10 @@
 // no invuln cheats, fully deterministic (no Math.random):
 //
 //   1. sh01 REGRESSION   4 starters hold The Last Bastion's four gates through
-//                        five nights (blood moons 3+5) — must clear as before.
+//                        five nights (wave-cap budget 5: no blood moons now).
 //   2. sh05 WIN-2-LIT    4 operatives defend the two NORTH beacons, let the
 //                        south pair fall, relight one by day (8 shards), win
-//                        the sixth dawn with two lights burning.
+//                        the fourth dawn (4 nights, blood moon 3 — budget 5).
 //   3. sh05 ALL-DARK     2 operatives sit tight in the keep; the waves gnaw
 //                        all four monoliths dark -> 'allDark' loss.
 //   4. sh05 EXTRACTION   4 operatives (one per beacon) hold ALL FOUR lit
@@ -307,8 +307,8 @@ console.log('--- sh01: The Last Bastion regression (4 starters, 5 nights) ---');
   const party = ['scout', 'soldier', 'grenadier', 'medic'].map((id, i) => ({ pid: i, name: id, charId: id }));
   const roster = ['scout', 'soldier', 'grenadier', 'medic'];
   // four gate posts: N, E, S, W of the core at 42,32 (gates at 41/42,24 -
-  // 52,32 - 41/42,40 - 32,32). Grenadier takes the N gate (blood moons pour
-  // N+S on this rotation), soldier S, scout E, medic W.
+  // 52,32 - 41/42,40 - 32,32). Grenadier takes the N gate (night 1 pours
+  // north on the rotation), soldier S, scout E, medic W.
   const core = { x: T(42), y: T(32) };
   const posts = { 2: { x: T(42), y: T(26) }, 1: { x: T(42), y: T(38) }, 0: { x: T(49), y: T(32) }, 3: { x: T(35), y: T(32) } };
   const t0 = Date.now();
@@ -326,12 +326,12 @@ console.log('--- sh01: The Last Bastion regression (4 starters, 5 nights) ---');
   check('sh01: five nights fought (5 dusks, 5 dawns)', ev(A, 'dusk').length === 5 && ev(A, 'dawn').length === 5,
     `${ev(A, 'dusk').length} dusks / ${ev(A, 'dawn').length} dawns`);
   const bloods = ev(A, 'dusk').filter(d => d.bloodMoon).map(d => d.nightNo);
-  check('sh01: blood moons on nights 3 and 5', bloods.join() === '3,5', `bloodMoons=[${bloods}]`);
-  check('sh01: 7 wave pours (5 nightly + 2 blood-moon double edges)', ev(A, 'wave').length === 7,
+  check('sh01: no blood moons (wave-cap budget 5)', bloods.length === 0, `bloodMoons=[${bloods}]`);
+  check('sh01: 5 wave pours (one per night, budget 5)', ev(A, 'wave').length === 5,
     `${ev(A, 'wave').length} wave events: ${ev(A, 'wave').map(w => w.edge).join(',')}`);
-  if ((sh01.stronghold?.waves ?? 0) !== 7) {
-    issues.push(`sh01 def.stronghold.waves=${sh01.stronghold?.waves} but the sim pours 7 (5 nights + 2 blood-moon doubles) — contract says the field counts blood-moon doubles`);
-    note(`NOTE: def.stronghold.waves=${sh01.stronghold?.waves}, sim poured 7 (contract counts blood-moon doubles)`);
+  if ((sh01.stronghold?.waves ?? 0) !== 5) {
+    issues.push(`sh01 def.stronghold.waves=${sh01.stronghold?.waves} but the sim pours 5 (5 nights, no moons) — the card must say what the sim does`);
+    note(`NOTE: def.stronghold.waves=${sh01.stronghold?.waves}, sim poured 5`);
   }
   check('sh01: core survives with hp > 0', (A.g.core?.hp ?? 0) > 0, `core ${A.g.core?.hp}/30`);
   const s0 = A.snapAt0;
@@ -402,26 +402,23 @@ const sh05Roster = ['scout', 'soldier', 'grenadier', 'medic', 'sniper', 'raider'
         // pids 0/3: raise then upgrade the redoubt turret by the monolith
         const siteX = ownIdx === 0 ? 22 : 62;
         const tu = turretAt(g, siteX, 14);
+        // stand NORTH of the site: the lit monolith sits 3 tiles off, out of
+        // act reach, so the build/upgrade hold can never charge THE HORN
         if ((bot.pid === 0 || bot.pid === 3) && tu) {
-          if (!tu.built && g.shards >= 18) { errand(g, bot, p, inp, T(siteX), T(15)); continue; }
+          if (!tu.built && g.shards >= 18) { errand(g, bot, p, inp, T(siteX), T(13)); continue; }
           if (tu.built && !tu.typeSelect && (tu.level || 1) < 3 && g.shards >= (tu.level || 1) * 8 + 12) {
-            errand(g, bot, p, inp, T(siteX), T(15));
+            errand(g, bot, p, inp, T(siteX), T(13));
             continue;
           }
         }
       }
-      // night 5 gambit: let the NE monolith (5 hp by now) go dark on the
-      // CHEAP night so day 6 relights it to full 30 for the final blood moon
-      const sacrifice = g.cycle.nightNo === 5 && g.cycle.phase === 'night' && bot.pid >= 2;
-      const at = sacrifice ? b0 : cfg.at;
-      const post = sacrifice ? { x: T(20 + bot.pid), y: T(18) } : cfg.post;
-      guard(g, bot, p, inp, post, { zoneAt: at, zoneR: 12, engage: 13, prioAt: at, chests: cfg.chests });
+      guard(g, bot, p, inp, cfg.post, { zoneAt: cfg.at, zoneR: 12, engage: 13, prioAt: cfg.at, chests: cfg.chests });
     }
   });
   console.log(`(run: ${((Date.now() - t0) / 1000).toFixed(1)}s wall, ${A.g.elapsed.toFixed(0)}s sim)`);
 
   const litEnd = A.g.cores.map(c => c.lit);
-  check('sh05 win run: cleared at the sixth dawn', A.g.status === 'cleared' && ev(A, 'dawn').length === 6,
+  check('sh05 win run: cleared at the fourth dawn', A.g.status === 'cleared' && ev(A, 'dawn').length === 4,
     `status='${A.g.status}' dawns=${ev(A, 'dawn').length} elapsed=${A.g.elapsed.toFixed(0)}s`);
   check('sh05 win run: exactly the two defended beacons lit at the end', litEnd.join() === 'true,true,false,false',
     `lit=[${litEnd}]`);
@@ -451,30 +448,38 @@ const sh05Roster = ['scout', 'soldier', 'grenadier', 'medic', 'sniper', 'raider'
   check('sh05 win run: coreHit events carry the beacon idx for HUD pips', coreHits.length > 0 && coreHits.every(e => e.idx !== undefined),
     `${coreHits.length} hits across idx ${[...new Set(coreHits.map(e => e.idx))].sort().join(',')}`);
   const s0 = A.snapAt0;
-  check('sh05: snapshot ships 4 cores with lit flags + cycle (nights=6) + ambience passthrough',
-    s0.cores?.length === 4 && s0.cores.every(c => c.lit === true) && s0.cycle?.nights === 6 && s0.ambience === 'meadow',
+  check('sh05: snapshot ships 4 cores with lit flags + cycle (nights=4) + ambience passthrough',
+    s0.cores?.length === 4 && s0.cores.every(c => c.lit === true) && s0.cycle?.nights === 4 && s0.ambience === 'meadow',
     `cores=${s0.cores?.length} ambience=${s0.ambience}`);
   const husks5 = (A.firstWaveEnemies || []).filter(e => e.kind === 'husk' && !e.mutation);
   check('sh05: hpMult 1.13 applied — unmutated night-1 wave husks at 2 hp (classic 1)',
     husks5.length > 0 && husks5.every(e => e.maxHp === 2),
     `husk maxHp=[${husks5.map(e => e.maxHp)}]`);
-  check('sh05: 8 wave pours (6 nights + blood-moon doubles on 4 and 6) — matches def.stronghold.waves',
-    ev(A, 'wave').length === 8 && sh05.stronghold.waves === 8,
+  check('sh05: 5 wave pours (4 nights + the night-3 blood-moon double) — matches def.stronghold.waves',
+    ev(A, 'wave').length === 5 && sh05.stronghold.waves === 5,
     `${ev(A, 'wave').length} pours, def says ${sh05.stronghold.waves}`);
   const bloods = ev(A, 'dusk').filter(d => d.bloodMoon).map(d => d.nightNo);
-  check('sh05: blood moons on nights 4 and 6', bloods.join() === '4,6', `[${bloods}]`);
+  check('sh05: blood moon on night 3', bloods.join() === '3', `[${bloods}]`);
   note(`downs=${ev(A, 'down').length}, kills=${A.g.kills}, score=${Math.round(A.g.score)}`);
 }
 
 // ============================ 3. sh05 loss: all dark ===========================
-console.log('\n--- sh05: loss run — squad hides in the keep, all four beacons go dark ---');
+console.log('\n--- sh05: loss run — squad guards only itself in the keep, all four beacons go dark ---');
 {
   const party = [
     { pid: 0, name: 'Idle1', charId: 'scout' },
     { pid: 1, name: 'Idle2', charId: 'medic' },
   ];
   const t0 = Date.now();
-  const A = runMission(sh05, party, sh05Roster, 500, () => { /* no inputs: nobody lifts a finger */ });
+  // self-defense only (the day-event scavenger probes prowl the keep ring
+  // now, so a truly idle squad gets eaten) — but NOBODY tends a beacon
+  const A = runMission(sh05, party, sh05Roster, 500, (ctx, inputs) => {
+    for (const bot of ctx.bots) {
+      const p = ctx.g.players[bot.pid];
+      if (p.state !== 'active') continue;
+      combat(ctx.g, bot, p, inputs[bot.pid], { engage: 9, zone: e => Math.hypot(e.x - p.x, e.y - p.y) < 9 * TILE });
+    }
+  });
   console.log(`(run: ${((Date.now() - t0) / 1000).toFixed(1)}s wall, ${A.g.elapsed.toFixed(0)}s sim)`);
 
   check('sh05 loss run: mission FAILS once all four beacons are dark', A.g.status === 'failed',
@@ -516,6 +521,7 @@ function extractionDriver(ctx, inputs) {
           && g.chests.every(c => c.opened || away(c))
           && g.towers.every(away)
           && g.builds.every(away)
+          && g.shops.every(away) // the stall HOLD-claims an act inside 1.5 tiles
           && (g.npcs || []).every(away)
           && (g.pickups || []).every(away);
       };
@@ -525,18 +531,35 @@ function extractionDriver(ctx, inputs) {
         continue;
       }
       if (!state.boardSpots) {
-        // claimant-safe orthogonal neighbors of the landing tile
-        const sx = tx(g.ship.x), sy = tx(g.ship.y);
-        const cands = [[sx - 1, sy], [sx, sy - 1], [sx + 1, sy], [sx, sy + 1], [sx, sy]];
-        state.boardSpots = cands.filter(([x, y]) => !blockedAt(g, x, y) && clearOfClaimants(T(x), T(y)));
-        if (!state.boardSpots.length) {
-          state.boardSpots = cands.filter(([x, y]) => !blockedAt(g, x, y) && farFromVehicles(T(x), T(y)));
+        // claimant-safe STAND POINTS on a ring inside tap range (1.25 of the
+        // 1.35-tile board reach): the keep's own turret site sits one tile
+        // off the landing spot, so tile-center neighbors are never clear of
+        // every act claimant — sweep spaced angles (south arc first) and
+        // keep the points whose whole tap gate (walkable + clear) passes
+        state.boardSpots = [];
+        for (const k of [4, 5, 6, 7, 3, 8, 2, 9, 1, 10, 0, 11, 15, 12, 14, 13]) { // south arc first
+          const a = (k / 16) * Math.PI * 2;
+          const x = g.ship.x + Math.cos(a) * 1.25 * TILE;
+          const y = g.ship.y + Math.sin(a) * 1.25 * TILE;
+          if (!blockedAt(g, tx(x), tx(y)) && clearOfClaimants(x, y)) state.boardSpots.push([x, y]);
+          if (state.boardSpots.length >= 4) break;
         }
-        if (!state.boardSpots.length) state.boardSpots = [[sx - 1, sy]];
+        if (!state.boardSpots.length) state.boardSpots = [[g.ship.x - 1.25 * TILE, g.ship.y]];
       }
       const [gx, gy] = state.boardSpots[bot.pid % state.boardSpots.length];
-      if (combat(g, bot, p, inp, { engage: 3, zone: e => Math.hypot(e.x - p.x, e.y - p.y) < 3 * TILE })) continue;
-      goTo(g, bot, p, T(gx), T(gy), inp);
+      // one tap from extraction: fight only what is literally on top of us
+      if (combat(g, bot, p, inp, { engage: 1.2, zone: e => Math.hypot(e.x - p.x, e.y - p.y) < 1.2 * TILE })) continue;
+      const dSpot = Math.hypot(p.x - gx, p.y - gy);
+      // beyond a tile: pathfind. Inside one: walk straight — planPath works in
+      // tiles, so a bot already in the spot's tile would otherwise stall there
+      if (dSpot > TILE * 1.0) { goTo(g, bot, p, gx, gy, inp); continue; }
+      // close in: shuffle PRECISELY onto the clear stand point — goTo's
+      // arrival slack (~0.45 tiles) can strand a bot just outside the
+      // 1.35-tile board reach, frozen forever
+      if (dSpot > TILE * 0.06) {
+        inp.left = gx < p.x - 2; inp.right = gx > p.x + 2;
+        inp.up = gy < p.y - 2; inp.down = gy > p.y + 2;
+      }
       continue;
     }
     const [bx, by] = beacons[bot.pid];
@@ -551,14 +574,20 @@ function extractionDriver(ctx, inputs) {
       // centroid the instant night 2 opens with all four lit
       const [gx, gy] = gathers[bot.pid];
       if (!near(p, T(gx), T(gy), 0.5)) {
-        if (combat(g, bot, p, inp, { engage: 4, zone: e => Math.hypot(e.x - p.x, e.y - p.y) < 4 * TILE })) continue;
+        // wider engage: the day-event probes bed down on this very ring and
+        // must be cleared before the boarding scramble
+        if (combat(g, bot, p, inp, { engage: 8, zone: e => Math.hypot(e.x - p.x, e.y - p.y) < 8 * TILE })) continue;
         goTo(g, bot, p, T(gx), T(gy), inp);
-      }
+      } else if (combat(g, bot, p, inp, { engage: 8, zone: e => Math.hypot(e.x - p.x, e.y - p.y) < 8 * TILE })) continue;
       continue;
     }
     guard(g, bot, p, inp, { x: T(bx), y: T(by + 2) }, { zoneAt: at, zoneR: 10, engage: 12, prioAt: at });
   }
   if (g.ship && !state.shipAt) state.shipAt = { t: g.elapsed, night: g.cycle.nightNo, phase: g.cycle.phase, lit: g.cores.map(c => c.lit).join() };
+  if (g.ship && process.env.EXDBG && Math.floor(g.elapsed * 30) % 90 === 0) {
+    const f = v => (v / TILE).toFixed(2);
+    console.log(`t=${g.elapsed.toFixed(1)} spots=${(state.boardSpots || []).map(sp => f(sp[0]) + ',' + f(sp[1])).join(' | ')} ` + g.players.map(pp => `${pp.pid}:${pp.state[0]}${pp.aboard ? 'A' : ''}@${f(pp.x)},${f(pp.y)}`).join('  '));
+  }
 }
 {
   const party = [

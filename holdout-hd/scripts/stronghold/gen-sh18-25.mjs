@@ -12,17 +12,17 @@
 //   sh20 Selkie Deep       — archipelago; twin skiffs; pearl fetch; seal
 //                            joins the roster
 //   sh21 Emberfall         — lava veins off a cone volcano; toxic ash air
-//                            (mask up); blood moons every other night
+//                            (mask up); back-to-back blood moons
 //   sh22 The Silent Quorum — fogbound forest; 4-beacon defense; acolyte
 //                            war-camps; a timed four-relay quorum
 //   sh23 Atlas Rise        — mountain hold behind THREE concentric wall
 //                            rings (L1/L2/L3); atlas joins the roster
-//   sh24 Night Unending    — void-shattered ash plain; ten long nights;
+//   sh24 Night Unending    — void-shattered ash plain; seven long nights;
 //                            comm-mast repair; teleport pair
 //   sh25 FINALITY          — 110x80, every terrain on one field, 4 beacons
-//                            (9 nights, waveMult 2.0/hpMult 1.6 — retuned),
-//                            25 waves over 10 nights, THREE Entropy bosses
-//                            (nights 6/8/10 via def.bastion.bossNights)
+//                            (waveMult 1.8/hpMult 1.5 — retuned), 10 dense
+//                            waves over 4 multi-wave nights, THREE Entropy
+//                            bosses (nights 2/3/4 via def.bastion.bossNights)
 import {
   createMap, waveTable, assembleDef, writeDef, report,
   WALL_COST, BARRICADE_COST,
@@ -225,19 +225,19 @@ function genSh18() {
     if (rnd() < 0.40) return ','; // meadow grass between the dune arms
     return null;
   });
-  const table = waveTable({ level: 18, nights: 8, wavesPerNight: 2, bloodMoons: [4, 7], dayLen: 100, nightLen: 80 });
+  const table = waveTable({ level: 18, nights: 5, bloodMoons: [3, 5], dayLen: 100, nightLen: 80 });
   const def = assembleDef({
     level: 18, name: 'Helix Fields', sizeLabel: 'XL', difficulty: 4,
-    blurb: 'A dune spiral cut into meadow, forest-rimmed. Restore the relays, then hold the heart of the helix for eight nights.',
+    blurb: 'A dune spiral cut into meadow, forest-rimmed. Restore the relays, then hold the heart of the helix for five nights.',
     newFeatures: ['Helix joins the roster', 'Spiral dune ridges', 'Relay prep-work before dusk'],
-    objective: 'Throw the three dune relays, then hold the bastion through eight nights',
+    objective: 'Throw the three dune relays, then hold the bastion through five nights',
     intro: [slide('Helix Fields', [
       'The fields grew this spiral the night the Anchor fell. Nobody planted it.',
       'Three relays watch the arms — all dark. Throw them before dusk.',
-      'Then dig in: eight nights, and the spiral pulls the waves inward.',
+      'Then dig in: five nights, and the spiral pulls the waves inward.',
     ], 'settlement')],
     outro: [slide('The Spiral Holds', [
-      'Dawn eight. The dune arms are chewed flat, the relays still sing.',
+      'Dawn five. The dune arms are chewed flat, the relays still sing.',
       'Helix walks out of the spiral heart and signs on.',
     ], 'dawn')],
     table, map,
@@ -341,19 +341,19 @@ function genSh19() {
     if (rnd() < 0.18) return '_';
     return null;
   });
-  const table = waveTable({ level: 19, nights: 8, wavesPerNight: 2, bloodMoons: [3, 6, 8], dayLen: 100, nightLen: 80 });
+  const table = waveTable({ level: 19, nights: 4, bloodMoons: [2, 3, 4], dayLen: 100, nightLen: 80 });
   const def = assembleDef({
     level: 19, name: 'The Sunken Vault', sizeLabel: 'XL', difficulty: 4,
     blurb: 'A drowned basin with four anchor monoliths and a sealed vault. The hold only falls when all four go dark at once.',
     newFeatures: ['Four-beacon vault defense', 'A relay quorum opens the vault', 'Lythseal crypt doors'],
-    objective: 'Keep at least one beacon lit through eight nights — the vault pays those who open it',
+    objective: 'Keep at least one beacon lit through four nights — the vault pays those who open it',
     intro: [slide('The Sunken Vault', [
       'The basin drowned an age ago; its four monoliths never did.',
       'Waves split between every lit beacon. Dark ones relight by day, 8 shards.',
       'Three relays open the vault. The forge cuts a lythseal for the crypts.',
     ], 'basin')],
     outro: [slide('Out of the Deep', [
-      'Eight dawns and at least one light never failed.',
+      'Four dawns and at least one light never failed.',
       'The vault stands open and the causeway column rides out rich.',
     ], 'dawn')],
     table, map,
@@ -460,19 +460,19 @@ function genSh20() {
   map.validateSkiff(dockS, [[isleChests[1][0], isleChests[1][1], 'south hoard'], [isleChests[2][0], isleChests[2][1], 'south hoard']]);
   map.paintShores();
   map.decorate((x, y, rnd) => (rnd() < 0.25 ? ',' : null));
-  const table = waveTable({ level: 20, nights: 9, wavesPerNight: 2, bloodMoons: [5, 8], dayLen: 105, nightLen: 85 });
+  const table = waveTable({ level: 20, nights: 4, wavesPerNight: 2, bloodMoons: [3], dayLen: 105, nightLen: 85 });
   const def = assembleDef({
     level: 20, name: 'Selkie Deep', sizeLabel: 'XL', difficulty: 4,
     blurb: 'An archipelago strung on sand bars. Waves wade the causeways; the deep hides pearls and a hoard only a skiff can reach.',
-    newFeatures: ['Seal joins the roster', 'Twin skiffs', 'Water-flanked approaches'],
-    objective: 'Hold the heart isle for nine nights — Maren pays for the two selkie pearls',
+    newFeatures: ['Seal joins the roster', 'Two waves a night', 'Twin skiffs', 'Water-flanked approaches'],
+    objective: 'Hold the heart isle for four double-wave nights — Maren pays for the two selkie pearls',
     intro: [slide('Selkie Deep', [
       'The deep took the land back and left a chain of shoals.',
       'Every causeway is a wave lane. Every channel, a flank for a skiff.',
       'Maren wants her pearls. The seal watches from the water.',
     ], 'crossing')],
     outro: [slide('What the Tide Returns', [
-      'Nine dawns. The causeways held and the pearls went home.',
+      'Four dawns. The causeways held and the pearls went home.',
       'The seal hauls out beside the fire and stays.',
     ], 'dawn')],
     table, map,
@@ -547,16 +547,16 @@ function genSh21() {
     if (rnd() < 0.16) return '='; // cinder drifts
     return null;
   });
-  const table = waveTable({ level: 21, nights: 9, wavesPerNight: 2, bloodMoons: [3, 5, 7, 9], dayLen: 95, nightLen: 85 });
+  const table = waveTable({ level: 21, nights: 3, wavesPerNight: 2, bloodMoons: [2, 3], dayLen: 95, nightLen: 85 });
   const def = assembleDef({
     level: 21, name: 'Emberfall', sizeLabel: 'XL', difficulty: 5,
-    blurb: 'Lava veins off a live cone, ash on every wind — and a blood moon every other night. Mask up before the first dusk.',
-    newFeatures: ['Toxic ash air — mask up', 'Blood moons every other night', 'Lava-field warfare'],
-    objective: 'Survive nine nights under the ashfall — the air itself is poison until the second day',
+    blurb: 'Lava veins off a live cone, ash on every wind — and back-to-back blood moons. Mask up before the first dusk.',
+    newFeatures: ['Toxic ash air — mask up', 'Back-to-back blood moons', 'Lava-field warfare'],
+    objective: 'Survive three double-wave nights under the ashfall — the air itself is poison until the second day',
     intro: [slide('Emberfall', [
       'The cone woke last month and the sky has not closed since.',
       'Until the second day burns off, unmasked lungs pay in blood.',
-      'Four blood moons. Lava on every lane. Welcome to Emberfall.',
+      'Two blood moons, back to back. Lava on every lane. Welcome to Emberfall.',
     ], 'entropy')],
     outro: [slide('After the Ash', [
       'Nine dawns and the cone finally sleeps.',
@@ -641,19 +641,19 @@ function genSh22() {
     if (rnd() < 0.10) return '_';
     return null;
   });
-  const table = waveTable({ level: 22, nights: 10, wavesPerNight: 2, bloodMoons: [5, 9], dayLen: 95, nightLen: 88 });
+  const table = waveTable({ level: 22, nights: 8, bloodMoons: [5, 8], dayLen: 95, nightLen: 88 });
   const def = assembleDef({
     level: 22, name: 'The Silent Quorum', sizeLabel: 'XL', difficulty: 5,
-    blurb: 'A fogbound forest where the acolytes hold court. Four shrine beacons, four silenced relays, ten nights of dirge.',
+    blurb: 'A fogbound forest where the acolytes hold court. Four shrine beacons, four silenced relays, eight nights of dirge.',
     newFeatures: ['Acolyte war-camps', 'A four-relay quorum on a 90s window', 'Shrine-beacon defense'],
-    objective: 'Keep a shrine lit through ten nights — close the relay circle for the armory cache',
+    objective: 'Keep a shrine lit through eight nights — close the relay circle for the armory cache',
     intro: [slide('The Silent Quorum', [
       'No birdsong here. The acolytes sang it out of the trees.',
       'Four shrines anchor the hold; the waves split between the lit.',
       'Close the four-relay circle in one window — silence answers silence.',
     ], 'quorum')],
     outro: [slide('The Circle Closed', [
-      'Ten dawns. The dirge is done and the shrines still burn.',
+      'Eight dawns. The dirge is done and the shrines still burn.',
       'The forest remembers how to sound like a forest.',
     ], 'dawn')],
     table, map,
@@ -766,19 +766,19 @@ function genSh23() {
     if (rnd() < 0.20) return ';';
     return null;
   });
-  const table = waveTable({ level: 23, nights: 10, wavesPerNight: 2, bloodMoons: [4, 7, 10], dayLen: 100, nightLen: 90 });
+  const table = waveTable({ level: 23, nights: 4, wavesPerNight: 2, bloodMoons: [4], dayLen: 100, nightLen: 90 });
   const def = assembleDef({
     level: 23, name: 'Atlas Rise', sizeLabel: 'XL', difficulty: 5,
     blurb: 'A mountainhold behind three concentric wall rings — L1, L2, L3 — under snow, ice and a patient siege.',
     newFeatures: ['Atlas joins the roster', 'Three concentric wall rings (L1/L2/L3)', 'Glaze-ice slopes'],
-    objective: 'Hold the summit core behind three rings for ten nights',
+    objective: 'Hold the summit core behind three rings for four double-wave nights',
     intro: [slide('Atlas Rise', [
       'Three rings of wall climb the mountain; the gates never line up.',
       'Ice glazes the slopes — your boots and theirs slide alike.',
       'Atlas built this hold. Hold it, and Atlas marches with you.',
     ], 'siege')],
     outro: [slide('The Mountain Stands', [
-      'Ten dawns and the inner ring never broke.',
+      'Four dawns and the inner ring never broke.',
       'Atlas shoulders the gate beam back into place and nods.',
     ], 'dawn')],
     table, map,
@@ -789,7 +789,7 @@ function genSh23() {
 }
 
 // ===========================================================================
-// sh24 — NIGHT UNENDING (XL 108x78, ten long nights, void shards, comm quest)
+// sh24 — NIGHT UNENDING (XL 108x78, seven long nights, void shards, comm quest)
 // ===========================================================================
 function genSh24() {
   const map = createMap({ w: 108, h: 78, seed: 20260724, name: 'sh24' });
@@ -813,7 +813,7 @@ function genSh24() {
   placeLoose(map, 'npc', cx - 4, cy - 3, {
     id: 'vex', name: 'Signaller Vex',
     lines: [
-      'Ten nights, they said. The sun barely bothers anymore.',
+      'Seven nights, they said. The sun barely bothers anymore.',
       'Raise the comm mast and relief drops a cache. Raise it BEFORE dark.',
     ],
   });
@@ -859,19 +859,19 @@ function genSh24() {
     if (rnd() < 0.12) return ':';
     return null;
   });
-  const table = waveTable({ level: 24, nights: 10, wavesPerNight: 2, bloodMoons: [6, 10], dayLen: 60, nightLen: 130 });
+  const table = waveTable({ level: 24, nights: 7, bloodMoons: [4, 6, 7], dayLen: 60, nightLen: 130 });
   const def = assembleDef({
     level: 24, name: 'Night Unending', sizeLabel: 'XL', difficulty: 5,
-    blurb: 'Ten nights that barely break. Void cracks split the ash plain, the days are short and the dark is twenty-two waves deep.',
-    newFeatures: ['Ten near-endless nights', 'Void-shattered ground', 'Comm-mast repair', 'A teleport pair'],
-    objective: 'Raise the comm mast before dark, then outlast ten unending nights',
+    blurb: 'Seven nights that barely break. Void cracks split the ash plain, the days are short and the last three dusks rise blood.',
+    newFeatures: ['Seven near-endless nights', 'Void-shattered ground', 'Comm-mast repair', 'A teleport pair'],
+    objective: 'Raise the comm mast before dark, then outlast seven unending nights',
     intro: [slide('Night Unending', [
       'Sixty seconds of sun. A hundred thirty of everything else.',
       'The ground itself is torn — void you cannot cross, see through, or shoot through.',
       'Raise the mast before dark. Then hold. And hold. And hold.',
     ], 'campfire')],
     outro: [slide('The Long Dark Ends', [
-      'The tenth dawn arrives like it owes you money.',
+      'The seventh dawn arrives like it owes you money.',
       'One more hold. One more light. FINALITY waits.',
     ], 'dawn')],
     table, map,
@@ -996,22 +996,22 @@ function genSh25() {
   });
   // BEATABILITY RETUNE (verify wave): the arc values (waveMult 2.6 /
   // hpMult 1.8 / 10 nights / 5 moons) were unwinnable in 9 expert scripted
-  // attempts — the permanent siege out-attrited a 17-operative roster by
-  // night 6, and waveMult 2.0 / hpMult 1.6 still broke every strategy by
-  // night 5. FINALITY now runs 9 nights, 3 blood moons, waveMult 1.8,
-  // hpMult 1.5, bosses staggered later on nights 5/7/9, and its four beacon
-  // forts ship armed (L3 walls, prebuilt tesla) so the hold is a fight, not
-  // an economy bootstrap under siege.
-  const table = waveTable({ level: 25, nights: 9, wavesPerNight: 2, bloodMoons: [3, 6, 9], dayLen: 110, nightLen: 95, hpMult: 1.5, waveMult: 1.8 });
-  table.bastion.bossNights = [5, 7, 9]; // three Entropy bosses, staggered late
+  // attempts; waveMult 1.8 / hpMult 1.5 proved hard-but-beatable. WAVE CAP
+  // LAW (polish wave): every stronghold fits a {3,5,7,10} budget — FINALITY
+  // is the 10: four DENSE nights at two waves each, a blood-moon finale
+  // (4 + 1 moon, x2 = 10 truthful waves), all three Entropy bosses intact
+  // on nights 2/3/4, and its four beacon forts still ship armed (L3 walls,
+  // prebuilt tesla) so the hold is a fight, not an economy bootstrap.
+  const table = waveTable({ level: 25, nights: 4, wavesPerNight: 2, bloodMoons: [4], dayLen: 110, nightLen: 95, hpMult: 1.5, waveMult: 1.8 });
+  table.bastion.bossNights = [2, 3, 4]; // three Entropy bosses, every night after the first
   const def = assembleDef({
     level: 25, name: 'FINALITY', sizeLabel: 'XL', difficulty: 5,
-    blurb: 'Every terrain. Every horror. Twenty-four waves over nine nights, three blood moons, and three Entropy bosses. The end of the arc.',
-    newFeatures: ['Three Entropy bosses (nights 5, 7, 9)', 'Every terrain on one field', 'The Anchorcraft descends for the worthy'],
-    objective: 'Keep an anchor lit through nine nights — or light all four under a night sky and board the Anchorcraft',
+    blurb: 'Every terrain. Every horror. Ten dense waves over four nights, a blood-moon finale, and three Entropy bosses. The end of the arc.',
+    newFeatures: ['Three Entropy bosses (nights 2, 3, 4)', 'Every terrain on one field', 'The Anchorcraft descends for the worthy'],
+    objective: 'Keep an anchor lit through four dense nights — or light all four under a night sky and board the Anchorcraft',
     intro: [slide('FINALITY', [
       'Every biome the frontier ever grew, stitched into one battlefield.',
-      'Three blood moons. Three Entropy warlords — nights five, seven, nine.',
+      'A blood-moon finale. Three Entropy warlords — every night after the first.',
       'All four anchors lit in the dark, and the Anchorcraft itself descends.',
     ], 'anchorcraft')],
     outro: [slide('Anchorfall, Answered', [

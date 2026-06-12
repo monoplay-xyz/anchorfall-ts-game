@@ -1,18 +1,17 @@
 {
   "name": "Forked Hold",
-  "objective": "Hold both wings of the forked hold for seven nights — the core on the holm must still stand at dawn",
+  "objective": "Hold both wings of the forked hold for five nights — the core on the holm must still stand at dawn",
   "time": 600,
   "expedition": true,
   "mode": "bastion",
   "bastion": {
-    "nights": 7,
+    "nights": 5,
     "dayLen": 85,
     "nightLen": 80,
     "bloodMoons": [
-      4,
-      7
+      3,
+      5
     ],
-    "wavesPerNight": 2,
     "waveMult": 1.73
   },
   "stronghold": {
@@ -20,7 +19,7 @@
     "name": "Forked Hold",
     "sizeLabel": "L",
     "difficulty": 4,
-    "waves": 18,
+    "waves": 7,
     "hpMult": 1.37,
     "unlock": "boomer",
     "blurb": "Twin walled wings astride a river, one core on the holm between. Every approach comes in pairs.",

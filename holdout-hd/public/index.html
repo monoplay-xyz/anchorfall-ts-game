@@ -111,6 +111,11 @@
     #rankTable .rrowt.head { color: #5E6B8C; font-size: 10px; letter-spacing: 1px; position: sticky; top: 0; background: rgba(8,10,18,.94); }
     #rankTable .rrowt:nth-child(even) { background: rgba(255,255,255,.03); }
     #rankTable .rrowt.mine { background: rgba(255,217,138,.14); color: #ffe9b0; outline: 1px solid rgba(255,217,138,.45); }
+    /* board rows are inert buttons so the pad focus ring can scroll them */
+    #rankTable button.rrowt { width: 100%; background: none; clip-path: none; border-radius: 0; font: inherit; font-weight: 400; letter-spacing: 0; cursor: default; transition: none; }
+    #rankTable button.rrowt:hover { filter: none; }
+    #rankTable button.rrowt:nth-child(even) { background: rgba(255,255,255,.03); }
+    #rankTable button.rrowt.mine { background: rgba(255,217,138,.14); }
 
     /* ---- CTF overtime chip (sudden-death escalation level: OVERTIME +n) ---- */
     #otChip { position: absolute; top: 22%; left: 50%; transform: translateX(-50%); padding: 5px 16px; font-size: 14px; font-weight: 800; letter-spacing: 3px; color: #ff7a6a; background: rgba(8,10,18,.78); border: 1px solid rgba(224,72,72,.55); pointer-events: none; white-space: nowrap; animation: cdblink 1.1s steps(2, jump-none) infinite; }

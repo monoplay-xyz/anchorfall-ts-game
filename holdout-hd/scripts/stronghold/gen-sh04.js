@@ -3,7 +3,7 @@
 // ('!' sears 1 hp/0.8s, enemies path AROUND it), ash flats, basalt outcrops —
 // and TOXIC AIR for the first 120s (0.5 hp/4s unmasked): three marked mask
 // chests sit on the apron and the shop stocks masks. Equip before the waves.
-// Unlock: PYRO. Six nights, blood moons on the fourth and sixth.
+// Unlock: PYRO. Four nights, blood moon on the fourth (budget: 5 waves).
 import { createMap, waveTable, assembleDef, writeDef, report } from './framework.mjs';
 
 const W = 84, H = 62, LEVEL = 4;
@@ -88,15 +88,15 @@ m.validate({});
 // --- decoration: ash drifts on the bare ground ---
 m.decorate((x, y, rnd) => (rnd() < 0.3 ? '_' : rnd() < 0.08 ? ':' : null));
 
-const table = waveTable({ level: LEVEL, nights: 6, bloodMoons: [4, 6] });
+const table = waveTable({ level: LEVEL, nights: 4, bloodMoons: [4] });
 const def = assembleDef({
   level: LEVEL,
   name: 'Cinder Gate',
   sizeLabel: 'M',
   difficulty: 2,
-  blurb: 'A pass between live lava flows, under air that bites. Mask up, mind the veins, hold six nights.',
+  blurb: 'A pass between live lava flows, under air that bites. Mask up, mind the veins, hold four nights.',
   newFeatures: ['Lava veins — never wade them', 'Toxic air: equip masks fast', 'Pyre Beetle nests'],
-  objective: 'Mask up before the air clears, then hold Cinder Gate through six nights',
+  objective: 'Mask up before the air clears, then hold Cinder Gate through four nights',
   intro: [{
     title: 'Cinder Gate',
     lines: [

@@ -1,17 +1,15 @@
 {
   "name": "Atlas Rise",
-  "objective": "Hold the summit core behind three rings for ten nights",
+  "objective": "Hold the summit core behind three rings for four double-wave nights",
   "time": 600,
   "expedition": true,
   "mode": "bastion",
   "bastion": {
-    "nights": 10,
+    "nights": 4,
     "dayLen": 100,
     "nightLen": 90,
     "bloodMoons": [
-      4,
-      7,
-      10
+      4
     ],
     "wavesPerNight": 2,
     "waveMult": 2.47
@@ -21,7 +19,7 @@
     "name": "Atlas Rise",
     "sizeLabel": "XL",
     "difficulty": 5,
-    "waves": 26,
+    "waves": 10,
     "hpMult": 1.73,
     "unlock": "atlas",
     "blurb": "A mountainhold behind three concentric wall rings — L1, L2, L3 — under snow, ice and a patient siege.",
@@ -48,7 +46,7 @@
     {
       "title": "The Mountain Stands",
       "lines": [
-        "Ten dawns and the inner ring never broke.",
+        "Four dawns and the inner ring never broke.",
         "Atlas shoulders the gate beam back into place and nods."
       ],
       "art": "dawn"

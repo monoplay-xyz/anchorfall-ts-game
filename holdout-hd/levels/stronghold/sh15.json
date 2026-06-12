@@ -1,18 +1,17 @@
 {
   "name": "Phantom Watch",
-  "objective": "Hold the watch shard for eight nights — and forge the seal that opens the vault the phantoms circle",
+  "objective": "Hold the watch shard for five nights — and forge the seal that opens the vault the phantoms circle",
   "time": 600,
   "expedition": true,
   "mode": "bastion",
   "bastion": {
-    "nights": 8,
-    "dayLen": 80,
+    "nights": 5,
+    "dayLen": 100,
     "nightLen": 85,
     "bloodMoons": [
-      4,
-      8
+      3,
+      5
     ],
-    "wavesPerNight": 2,
     "waveMult": 1.93
   },
   "stronghold": {
@@ -20,7 +19,7 @@
     "name": "Phantom Watch",
     "sizeLabel": "L",
     "difficulty": 4,
-    "waves": 20,
+    "waves": 7,
     "hpMult": 1.47,
     "blurb": "Five shards over the void, stalkers in the fog, and a vault that answers only a forged lythseal.",
     "newFeatures": [

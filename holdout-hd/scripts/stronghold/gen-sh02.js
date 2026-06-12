@@ -3,7 +3,7 @@
 // slow everyone to x0.85), a mesa-rimmed organic silhouette (no wall-box), a
 // fortified sand-road fort (prebuilt wall segments, six gate gaps), and the
 // ALIVE-WORLD debut: patrolling camps with group ids and sniper spotters.
-// Unlock: SNIPER. Five nights, blood moon on the fourth.
+// Unlock: SNIPER. Four nights, blood moon on the fourth (budget: 5 waves).
 import { createMap, waveTable, assembleDef, writeDef, report } from './framework.mjs';
 
 const W = 70, H = 52, LEVEL = 2;
@@ -72,7 +72,7 @@ m.validate({});
 // --- decoration: dry pans on the bare flats ---
 m.decorate((x, y, rnd) => (rnd() < 0.14 ? ':' : null));
 
-const table = waveTable({ level: LEVEL, nights: 5, bloodMoons: [4] });
+const table = waveTable({ level: LEVEL, nights: 4, bloodMoons: [4] });
 const def = assembleDef({
   level: LEVEL,
   name: 'Dust Perimeter',
@@ -80,11 +80,11 @@ const def = assembleDef({
   difficulty: 1,
   blurb: 'Dunes, mesas and patrol camps around a sand-road fort. Everything moves slow in the sand — including you.',
   newFeatures: ['Sand dunes slow the stride', 'Camps patrol the wastes', 'Sniper spotters call targets'],
-  objective: 'Hold Dust Perimeter through five nights — the core must stand at the fifth dawn',
+  objective: 'Hold Dust Perimeter through four nights — the core must stand at the fourth dawn',
   intro: [{
     title: 'Dust Perimeter',
     lines: [
-      'A supply fort on the dune road, five nights from relief — and the Entropy knows it.',
+      'A supply fort on the dune road, four nights from relief — and the Entropy knows it.',
       'Sand slows every stride. Camps patrol the wastes, and their snipers call targets: kill the spotter first.',
       'The walls stand prebuilt. Repair them by day; never leave a gate open at dusk.',
     ],

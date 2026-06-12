@@ -1520,6 +1520,27 @@ export function addEventFX(ev) {
     popups.push({ screen: true, x: 0, y: 0, text: 'BLOOD MOON RISING', life: 3.4, max: 3.4, color: '#FF3D4D', size: 30 });
     for (const edge of ['n', 's', 'e', 'w']) edgePulses.push({ edge, life: 3.4, max: 3.4, rgb: '199,34,48' });
   }
+  else if (ev.type === 'horn') {
+    // the horn calls the night early: a gold shockwave off the horn post
+    if (ev.x != null) { ring(140, PAL.lythGold, 1.0, 4); burst(16, PAL.lythGold, 180, 0.6); }
+    popups.push({ screen: true, x: 0, y: 0, text: 'THE HORN SOUNDS', life: 2.6, max: 2.6, color: PAL.lythGold, size: 28 });
+    shake = Math.max(shake, 3);
+  }
+  else if (ev.type === 'probe') {
+    // a daytime scavenger pack noses in off one edge: a small, paler pulse
+    edgePulses.push({ edge: ev.edge || 'n', life: 1.8, max: 1.8, rgb: '142,79,209' });
+  }
+  else if (ev.type === 'supplyDrop') {
+    // the descending crate flare: a long streak falling out of the sky onto
+    // the landing tile, then a landing ring + amber dust
+    if (ev.x != null) {
+      streaks.push({ x: ev.x + 120, y: ev.y - 560, tx: ev.x, ty: ev.y, life: 0.9, max: 0.9, rgb: '255,217,138' });
+      ring(60, PAL.lythAmber, 0.9, 3);
+      burst(14, PAL.lythAmber, 150, 0.6);
+      flashes.push({ x: ev.x, y: ev.y, life: 0.1, who: 'p' });
+    }
+    popups.push({ screen: true, x: 0, y: 0, text: 'SUPPLY DROP INBOUND', life: 2.4, max: 2.4, color: PAL.lythAmber, size: 24 });
+  }
   else if (ev.type === 'coreHit') {
     coreAlarmT = Math.max(coreAlarmT, 1.2);
     if (ev.x != null) burst(6, PAL.red, 110, 0.35);
@@ -7133,6 +7154,15 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
   // stronghold: dark beacons take a hold-act relight; the landed ship boards
   for (const c2 of cores) {
     if ((c2.hp ?? 0) <= 0) cands.push({ x: c2.x, y: c2.y, py: c2.y - 62, text: '[hold E/X] RELIGHT BEACON 8◆' });
+  }
+  // THE HORN: by day the base core (or any LIT beacon) offers the early
+  // nightfall call — mirror of the sim's stepHorn gate (never in a day's
+  // last 5s, never while a blood-moon warning sounds)
+  if (cycle && cycle.phase === 'day' && cycle.t > 5 && !(cycle.nextBloodMoon && cycle.t <= 30)) {
+    for (const c2 of cores) {
+      if (c2.lit ?? (c2.hp ?? 0) > 0) cands.push({ x: c2.x, y: c2.y, py: c2.y - 62, text: '[hold E/X] SOUND THE HORN' });
+    }
+    if (core) cands.push({ x: core.x, y: core.y, py: core.y - 62, text: '[hold E/X] SOUND THE HORN' });
   }
   if (ship?.landed) cands.push({ x: ship.x, y: ship.y, py: ship.y - 46, text: '[E/X] BOARD THE ANCHORCRAFT' });
   const promptOthers = new Set();

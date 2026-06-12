@@ -2,8 +2,8 @@
 // Deterministic (seed 20260706). An 86x62 M-size mountain quarry: deep rock
 // rim, ridge spines, rubble fields, a stone pit in the southeast — and SIX
 // watchtowers to crew. Pre-wave side-op: Quarrymaster Bel pays to put down
-// the claim-jumper chargers squatting the pit. Blood moons every other night.
-// Unlock: BASTION. Six nights, blood moons on 2, 4 and 6.
+// the claim-jumper chargers squatting the pit. Back-to-back blood moons.
+// Unlock: BASTION. Three nights, blood moons on 2 and 3 (budget: 5 waves).
 import { createMap, waveTable, assembleDef, writeDef, report } from './framework.mjs';
 
 const W = 86, H = 62, LEVEL = 6;
@@ -97,21 +97,21 @@ m.validate({});
 // --- decoration: gravel and stone terraces ---
 m.decorate((x, y, rnd) => (rnd() < 0.22 ? ':' : rnd() < 0.16 ? ';' : null));
 
-const table = waveTable({ level: LEVEL, nights: 6, bloodMoons: [2, 4, 6] });
+const table = waveTable({ level: LEVEL, nights: 3, bloodMoons: [2, 3] });
 const def = assembleDef({
   level: LEVEL,
   name: 'Quarry Bastion',
   sizeLabel: 'M',
   difficulty: 3,
   blurb: 'Stone country: ridge spines, rubble, a pit full of claim-jumpers — and six towers begging for gunners.',
-  newFeatures: ['Six watchtowers to crew', 'Blood moons every other night', 'Camp-clearing bounty'],
-  objective: 'Hold Quarry Bastion through six nights — and clear the claim-jumpers from the pit for Bel',
+  newFeatures: ['Six watchtowers to crew', 'Back-to-back blood moons', 'Camp-clearing bounty'],
+  objective: 'Hold Quarry Bastion through three nights — and clear the claim-jumpers from the pit for Bel',
   intro: [{
     title: 'Quarry Bastion',
     lines: [
       'The quarry cut the stone that walls half the frontier. Tonight the frontier owes it a garrison.',
       'Six watchtowers stand along the lanes — crewed towers win sieges. The pit southeast hides charger claim-jumpers; Bel pays for four.',
-      'Three blood moons this tour. Stack shards, stack walls, sleep never.',
+      'Two blood moons this tour, back to back. Stack shards, stack walls, sleep never.',
     ],
     art: 'siege',
   }],
@@ -119,7 +119,7 @@ const def = assembleDef({
     title: 'Stone Holds Stone',
     lines: [
       'Six dawns and the quarry still rings — hammer on rock, not claw on gate.',
-      'Bel chalks the tally on the wall: three blood moons, zero refunds.',
+      'Bel chalks the tally on the wall: two blood moons, zero refunds.',
     ],
     art: 'dawn',
   }],

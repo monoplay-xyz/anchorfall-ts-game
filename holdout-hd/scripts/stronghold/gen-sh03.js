@@ -3,7 +3,7 @@
 // patches gutter out twice as fast): pond chains, mud flats, a forest-band
 // border, raider packs in the reeds — and the first PRE-WAVE SIDE-OP: three
 // dark relays out in the mire, a switch quest from Relay-Warden Mossu.
-// Unlock: RAIDER. Five nights, blood moons on the third and fifth.
+// Unlock: RAIDER. Four nights, blood moon on the third (budget: 5 waves).
 import { createMap, waveTable, assembleDef, writeDef, report } from './framework.mjs';
 
 const W = 78, H = 58, LEVEL = 3;
@@ -88,7 +88,7 @@ m.paintShores(':');
 // --- decoration: reed grass and muck on the bare flats ---
 m.decorate((x, y, rnd) => (rnd() < 0.3 ? ':' : rnd() < 0.25 ? ',' : null));
 
-const table = waveTable({ level: LEVEL, nights: 5, bloodMoons: [3, 5] });
+const table = waveTable({ level: LEVEL, nights: 4, bloodMoons: [3] });
 const def = assembleDef({
   level: LEVEL,
   name: 'Mire Hold',
@@ -96,7 +96,7 @@ const def = assembleDef({
   difficulty: 2,
   blurb: 'A stone rise in a drowned forest. Rain kills fire fast, raiders walk the reeds, and three relays sit dark.',
   newFeatures: ['Rain — ground fire gutters out fast', 'Relay restoration side-op', 'Raider packs in the reeds'],
-  objective: 'Hold Mire Hold through five nights — restore the three mire relays for Mossu if you can',
+  objective: 'Hold Mire Hold through four nights — restore the three mire relays for Mossu if you can',
   intro: [{
     title: 'Mire Hold',
     lines: [
@@ -109,7 +109,7 @@ const def = assembleDef({
   outro: [{
     title: 'Signals in the Rain',
     lines: [
-      'The fifth dawn finds the hold above water and the relays singing.',
+      'The fourth dawn finds the hold above water and the relays singing.',
       'Somewhere east, the frontier writes Mire Hold back onto the map.',
     ],
     art: 'dawn',

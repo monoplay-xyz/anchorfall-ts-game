@@ -1,19 +1,18 @@
 {
   "name": "Twin Strongholds",
-  "objective": "Defend BOTH strongholds for eight nights — the hold falls only if all four anchor monoliths go dark at once",
+  "objective": "Defend BOTH strongholds for five nights — the hold falls only if all four anchor monoliths go dark at once",
   "time": 600,
   "expedition": true,
   "mode": "bastion",
   "bastionVariant": "beacons",
   "bastion": {
-    "nights": 8,
-    "dayLen": 80,
+    "nights": 5,
+    "dayLen": 100,
     "nightLen": 85,
     "bloodMoons": [
-      5,
-      8
+      3,
+      5
     ],
-    "wavesPerNight": 2,
     "waveMult": 2.07
   },
   "stronghold": {
@@ -21,7 +20,7 @@
     "name": "Twin Strongholds",
     "sizeLabel": "XL",
     "difficulty": 5,
-    "waves": 20,
+    "waves": 7,
     "hpMult": 1.53,
     "blurb": "Two walled keeps, two monoliths apiece, one waist road in the ash. The waves split between whatever still burns.",
     "newFeatures": [
@@ -45,7 +44,7 @@
     {
       "title": "The Pass Holds",
       "lines": [
-        "Eight dawns, four monoliths, two keeps — and one line that did not break.",
+        "Five dawns, four monoliths, two keeps — and one line that did not break.",
         "The ash settles on walls worth the name. The deep marches wait."
       ],
       "art": "dawn"

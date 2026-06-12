@@ -1,16 +1,15 @@
 {
   "name": "Selkie Deep",
-  "objective": "Hold the heart isle for nine nights — Maren pays for the two selkie pearls",
+  "objective": "Hold the heart isle for four double-wave nights — Maren pays for the two selkie pearls",
   "time": 600,
   "expedition": true,
   "mode": "bastion",
   "bastion": {
-    "nights": 9,
+    "nights": 4,
     "dayLen": 105,
     "nightLen": 85,
     "bloodMoons": [
-      5,
-      8
+      3
     ],
     "wavesPerNight": 2,
     "waveMult": 2.27
@@ -20,12 +19,13 @@
     "name": "Selkie Deep",
     "sizeLabel": "XL",
     "difficulty": 4,
-    "waves": 22,
+    "waves": 10,
     "hpMult": 1.63,
     "unlock": "seal",
     "blurb": "An archipelago strung on sand bars. Waves wade the causeways; the deep hides pearls and a hoard only a skiff can reach.",
     "newFeatures": [
       "Seal joins the roster",
+      "Two waves a night",
       "Twin skiffs",
       "Water-flanked approaches"
     ]
@@ -47,7 +47,7 @@
     {
       "title": "What the Tide Returns",
       "lines": [
-        "Nine dawns. The causeways held and the pearls went home.",
+        "Four dawns. The causeways held and the pearls went home.",
         "The seal hauls out beside the fire and stays."
       ],
       "art": "dawn"

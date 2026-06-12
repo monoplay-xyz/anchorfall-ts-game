@@ -1,19 +1,18 @@
 {
   "name": "Lava Crossing",
-  "objective": "Hold the crossing for seven nights — the marches take the bridges, you take the pads",
+  "objective": "Hold the crossing for four nights — the marches take the bridges, you take the pads",
   "time": 600,
   "expedition": true,
   "mode": "bastion",
   "bastion": {
-    "nights": 7,
+    "nights": 4,
     "dayLen": 85,
     "nightLen": 80,
     "bloodMoons": [
+      2,
       3,
-      5,
-      7
+      4
     ],
-    "wavesPerNight": 2,
     "waveMult": 1.8
   },
   "stronghold": {
@@ -21,7 +20,7 @@
     "name": "Lava Crossing",
     "sizeLabel": "L",
     "difficulty": 4,
-    "waves": 20,
+    "waves": 7,
     "hpMult": 1.4,
     "blurb": "Two lava rivers, six bridges, three ridges. The pads blink you across what sears everything else.",
     "newFeatures": [

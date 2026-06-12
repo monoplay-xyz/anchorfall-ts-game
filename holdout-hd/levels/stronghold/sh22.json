@@ -1,19 +1,18 @@
 {
   "name": "The Silent Quorum",
-  "objective": "Keep a shrine lit through ten nights — close the relay circle for the armory cache",
+  "objective": "Keep a shrine lit through eight nights — close the relay circle for the armory cache",
   "time": 600,
   "expedition": true,
   "mode": "bastion",
   "bastionVariant": "beacons",
   "bastion": {
-    "nights": 10,
+    "nights": 8,
     "dayLen": 95,
     "nightLen": 88,
     "bloodMoons": [
       5,
-      9
+      8
     ],
-    "wavesPerNight": 2,
     "waveMult": 2.4
   },
   "stronghold": {
@@ -21,9 +20,9 @@
     "name": "The Silent Quorum",
     "sizeLabel": "XL",
     "difficulty": 5,
-    "waves": 24,
+    "waves": 10,
     "hpMult": 1.7,
-    "blurb": "A fogbound forest where the acolytes hold court. Four shrine beacons, four silenced relays, ten nights of dirge.",
+    "blurb": "A fogbound forest where the acolytes hold court. Four shrine beacons, four silenced relays, eight nights of dirge.",
     "newFeatures": [
       "Acolyte war-camps",
       "A four-relay quorum on a 90s window",
@@ -47,7 +46,7 @@
     {
       "title": "The Circle Closed",
       "lines": [
-        "Ten dawns. The dirge is done and the shrines still burn.",
+        "Eight dawns. The dirge is done and the shrines still burn.",
         "The forest remembers how to sound like a forest."
       ],
       "art": "dawn"

@@ -14,7 +14,7 @@
 //     and sniper spotters; camps sit >= 10 tiles off the base walls so the
 //     first day stays calm.
 //   - Difficulty arc: waves 14 -> 20, hpMult 1.27 -> 1.55, waveMult
-//     1.5 -> 2.05, nights 6 -> 9, blood moons thickening late.
+//     1.5 -> 2.05, wave budget 7 per level (the {3,5,7,10} cap law).
 //   - Unlock schedule (fixed): sh10 volt, sh12 boomer, sh14 warden,
 //     sh16 shade. The other levels debut features instead.
 //   - sh11 + sh17 run the beacon-defense variant (exactly four 'K').
@@ -686,9 +686,9 @@ function genSh09() {
 
   return L.assemble({
     objective: 'Hold the crater bastion for six nights — and light a 3-of-5 relay quorum to wake the old grid',
-    bastion: { nights: 6, dayLen: 85, nightLen: 80, bloodMoons: [5], wavesPerNight: 2, waveMult: 1.53 },
+    bastion: { nights: 6, dayLen: 85, nightLen: 80, bloodMoons: [5], waveMult: 1.53 },
     stronghold: {
-      level: 9, name: 'Ash Quorum', sizeLabel: 'L', difficulty: 3, waves: 14, hpMult: 1.27,
+      level: 9, name: 'Ash Quorum', sizeLabel: 'L', difficulty: 3, waves: 7, hpMult: 1.27,
       blurb: 'A dead caldera, five relays, and a choir of Null Acolytes in the ash. Mask up before the vents clear.',
       newFeatures: ['Relay quorum objective', 'Null Acolytes in the camps', 'Toxic air + breather masks'],
     },
@@ -795,10 +795,10 @@ function genSh10() {
     }
 
   return L.assemble({
-    objective: 'Hold the stormfield for six nights — raise the storm mast so the relief column hears the hold',
-    bastion: { nights: 6, dayLen: 85, nightLen: 80, bloodMoons: [4, 6], wavesPerNight: 2, waveMult: 1.6 },
+    objective: 'Hold the stormfield for five nights — raise the storm mast so the relief column hears the hold',
+    bastion: { nights: 5, dayLen: 85, nightLen: 80, bloodMoons: [3, 5], waveMult: 1.6 },
     stronghold: {
-      level: 10, name: 'Stormfield', sizeLabel: 'L', difficulty: 3, waves: 16, hpMult: 1.3, unlock: 'volt',
+      level: 10, name: 'Stormfield', sizeLabel: 'L', difficulty: 3, waves: 7, hpMult: 1.3, unlock: 'volt',
       blurb: 'A rain-lashed meadow under a dead mast. Lightning favors the coils — and so does the storm her people named Volt.',
       newFeatures: ['Volt joins the roster', 'Prebuilt tesla turret', 'Rain (burn patches die fast)'],
     },
@@ -959,11 +959,11 @@ function genSh11() {
     }
 
   return L.assemble({
-    objective: 'Keep at least one of the four drowned monoliths lit through seven nights — all four dark at once and the ring goes under',
+    objective: 'Keep at least one of the four drowned monoliths lit through six nights — all four dark at once and the ring goes under',
     bastionVariant: 'beacons',
-    bastion: { nights: 7, dayLen: 80, nightLen: 80, bloodMoons: [6], wavesPerNight: 2, waveMult: 1.67 },
+    bastion: { nights: 6, dayLen: 80, nightLen: 80, bloodMoons: [6], waveMult: 1.67 },
     stronghold: {
-      level: 11, name: 'The Drowned Ring', sizeLabel: 'L', difficulty: 4, waves: 16, hpMult: 1.33,
+      level: 11, name: 'The Drowned Ring', sizeLabel: 'L', difficulty: 4, waves: 7, hpMult: 1.33,
       blurb: 'Four monoliths on a drowned ring, four causeways, one skiff. Relight by day what the night puts out.',
       newFeatures: ['Four-beacon defense', 'Causeway chokepoints', 'Anchorcraft early extraction'],
     },
@@ -1074,10 +1074,10 @@ function genSh12() {
     }
 
   return L.assemble({
-    objective: 'Hold both wings of the forked hold for seven nights — the core on the holm must still stand at dawn',
-    bastion: { nights: 7, dayLen: 85, nightLen: 80, bloodMoons: [4, 7], wavesPerNight: 2, waveMult: 1.73 },
+    objective: 'Hold both wings of the forked hold for five nights — the core on the holm must still stand at dawn',
+    bastion: { nights: 5, dayLen: 85, nightLen: 80, bloodMoons: [3, 5], waveMult: 1.73 },
     stronghold: {
-      level: 12, name: 'Forked Hold', sizeLabel: 'L', difficulty: 4, waves: 18, hpMult: 1.37, unlock: 'boomer',
+      level: 12, name: 'Forked Hold', sizeLabel: 'L', difficulty: 4, waves: 7, hpMult: 1.37, unlock: 'boomer',
       blurb: 'Twin walled wings astride a river, one core on the holm between. Every approach comes in pairs.',
       newFeatures: ['Boomer joins the roster', 'Mirrored twin-wing base', 'Fork Alpha packs'],
     },
@@ -1185,10 +1185,10 @@ function genSh13() {
     }
 
   return L.assemble({
-    objective: 'Hold the crossing for seven nights — the marches take the bridges, you take the pads',
-    bastion: { nights: 7, dayLen: 85, nightLen: 80, bloodMoons: [3, 5, 7], wavesPerNight: 2, waveMult: 1.8 },
+    objective: 'Hold the crossing for four nights — the marches take the bridges, you take the pads',
+    bastion: { nights: 4, dayLen: 85, nightLen: 80, bloodMoons: [2, 3, 4], waveMult: 1.8 },
     stronghold: {
-      level: 13, name: 'Lava Crossing', sizeLabel: 'L', difficulty: 4, waves: 20, hpMult: 1.4,
+      level: 13, name: 'Lava Crossing', sizeLabel: 'L', difficulty: 4, waves: 7, hpMult: 1.4,
       blurb: 'Two lava rivers, six bridges, three ridges. The pads blink you across what sears everything else.',
       newFeatures: ['Lava rivers', 'Teleport pad network', 'Bridge chokepoints'],
     },
@@ -1206,7 +1206,7 @@ function genSh13() {
 }
 
 // ===========================================================================
-// sh14 'The Long Night' — 96x70 L glacial valley. EIGHT nights, snowstorm,
+// sh14 'The Long Night' — 96x70 L glacial valley. SIX nights, snowstorm,
 // a frozen lake that skates everything that crosses it, an ice cave hoard,
 // and level-2 walls shipped hardened for the duration. Warden unlocks.
 // ===========================================================================
@@ -1288,17 +1288,17 @@ function genSh14() {
     }
 
   return L.assemble({
-    objective: 'Survive the long night — eight short days, eight long dusks, and the last night rises blood',
-    bastion: { nights: 8, dayLen: 70, nightLen: 95, bloodMoons: [8], wavesPerNight: 2, waveMult: 1.87 },
+    objective: 'Survive the long night — six short days, six long dusks, and the last night rises blood',
+    bastion: { nights: 6, dayLen: 70, nightLen: 95, bloodMoons: [6], waveMult: 1.87 },
     stronghold: {
-      level: 14, name: 'The Long Night', sizeLabel: 'L', difficulty: 4, waves: 18, hpMult: 1.43, unlock: 'warden',
-      blurb: 'Eight nights, short days, a lake of ice underfoot. The walls ship hardened — they will need to be.',
-      newFeatures: ['Warden joins the roster', 'Eight-night siege', 'Ice fields + snowstorm'],
+      level: 14, name: 'The Long Night', sizeLabel: 'L', difficulty: 4, waves: 7, hpMult: 1.43, unlock: 'warden',
+      blurb: 'Six nights, short days, a lake of ice underfoot. The walls ship hardened — they will need to be.',
+      newFeatures: ['Warden joins the roster', 'Long-night siege', 'Ice fields + snowstorm'],
     },
     intro: [{
       title: 'The Long Night',
       lines: [
-        'Eight dusks stand between this fort and relief — the days up here are short.',
+        'Six dusks stand between this fort and relief — the days up here are short.',
         'The lake is ice: everything that crosses it keeps sliding, you included.',
         'The walls ship hardened. Repair them by day; the Warden watches the rest.',
       ],
@@ -1435,10 +1435,10 @@ function genSh15() {
     }
 
   return L.assemble({
-    objective: 'Hold the watch shard for eight nights — and forge the seal that opens the vault the phantoms circle',
-    bastion: { nights: 8, dayLen: 80, nightLen: 85, bloodMoons: [4, 8], wavesPerNight: 2, waveMult: 1.93 },
+    objective: 'Hold the watch shard for five nights — and forge the seal that opens the vault the phantoms circle',
+    bastion: { nights: 5, dayLen: 100, nightLen: 85, bloodMoons: [3, 5], waveMult: 1.93 },
     stronghold: {
-      level: 15, name: 'Phantom Watch', sizeLabel: 'L', difficulty: 4, waves: 20, hpMult: 1.47,
+      level: 15, name: 'Phantom Watch', sizeLabel: 'L', difficulty: 4, waves: 7, hpMult: 1.47,
       blurb: 'Five shards over the void, stalkers in the fog, and a vault that answers only a forged lythseal.',
       newFeatures: ['Void shards', 'Seal-forge vault', 'Phase Stalker packs'],
     },
@@ -1555,10 +1555,10 @@ function genSh16() {
     }
 
   return L.assemble({
-    objective: 'Hold the bluff fort for eight nights — the dunes drag every stride, theirs included',
-    bastion: { nights: 8, dayLen: 80, nightLen: 85, bloodMoons: [5, 8], wavesPerNight: 2, waveMult: 2 },
+    objective: 'Hold the bluff fort for five nights — the dunes drag every stride, theirs included',
+    bastion: { nights: 5, dayLen: 100, nightLen: 85, bloodMoons: [3, 5], waveMult: 2 },
     stronghold: {
-      level: 16, name: 'Glasswater', sizeLabel: 'L', difficulty: 5, waves: 20, hpMult: 1.5, unlock: 'shade',
+      level: 16, name: 'Glasswater', sizeLabel: 'L', difficulty: 5, waves: 7, hpMult: 1.5, unlock: 'shade',
       blurb: 'A crescent of dunes between glass lagoons and open sea. Sand slows the march — use every dragged stride.',
       newFeatures: ['Shade joins the roster', 'Sand dunes (everything slows)', 'Open-sea skiff flank'],
     },
@@ -1676,11 +1676,11 @@ function genSh17() {
     }
 
   return L.assemble({
-    objective: 'Defend BOTH strongholds for eight nights — the hold falls only if all four anchor monoliths go dark at once',
+    objective: 'Defend BOTH strongholds for five nights — the hold falls only if all four anchor monoliths go dark at once',
     bastionVariant: 'beacons',
-    bastion: { nights: 8, dayLen: 80, nightLen: 85, bloodMoons: [5, 8], wavesPerNight: 2, waveMult: 2.07 },
+    bastion: { nights: 5, dayLen: 100, nightLen: 85, bloodMoons: [3, 5], waveMult: 2.07 },
     stronghold: {
-      level: 17, name: 'Twin Strongholds', sizeLabel: 'XL', difficulty: 5, waves: 20, hpMult: 1.53,
+      level: 17, name: 'Twin Strongholds', sizeLabel: 'XL', difficulty: 5, waves: 7, hpMult: 1.53,
       blurb: 'Two walled keeps, two monoliths apiece, one waist road in the ash. The waves split between whatever still burns.',
       newFeatures: ['Twin walled strongholds', 'Two-and-two anchor monoliths', 'Warlord camp'],
     },
@@ -1696,7 +1696,7 @@ function genSh17() {
     outro: [{
       title: 'The Pass Holds',
       lines: [
-        'Eight dawns, four monoliths, two keeps — and one line that did not break.',
+        'Five dawns, four monoliths, two keeps — and one line that did not break.',
         'The ash settles on walls worth the name. The deep marches wait.',
       ],
       art: 'dawn',

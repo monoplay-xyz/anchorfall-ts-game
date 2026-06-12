@@ -1,16 +1,15 @@
 {
   "name": "Cinder Gate",
-  "objective": "Mask up before the air clears, then hold Cinder Gate through six nights",
+  "objective": "Mask up before the air clears, then hold Cinder Gate through four nights",
   "time": 600,
   "expedition": true,
   "mode": "bastion",
   "bastion": {
-    "nights": 6,
+    "nights": 4,
     "dayLen": 90,
     "nightLen": 75,
     "bloodMoons": [
-      4,
-      6
+      4
     ],
     "waveMult": 1.2
   },
@@ -19,10 +18,10 @@
     "name": "Cinder Gate",
     "sizeLabel": "M",
     "difficulty": 2,
-    "waves": 8,
+    "waves": 5,
     "hpMult": 1.1,
     "unlock": "pyro",
-    "blurb": "A pass between live lava flows, under air that bites. Mask up, mind the veins, hold six nights.",
+    "blurb": "A pass between live lava flows, under air that bites. Mask up, mind the veins, hold four nights.",
     "newFeatures": [
       "Lava veins — never wade them",
       "Toxic air: equip masks fast",

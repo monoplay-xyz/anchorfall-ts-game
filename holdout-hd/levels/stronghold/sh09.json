@@ -11,7 +11,6 @@
     "bloodMoons": [
       5
     ],
-    "wavesPerNight": 2,
     "waveMult": 1.53
   },
   "stronghold": {
@@ -19,7 +18,7 @@
     "name": "Ash Quorum",
     "sizeLabel": "L",
     "difficulty": 3,
-    "waves": 14,
+    "waves": 7,
     "hpMult": 1.27,
     "blurb": "A dead caldera, five relays, and a choir of Null Acolytes in the ash. Mask up before the vents clear.",
     "newFeatures": [

@@ -313,9 +313,13 @@ function bannerFor(ev) {
     case 'beaconLit': return { text: 'BEACON RELIT' };
     case 'shipDown': return { text: 'THE ANCHORCRAFT HAS LANDED — ALL ABOARD TO EXTRACT' };
     case 'shipLaunch': return { text: 'ANCHORCRAFT AWAY — FULL CLEAR' };
+    // bastion day events: the horn call and the supply drop
+    case 'horn': return { text: `THE HORN SOUNDS — NIGHT ${ev.nightNo ?? '?'} COMES EARLY` };
+    case 'supplyDrop': return { text: 'SUPPLY DROP INBOUND' };
   }
   return null;
 }
+const EDGE_NAME = { n: 'NORTH', e: 'EAST', s: 'SOUTH', w: 'WEST' };
 // One funnel for sim events: FX + audio + banners + the DOM dialogue box.
 function handleEvent(ev) {
   addEventFX(ev);
@@ -328,9 +332,16 @@ function handleEvent(ev) {
   }
   if (ev.type === 'fieldEmpty') showToast('FIELD WEAPON SPENT');
   if (ev.type === 'sealForged') showToast('LYTH SEAL FORGED');
+  // bastion day events: the horn banks its shard bonus; probes get a quiet
+  // heads-up; supply drops ping the tactical map until the cache is opened
+  if (ev.type === 'horn') showToast(`HORN BONUS +${ev.bonus ?? 0}◆`);
+  if (ev.type === 'probe') showToast(`SCAVENGERS OFF THE ${EDGE_NAME[ev.edge] ?? '?'} EDGE`, 2600);
+  if (ev.type === 'supplyDrop') supplyPings.push({ x: ev.x, y: ev.y });
   const b = bannerFor(ev);
   if (b) showBanner(b.text, b.blood);
 }
+// supply-drop map pings: live while the dropped cache still sits unopened
+const supplyPings = [];
 
 // ---------- screens ----------
 function show(id) {
@@ -1066,14 +1077,19 @@ function updateCountdown(snap) {
 // chip simply never shows there.
 let otSig = null;
 function updateOvertime(snap) {
-  const ot = snap.status === 'play'
-    ? Math.max(0, Math.floor(Number(snap.overtime ?? snap.otLevel ?? 0) || 0))
-    : 0;
+  // the chip pins for the WHOLE of sudden death: the sim ships the overtime
+  // key from the horn on (level 0 for the first 20s), so the key's presence
+  // is the live flag — 'OVERTIME' at 0, 'OVERTIME +n' once escalation ticks.
+  // ot -1 = no key / not playing = hidden (classic snapshots never show it).
+  const raw = snap.overtime ?? snap.otLevel;
+  const ot = snap.status === 'play' && raw != null
+    ? Math.max(0, Math.floor(Number(raw) || 0))
+    : -1;
   if (ot === otSig) return;
   otSig = ot;
   const el = $('otChip');
-  el.hidden = !ot;
-  if (ot) el.textContent = `OVERTIME +${ot}`;
+  el.hidden = ot < 0;
+  if (ot >= 0) el.textContent = ot > 0 ? `OVERTIME +${ot}` : 'OVERTIME';
 }
 
 // ---------- controls overlay (corner panel; Settings toggle, default ON) ----
@@ -1157,6 +1173,14 @@ function drawMapOverlay(ctx, snap, t) {
   for (const c of snap.cores ?? []) ring(c.x, c.y, (c.hp ?? 0) > 0 ? 'rgba(255,217,138,0.9)' : 'rgba(224,72,72,0.9)');
   for (const q of snap.qitems ?? []) if (q.carrier == null && seen(q.x, q.y)) ring(q.x, q.y, 'rgba(111,216,242,0.9)');
   if (snap.ship?.landed) ring(snap.ship.x, snap.ship.y, 'rgba(111,216,242,0.95)');
+  // supply drops ping (objective-marker style) until their cache is opened;
+  // entries whose chest is gone or looted fall out of the list
+  for (let i = supplyPings.length - 1; i >= 0; i--) {
+    const sp = supplyPings[i];
+    const chest = (snap.chests ?? []).find(c => Math.abs(c.x - sp.x) < 1 && Math.abs(c.y - sp.y) < 1);
+    if (!chest || chest.opened) { supplyPings.splice(i, 1); continue; }
+    ring(sp.x, sp.y, 'rgba(255,217,138,0.95)');
+  }
   ctx.fillStyle = '#DFF3FF';
   ctx.textAlign = 'center';
   ctx.font = `bold ${Math.max(14, Math.round(H * 0.024))}px ui-monospace, Menlo, monospace`;
@@ -1655,7 +1679,9 @@ class LocalSession {
     playUi('victory');
     if (this.story) {
       if (!demoMode) { localStorage.removeItem(STORY_KEY); clearBeacon(); }
-      showMsg('The Crossing Holds', `The Anchor is lit and the frontier breathes again.\nFinal roster: ${this.roster.map(id => charMap[id].name).join(', ')}`, 'Main Menu', () => this.leave());
+      // saga complete (ch11 Genesis Drift): the dialog speaks the finale's
+      // own language — see levels/story/ch11.json outro + the saga slides
+      showMsg('Genesis Holds', `The First Anchor settles, and a hundred anchors answer in one breath.\nThe frontier holds end to end. Keep the signal alive.\nFinal roster: ${this.roster.map(id => charMap[id].name).join(', ')}`, 'Main Menu', () => this.leave());
       return;
     }
     localStorage.removeItem(SAVE_KEY);
@@ -1679,6 +1705,7 @@ class NetSession {
     this.mini = null;     // latest AOI minimap array (server ships every 3rd tick)
     this.joinCode = mode === 'join' ? code : null; // rejoin offer before the first lobby lands
     this.lobbyData = null;
+    this.hostToastPid = null; // last host pid already toasted (migration dedupe)
     this.cutscene = null;
     this.seats = new Map();        // device -> pid (insertion order = seat order)
     this.pendingSeats = new Map(); // device -> request time, awaiting localAdded
@@ -1818,8 +1845,12 @@ class NetSession {
       }
     }
     else if (m.t === 'hostMigrated') {
-      // leader connection dropped; the server promoted a new room leader
-      showToast(`HOST MIGRATED — ${String(m.name || 'PLAYER').toUpperCase()} LEADS`, 3200, true);
+      // leader connection dropped; the server promoted a new room leader.
+      // Deferred a beat (the levelEnd rank-toast trick): in the lobby this
+      // message arrives in the same batch as the fresh 'lobby' broadcast,
+      // whose renderLobby -> show('lobby') -> hideToast would wipe it.
+      this.hostToastPid = m.hostPid ?? null;
+      setTimeout(() => showToast(`HOST MIGRATED — ${String(m.name || 'PLAYER').toUpperCase()} LEADS`, 3200, true), 60);
     }
     else if (m.t === 'localAdded') {
       this.pendingSeats.delete(m.tag);
@@ -1830,11 +1861,15 @@ class NetSession {
     }
     else if (m.t === 'lobby') {
       // host migration also reads straight off the lobby broadcast (belt and
-      // braces with the explicit message): the crown moved to another pid
+      // braces with the explicit message): the crown moved to another pid.
+      // Guarded against the explicit message's record so a MID-LEVEL
+      // migration's stale diff can't re-toast minutes later at levelEnd, and
+      // deferred past this batch's renderLobby/hideToast like the explicit one.
       const prevHost = this.lobbyData?.players?.find(p => p.isHost);
       const newHost = m.players.find(p => p.isHost);
-      if (prevHost && newHost && newHost.pid !== prevHost.pid) {
-        showToast(`HOST MIGRATED — ${String(newHost.name || 'PLAYER').toUpperCase()} LEADS`, 3200, true);
+      if (prevHost && newHost && newHost.pid !== prevHost.pid && newHost.pid !== this.hostToastPid) {
+        this.hostToastPid = newHost.pid;
+        setTimeout(() => showToast(`HOST MIGRATED — ${String(newHost.name || 'PLAYER').toUpperCase()} LEADS`, 3200, true), 60);
       }
       this.lobbyData = m;
       // a seat whose pid the server no longer lists is dead — unbind it
@@ -1929,8 +1964,11 @@ class NetSession {
       }
       const results = () => {
         if (m.victory) {
-          showMsg(story ? 'The Crossing Holds' : 'Campaign Complete!',
-            resultText(m) + `Final roster: ${m.roster.map(id => charMap[id].name).join(', ')}`,
+          // story saga complete: Genesis finale copy (matches the local
+          // victory() dialog and the ch11 outro slides)
+          showMsg(story ? 'Genesis Holds' : 'Campaign Complete!',
+            (story ? 'The First Anchor settles, and a hundred anchors answer in one breath.\nThe frontier holds end to end. Keep the signal alive.\n' : '')
+            + resultText(m) + `Final roster: ${m.roster.map(id => charMap[id].name).join(', ')}`,
             'OK', () => this.leave());
         } else if (m.status === 'cleared') {
           showMsg(story ? 'Chapter Cleared' : 'Mission Cleared',
@@ -2434,7 +2472,12 @@ async function renderRankBoard() {
     return `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
   };
   rows.forEach((e, i) => {
-    const row = document.createElement('div');
+    // rows are inert BUTTONS so the pad focus ring can walk them: navTick
+    // treats every visible button as a nav target and setNavFocus
+    // scrollIntoViews the ring — a pad-only couch can reach row 50 of a
+    // full board (FIRE on a row is a no-op; Sort/Back stay in the cycle)
+    const row = document.createElement('button');
+    row.type = 'button';
     row.className = 'rrowt' + (e === mine ? ' mine' : '');
     const cells = [
       '#' + (i + 1),

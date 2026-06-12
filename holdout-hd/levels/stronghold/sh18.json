@@ -1,18 +1,17 @@
 {
   "name": "Helix Fields",
-  "objective": "Throw the three dune relays, then hold the bastion through eight nights",
+  "objective": "Throw the three dune relays, then hold the bastion through five nights",
   "time": 600,
   "expedition": true,
   "mode": "bastion",
   "bastion": {
-    "nights": 8,
+    "nights": 5,
     "dayLen": 100,
     "nightLen": 80,
     "bloodMoons": [
-      4,
-      7
+      3,
+      5
     ],
-    "wavesPerNight": 2,
     "waveMult": 2.13
   },
   "stronghold": {
@@ -20,10 +19,10 @@
     "name": "Helix Fields",
     "sizeLabel": "XL",
     "difficulty": 4,
-    "waves": 20,
+    "waves": 7,
     "hpMult": 1.57,
     "unlock": "helix",
-    "blurb": "A dune spiral cut into meadow, forest-rimmed. Restore the relays, then hold the heart of the helix for eight nights.",
+    "blurb": "A dune spiral cut into meadow, forest-rimmed. Restore the relays, then hold the heart of the helix for five nights.",
     "newFeatures": [
       "Helix joins the roster",
       "Spiral dune ridges",
@@ -37,7 +36,7 @@
       "lines": [
         "The fields grew this spiral the night the Anchor fell. Nobody planted it.",
         "Three relays watch the arms — all dark. Throw them before dusk.",
-        "Then dig in: eight nights, and the spiral pulls the waves inward."
+        "Then dig in: five nights, and the spiral pulls the waves inward."
       ],
       "art": "settlement"
     }
@@ -46,7 +45,7 @@
     {
       "title": "The Spiral Holds",
       "lines": [
-        "Dawn eight. The dune arms are chewed flat, the relays still sing.",
+        "Dawn five. The dune arms are chewed flat, the relays still sing.",
         "Helix walks out of the spiral heart and signs on."
       ],
       "art": "dawn"

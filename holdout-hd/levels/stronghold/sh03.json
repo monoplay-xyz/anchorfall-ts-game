@@ -1,16 +1,15 @@
 {
   "name": "Mire Hold",
-  "objective": "Hold Mire Hold through five nights — restore the three mire relays for Mossu if you can",
+  "objective": "Hold Mire Hold through four nights — restore the three mire relays for Mossu if you can",
   "time": 600,
   "expedition": true,
   "mode": "bastion",
   "bastion": {
-    "nights": 5,
+    "nights": 4,
     "dayLen": 90,
     "nightLen": 75,
     "bloodMoons": [
-      3,
-      5
+      3
     ],
     "waveMult": 1.13
   },
@@ -19,7 +18,7 @@
     "name": "Mire Hold",
     "sizeLabel": "M",
     "difficulty": 2,
-    "waves": 7,
+    "waves": 5,
     "hpMult": 1.07,
     "unlock": "raider",
     "blurb": "A stone rise in a drowned forest. Rain kills fire fast, raiders walk the reeds, and three relays sit dark.",
@@ -46,7 +45,7 @@
     {
       "title": "Signals in the Rain",
       "lines": [
-        "The fifth dawn finds the hold above water and the relays singing.",
+        "The fourth dawn finds the hold above water and the relays singing.",
         "Somewhere east, the frontier writes Mire Hold back onto the map."
       ],
       "art": "dawn"

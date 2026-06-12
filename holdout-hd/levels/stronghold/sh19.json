@@ -1,20 +1,19 @@
 {
   "name": "The Sunken Vault",
-  "objective": "Keep at least one beacon lit through eight nights — the vault pays those who open it",
+  "objective": "Keep at least one beacon lit through four nights — the vault pays those who open it",
   "time": 600,
   "expedition": true,
   "mode": "bastion",
   "bastionVariant": "beacons",
   "bastion": {
-    "nights": 8,
+    "nights": 4,
     "dayLen": 100,
     "nightLen": 80,
     "bloodMoons": [
+      2,
       3,
-      6,
-      8
+      4
     ],
-    "wavesPerNight": 2,
     "waveMult": 2.2
   },
   "stronghold": {
@@ -22,7 +21,7 @@
     "name": "The Sunken Vault",
     "sizeLabel": "XL",
     "difficulty": 4,
-    "waves": 22,
+    "waves": 7,
     "hpMult": 1.6,
     "blurb": "A drowned basin with four anchor monoliths and a sealed vault. The hold only falls when all four go dark at once.",
     "newFeatures": [
@@ -48,7 +47,7 @@
     {
       "title": "Out of the Deep",
       "lines": [
-        "Eight dawns and at least one light never failed.",
+        "Four dawns and at least one light never failed.",
         "The vault stands open and the causeway column rides out rich."
       ],
       "art": "dawn"

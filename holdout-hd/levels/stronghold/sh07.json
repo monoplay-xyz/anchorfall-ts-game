@@ -1,18 +1,16 @@
 {
   "name": "Two Rivers",
-  "objective": "Keep at least one beacon lit through seven rain-soaked nights — the fords decide everything",
+  "objective": "Keep at least one beacon lit through four rain-soaked nights — the fords decide everything",
   "time": 600,
   "expedition": true,
   "mode": "bastion",
   "bastionVariant": "beacons",
   "bastion": {
-    "nights": 7,
+    "nights": 4,
     "dayLen": 90,
     "nightLen": 75,
     "bloodMoons": [
-      3,
-      5,
-      7
+      4
     ],
     "waveMult": 1.4
   },
@@ -21,7 +19,7 @@
     "name": "Two Rivers",
     "sizeLabel": "L",
     "difficulty": 3,
-    "waves": 10,
+    "waves": 5,
     "hpMult": 1.2,
     "blurb": "Two rivers quarter the land and a beacon burns on every bank. Hold the fords — or flank by skiff.",
     "newFeatures": [
@@ -47,7 +45,7 @@
     {
       "title": "The Confluence Holds",
       "lines": [
-        "Seven nights of rain, and light still stands on every bank that mattered.",
+        "Four nights of rain, and light still stands on every bank that mattered.",
         "The rivers run dark and quiet. Downstream, somebody owes you a bridge."
       ],
       "art": "dawn"

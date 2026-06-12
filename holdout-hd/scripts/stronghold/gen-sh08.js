@@ -4,7 +4,7 @@
 // east, ash avenues between rubble blocks. The Null Priests mass their husks
 // here in five-strong swarm camps — and the VOLT WRAITH elite debuts, leading
 // three of them. A stormgun cache waits in the east ruins.
-// Unlock: DUELIST. Seven nights, blood moons on 3, 5 and 7.
+// Unlock: DUELIST. Three nights, blood moons on 2 and 3 (budget: 5 waves).
 import { createMap, waveTable, assembleDef, writeDef, report } from './framework.mjs';
 
 const W = 96, H = 70, LEVEL = 8;
@@ -90,7 +90,7 @@ m.paintShores(':');
 // --- decoration: broken pavement between the avenues ---
 m.decorate((x, y, rnd) => (rnd() < 0.18 ? ';' : rnd() < 0.2 ? '_' : null));
 
-const table = waveTable({ level: LEVEL, nights: 7, bloodMoons: [3, 5, 7] });
+const table = waveTable({ level: LEVEL, nights: 3, bloodMoons: [2, 3] });
 const def = assembleDef({
   level: LEVEL,
   name: 'The Husk Tide',
@@ -98,7 +98,7 @@ const def = assembleDef({
   difficulty: 3,
   blurb: 'A drowned ruin-city in rolling fog. Husk swarms mass in the streets, and something new crackles among them.',
   newFeatures: ['Volt Wraith elites debut', 'Husk swarms mass in the fog', 'Fog caps all sight at nine tiles'],
-  objective: 'Hold the last precinct through seven nights of fog — the tide breaks or the city does',
+  objective: 'Hold the last precinct through three nights of fog — the tide breaks or the city does',
   intro: [{
     title: 'The Husk Tide',
     lines: [

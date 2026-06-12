@@ -308,6 +308,9 @@ function reviveSeat(g, pid) {
 function endLevel(room) {
   clearInterval(room.timer);
   room.timer = null;
+  // a room held open EMPTY for a rejoin window dies the moment its level
+  // ends — there is no lobby to come back to with nobody in it
+  if (!room.players.size) { room.holds = []; room.game = null; return destroyRoom(room); }
   const list = roomLevels(room);
   const def = list[room.levelIdx]; // the chapter just played
   const g = room.game;
@@ -356,6 +359,14 @@ function startLevel(room) {
   // The static grid rides along once here; per-tick snapshots omit it.
   broadcast(room, { t: 'levelStart', s: snapshot(room.game, true) });
   room.timer = setInterval(() => {
+    // EMPTY room held open for a rejoin window (solo online drop): freeze the
+    // sim — nobody is watching, and stepping it would fail the level (every
+    // seat is 'out') before the player can come back. Destroy at hold expiry.
+    if (!room.players.size) {
+      pruneHolds(room);
+      if (!room.holds.length) destroyRoom(room);
+      return;
+    }
     const inputs = {};
     for (const p of room.players.values()) inputs[p.pid] = p.input;
     step(room.game, inputs, TICK);
@@ -519,13 +530,20 @@ wss.on('connection', ws => {
       }
       room.players.delete(p.pid);
     }
-    // rooms die only when EMPTY — a departing leader hands off instead
-    if (!room.players.size) return destroyRoom(room);
-    // mid-level: hold the dropped seats for 120s so the player can rejoin by name
+    // mid-level: hold the dropped seats for 120s so the player can rejoin by
+    // name (BEFORE the empty check — a solo player's hold must outlive them)
     if (room.game && seats.length) {
       pruneHolds(room);
       const prim = seats.find(p => p.primary) || seats[0];
       room.holds.push({ name: prim.name, until: Date.now() + HOLD_MS, seats: seats.map(p => ({ pid: p.pid, name: p.name, charId: p.charId, primary: p === prim })) });
+    }
+    // rooms die only when EMPTY — a departing leader hands off instead. One
+    // exception keeps online singleplayer rejoinable: an empty room whose
+    // LIVE game just banked seat holds stays up for the hold window (the
+    // game loop freezes and prunes; expiry or endLevel destroys it).
+    if (!room.players.size) {
+      if (room.game && room.holds.length) return;
+      return destroyRoom(room);
     }
     // leader migration: the oldest remaining connection's primary takes over
     if (me.pid === room.hostPid) {
