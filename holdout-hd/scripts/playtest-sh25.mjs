@@ -28,7 +28,9 @@ import { fileURLToPath } from 'url';
 import { charsById, createGame, step, TILE } from '../shared/game.js';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const def = JSON.parse(fs.readFileSync(path.join(root, 'levels/stronghold/sh25.json'), 'utf8'));
+// SH25_DEF overrides the level file — used for difficulty-tuning control runs
+const def = JSON.parse(fs.readFileSync(
+  process.env.SH25_DEF || path.join(root, 'levels/stronghold/sh25.json'), 'utf8'));
 const characters = JSON.parse(fs.readFileSync(path.join(root, 'shared/characters.json'), 'utf8'));
 const charMap = charsById(characters);
 
@@ -74,22 +76,23 @@ function blockedTile(g, tx, ty) {
 
 // routing halo around SLEEPING camps: bots detour instead of stumbling into a
 // group-alert onslaught (goal tiles stay legal so duties can still finish)
-function campHalo(g) {
+function campHalo(g, awakeToo = false) {
   const halo = new Set();
   for (const e of g.enemies) {
-    if (e.dead || e.awake) continue;
+    if (e.dead || (e.awake && !awakeToo)) continue;
+    const r = e.awake ? 3 : 2;
     const ex = Math.floor(e.x / TILE), ey = Math.floor(e.y / TILE);
-    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) halo.add((ey + dy) * g.w + (ex + dx));
+    for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) halo.add((ey + dy) * g.w + (ex + dx));
   }
   return halo;
 }
 
 // BFS router (no teleports — the forts are all on the mainland)
-function planRoute(g, p, gx, gy, avoidCamps = true) {
+function planRoute(g, p, gx, gy, avoidCamps = true, avoidAwake = false) {
   const W = g.w, H = g.h;
   const sx = Math.floor(p.x / TILE), sy = Math.floor(p.y / TILE);
   const gtx = Math.floor(gx / TILE), gty = Math.floor(gy / TILE);
-  const halo = avoidCamps ? campHalo(g) : null;
+  const halo = avoidCamps ? campHalo(g, avoidAwake) : null;
   const goal = gty * W + gtx;
   const dist = new Int32Array(W * H).fill(-1);
   const prev = new Int32Array(W * H).fill(-1);
@@ -204,6 +207,9 @@ function postFor(g, bot, i) {
   const core = g.cores[i];
   const side = (bot.pid % 2 === 0 ? -1 : 1) * 10; // de-stack pair members
   if (bot.mortar) return { x: core.x + side, y: core.y - TILE };
+  // gunners hold the beacon-to-gate lane from inside (the best-performing
+  // posture across attempts: deep posts ceded the gate, gate-mouth posts ate
+  // wraith fire)
   const gate = FORT_GATES[i];
   const gx = (gate.open[0] + 0.5) * TILE, gy = (gate.open[1] + 0.5) * TILE;
   const n = Math.hypot(gx - core.x, gy - core.y) || 1;
@@ -233,7 +239,7 @@ function moveAlong(bot, p, inp) {
 function routeTo(g, bot, p, gx, gy) {
   const key = (Math.floor(gx / TILE)) + ',' + (Math.floor(gy / TILE));
   if (bot.routeGoal !== key || bot.repathT <= 0 || !bot.route.length) {
-    bot.route = planRoute(g, p, gx, gy);
+    bot.route = planRoute(g, p, gx, gy, true, !!bot.tripping);
     bot.routeGoal = key;
     bot.repathT = 1.2;
   }
@@ -341,8 +347,18 @@ function botDuties(g, bot, p, inp) {
   // 0) a fresh turret waits in its type carousel: cycle it to tesla
   if (p.selecting) { driveCarousel(bot, inp); return; }
   bot.selSeq = 0;
-  // 1) relight my monolith (day only; stepBeacons gates it anyway)
+  // 0b) an unattended carousel self-confirms 'gun' after 8s — walk over and
+  // hold act to engage it before that happens
+  for (const b of g.builds) {
+    if (!b.built || !b.typeSelect || distT(b, core) > 5) continue;
+    if (distT(p, b) > 1.0) { routeTo(g, bot, p, b.x, b.y); moveAlong(bot, p, inp); }
+    else inp.act = true;
+    return;
+  }
+  // 1) relight my monolith (day only; stepBeacons gates it anyway). A relight
+  // more than 12 tiles out is a TREK: self-defense only, route around trouble.
   if (!core.lit && g.shards >= 8) {
+    if (distT(p, core) > 12) bot.tripping = true;
     if (distT(p, core) > 1.2) { routeTo(g, bot, p, core.x, core.y); moveAlong(bot, p, inp); }
     else inp.act = true;
     return;
@@ -366,14 +382,25 @@ function botDuties(g, bot, p, inp) {
       return;
     }
   }
-  // 2.5) WAR ECONOMY trip (gunners, early day, pool healthy): hire a combat
-  // follower and shop for a damage token / shield pips / a medkit at the
+  // 2.4) the fort turret upgrade outranks shopping (L2 8, L3 16 — tesla
+  // chains scale with level)
+  if (g.shards >= 20) {
+    for (const b of g.builds) {
+      if (!b.built || b.kind !== 'turret' || (b.level || 1) >= 3 || b.typeSelect || distT(b, core) > 4) continue;
+      if (b.hp < b.maxHp) continue;
+      if (distT(p, b) > 1.2) { routeTo(g, bot, p, b.x, b.y); moveAlong(bot, p, inp); }
+      else inp.act = true;
+      return;
+    }
+  }
+  // 2.5) WAR ECONOMY trip (gunners, day, pool healthy): hire a combat
+  // follower and shop for damage tokens / shield pips / a medkit at the
   // central base, then sprint home
-  if (!bot.mortar && g.cycle.t > 55 && g.shards >= 30
+  if (!bot.mortar && g.cycle.t > 35 && g.shards >= 28
       && g.builds.some(b => b.built && b.kind === 'turret' && distT(b, core) < 4)) {
     const wantHire = !g.followers.some(f => !f.dead && f.owner === p.pid)
       && g.hires.some(h => !h.hired && (h.job === 'hound' || h.job === 'archer'));
-    const wantIdx = (p.dmgBonus || 0) < 1 && g.shards >= 20 ? 0
+    const wantIdx = (p.dmgBonus || 0) < 2 && g.shards >= 20 ? 0
       : p.shield === 0 && g.shards >= 12 ? 1
       : !p.item && g.shards >= 10 ? 3 : -1;
     if (wantHire && g.shards >= 24) {
@@ -475,11 +502,14 @@ function botDuties(g, bot, p, inp) {
   }
   // NOTE on 5-7: targets are picked relative to the CORE, not the bot, so
   // both pair members converge on the same goal and escort each other.
+  // MORTARS are the fort anchors: they never range beyond 7 tiles of the
+  // monolith (a wandering squad once let a camp stroll in and gnaw it dark).
+  const duty = bot.mortar ? 7 : 14;
   // 5) sweep shard drops near the fort
   let drop = null, dd = Infinity;
   for (const d of g.drops) {
     const dc = distT(d, core);
-    if (dc > 16) continue;
+    if (dc > duty + 2) continue;
     if (dc < dd) { dd = dc; drop = d; }
   }
   if (drop) { routeTo(g, bot, p, drop.x, drop.y); moveAlong(bot, p, inp); return; }
@@ -488,7 +518,7 @@ function botDuties(g, bot, p, inp) {
   for (const c of g.chests) {
     if (c.opened || enemyNear(g, c, 5)) continue;
     const dc = distT(c, core);
-    if (dc > 14) continue;
+    if (dc > duty) continue;
     if (dc < cd) { cd = dc; chest = c; }
   }
   if (chest) {
@@ -501,7 +531,7 @@ function botDuties(g, bot, p, inp) {
   for (const c of g.crystals) {
     if (c.hp <= 0 || enemyNear(g, c, 5)) continue;
     const dc = distT(c, core);
-    if (dc > 14) continue;
+    if (dc > duty) continue;
     if (dc < cyd) { cyd = dc; cry = c; }
   }
   if (cry) cyd = dist2(p, cry);
@@ -532,8 +562,24 @@ function botTick(g, bot, p, mode) {
   if (mode === 'idle') return inp;
   if (mode === 'board') {
     if (g.ship) {
+      bot.tripping = true;
       if (distT(p, g.ship) > 1.2) { routeTo(g, bot, p, g.ship.x, g.ship.y); moveAlong(bot, p, inp); }
       else inp.act = true;
+      return inp;
+    }
+    // all four lit by day: rally at the beacons' centroid (where the ship
+    // touches down) so dusk-2 boarding beats the incoming wave
+    if (g.cycle.phase === 'day' && g.cores.every(c => c.lit)) {
+      const cx = g.cores.reduce((s, c) => s + c.x, 0) / g.cores.length;
+      const cy = g.cores.reduce((s, c) => s + c.y, 0) / g.cores.length;
+      if (distT(p, { x: cx, y: cy }) > 3) {
+        bot.tripping = true;
+        routeTo(g, bot, p, cx, cy);
+        moveAlong(bot, p, inp);
+        return inp;
+      }
+      const tgtSelf = pickTarget(g, p, bot.range, null);
+      if (tgtSelf && Math.sqrt(tgtSelf.d2) / TILE < 5) botCombat(g, bot, p, tgtSelf, inp, { x: cx, y: cy });
       return inp;
     }
     // no ship yet: fall through to defense
@@ -610,11 +656,20 @@ function run(mode, maxS) {
     for (const bot of bots) {
       bot.repathT -= DT;
       const p = g.players[bot.pid];
-      inputs[bot.pid] = botTick(g, bot, p, mode === 'extract' && g.cycle.nightNo >= 1 ? 'board' : mode === 'loss' ? 'idle' : 'play');
+      inputs[bot.pid] = botTick(g, bot, p,
+        mode === 'extract' && g.cycle.nightNo >= 1 ? 'board'
+        : (mode === 'loss' || mode === 'schedule') ? 'idle' : 'play');
     }
     const t0 = performance.now();
     step(g, inputs, DT);
     const ms = performance.now() - t0;
+    // god-mode schedule audit: pin the monoliths lit and the squad immortal
+    // so the full 10-night wave/boss calendar and the final-dawn clear can be
+    // verified mechanically (also: clean max-entity perf, nobody thins the horde)
+    if (mode === 'schedule') {
+      for (const c of g.cores) { c.lit = true; c.hp = c.maxHp; }
+      for (const p of g.players) p.invuln = 2;
+    }
     stats.ticks++;
     stats.simMs += ms;
     if (ms > stats.maxMs) stats.maxMs = ms;
@@ -627,7 +682,7 @@ function run(mode, maxS) {
       } else if (ev.type === 'dawn') {
         const lit = g.cores.filter(c => c.lit).length;
         const hps = g.cores.map(c => (c.lit ? c.hp : 'dark')).join('/');
-        const lv = g.players.map(q => `${q.charId.slice(0, 4)}L${q.level || 1}+${q.dmgBonus || 0}`).join(' ');
+        const lv = g.players.map(q => `${(q.charId || 'down').slice(0, 4)}L${q.level || 1}+${q.dmgBonus || 0}`).join(' ');
         const tur = g.builds.filter(b => b.built && b.kind === 'turret').map(b => `${b.ttype || '?'}L${b.level || 1}`).join(',');
         const fol = g.followers.filter(f => !f.dead).length;
         stats.log.push(`dawn n${ev.nightNo} lit=${lit} hp=${hps} shards=${Math.floor(g.shards)} kills=${g.kills} downs=${stats.downs} | ${lv} | turrets=${tur || 'none'} followers=${fol}`);
@@ -686,6 +741,7 @@ function run(mode, maxS) {
 
 console.log(`=== sh25 FINALITY playtest — mode: ${MODE} ===`);
 const horizon = +(process.env.SH25_HORIZON || 0) || (MODE === 'loss' ? 1200 : MODE === 'extract' ? 700 : 2400);
+if (MODE === 'schedule') note('god-mode audit: monoliths pinned lit, squad immortal — schedule + perf only');
 const st = run(MODE, horizon);
 
 for (const l of st.log) note(l);
@@ -710,6 +766,12 @@ if (MODE === 'win') {
   check('boarding all four launched the ship', st.shipLaunch, `status=${st.status}`);
   check('early extraction cleared the mission', st.status === 'cleared',
     `status=${st.status} t=${Math.round(st.elapsed)}s score=${Math.round(st.score)}`);
+} else if (MODE === 'schedule') {
+  check('cleared at the final dawn (night 10)', st.status === 'cleared' && st.nightNo === 10,
+    `status=${st.status} night=${st.nightNo} t=${Math.round(st.elapsed)}s`);
+  check('exactly 3 Entropy bosses marched (nights 6/8/10)', st.bossSeen === 3, `bossSeen=${st.bossSeen}`);
+  check('wave calendar: 20 spawns / 30 edge-events over 10 nights', st.waves === 30,
+    `edge-events=${st.waves} (def labels waves:25)`);
 }
 
 console.log(`PERF  ticks=${st.ticks} avg=${st.avg.toFixed(3)}ms p50=${st.p50.toFixed(3)}ms p99=${st.p99.toFixed(3)}ms max=${st.maxMs.toFixed(2)}ms peakEnemies=${st.peakEnemies}`);

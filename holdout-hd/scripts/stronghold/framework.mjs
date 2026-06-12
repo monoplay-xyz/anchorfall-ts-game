@@ -53,19 +53,26 @@ export function difficultyArc(level) {
 }
 
 // Wave/difficulty table: returns the def.bastion block, the truthful
-// def.stronghold.waves count (nights x wavesPerNight + blood-moon doubles)
-// and the arc hpMult for def.stronghold. Knobs the sim actually reads:
-// nights, dayLen, nightLen, bloodMoons[], wavesPerNight (1..3), waveMult.
-export function waveTable({ level, nights, wavesPerNight = 1, bloodMoons = [], dayLen = 90, nightLen = 75 }) {
+// def.stronghold.waves count and the arc hpMult for def.stronghold. Knobs
+// the sim actually reads: nights, dayLen, nightLen, bloodMoons[],
+// wavesPerNight (1..3), waveMult. TRUTHFUL ACCOUNTING: the sim pours EVERY
+// wave of a blood-moon night from two edges (the second a 60% detachment),
+// so each moon night adds wavesPerNight extra wave events:
+//   waves = nights*wavesPerNight + bloodMoons.length*wavesPerNight.
+// hpMult/waveMult default to the canonical arc; pass explicit values to
+// retune a level off the curve (sh25's beatability retune does).
+export function waveTable({ level, nights, wavesPerNight = 1, bloodMoons = [], dayLen = 90, nightLen = 75, hpMult: hpOverride, waveMult: wmOverride }) {
   if (!Number.isInteger(nights) || nights < 1) throw new Error('waveTable: nights required');
   for (const m of bloodMoons) {
     if (!Number.isInteger(m) || m < 1 || m > nights) throw new Error(`waveTable: blood moon ${m} outside 1..${nights}`);
   }
-  const { hpMult, waveMult } = difficultyArc(level);
+  const arc = difficultyArc(level);
+  const hpMult = hpOverride ?? arc.hpMult;
+  const waveMult = wmOverride ?? arc.waveMult;
   const bastion = { nights, dayLen, nightLen, bloodMoons };
   if (wavesPerNight > 1) bastion.wavesPerNight = wavesPerNight;
   if (waveMult > 1) bastion.waveMult = waveMult;
-  return { bastion, waves: nights * wavesPerNight + bloodMoons.length, hpMult };
+  return { bastion, waves: nights * wavesPerNight + bloodMoons.length * wavesPerNight, hpMult };
 }
 
 // ---------------------------------------------------------------------------
@@ -497,10 +504,75 @@ export function createMap({ w, h, seed, name = 'stronghold' }) {
         for (const [x, y, what] of mustNotReach) {
           if (reach[y][x]) fail(`${what || 'isolated target'} at ${x},${y} is walk-reachable — it must not be`);
         }
+        if (repair) sealPockets(reach, P);
         return reach;
       }
     }
     fail('validate: repairs did not converge');
+  }
+
+  // Connectivity repair: any walkable tile neither walk-reachable from
+  // spawn[0] nor skiff-reachable (water+shore flood from a moored skiff) is
+  // a dead pocket — outline wobble and void veins leave a few per map, and
+  // they trap pathing into permanent rescans. Seal them to '#'. A pocket
+  // holding a non-floor letter is a generator bug and fails loudly.
+  function sealPockets(reach, P) {
+    // Two-phase skiff exemption, matching what a skiff can actually do:
+    // (1) sail ONLY the water body it is moored on; (2) beach on land tiles
+    // touching that body, then walk. A different pond merely touching
+    // walk-reachable land is NOT sailable — pockets ringed by it still seal.
+    const waterOk = Array.from({ length: h }, () => Array(w).fill(false));
+    const wq = [];
+    for (const v of vehicles) {
+      if (v.kind !== 'skiff') continue;
+      for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+        const nx = v.x + dx, ny = v.y + dy;
+        if (inBounds(nx, ny) && get(nx, ny) === '~' && !waterOk[ny][nx]) {
+          waterOk[ny][nx] = true;
+          wq.push([nx, ny]);
+        }
+      }
+    }
+    while (wq.length) {
+      const [x, y] = wq.pop();
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = x + dx, ny = y + dy;
+        if (inBounds(nx, ny) && !waterOk[ny][nx] && get(nx, ny) === '~') {
+          waterOk[ny][nx] = true;
+          wq.push([nx, ny]);
+        }
+      }
+    }
+    const skiffOk = Array.from({ length: h }, () => Array(w).fill(false));
+    const lq = [];
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (!P(x, y) || skiffOk[y][x]) continue;
+        if ([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => inBounds(x + dx, y + dy) && waterOk[y + dy][x + dx])) {
+          skiffOk[y][x] = true;
+          lq.push([x, y]);
+        }
+      }
+    }
+    while (lq.length) {
+      const [x, y] = lq.pop();
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = x + dx, ny = y + dy;
+        if (inBounds(nx, ny) && !skiffOk[ny][nx] && P(nx, ny)) {
+          skiffOk[ny][nx] = true;
+          lq.push([nx, ny]);
+        }
+      }
+    }
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        if (!P(x, y) || reach[y][x] || skiffOk[y][x]) continue;
+        const c = get(x, y);
+        if (!FLOORS.has(c)) fail(`dead pocket at ${x},${y} holds '${c}' — an entity is sealed off`);
+        set(x, y, '#');
+        repairsLog.push(`sealed ${x},${y}`);
+      }
+    }
   }
 
   // Skiff proof: flood '~' + walkable from the dock; every target must float.
@@ -648,6 +720,7 @@ export function assembleDef({
     captiveChars: [],
     ...frag,
   };
+  repairStallClearance(def);
   checkDef(def);
   return def;
 }
@@ -668,8 +741,8 @@ export function checkDef(def) {
   const nights = b.nights ?? 5;
   const wpn = Math.max(1, Math.min(3, b.wavesPerNight || 1));
   const moons = (b.bloodMoons || []).length;
-  if (!Number.isInteger(sh.waves) || sh.waves < nights || sh.waves > nights * wpn + moons) {
-    oops(`waves ${sh.waves} not in [${nights}, ${nights * wpn + moons}]`);
+  if (sh.waves !== nights * wpn + moons * wpn) {
+    oops(`waves ${sh.waves} != truthful ${nights * wpn + moons * wpn} (${nights} nights x${wpn} + ${moons} moons x${wpn})`);
   }
   if (b.waveMult !== undefined && !(b.waveMult >= 1 && b.waveMult <= 2.6)) oops('waveMult 1..2.6');
   if (sh.hpMult !== undefined && !(sh.hpMult >= 1 && sh.hpMult <= 2)) oops('hpMult 1..2');
@@ -709,6 +782,65 @@ export function checkDef(def) {
     if (!q.id || !q.giver) oops(`quest '${q.id || '?'}' needs id+giver`);
     if (!(def.npcs || []).some(n => n.id === q.giver)) oops(`quest '${q.id}' giver '${q.giver}' is not an npc`);
   }
+  // Stall clearance: structureInReach (1.5 tiles) silently claims an act-hold
+  // near any build site/tower, so a stall inside 2.5 tiles of structure work
+  // reads as 'the shop does not respond' (the sh17 report). Mirror of the
+  // sim test; repairStallClearance(def) fixes violations deterministically.
+  def.tiles.forEach((row, y) => {
+    for (let x = 0; x < row.length; x++) {
+      if (row[x] !== 'S') continue;
+      def.tiles.forEach((row2, y2) => {
+        for (let x2 = 0; x2 < row2.length; x2++) {
+          if (row2[x2] !== 'B' && row2[x2] !== 'W') continue;
+          const d = Math.hypot(x2 - x, y2 - y);
+          if (d < 2.5) oops(`stall (${x},${y}) only ${d.toFixed(2)} tiles from structure work (${x2},${y2}) — needs >= 2.5`);
+        }
+      });
+    }
+  });
+}
+
+// Deterministic stall-clearance repair: every 'S' tile inside 2.5 tiles of a
+// 'B'/'W' tile walks (BFS over plain floor, so it stays in its own region) to
+// the nearest open floor tile with full clearance. assembleDef runs this
+// before checkDef; standalone generators (gen-sh09-17) call it themselves.
+const STALL_FLOORS = new Set('.,:;_=^');
+export function repairStallClearance(def, minDist = 2.5) {
+  const grid = def.tiles.map(r => r.split(''));
+  const H = grid.length, W = grid[0].length;
+  const works = [];
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) if (grid[y][x] === 'B' || grid[y][x] === 'W') works.push([x, y]);
+  }
+  const clear = (x, y) => works.every(([wx, wy]) => Math.hypot(wx - x, wy - y) >= minDist);
+  let moved = 0;
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      if (grid[y][x] !== 'S' || clear(x, y)) continue;
+      // BFS from the stall across walkable floor — first clear floor wins
+      const seen = new Set([y * W + x]);
+      const q = [[x, y]];
+      let spot = null;
+      while (q.length && !spot) {
+        const [cx, cy] = q.shift();
+        for (const [dx, dy] of [[0, -1], [-1, 0], [1, 0], [0, 1]]) {
+          const nx = cx + dx, ny = cy + dy;
+          const k = ny * W + nx;
+          if (nx < 1 || ny < 1 || nx >= W - 1 || ny >= H - 1 || seen.has(k)) continue;
+          if (!STALL_FLOORS.has(grid[ny][nx])) continue;
+          if (clear(nx, ny)) { spot = [nx, ny]; break; }
+          seen.add(k);
+          q.push([nx, ny]);
+        }
+      }
+      if (!spot) throw new Error(`repairStallClearance: stall (${x},${y}) has no clear floor in reach`);
+      grid[spot[1]][spot[0]] = 'S';
+      grid[y][x] = '.';
+      moved++;
+    }
+  }
+  if (moved) def.tiles = grid.map(r => r.join(''));
+  return moved;
 }
 
 export function writeDef(def, file) {

@@ -403,7 +403,7 @@ const def = {
     name: 'The Last Bastion',
     sizeLabel: 'S',
     difficulty: 1,
-    waves: 5,
+    waves: 7, // truthful: 5 nights + 2 blood moons x2 edges (60% second wave)
     blurb: 'One walled bastion, four lanes, five nights. Hold the line where the campaign begins.',
     newFeatures: ['The first stronghold', 'Fortified walls — repair, upgrade, rebuild'],
   },

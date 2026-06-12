@@ -504,17 +504,34 @@ function extractionDriver(ctx, inputs) {
     const inp = inputs[bot.pid];
     if (p.state !== 'active' || p.aboard) continue;
     if (g.ship) {
-      // hold act inside the 1.5-tile boarding ring — but never within stag
-      // mount reach (the act EDGE would saddle the vehicle instead)
-      if (Math.hypot(p.x - g.ship.x, p.y - g.ship.y) < 1.35 * TILE && farFromVehicles(p.x, p.y)) {
-        inp.act = true;
+      // boarding is EDGE-triggered and the LOWEST rung of the act chain, so
+      // the press must land on a spot clear of every other act claimant
+      // (vehicles, hire posts, chests, towers, build sites, npcs, pickups) —
+      // and it must be TAPPED, not held, so a stolen edge simply retries
+      const clearOfClaimants = (x, y) => {
+        const r = 1.7 * TILE;
+        const away = o => Math.hypot(o.x - x, o.y - y) >= r;
+        return g.vehicles.every(away)
+          && g.hires.every(h => h.hired || away(h))
+          && g.chests.every(c => c.opened || away(c))
+          && g.towers.every(away)
+          && g.builds.every(away)
+          && (g.npcs || []).every(away)
+          && (g.pickups || []).every(away);
+      };
+      if (Math.hypot(p.x - g.ship.x, p.y - g.ship.y) < 1.35 * TILE && clearOfClaimants(p.x, p.y)) {
+        bot.boardTap = (bot.boardTap || 0) + 1;
+        if (bot.boardTap % 6 < 2) inp.act = true; // 2-on/4-off taps: fresh edges
         continue;
       }
       if (!state.boardSpots) {
-        // vehicle-safe orthogonal neighbors of the landing tile
+        // claimant-safe orthogonal neighbors of the landing tile
         const sx = tx(g.ship.x), sy = tx(g.ship.y);
-        state.boardSpots = [[sx - 1, sy], [sx, sy - 1], [sx + 1, sy], [sx, sy + 1], [sx, sy]]
-          .filter(([x, y]) => !blockedAt(g, x, y) && farFromVehicles(T(x), T(y)));
+        const cands = [[sx - 1, sy], [sx, sy - 1], [sx + 1, sy], [sx, sy + 1], [sx, sy]];
+        state.boardSpots = cands.filter(([x, y]) => !blockedAt(g, x, y) && clearOfClaimants(T(x), T(y)));
+        if (!state.boardSpots.length) {
+          state.boardSpots = cands.filter(([x, y]) => !blockedAt(g, x, y) && farFromVehicles(T(x), T(y)));
+        }
         if (!state.boardSpots.length) state.boardSpots = [[sx - 1, sy]];
       }
       const [gx, gy] = state.boardSpots[bot.pid % state.boardSpots.length];

@@ -1519,7 +1519,9 @@ function testBastionCycleWavesAndWin() {
   assert.equal(dusk2.nightNo, 2);
   assert.equal(dusk2.bloodMoon, true, 'night 2 is the blood moon');
   const wave2 = g.enemies.slice(before);
-  assert.equal(wave2.length, 14, 'blood moon doubles the wave: 7 per edge (base 8 x 0.8 solo) from two edges');
+  // blood moon: full wave (7 = base 8 x 0.8 solo) on the first edge plus a
+  // 60% detachment (round(7 x 0.6) = 4) on the second — heavy, not double
+  assert.equal(wave2.length, 11, 'blood moon: 7 first edge + 4 (60%) second edge');
   assert.ok(wave2.some(e => e.x > 38 * TILE), 'first blood edge is east');
   assert.ok(wave2.some(e => e.x < 2 * TILE), 'second blood edge is west');
   assert.ok(wave2.every(e => e.mutation), 'every blood moon enemy is mutated');
@@ -3801,7 +3803,7 @@ function testSealedCampGnawFallback() {
   assert.ok(g.core.hp < 30, 'the core is under siege');
 }
 
-// --- bastion difficulty: night>=3 waves +15% hp; blood moons +1 hp, x1.25 speed ---
+// --- bastion difficulty: night>=3 waves +15% hp; blood moons +1 hp, x1.15 speed, 60% second edge ---
 function testBloodMoonAndLateNightBuffs() {
   const g = createGame(bastionDef({ nights: 4, dayLen: 2, nightLen: 2, bloodMoons: [4] }),
     [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
@@ -3831,23 +3833,24 @@ function testBloodMoonAndLateNightBuffs() {
   assert.equal(bulk3.mutation, 'bulk');
   assert.equal(bulk3.hp, 7, 'night 3 bulk charger: ceil(3*2 * 1.15) = 7');
   assert.equal(bulk3.speed, 1.0 * TILE * 0.75, 'normal-night buff never touches speed');
-  // night 4 (blood moon): full mutation, +1 hp, +25% speed — no 15% stacking.
-  // Composition (solo size 10): z g w u s v g w q f — wraiths join from n4.
+  // night 4 (blood moon): full mutation, +1 hp, +15% speed — no 15% hp
+  // stacking. Composition (solo size 10): z g w u s v g w q f — wraiths
+  // join from n4. Second edge brings the 60% detachment (round(10*0.6)=6).
   run(g, () => ({ 0: {} }), 4);
   const wave4 = g.enemies.slice(20);
-  assert.equal(wave4.length, 20, 'blood moon pours 10 per edge from two edges');
+  assert.equal(wave4.length, 16, 'blood moon: 10 first edge + 6 (60%) second edge');
   assert.ok(wave4.every(e => e.mutation), 'every blood moon enemy is mutated');
   assert.ok(wave4.some(e => e.letter === 'v') && wave4.some(e => e.letter === 's'),
     'night 4 anchors bulwarks and stalks in Volt Wraiths');
   const feral4 = wave4[2]; // 'w', roll (4*31+2)%5 = 1 -> feral
   assert.equal(feral4.mutation, 'feral');
   assert.equal(feral4.hp, 2, 'blood skitter: 1 + 1 hp (no 15% on blood nights)');
-  assert.equal(feral4.speed, 2.0 * TILE * 1.5 * 1.25, 'blood feral skitter: base x1.5 feral x1.25 blood');
+  assert.equal(feral4.speed, 2.0 * TILE * 1.5 * 1.15, 'blood feral skitter: base x1.5 feral x1.15 blood');
   const split4 = wave4[0]; // 'z', roll (4*31)%5 = 4 -> split
   assert.equal(split4.letter, 'z');
   assert.equal(split4.mutation, 'split');
   assert.equal(split4.hp, 2, 'blood husk: 1 + 1 hp');
-  assert.equal(split4.speed, 1.0 * TILE * 1.25, 'blood husk pace: base x1.25');
+  assert.equal(split4.speed, 1.0 * TILE * 1.15, 'blood husk pace: base x1.15');
   const wraith4 = wave4[5]; // 'v', roll (4*31+5)%5 = 4 -> split
   assert.equal(wraith4.letter, 'v');
   assert.equal(wraith4.hp, 4, 'blood wraith: rebalanced 3 + 1 hp');
@@ -4933,8 +4936,11 @@ function testStrongholdDefIntegrity() {
     const nights = b.nights ?? 5;
     const wpn = Math.max(1, Math.min(3, b.wavesPerNight || 1));
     const moons = (b.bloodMoons || []).length;
-    assert.ok(Number.isInteger(sh.waves) && sh.waves >= nights && sh.waves <= nights * wpn + moons,
-      `${tag}: waves ${sh.waves} sane for ${nights} nights x${wpn} (+${moons} blood doubles)`);
+    // truthful accounting: the sim pours EVERY wave of a blood-moon night
+    // from two edges (the second a 60% detachment), so each moon night adds
+    // wpn extra wave events — the level-select card must say what the sim does
+    assert.equal(sh.waves, nights * wpn + moons * wpn,
+      `${tag}: waves ${sh.waves} = ${nights} nights x${wpn} + ${moons} moons x${wpn}`);
     if (b.waveMult !== undefined) assert.ok(b.waveMult >= 1 && b.waveMult <= 2.6, `${tag}: waveMult 1..2.6`);
     if (b.bossNights !== undefined) {
       assert.ok(Array.isArray(b.bossNights) && b.bossNights.length >= 1, `${tag}: bossNights is a non-empty list`);
@@ -4961,6 +4967,23 @@ function testStrongholdDefIntegrity() {
     for (const pd of def.patrols || []) {
       assert.ok(Array.isArray(pd.at) && pd.at.length === 2, `${tag}: patrol carries its enemy home tile`);
       assert.ok(Array.isArray(pd.points) && pd.points.length >= 2 && pd.points.length <= 4, `${tag}: patrol routes 2-4 points`);
+    }
+    // Shop stalls own their act radius only when no structure work could
+    // claim the hold (structureInReach) — a stall parked beside a build
+    // site/tower silently feeds repairs instead of opening the carousel
+    // (the sh17 'shop does not respond' report). Keep them 2.5+ tiles apart.
+    const stalls = [], works = [];
+    def.tiles.forEach((row, y) => {
+      for (let x = 0; x < row.length; x++) {
+        if (row[x] === 'S') stalls.push([x, y]);
+        else if (row[x] === 'B' || row[x] === 'W') works.push([x, y]);
+      }
+    });
+    for (const [sx, sy] of stalls) {
+      for (const [wx, wy] of works) {
+        const d = Math.hypot(wx - sx, wy - sy);
+        assert.ok(d >= 2.5, `${tag}: stall (${sx},${sy}) only ${d.toFixed(2)} tiles from structure work (${wx},${wy}) — needs >= 2.5`);
+      }
     }
   }
 }
@@ -5791,5 +5814,264 @@ testDoorsBlockMoveSightShotsAndPath();
 testTeleportPads();
 testBeaconBuildAndEvent();
 testSerializeRestoreRoundTrip();
+
+// =============================================================================
+// --- wave-4 verify fixes: walls vs enemy fire, gnaw gating, edge boarding,
+// --- pathfinding budgets + dormancy, corner-pin regression, countdown flag ---
+// =============================================================================
+
+// Handcrafted enemy round (mirrors fireWeapon's shape, hostile side).
+function craftEnemyShot(g, x, y, vx, vy, extra = {}) {
+  const s = { id: g.nextShotId++, x, y, vx, vy, ttl: 3, dmg: 1, who: 'e', pierce: 0, hits: [], kind: 'test', ...extra };
+  g.shots.push(s);
+  return s;
+}
+
+// --- built blocking structures soak enemy fire (1 dmg, round dies); pylons
+// block without damage; overWalls arcs sail over; beacons/core are physical ---
+function testEnemyShotsBlockedByStructures() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const def = bastionDef({ nights: 1, dayLen: 1000, nightLen: 10, bloodMoons: [] });
+  def.tiles[10] = put(def.tiles[10], 10, 'B'); // wall, on the core's row
+  def.tiles[14] = put(def.tiles[14], 10, 'B'); // pylon
+  def.builds = [
+    { kind: 'wall', cost: 5, prebuilt: true },
+    { kind: 'pylon', cost: 4, prebuilt: true },
+  ];
+  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const [wall, pylon] = g.builds;
+  // 1) an enemy round dies on a built wall and chips it for exactly 1
+  craftEnemyShot(g, wall.x - TILE, wall.y, TILE * 10, 0);
+  run(g, () => ({ 0: {} }), 0.5);
+  assert.equal(wall.hp, wall.maxHp - 1, 'enemy round chips the wall for 1');
+  assert.equal(g.shots.length, 0, 'the round died on the wall');
+  assert.ok(g.events.some(ev => ev.type === 'buildHit'), 'buildHit announced');
+  // 2) pylons stop rounds but never take damage (inert)
+  const pylonHp = pylon.hp;
+  const hits0 = g.events.filter(ev => ev.type === 'buildHit').length;
+  craftEnemyShot(g, pylon.x - TILE, pylon.y, TILE * 10, 0);
+  run(g, () => ({ 0: {} }), 0.5);
+  assert.equal(g.shots.length, 0, 'pylon stopped the round');
+  assert.equal(pylon.hp, pylonHp, 'pylon takes no damage');
+  assert.equal(g.events.filter(ev => ev.type === 'buildHit').length, hits0, 'no buildHit on a pylon');
+  // 3) lobbed overWalls arcs sail clean over structures
+  craftEnemyShot(g, wall.x - TILE * 2, wall.y, TILE * 10, 0, { overWalls: true });
+  run(g, () => ({ 0: {} }), 0.3);
+  assert.equal(g.shots.length, 1, 'the lobbed arc is still flying');
+  assert.ok(g.shots[0].x > wall.x, 'it sailed past the wall line');
+  assert.equal(wall.hp, wall.maxHp - 1, 'the wall was not touched again');
+  g.shots.length = 0;
+  // 4) the base core is physical: an enemy round chips it (coreHit)
+  const coreHp = g.core.hp;
+  craftEnemyShot(g, g.core.x - TILE, g.core.y, TILE * 10, 0);
+  run(g, () => ({ 0: {} }), 0.5);
+  assert.equal(g.core.hp, coreHp - 1, 'enemy round chips the core');
+  assert.ok(g.events.some(ev => ev.type === 'coreHit'), 'coreHit announced');
+  // 5) beacon monoliths: lit takes the hit (indexed), dark just stops it
+  const bdef = beaconsDef({ nights: 1, dayLen: 1000, nightLen: 10, bloodMoons: [] });
+  const g2 = createGame(bdef, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const c0 = g2.cores[0];
+  craftEnemyShot(g2, c0.x - TILE, c0.y, TILE * 10, 0);
+  run(g2, () => ({ 0: {} }), 0.5);
+  assert.equal(c0.hp, c0.maxHp - 1, 'enemy round chips a lit monolith');
+  assert.ok(g2.events.some(ev => ev.type === 'coreHit' && ev.idx === 0), 'indexed coreHit');
+  c0.lit = false;
+  c0.hp = 0;
+  const downs = g2.events.filter(ev => ev.type === 'beaconDown').length;
+  craftEnemyShot(g2, c0.x - TILE, c0.y, TILE * 10, 0);
+  run(g2, () => ({ 0: {} }), 0.5);
+  assert.equal(g2.shots.length, 0, 'a dark monolith still stops rounds cold');
+  assert.equal(c0.hp, 0, 'a dark monolith takes no further damage');
+  assert.equal(g2.events.filter(ev => ev.type === 'beaconDown').length, downs, 'beaconDown never refires');
+}
+
+// --- core/beacon gnawing is for night waves (targetCore) or enemies whose
+// target is sealed off (pathFailed) — never a passing camp chaser ---
+function testCoreGnawNeedsWaveOrSealedTarget() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const def = bastionDef({ nights: 1, dayLen: 1000, nightLen: 10, bloodMoons: [] });
+  def.tiles[10] = put(def.tiles[10], 24, 'z');
+  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  g.graceT = 0;
+  g.players[0].invuln = 1e9;
+  const e = g.enemies[0];
+  e.awake = true;
+  e.aggro *= 100; // hunter: never leashes home
+  // parked in core contact with a REACHABLE player across the yard: no gnaw
+  e.x = g.core.x + 30;
+  e.y = g.core.y;
+  run(g, () => ({ 0: {} }), 1.5);
+  assert.equal(g.core.hp, 30, 'a wandering chaser never gnaws the core');
+  assert.ok(!g.events.some(ev => ev.type === 'coreHit'), 'no coreHit from a passer-by');
+  // the same enemy as a WAVE marcher gnaws like always
+  e.x = g.core.x + 30;
+  e.y = g.core.y;
+  e.targetCore = true;
+  run(g, () => ({ 0: {} }), 1.5);
+  assert.ok(g.events.some(ev => ev.type === 'coreHit'), 'a night-wave marcher gnaws the core');
+  assert.ok(g.core.hp < 30, 'the core took gnaw damage');
+  // an enemy whose only target is SEALED OFF may gnaw too (pathFailed)
+  const def2 = bastionDef({ nights: 1, dayLen: 1000, nightLen: 10, bloodMoons: [] }, [
+    [1, '####' + '.'.repeat(35) + '#'],
+    [2, '#PP#' + '.'.repeat(35) + '#'],
+    [3, '####' + '.'.repeat(35) + '#'],
+  ]);
+  def2.tiles[10] = put(def2.tiles[10], 24, 'z');
+  const g3 = createGame(def2, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  g3.graceT = 0;
+  g3.players[0].invuln = 1e9;
+  const e3 = g3.enemies[0];
+  e3.awake = true;
+  e3.aggro *= 100;
+  e3.x = g3.core.x + 30;
+  e3.y = g3.core.y;
+  run(g3, () => ({ 0: {} }), 3);
+  assert.equal(e3.pathFailed, true, 'the sealed-off player marks the search failed');
+  assert.ok(g3.events.some(ev => ev.type === 'coreHit'), 'a sealed-off chaser falls back to gnawing');
+}
+
+// --- Anchorcraft boarding is EDGE-triggered (act chain, lowest rung) and
+// walking out of board reach un-boards; launch needs everyone at the vessel ---
+function testShipBoardingEdgeWalkAwayAndLaunch() {
+  const def = beaconsDef({ nights: 4, dayLen: 2, nightLen: 1000, bloodMoons: [] });
+  const party = startingRoster.slice(0, 2).map((id, i) => ({ pid: i, name: id, charId: id }));
+  const g = createGame(def, party, charMap, startingRoster);
+  const dtt = 1 / 30;
+  for (const p of g.players) p.invuln = 1e9;
+  g.graceT = 1e9;
+  run(g, () => ({ 0: {}, 1: {} }), 3);
+  g.cycle.nightNo = 2;
+  step(g, { 0: {}, 1: {} }, dtt);
+  assert.ok(g.ship && g.ship.landed, 'the Anchorcraft landed on the all-lit feat');
+  const [p0, p1] = g.players;
+  // a press fired AWAY from the ship, held while stepping into reach: no board
+  p0.x = g.ship.x - TILE * 6;
+  p0.y = g.ship.y;
+  step(g, { 0: { act: true }, 1: {} }, dtt); // edge consumed in open field
+  p0.x = g.ship.x - TILE;
+  run(g, () => ({ 0: { act: true }, 1: {} }), 0.5);
+  assert.ok(!p0.aboard, 'boarding is edge-triggered: a held act never boards');
+  // release + fresh press at the ramp boards
+  step(g, { 0: {}, 1: {} }, dtt);
+  step(g, { 0: { act: true }, 1: {} }, dtt);
+  assert.equal(p0.aboard, true, 'a fresh press at the ramp boards');
+  assert.ok(g.events.some(ev => ev.type === 'shipBoard' && ev.pid === 0), 'shipBoard fired');
+  assert.equal(g.status, 'play', 'one of two aboard: still playing');
+  // walking out of reach steps back off the ramp — no remote launches
+  p0.x = g.ship.x - TILE * 5;
+  step(g, { 0: {}, 1: {} }, dtt);
+  assert.equal(p0.aboard, false, 'walking away un-boards');
+  assert.equal(g.status, 'play', 'no launch with the boarder gone');
+  // both operatives physically at the vessel: launch and clear
+  p0.x = g.ship.x - TILE;
+  p0.y = g.ship.y;
+  step(g, { 0: {}, 1: {} }, dtt);
+  step(g, { 0: { act: true }, 1: {} }, dtt);
+  assert.equal(p0.aboard, true, 're-boarded at the ramp');
+  p1.x = g.ship.x + TILE;
+  p1.y = g.ship.y;
+  step(g, { 0: {}, 1: { act: true } }, dtt);
+  assert.equal(g.status, 'cleared', 'everyone at the vessel: immediate launch clear');
+  assert.ok(g.events.some(ev => ev.type === 'shipLaunch'), 'shipLaunch fired');
+}
+
+// --- p2v regression: a wave marcher corner-pinned on sh12's diagonal tree
+// (88,29) must cross the pin and march on (anti-wedge kick + A* parking) ---
+function testCornerPinnedMarcherReachesCore() {
+  const def = levels.find(l => l.category === 'stronghold' && l.stronghold?.level === 12);
+  assert.ok(def, 'sh12 ships');
+  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  g.graceT = 0;
+  g.players[0].invuln = 1e9;
+  const e = g.enemies[0];
+  e.x = (89 + 0.5) * TILE;
+  e.y = (28 + 0.5) * TILE;
+  e.homeX = e.x;
+  e.homeY = e.y;
+  e.awake = true;
+  e.targetCore = true;
+  e.aggro *= 100;
+  const d0 = Math.hypot(e.x - g.core.x, e.y - g.core.y);
+  run(g, () => ({ 0: {} }), 25);
+  const d1 = Math.hypot(e.x - g.core.x, e.y - g.core.y);
+  assert.ok(d1 < d0 - TILE * 10,
+    `the pinned marcher crossed the corner (closed ${((d0 - d1) / TILE).toFixed(1)} tiles)`);
+}
+
+// --- pathfinding budgets: 6 full A* searches per tick field-wide, failed
+// verdicts cached, permanently-unreachable enemies go dormant and wake on
+// terrain change or player proximity ---
+function testPathBudgetThrottleAndDormancy() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const def = bastionDef({ nights: 1, dayLen: 1000, nightLen: 10, bloodMoons: [] }, [
+    [1, '####' + '.'.repeat(35) + '#'],
+    [2, '#PP#' + '.'.repeat(35) + '#'],
+    [3, '####' + '.'.repeat(35) + '#'],
+  ]);
+  // enemies start 18+ tiles out so the dormancy verdict lands while the
+  // player is still beyond the 12-tile wake radius (closer chasers are
+  // SUPPOSED to stay awake — that is the proximity-wake rule)
+  let row = def.tiles[14];
+  for (let i = 0; i < 10; i++) row = put(row, 20 + i * 2, 'z');
+  def.tiles[14] = row;
+  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  g.graceT = 0;
+  g.players[0].invuln = 1e9;
+  assert.equal(g.enemies.length, 10);
+  for (const e of g.enemies) {
+    e.awake = true;
+    e.aggro *= 100; // hunters: no leash, the sealed player stays the target
+    e.repathT = 0;  // stampede: everyone wants a search the same tick
+  }
+  step(g, { 0: {} }, 1 / 30);
+  assert.equal(g.enemies.filter(e => e.pathFailed).length, 6,
+    'global A* budget: exactly 6 full searches on the stampede tick');
+  assert.equal(g.enemies.filter(e => !e.pathFailed).length, 4,
+    'the other four keep their bearing one short cycle');
+  // three consecutive failures (verdicts cached ~2.5s apart) -> dormant
+  run(g, () => ({ 0: {} }), 12);
+  assert.ok(g.enemies.every(e => e.dormant), 'permanently-unreachable chasers go dormant');
+  const xs = g.enemies.map(e => e.x);
+  run(g, () => ({ 0: {} }), 1);
+  assert.ok(g.enemies.every((e, i) => e.x === xs[i]), 'dormant enemies hold position (no scans, no marches)');
+  // the world changing (build completed/destroyed, door opened) stirs them
+  g.buildEpoch = (g.buildEpoch || 0) + 1;
+  step(g, { 0: {} }, 1 / 30);
+  assert.ok(g.enemies.every(e => !e.dormant), 'a terrain change stirs every dormant sleeper');
+  // left alone they settle again; a player in reach wakes them for real
+  // (re-park them out wide first — pathFails reset on the epoch wake, so the
+  // verdict needs three fresh failures while they march back in)
+  g.enemies.forEach((e, i) => { e.x = (26 + i) * TILE; e.y = (14 + (i % 2)) * TILE; });
+  run(g, () => ({ 0: {} }), 14);
+  assert.ok(g.enemies.every(e => e.dormant), 'still sealed off: dormant again');
+  const e0 = g.enemies[0];
+  g.players[0].x = e0.x - TILE * 3;
+  g.players[0].y = e0.y;
+  step(g, { 0: {} }, 1 / 30);
+  assert.ok(!e0.dormant, 'a player walking into reach wakes the dormant enemy');
+}
+
+// --- snapshot cycle.nextBloodMoon: the DAY before a blood-moon dusk only ---
+function testNextBloodMoonCountdownFlag() {
+  const g = createGame(bastionDef(), [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  g.players[0].invuln = 1e9;
+  let s = snapshot(g, false);
+  assert.ok(!('nextBloodMoon' in s.cycle), 'day before a NORMAL night: no flag (classic snapshots stay byte-stable)');
+  run(g, () => ({ 0: {} }), 5.2); // dusk 1 (normal night)
+  assert.equal(g.cycle.phase, 'night');
+  s = snapshot(g, false);
+  assert.ok(!('nextBloodMoon' in s.cycle), 'night snapshots never carry the flag');
+  run(g, () => ({ 0: {} }), 4.2); // dawn -> the day before night 2, the blood moon
+  assert.equal(g.cycle.phase, 'day');
+  s = snapshot(g, false);
+  assert.equal(s.cycle.nextBloodMoon, true, 'the day before a blood moon flags the countdown');
+}
+
+testEnemyShotsBlockedByStructures();
+testCoreGnawNeedsWaveOrSealedTarget();
+testShipBoardingEdgeWalkAwayAndLaunch();
+testCornerPinnedMarcherReachesCore();
+testPathBudgetThrottleAndDormancy();
+testNextBloodMoonCountdownFlag();
 
 console.log('sim tests passed');

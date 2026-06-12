@@ -19,7 +19,8 @@
 //                            rings (L1/L2/L3); atlas joins the roster
 //   sh24 Night Unending    — void-shattered ash plain; ten long nights;
 //                            comm-mast repair; teleport pair
-//   sh25 FINALITY          — 110x80, every terrain on one field, 4 beacons,
+//   sh25 FINALITY          — 110x80, every terrain on one field, 4 beacons
+//                            (9 nights, waveMult 2.0/hpMult 1.6 — retuned),
 //                            25 waves over 10 nights, THREE Entropy bosses
 //                            (nights 6/8/10 via def.bastion.bossNights)
 import {
@@ -61,13 +62,18 @@ function baseKit(map, { x0, y0, x1, y1, core = true, hires, farms = 4, stags = 2
 }
 
 // A beacon satellite fort: a 7x7 walled post holding one 'K' monolith, with
-// two gates (barricade sites) and one turret site inside.
-function beaconFort(map, cx, cy, { wallLevel = 2, gates } = {}) {
+// two gates (barricade sites) and one turret site inside. `tesla: true`
+// (sh25's beatability retune) ships the turret PREBUILT as a tesla and adds
+// a second open site — the last stand starts armed, not broke.
+function beaconFort(map, cx, cy, { wallLevel = 2, gates, tesla = false } = {}) {
   const x0 = cx - 3, y0 = cy - 3, x1 = cx + 3, y1 = cy + 3;
   const g = gates || [[cx, y0], [cx, y1]];
   map.fortRect({ x0, y0, x1, y1, gates: g, wallLevel, apron: 2 });
   map.addCore(cx, cy);
-  map.addBuild(cx - 2, cy, { kind: 'turret', cost: 10 });
+  map.addBuild(cx - 2, cy, tesla
+    ? { kind: 'turret', cost: 10, prebuilt: true, ttype: 'tesla' }
+    : { kind: 'turret', cost: 10 });
+  if (tesla) map.addBuild(cx, cy + 2, { kind: 'turret', cost: 10 });
   map.addCampfire(cx + 2, cy);
 }
 
@@ -883,7 +889,7 @@ function genSh24() {
 }
 
 // ===========================================================================
-// sh25 — FINALITY (XL 110x80, every terrain, 4 beacons, 3 bosses, 25 waves)
+// sh25 — FINALITY (XL 110x80, every terrain, 4 beacons, 3 bosses, 24 waves)
 // ===========================================================================
 function genSh25() {
   const map = createMap({ w: 110, h: 80, seed: 20260725, name: 'sh25' });
@@ -918,10 +924,10 @@ function genSh25() {
   map.addBuild(cx + 5, cy - 3, { kind: 'turret', cost: 10 });
   map.addBuild(cx - 5, cy + 3, { kind: 'turret', cost: 10 });
   // FOUR anchor monoliths in satellite forts — the night splits between them
-  beaconFort(map, 28, 22, { gates: [[31, 22], [28, 25]] });
-  beaconFort(map, 82, 30, { gates: [[79, 30], [82, 33]] });
-  beaconFort(map, 30, 60, { gates: [[33, 60], [30, 57]] });
-  beaconFort(map, 78, 56, { gates: [[75, 56], [78, 53]] });
+  beaconFort(map, 28, 22, { gates: [[31, 22], [28, 25]], wallLevel: 3, tesla: true });
+  beaconFort(map, 82, 30, { gates: [[79, 30], [82, 33]], wallLevel: 3, tesla: true });
+  beaconFort(map, 30, 60, { gates: [[33, 60], [30, 57]], wallLevel: 3, tesla: true });
+  beaconFort(map, 78, 56, { gates: [[75, 56], [78, 53]], wallLevel: 3, tesla: true });
   // sandbag cover on the gate lanes
   for (const [ox, oy] of [[51, 30], [58, 30], [51, 52], [58, 52], [42, 38], [42, 44], [68, 38], [68, 44]]) {
     if (map.get(ox, oy) === '.') map.set(ox, oy, 'o');
@@ -988,16 +994,24 @@ function genSh25() {
     if (rnd() < 0.10) return ';';
     return null;
   });
-  const table = waveTable({ level: 25, nights: 10, wavesPerNight: 2, bloodMoons: [2, 4, 6, 8, 10], dayLen: 110, nightLen: 95 });
-  table.bastion.bossNights = [6, 8, 10]; // three Entropy bosses, staggered
+  // BEATABILITY RETUNE (verify wave): the arc values (waveMult 2.6 /
+  // hpMult 1.8 / 10 nights / 5 moons) were unwinnable in 9 expert scripted
+  // attempts — the permanent siege out-attrited a 17-operative roster by
+  // night 6, and waveMult 2.0 / hpMult 1.6 still broke every strategy by
+  // night 5. FINALITY now runs 9 nights, 3 blood moons, waveMult 1.8,
+  // hpMult 1.5, bosses staggered later on nights 5/7/9, and its four beacon
+  // forts ship armed (L3 walls, prebuilt tesla) so the hold is a fight, not
+  // an economy bootstrap under siege.
+  const table = waveTable({ level: 25, nights: 9, wavesPerNight: 2, bloodMoons: [3, 6, 9], dayLen: 110, nightLen: 95, hpMult: 1.5, waveMult: 1.8 });
+  table.bastion.bossNights = [5, 7, 9]; // three Entropy bosses, staggered late
   const def = assembleDef({
     level: 25, name: 'FINALITY', sizeLabel: 'XL', difficulty: 5,
-    blurb: 'Every terrain. Every horror. Twenty-five waves over ten nights, five blood moons, and three Entropy bosses. The end of the arc.',
-    newFeatures: ['Three Entropy bosses (nights 6, 8, 10)', 'Every terrain on one field', 'The Anchorcraft descends for the worthy'],
-    objective: 'Keep an anchor lit through ten nights — or light all four under a night sky and board the Anchorcraft',
+    blurb: 'Every terrain. Every horror. Twenty-four waves over nine nights, three blood moons, and three Entropy bosses. The end of the arc.',
+    newFeatures: ['Three Entropy bosses (nights 5, 7, 9)', 'Every terrain on one field', 'The Anchorcraft descends for the worthy'],
+    objective: 'Keep an anchor lit through nine nights — or light all four under a night sky and board the Anchorcraft',
     intro: [slide('FINALITY', [
       'Every biome the frontier ever grew, stitched into one battlefield.',
-      'Five blood moons. Three Entropy warlords — nights six, eight, ten.',
+      'Three blood moons. Three Entropy warlords — nights five, seven, nine.',
       'All four anchors lit in the dark, and the Anchorcraft itself descends.',
     ], 'anchorcraft')],
     outro: [slide('Anchorfall, Answered', [

@@ -6035,6 +6035,14 @@ function drawEdgeArrow(ctx, wx, wy, color, label) {
 // small enough to frame whole-screen are considered fully scouted.
 const explore = { key: null, w: 0, h: 0, mask: null, count: 0, fogCanvas: null, fogCount: -1 };
 
+// Mode gate, set by the client each frame (story/stronghold/expedition fog
+// it; versus + classic arcade don't). Disabled: the minimap skips the fog
+// layer, seenAt says everything is scouted and drawFullMap's internal mask
+// path shows the whole field. The ledger itself keeps accumulating, so
+// re-enabling fog mid-mission picks up where exploration left off.
+let fogEnabled = true;
+export function setFogEnabled(on) { fogEnabled = !!on; }
+
 function updateExplore(snap) {
   const key = snap.grid || snap.name;
   if (explore.key !== key) {
@@ -6055,7 +6063,7 @@ function updateExplore(snap) {
   }
   const R = 10;
   for (const p of snap.players ?? []) {
-    if (p.state !== 'active') continue;
+    if (p.state === 'out' || p.x == null) continue; // any live presence scouts
     const cx2 = Math.floor(p.x / TILE), cy2 = Math.floor(p.y / TILE);
     for (let dy = -R; dy <= R; dy++) {
       const yy = cy2 + dy;
@@ -6077,8 +6085,9 @@ export function exploreMask(snap) {
   return explore.mask;
 }
 
-// has a world-space point been scouted? (no mask = no fog yet: show all)
+// has a world-space point been scouted? (no mask / fog disabled: show all)
 function seenAt(wx, wy) {
+  if (!fogEnabled) return true;
   const m = explore.mask;
   if (!m) return true;
   const x = Math.max(0, Math.min(explore.w - 1, Math.floor(wx / TILE)));
@@ -7603,7 +7612,7 @@ export function renderMinimap(ctx, snap, focusPids) {
   }
   // FOG OF WAR: unexplored ground reads near-black; entity dots only show
   // on scouted tiles (players + mission objectives always show).
-  const fog = fogLayer();
+  const fog = fogEnabled ? fogLayer() : null;
   if (fog) ctx.drawImage(fog, 0, 0, W, H);
   const dot = (x, y, col, r = 2.5) => {
     ctx.fillStyle = col;
@@ -7702,7 +7711,7 @@ let fmCache = { key: null, canvas: null };
 export function drawFullMap(ctx, snap, mask, focus) {
   if (!snap?.grid) return;
   updateExplore(snap);
-  const m = mask ?? explore.mask;
+  const m = mask ?? (fogEnabled ? explore.mask : null); // fog off: internal path shows all
   const seen2 = (wx, wy) => {
     if (!m) return true;
     const x = Math.max(0, Math.min(snap.w - 1, Math.floor(wx / TILE)));

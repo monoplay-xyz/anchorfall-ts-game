@@ -92,7 +92,10 @@ let binds = {};
 try { binds = JSON.parse(localStorage.getItem(BIND_KEY)) || {}; } catch {}
 let KB1 = {}, KB2 = {}, PADMAP = {};
 function applyBinds() {
-  const eff = (def, o = {}) => Object.fromEntries(ACTIONS.map(a => [a, o?.[a] != null ? [o[a]] : (def[a] ?? [])]));
+  // an override of explicit null means "unbound" (a default that lost its key
+  // to a remap conflict); a missing key falls back to the device defaults
+  const eff = (def, o) => Object.fromEntries(ACTIONS.map(a =>
+    [a, o && a in o ? (o[a] != null ? [o[a]] : []) : (def[a] ?? [])]));
   KB1 = eff(KB1_DEF, binds.kb1);
   KB2 = eff(KB2_DEF, binds.kb2);
   PADMAP = eff(PAD_DEF, binds.pad);
@@ -868,66 +871,19 @@ function updateHUD(snap) {
   updateModePanels(snap);
   updateCountdown(snap);
   updateControlsOverlay(snap, me);
+  // the renderer owns the fog-of-war exploration ledger and painting; the
+  // client only decides per-mode WHETHER fog applies this frame
+  renderMod.setFogEnabled?.(fogActive());
   renderMinimap(mmCtx, snap, session?.focusPids() ?? new Set());
-  fogUpdate(snap);
-  fogMaskMinimap(mmCtx, snap);
 }
 
-// ---------- fog of war (client-side exploration; no sim change) ----------
-// The mask accumulates a ~10-tile reveal around EVERY player's position in
-// every snapshot — positions are shared, so every machine derives the same
-// mask. It resets whenever a new grid object arrives (new mission, retry,
-// next chapter). Versus and classic arcade missions keep their full minimap.
-const FOG_R = 10;
-const fog = { gridRef: null, w: 0, h: 0, mask: null, stamp: {} };
+// ---------- fog of war (mode gate; render.js owns the exploration ledger) ----------
+// Story / stronghold / expedition missions get a fogged minimap; versus and
+// classic arcade missions keep their full minimap.
 function fogActive() {
   if (!session) return false;
   if (session.versusMode?.()) return false;
   return !!(session.story || session.bastionMode?.() || session.expedition);
-}
-function fogUpdate(snap) {
-  if (!snap.grid || !fogActive()) return;
-  if (fog.gridRef !== snap.grid) {
-    fog.gridRef = snap.grid;
-    fog.w = snap.w;
-    fog.h = snap.h;
-    fog.mask = new Uint8Array(snap.w * snap.h);
-    fog.stamp = {};
-  }
-  for (const p of snap.players ?? []) {
-    if (p.x == null || p.state === 'out') continue;
-    const tx = Math.floor(p.x / TILE), ty = Math.floor(p.y / TILE);
-    const k = tx + ',' + ty;
-    if (fog.stamp[p.pid] === k) continue; // unchanged tile — already stamped
-    fog.stamp[p.pid] = k;
-    for (let dy = -FOG_R; dy <= FOG_R; dy++) {
-      const y = ty + dy;
-      if (y < 0 || y >= fog.h) continue;
-      const span = Math.floor(Math.sqrt(FOG_R * FOG_R - dy * dy));
-      const x0 = Math.max(0, tx - span), x1 = Math.min(fog.w - 1, tx + span);
-      for (let x = x0; x <= x1; x++) fog.mask[y * fog.w + x] = 1;
-    }
-  }
-}
-// Paints unexplored tiles near-black OVER the freshly drawn minimap, so
-// terrain and entity dots only read in explored areas (players reveal their
-// own surroundings, so they always stay visible).
-function fogMaskMinimap(c, snap) {
-  if (!fogActive() || !fog.mask || fog.gridRef !== snap.grid) return;
-  const W = c.canvas.width, H = c.canvas.height;
-  const sx = W / fog.w, sy = H / fog.h;
-  c.fillStyle = '#04060b';
-  for (let y = 0; y < fog.h; y++) {
-    const row = y * fog.w;
-    let x = 0;
-    while (x < fog.w) {
-      if (fog.mask[row + x]) { x++; continue; }
-      let x2 = x + 1;
-      while (x2 < fog.w && !fog.mask[row + x2]) x2++;
-      c.fillRect(x * sx, y * sy, (x2 - x) * sx + 0.25, sy + 0.25);
-      x = x2;
-    }
-  }
 }
 
 // ---------- wave countdown (center-top blinking banner) ----------
@@ -939,7 +895,9 @@ function updateCountdown(snap) {
   if (snap.status === 'play') {
     const cyc = snap.cycle;
     if (cyc?.phase === 'day' && cyc.t > 0 && cyc.t <= 15) {
-      blood = !!cyc.bloodMoon;
+      // the sim gates cycle.bloodMoon to dusk; nextBloodMoon is the day-phase
+      // "the UPCOMING night is a blood moon" flag (optional — older sims omit it)
+      blood = !!cyc?.nextBloodMoon;
       text = `${blood ? 'BLOOD MOON' : 'NIGHTFALL'} IN ${Math.ceil(cyc.t)}`;
     } else if (snap.zone?.shrinkT > 0 && snap.zone.shrinkT <= 15) {
       text = `ZONE SHRINKS IN ${Math.ceil(snap.zone.shrinkT)}`;
@@ -1018,8 +976,9 @@ function drawMapOverlay(ctx, snap, t) {
   // objective markers (world px -> overlay px), fog-respecting
   const px = x => dx + (x / (snap.w * TILE)) * dw;
   const py = y => dy + (y / (snap.h * TILE)) * dh;
-  const seen = (x, y) => !fogActive() || !fog.mask || fog.gridRef !== snap.grid
-    || !!fog.mask[Math.min(fog.h - 1, Math.max(0, Math.floor(y / TILE))) * fog.w + Math.min(fog.w - 1, Math.max(0, Math.floor(x / TILE)))];
+  const fogMask = fogActive() ? renderMod.exploreMask?.(snap) : null; // fog off = all seen
+  const seen = (x, y) => !fogMask
+    || !!fogMask[Math.min(snap.h - 1, Math.max(0, Math.floor(y / TILE))) * snap.w + Math.min(snap.w - 1, Math.max(0, Math.floor(x / TILE)))];
   const ring = (x, y, col) => {
     ctx.strokeStyle = col;
     ctx.lineWidth = 1.5;
@@ -1552,6 +1511,9 @@ class NetSession {
         // clamps it; unlock gating is client-side — this menu only offers
         // unlocked levels)
         if (hostMode === 'bastion' && hostLevelIdx != null) msg.levelIdx = hostLevelIdx;
+        // stronghold: the host's earned roster rides along (the server
+        // validates ids, dedupes and always keeps every starter)
+        if (hostMode === 'bastion') msg.roster = strongholdRoster();
         this.ws.send(JSON.stringify(msg));
       } else {
         this.ws.send(JSON.stringify({ t: 'join', room: code, name: this.name }));
@@ -1880,7 +1842,7 @@ function loadShSave() {
     const s = JSON.parse(localStorage.getItem(SH_KEY));
     if (s && typeof s === 'object') {
       return {
-        unlocked: Math.max(1, Math.floor(s.unlocked) || 1),
+        unlocked: Math.max(1, Math.min(bastionLevels.length || 25, Math.floor(s.unlocked) || 1)),
         beaten: Array.isArray(s.beaten) ? s.beaten : [],
         chars: Array.isArray(s.chars) ? s.chars : [],
       };
@@ -1902,8 +1864,12 @@ function shRecordClear(def) {
   const toasts = [];
   if (!s.beaten.includes(n)) s.beaten.push(n);
   const nextN = Math.min(bastionLevels.length, n + 1);
-  if (nextN > s.unlocked) {
-    s.unlocked = nextN;
+  // never jump more than one level past the current save: a joiner clearing a
+  // friend's sh20 on a fresh save advances to 2, not 21 (beaten + character
+  // unlocks above/below still record for every participant)
+  const was = s.unlocked;
+  s.unlocked = Math.max(s.unlocked, Math.min(nextN, s.unlocked + 1));
+  if (s.unlocked > was && s.unlocked === nextN) {
     const nd = bastionLevels[nextN - 1];
     if (nd && nextN !== n) {
       toasts.push(`UNLOCKED — ${String(nd.stronghold?.name ?? nd.name ?? 'STRONGHOLD ' + nextN).toUpperCase()}`);
@@ -1934,9 +1900,13 @@ function showMenuPage(id) {
   if (id === 'pageSh') renderShGrid();
   if (id === 'pageRemap') renderRemap();
 }
+// pageSh opens from Singleplayer (shPurpose 'local') AND from Online's Host
+// Stronghold ('host') — Back must return to whichever page opened it, so the
+// static MENU_PARENT/data-back target is overridden for pageSh specifically.
+const shBackTarget = () => shPurpose === 'host' ? 'pageOnline' : 'pageSingle';
 // pad B / Escape: one page back. Returns false on the main page (no-op).
 function menuBack() {
-  const parent = MENU_PARENT[menuPageId];
+  const parent = menuPageId === 'pageSh' ? shBackTarget() : MENU_PARENT[menuPageId];
   if (!parent || $('menu').hidden) return false;
   playUi('back');
   showMenuPage(parent);
@@ -2032,7 +2002,7 @@ function renderRemap() {
   for (const a of ACTIONS) {
     const row = document.createElement('button');
     row.type = 'button';
-    row.className = 'rrow' + (binds[remapDev]?.[a] != null ? ' custom' : '');
+    row.className = 'rrow' + (binds[remapDev] && a in binds[remapDev] ? ' custom' : ''); // null (unbound) is custom too
     const listening = remapListen && remapListen.dev === remapDev && remapListen.action === a;
     row.innerHTML = `<span>${ACTION_LABEL[a] ?? a.toUpperCase()}</span><b>${listening ? 'PRESS…' : bindLabel(remapDev, a)}</b>`;
     row.onclick = e => { e.currentTarget.blur(); startRemapListen(remapDev, a); };
@@ -2053,12 +2023,33 @@ function startRemapListen(dev, action) {
   }
   renderRemap();
 }
+// One physical key/button per action per device: after (dev, action) takes a
+// code, every OTHER action on that device that resolves to the same code
+// loses it. A conflicting custom override is dropped (its default returns —
+// unless the default is the same code); a conflicting DEFAULT binding gets an
+// explicit null override, which applyBinds treats as unbound ('—' in the UI).
+// Reset-to-defaults deletes the whole device key, clearing nulls too.
+function unbindConflicts(dev, action) {
+  const o = binds[dev];
+  const code = o?.[action];
+  if (code == null) return;
+  const defs = dev === 'pad' ? PAD_DEF : dev === 'kb1' ? KB1_DEF : KB2_DEF;
+  for (const a of ACTIONS) {
+    if (a === action) continue;
+    const live = a in o ? (o[a] != null ? [o[a]] : []) : (defs[a] ?? []);
+    if (!live.includes(code)) continue;
+    if (a in o && !(defs[a] ?? []).includes(code)) delete o[a]; // default returns, conflict-free
+    else o[a] = null; // the default holds this code — explicitly unbound
+    showToast(`UNBOUND ${ACTION_LABEL[a] ?? a.toUpperCase()} — ${(dev === 'pad' ? padLabel : keyLabel)(code)} REASSIGNED`, 2600, true);
+  }
+}
 function remapKeyCapture(e) {
   if (!remapListen || remapListen.dev === 'pad' || e.repeat) return;
   e.preventDefault();
   e.stopPropagation();
   if (e.code !== 'Escape') {
     (binds[remapListen.dev] ??= {})[remapListen.action] = e.code;
+    unbindConflicts(remapListen.dev, remapListen.action);
     saveBinds();
     playUi('bind');
   }
@@ -2087,6 +2078,7 @@ function remapPadTick() {
       if (gp.buttons[j]?.pressed) {
         if (remapHeld.has(k)) continue; // held since before listening
         (binds.pad ??= {})[remapListen.action] = j;
+        unbindConflicts('pad', remapListen.action);
         saveBinds();
         playUi('bind');
         cancelRemapListen();
@@ -2126,7 +2118,9 @@ $('btnRemap').onclick = e => { e.currentTarget.blur(); showMenuPage('pageRemap')
 for (const b of document.querySelectorAll('#menu .mback')) {
   b.onclick = e => {
     e.currentTarget.blur();
-    showMenuPage(b.dataset.back || MENU_PARENT[menuPageId] || 'pageMain');
+    // pageSh's data-back is static — route by who opened it instead
+    showMenuPage(menuPageId === 'pageSh' ? shBackTarget()
+      : (b.dataset.back || MENU_PARENT[menuPageId] || 'pageMain'));
   };
 }
 for (const b of document.querySelectorAll('#remapDevs .rdev')) {
@@ -2297,9 +2291,14 @@ function fitStage() {
   const cssH = Math.max(1, Math.round(r.height));
   if (cssW < 8 || cssH < 8) return; // layout not ready yet
   const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
-  // uniform resolution scale: respect dpr, cap at 2560x1440, floor at 960x540
+  // uniform resolution scale: respect dpr, floor at 960x540, cap at 2560x1440.
+  // The cap is applied LAST so a degenerate window (e.g. 4000x500 CSS) can
+  // never exceed 2560x1440 — there the logical height drops below 540, which
+  // beats overshooting the texture budget. Normal windows are unaffected.
   let s = Math.min(dpr, 2560 / cssW, 1440 / cssH);
   s = Math.max(s, 960 / cssW, 540 / cssH);
+  s = Math.min(s, 2560 / cssW, 1440 / cssH);
+  if (!(s > 0)) return;
   const w = Math.round(cssW * s), h = Math.round(cssH * s);
   if (canvas.width !== w) canvas.width = w;
   if (canvas.height !== h) canvas.height = h;

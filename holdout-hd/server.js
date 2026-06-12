@@ -207,6 +207,15 @@ wss.on('connection', ws => {
         const li = Math.floor(Number(m.levelIdx));
         if (Number.isFinite(li)) levelIdx = Math.max(0, Math.min(bastionLevels.length - 1, li));
       }
+      // stronghold: the host's EARNED roster rides the host message too —
+      // validate to known ids, dedupe, and always include every starter
+      // (starters first, then the validated extras in client order). An
+      // invalid/absent roster falls back to the starters-only default above.
+      if (mode === 'bastion' && Array.isArray(m.roster)) {
+        const extras = [...new Set(m.roster.map(String))]
+          .filter(id => charMap[id] && !startingRoster.includes(id));
+        roster = [...startingRoster, ...extras].slice(0, characters.length);
+      }
       const r = { code, mode, hostPid: me.pid, players: new Map([[me.pid, me]]), levelIdx, roster, game: null, timer: null, phase: 'lobby' };
       rooms.set(code, r);
       me.room = r;
@@ -258,10 +267,10 @@ wss.on('connection', ws => {
       // br needs a real field — the client greys Deploy out too, this is the backstop
       if (room.mode === 'br' && [...room.players.values()].filter(p => p.charId).length < 2) return;
       const def = list[room.levelIdx];
-      if (room.mode === 'story' && def.intro?.length) {
+      if ((room.mode === 'story' || room.mode === 'bastion') && def.intro?.length) {
         if (![...room.players.values()].some(p => p.charId)) return; // no party — don't strand the room in intro
         room.phase = 'intro';
-        broadcast(room, { t: 'cutscene', slides: def.intro, title: def.title });
+        broadcast(room, { t: 'cutscene', slides: def.intro, title: def.stronghold?.name || def.title || def.name });
       } else startLevel(room);
     }
     else if (m.t === 'cutsceneDone' && room && me.pid === room.hostPid && room.phase === 'intro') {

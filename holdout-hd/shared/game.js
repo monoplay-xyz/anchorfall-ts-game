@@ -841,23 +841,49 @@ function canSee(g, e, tgt) {
   return hasLoS(g, e.x, e.y, tgt.x, tgt.y, blocksSight);
 }
 
+// Per-game cache of door/structure blocked tiles for the A* hot loop —
+// tileBlocked runs per neighbor per expansion (millions of hits per defended
+// siege tick), and linear scans over 100+ builds were most of that bill.
+// Keyed off buildEpoch + door states; lives OUTSIDE the game object so saves
+// and snapshots never see it (WeakMap: dropped with the game). Deterministic:
+// a pure function of state the sim already tracks.
+const blockMaskCache = new WeakMap();
+function buildBlockMask(g) {
+  let c = blockMaskCache.get(g);
+  const doorsKey = g.doors && g.doors.length ? g.doors.reduce((n, d, i) => n + (d.open ? 0 : i + 1), 0) : 0;
+  const epoch = (g.buildEpoch || 0);
+  if (!c || c.epoch !== epoch || c.doorsKey !== doorsKey) {
+    const mask = c && c.mask.length === g.w * g.h ? c.mask.fill(0) : new Uint8Array(g.w * g.h);
+    if (g.doors) {
+      for (const d of g.doors) {
+        if (d.open) continue;
+        for (let y = d.y; y < d.y + d.h; y++) {
+          for (let x = d.x; x < d.x + d.w; x++) {
+            if (x >= 0 && y >= 0 && x < g.w && y < g.h) mask[y * g.w + x] = 1;
+          }
+        }
+      }
+    }
+    if (g.builds) {
+      for (const b of g.builds) {
+        if (!b.built || b.kind === 'farm') continue;
+        const tx = Math.floor(b.x / TILE), ty = Math.floor(b.y / TILE);
+        if (tx >= 0 && ty >= 0 && tx < g.w && ty < g.h) mask[ty * g.w + tx] = 1;
+      }
+    }
+    c = { epoch, doorsKey, mask };
+    blockMaskCache.set(g, c);
+  }
+  return c.mask;
+}
+
 function tileBlocked(g, tx, ty) {
   if (tx < 0 || ty < 0 || tx >= g.w || ty >= g.h) return true;
   // lava is walkable but never PATHED through: A* routes around the flows
   if (blocksPath(g.grid[ty][tx])) return true;
   // A* respects closed doors exactly like rock (they reopen the route later)
-  if (g.doors && g.doors.length) {
-    for (const d of g.doors) {
-      if (!d.open && tx >= d.x && tx < d.x + d.w && ty >= d.y && ty < d.y + d.h) return true;
-    }
-  }
-  // A* routes around built structures instead of funneling chasers into them
-  if (g.builds) {
-    for (const b of g.builds) {
-      if (b.built && b.kind !== 'farm' && Math.floor(b.x / TILE) === tx && Math.floor(b.y / TILE) === ty) return true;
-    }
-  }
-  return false;
+  // and routes around built structures instead of funneling chasers into them
+  return buildBlockMask(g)[ty * g.w + tx] === 1;
 }
 
 // True when the straight segment passes through a built structure's circle —
@@ -882,11 +908,29 @@ function segmentHitsBuild(g, ax, ay, bx, by, r) {
 // Returns pixel-space waypoints (excluding the start tile), or null when no route
 // exists within the expansion budget. adjacentOk targets a BLOCKED goal tile
 // (a built structure): the search succeeds on any tile touching it.
+// gScore/came live in module-level generation-stamped typed arrays — failing
+// XL-map searches expand thousands of nodes, and Map get/set was the single
+// hottest line of a defended-siege tick (p99 was ~90ms; this is ~5x cheaper).
+// Single-threaded sim, no reentrancy; identical scores, so determinism holds.
+let pfSize = 0;
+let pfGen = 0;
+let pfG = null;     // gScore per tile
+let pfStamp = null; // generation stamp: stale entries read as Infinity
+let pfCame = null;  // predecessor tile key
 function findPath(g, sx, sy, gx, gy, maxExpand = 2400, adjacentOk = false) {
   if (sx === gx && sy === gy) return [];
   if (adjacentOk && Math.abs(sx - gx) <= 1 && Math.abs(sy - gy) <= 1) return [];
   if (tileBlocked(g, gx, gy) && !adjacentOk) return null;
   const W = g.w;
+  const cells = g.w * g.h;
+  if (pfSize < cells) {
+    pfSize = cells;
+    pfG = new Float64Array(cells);
+    pfStamp = new Int32Array(cells);
+    pfCame = new Int32Array(cells);
+  }
+  pfGen++;
+  if (pfGen >= 2147483647) { pfGen = 1; pfStamp.fill(0); }
   const heap = [];
   let seq = 0;
   const push = n => {
@@ -921,10 +965,9 @@ function findPath(g, sx, sy, gx, gy, maxExpand = 2400, adjacentOk = false) {
     const ax = Math.abs(x - gx), ay = Math.abs(y - gy);
     return ax + ay - 0.5858 * Math.min(ax, ay);
   };
-  const gScore = new Map();
-  const came = new Map();
   const start = sy * W + sx;
-  gScore.set(start, 0);
+  pfG[start] = 0;
+  pfStamp[start] = pfGen;
   push({ x: sx, y: sy, f: oct(sx, sy), seq: seq++ });
   const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
   let expanded = 0;
@@ -938,20 +981,21 @@ function findPath(g, sx, sy, gx, gy, maxExpand = 2400, adjacentOk = false) {
       let k = ck;
       while (k !== start) {
         path.push({ x: (k % W + 0.5) * TILE, y: (Math.floor(k / W) + 0.5) * TILE });
-        k = came.get(k);
+        k = pfCame[k];
       }
       return path.reverse();
     }
-    const cg = gScore.get(ck);
+    const cg = pfG[ck];
     for (const [dx, dy] of DIRS) {
       const nx = cur.x + dx, ny = cur.y + dy;
       if (tileBlocked(g, nx, ny)) continue;
       if (dx && dy && (tileBlocked(g, cur.x + dx, cur.y) || tileBlocked(g, cur.x, cur.y + dy))) continue;
       const nk = ny * W + nx;
       const ng = cg + (dx && dy ? 1.4142 : 1);
-      if (ng < (gScore.get(nk) ?? Infinity)) {
-        gScore.set(nk, ng);
-        came.set(nk, ck);
+      if (ng < (pfStamp[nk] === pfGen ? pfG[nk] : Infinity)) {
+        pfG[nk] = ng;
+        pfStamp[nk] = pfGen;
+        pfCame[nk] = ck;
         push({ x: nx, y: ny, f: ng + oct(nx, ny), seq: seq++ });
       }
     }
@@ -1013,22 +1057,45 @@ function moveToward(g, e, tgt, dt, speed = e.speed, r = ENEMY_R) {
   } else {
     e.repathT -= dt;
     if (e.repathT <= 0 || (e.path && e.pathI >= e.path.length)) {
-      // Core-marching night waves and x100-aggro hunters cross the whole map;
-      // the stock 2400 budget exhausts on long detours and they wedge at the
-      // first wall — give them a deep search instead.
-      const budget = (e.targetCore || e.aggro >= TILE * 100) ? 8000 : 2400;
-      e.path = findPath(
-        g,
-        Math.floor(e.x / TILE), Math.floor(e.y / TILE),
-        Math.floor(tgt.x / TILE), Math.floor(tgt.y / TILE),
-        budget,
-        !!tgt.adj // gnaw targets sit on blocked tiles: stop beside them
-      );
-      e.pathI = 0;
-      e.repathT = 0.6 + (e.id % 5) * 0.08;
-      // an exhausted search marks the goal sealed (core-marchers retarget the
-      // blocking structure in nearestTarget rather than pinning on a corner)
-      e.pathFailed = !e.path;
+      if (!g.arcade && !(g.pathBudget > 0)) {
+        // global per-tick A* budget spent: keep the stale path (or the bare
+        // bearing) one short cycle and ask again next tick
+        e.repathT = 0.1;
+      } else {
+        if (!g.arcade) g.pathBudget--;
+        // Core-marching night waves and x100-aggro hunters cross the whole map;
+        // the stock 2400 budget exhausts on long detours and they wedge at the
+        // first wall — give them a deep search instead.
+        const budget = (e.targetCore || e.aggro >= TILE * 100) ? 8000 : 2400;
+        e.path = findPath(
+          g,
+          Math.floor(e.x / TILE), Math.floor(e.y / TILE),
+          Math.floor(tgt.x / TILE), Math.floor(tgt.y / TILE),
+          budget,
+          !!tgt.adj // gnaw targets sit on blocked tiles: stop beside them
+        );
+        e.pathI = 0;
+        e.repathT = 0.6 + (e.id % 5) * 0.08;
+        // an exhausted search marks the goal sealed (core-marchers retarget the
+        // blocking structure in nearestTarget rather than pinning on a corner)
+        e.pathFailed = !e.path;
+        if (!g.arcade) {
+          if (e.path) e.pathFails = 0;
+          else {
+            // cache the failed verdict ~2.5s — re-searching an unreachable
+            // goal every 0.6s is the siege-tick CPU bill — and after 3
+            // consecutive total failures go dormant until the world changes
+            // (stepEnemy wakes on buildEpoch/door change, player proximity
+            // or damage)
+            e.repathT = 2.4 + (e.id % 5) * 0.12;
+            e.pathFails = (e.pathFails || 0) + 1;
+            if (e.pathFails >= 3 && !e.returning) {
+              e.dormant = true;
+              e.dormantEpoch = g.buildEpoch || 0;
+            }
+          }
+        }
+      }
     }
     let wp = e.path && e.path[e.pathI];
     while (wp && Math.hypot(wp.x - e.x, wp.y - e.y) < TILE * 0.45) {
@@ -1529,6 +1596,7 @@ function stepQuests(g) {
 function openDoor(g, d) {
   if (!d || d.open) return;
   d.open = true;
+  g.buildEpoch = (g.buildEpoch || 0) + 1; // the route map changed: dormant sleepers re-check
   g.events.push({ type: 'doorOpen', id: d.id, x: (d.x + d.w / 2) * TILE, y: (d.y + d.h / 2) * TILE });
 }
 
@@ -1805,6 +1873,7 @@ function damageEnemy(g, e, dmg, x, y, cause, ownerPid) {
   if (e.dead) return false;
   wakeEnemy(g, e);
   e.returning = false; // a hit always re-engages an enemy walking home
+  if (e.dormant) { e.dormant = false; e.pathFails = 0; } // pain stirs the unreachable
   // Null Acolyte ward: one absorb charge soaks the whole damage instance
   // (status riders applied before the hit still land — it's a damage ward).
   if (e.shielded) {
@@ -1928,25 +1997,59 @@ function nearestTarget(g, e) {
       e.path = null;
       e.repathT = 0;
     } else if (e.pathFailed && !(e.gnawScanT > 0)) {
-      e.gnawScanT = 1.2; // budget guard: rescan at most every 1.2s
-      const ex = Math.floor(e.x / TILE), ey = Math.floor(e.y / TILE);
-      const cands = [];
-      for (let i = 0; i < g.builds.length; i++) {
-        const b = g.builds[i];
-        // pylons/beacons are indestructible, farms walkable — never gnaw goals
-        if (!b.built || b.kind === 'farm' || inertBuild(b.kind)) continue;
-        cands.push([dist2(e, b), i]);
-      }
-      cands.sort((a, b2) => a[0] - b2[0] || a[1] - b2[1]);
-      for (const [, i] of cands) {
-        const b = g.builds[i];
-        const path = findPath(g, ex, ey, Math.floor(b.x / TILE), Math.floor(b.y / TILE), 8000, true);
-        if (path) {
-          e.gnawI = i;
-          e.path = path;
-          e.pathI = 0;
-          e.repathT = 0.6 + (e.id % 5) * 0.08;
-          return [{ x: b.x, y: b.y, nonPlayer: true, adj: true }, dist2(e, b)];
+      // Budget guards (big maps; arcade keeps the classic unbounded scan):
+      // at most g.gnawBudget scans START per tick field-wide, each capped to
+      // the 8 NEAREST candidates, each candidate search drawing on the
+      // global A* budget. A completed scan that found nothing reachable
+      // caches that verdict ~2.5s and counts toward dormancy; a scan cut
+      // short by an empty budget retries almost immediately instead.
+      if (!g.arcade && (!(g.gnawBudget > 0) || !(g.pathBudget > 0))) {
+        e.gnawScanT = 0.25;
+      } else {
+        if (!g.arcade) g.gnawBudget--;
+        e.gnawScanT = 1.2; // per-enemy floor: rescan at most every 1.2s
+        const ex = Math.floor(e.x / TILE), ey = Math.floor(e.y / TILE);
+        const cands = [];
+        for (let i = 0; i < g.builds.length; i++) {
+          const b = g.builds[i];
+          // pylons/beacons are indestructible, farms walkable — never gnaw goals
+          if (!b.built || b.kind === 'farm' || inertBuild(b.kind)) continue;
+          cands.push([dist2(e, b), i]);
+        }
+        cands.sort((a, b2) => a[0] - b2[0] || a[1] - b2[1]);
+        let found = null, tried = 0, cut = false;
+        for (const [, i] of cands) {
+          if (!g.arcade) {
+            if (tried >= 8) break;
+            if (!(g.pathBudget > 0)) { cut = true; break; }
+            g.pathBudget--;
+            tried++;
+          }
+          const b = g.builds[i];
+          const path = findPath(g, ex, ey, Math.floor(b.x / TILE), Math.floor(b.y / TILE), 8000, true);
+          if (path) {
+            e.pathFails = 0;
+            e.gnawI = i;
+            e.path = path;
+            e.pathI = 0;
+            e.repathT = 0.6 + (e.id % 5) * 0.08;
+            found = [{ x: b.x, y: b.y, nonPlayer: true, adj: true }, dist2(e, b)];
+            break;
+          }
+        }
+        if (found) return found;
+        if (!g.arcade) {
+          if (cut) e.gnawScanT = 0.25; // budget ran dry mid-scan: retry soon
+          else {
+            // full scan, nothing reachable: cache the verdict; repeated
+            // total failures put the enemy dormant via the same counter
+            e.gnawScanT = 2.4 + (e.id % 7) * 0.1;
+            e.pathFails = (e.pathFails || 0) + 1;
+            if (e.pathFails >= 3 && !e.returning) {
+              e.dormant = true;
+              e.dormantEpoch = g.buildEpoch || 0;
+            }
+          }
         }
       }
     }
@@ -2057,6 +2160,7 @@ function attackBuilds(g, e, dt) {
         s.paid = 0;
         // a flattened structure loses its upgrades too
         if (s.level) { s.level = 1; s.maxHp = structMaxHp(s.kind, 1); }
+        g.buildEpoch = (g.buildEpoch || 0) + 1; // terrain changed: dormant sleepers re-check
         g.events.push({ type: 'buildDown', x: s.x, y: s.y, kind: s.kind });
       }
     }
@@ -2068,8 +2172,12 @@ function attackBuilds(g, e, dt) {
 // contact. Loss (hp <= 0) is judged in step()'s end conditions. Beacon-
 // defense maps gnaw whichever LIT monolith the enemy touches: at 0 hp it
 // goes DARK (beaconDown) — never destroyed, relightable by day.
+// Only the night waves (targetCore) and enemies with NO reachable player
+// target (pathFailed) gnaw — a wandering camp patrol brushing past a lit
+// monolith must never darken it unprovoked.
 function attackCore(g, e, dt) {
   if (!MELEE_KINDS.has(e.kind)) return false;
+  if (!e.targetCore && !e.pathFailed) return false;
   const rr = CORE_R + ENEMY_R + 3;
   if (g.cores) {
     for (let i = 0; i < g.cores.length; i++) {
@@ -2352,6 +2460,29 @@ function stepEnemy(g, e, dt) {
     return;
   }
   if (e.stunT > 0) return;
+  // Permanently-unreachable enemies (3 consecutive failed searches — see
+  // moveToward / the gnaw scan) stand DORMANT: no target scan, no pathing,
+  // no march. They stir again when the world changes (a build completes or
+  // falls, a door opens — buildEpoch), when a player walks into aggro reach
+  // (capped at 12 tiles so x100-aggro wave hunters don't wake map-wide), or
+  // when damaged (damageEnemy clears the flag). Big maps only.
+  if (e.dormant && !g.arcade) {
+    if ((g.buildEpoch || 0) !== e.dormantEpoch) {
+      e.dormant = false;
+      e.pathFails = 0;
+      e.path = null;
+      e.repathT = 0;
+      e.gnawScanT = 0;
+    } else {
+      const wr = Math.min(g.dark ? e.aggro * 0.75 : e.aggro, TILE * 12);
+      let near = false;
+      for (const p of g.players) {
+        if (p.state === 'active' && dist2(e, p) < wr * wr) { near = true; break; }
+      }
+      if (near) e.dormant = false; // stale fail caches still pace the retries
+      else return;
+    }
+  }
   const [tgt, best] = nearestTarget(g, e);
   if (!tgt) return;
 
@@ -2741,9 +2872,10 @@ function applyMutation(e, mut) {
   // volatile and split trigger on death (killEnemy)
 }
 
-// One wave per dusk from a rotating cardinal edge; blood moons pour a full
-// wave in from two different edges, mutate every enemy, add +1 hp and +25%
-// speed. Normal waves from night 3 on carry +15% hp (rounded up).
+// One wave per dusk from a rotating cardinal edge; blood moons pour from two
+// different edges — a full wave on the first, a 60% detachment on the second
+// (a heavy night, not a flat double) — mutate every enemy, add +1 hp and
+// +15% speed. Normal waves from night 3 on carry +15% hp (rounded up).
 // Mutation roll is the contract formula (nightNo*31+i)%5 over
 // [none, feral, bulk, volatile, split]; blood moons re-roll 'none' as %4.
 // `off` offsets the mutation roll for the night's SECOND/THIRD waves
@@ -2761,10 +2893,14 @@ function spawnNightWave(g, off = 0) {
   let bossDue = off === 0 && Array.isArray(g.bastion.bossNights)
     && g.bastion.bossNights.includes(n) ? 1 : 0;
   let mi = off; // mutation index runs across the whole night's spawns
-  for (const edge of edges) {
+  for (let ei = 0; ei < edges.length; ei++) {
+    const edge = edges[ei];
     const boss = bossDue > 0;
     bossDue = 0;
-    const ls = boss ? 'b' + letters : letters;
+    // blood-moon SECOND edge: a 60% detachment, not a full clone
+    const base = ei === 0 ? letters
+      : letters.slice(0, Math.max(1, Math.round(letters.length * 0.6)));
+    const ls = boss ? 'b' + base : base;
     // A scheduled boss ALWAYS marches — a one-slot exception to the global
     // 90 cap (the rest of its wave still respects the ceiling), so a packed
     // field can never silently swallow a finale boss.
@@ -2789,10 +2925,10 @@ function spawnNightWave(g, off = 0) {
       mi++;
       applyMutation(e, mut);
       if (g.cycle.bloodMoon) {
-        // blood moon: +1 hp on top of the full mutation, and a +25% pace
+        // blood moon: +1 hp on top of the full mutation, and a +15% pace
         e.hp += 1;
         e.maxHp += 1;
-        e.speed *= 1.25;
+        e.speed *= 1.15;
       } else if (n >= 3) {
         // late normal nights harden: +15% hp, rounded up
         e.hp = Math.ceil(e.hp * 1.15);
@@ -2887,9 +3023,12 @@ function stepBeacons(g, inputs, dt) {
 
 // From night 2 onward, ALL FOUR beacons lit at once WHILE IT IS NIGHT (a real
 // feat under wave pressure) lands the Anchorcraft near the base ('shipDown').
-// The ship persists once landed; boarding stays optional. Every active player
-// boarding (act within 1.5 tiles) is marked aboard — all aboard launches:
-// immediate clear with a full-clear bonus ('shipLaunch').
+// The ship persists once landed; boarding stays optional. Boarding itself is
+// EDGE-triggered through the act priority chain in stepPlayers (lowest rung,
+// after NPC talk) so a held repair/shop/relight press can never double as a
+// commitment to leave. Walking out of board reach steps back OFF the ramp:
+// launch ('shipLaunch', immediate clear + full-clear bonus) requires every
+// active player physically at the vessel.
 function stepShip(g, inputs, dt) {
   if (!g.cores || g.status !== 'play') return;
   if (!g.ship) {
@@ -2917,14 +3056,10 @@ function stepShip(g, inputs, dt) {
     g.events.push({ type: 'shipDown', x: lx, y: ly });
     return;
   }
+  // walking away cancels a boarding — aboard means AT the vessel, right now
   const r2 = (TILE * SHIP_BOARD_TILES) ** 2;
   for (const p of g.players) {
-    if (p.state !== 'active' || p.aboard) continue;
-    const inp = inputs[p.pid] || {};
-    if (inp.act && !p.riding && p.towerId == null && dist2(p, g.ship) < r2) {
-      p.aboard = true;
-      g.events.push({ type: 'shipBoard', pid: p.pid, x: g.ship.x, y: g.ship.y });
-    }
+    if (p.aboard && dist2(p, g.ship) >= r2) p.aboard = false;
   }
   const active = g.players.filter(p => p.state === 'active');
   if (active.length && active.every(p => p.aboard)) {
@@ -3232,6 +3367,15 @@ export function step(g, inputs, dt) {
   if (g.status !== 'play') return;
 
   g.elapsed += dt;
+  // Global pathfinding budgets (big maps only; arcade never spends them and
+  // keeps its classic byte-identical behavior): at most 6 full A* searches
+  // and 2 gnaw-target scans START per tick across the whole field. Enemies
+  // denied a search keep their stale path one short cycle and ask again —
+  // per-enemy cooldown phases differ, so contention round-robins itself.
+  if (!g.arcade) {
+    g.pathBudget = 6;
+    g.gnawBudget = 2;
+  }
   // toxic air: one EVA-style warning the moment the mission opens
   if (g.toxicAir && !g.toxicAir.warned) {
     g.toxicAir.warned = true;
@@ -3609,7 +3753,7 @@ export function step(g, inputs, dt) {
     //   6. chests (nearest)       7. field weapon pickups (nearest)
     //   8. relay switches         9. glyph stones
     //  10. tower occupy          11. hire posts (inert in pvp)
-    //  12. npc talk
+    //  12. npc talk              13. board the landed Anchorcraft (lowest)
     // The dismantle-chain on BUILT structures runs LAST, on the held bool in
     // the structures block below: repair while damaged > upgrade below max
     // level > dismantle. ---
@@ -3782,7 +3926,16 @@ export function step(g, inputs, dt) {
             }
             g.events.push({ type: 'talk', x: npc.x, y: npc.y, npcId: npc.id, name: npc.name, line, gift });
             questTalk(g, npc, p); // givers hand out and settle their quests
+            handled = true;
           }
+        }
+        if (!handled && g.ship && !p.aboard
+            && dist2(p, g.ship) < (TILE * SHIP_BOARD_TILES) ** 2) {
+          // board the landed Anchorcraft — the chain's lowest rung, so a
+          // press meant for any nearby work never doubles as a commitment
+          // to leave (stepShip un-boards anyone who walks back out of reach)
+          p.aboard = true;
+          g.events.push({ type: 'shipBoard', pid: p.pid, x: g.ship.x, y: g.ship.y });
         }
       }
     }
@@ -3899,6 +4052,7 @@ export function step(g, inputs, dt) {
         b.paid = 0;
         b.hp = 0;
         b.dismantleT = 0;
+        g.buildEpoch = (g.buildEpoch || 0) + 1;
         addShards(g, holderArr[0], Math.floor((b.invested ?? b.cost) / 2));
         b.invested = 0;
         if (b.level) { b.level = 1; b.maxHp = structMaxHp(b.kind, 1); }
@@ -3925,6 +4079,7 @@ export function step(g, inputs, dt) {
       b.built = true;
       b.hp = b.maxHp;
       b.invested = b.cost;
+      g.buildEpoch = (g.buildEpoch || 0) + 1;
       g.events.push({ type: 'built', x: b.x, y: b.y, kind: b.kind });
       questProgress(g, 'build', [b.kind], b.x, b.y); // build quests count
       if (b.kind === 'beacon') {
@@ -4417,6 +4572,7 @@ export function step(g, inputs, dt) {
               b.progress = 0;
               b.paid = 0;
               if (b.level) { b.level = 1; b.maxHp = structMaxHp(b.kind, 1); }
+              g.buildEpoch = (g.buildEpoch || 0) + 1;
               g.events.push({ type: 'buildDown', x: b.x, y: b.y, kind: b.kind });
             }
             if (s.pierce > 0) s.pierce--;
@@ -4476,6 +4632,70 @@ export function step(g, inputs, dt) {
             if (s.aoeRadius) explode(g, s);
             else damageFollower(g, f, s.dmg);
             break;
+          }
+        }
+      }
+      // WALLS MATTER: built blocking structures soak enemy fire — the round
+      // hits the wall (1 damage, like a gnaw bite), not the squad behind it.
+      // Pylons/beacon-kind builds block without taking damage (inert), and
+      // lobbed overWalls arcs still sail clean over everything. The base
+      // core and the beacon monoliths are physical too: a lit one takes the
+      // hit (coreHit), a dark monolith just stops the round cold.
+      if (!dead && !s.overWalls) {
+        for (const b of g.builds) {
+          if (!b.built || b.kind === 'farm') continue;
+          if (dist2(s, b) < (BUILD_RADIUS + (s.radius || SHOT_R)) ** 2) {
+            dead = true;
+            if (!inertBuild(b.kind)) {
+              b.hp -= 1;
+              g.events.push({ type: 'buildHit', x: b.x, y: b.y });
+              if (b.hp <= 0) {
+                b.hp = 0;
+                b.built = false;
+                b.progress = 0;
+                b.paid = 0;
+                if (b.level) { b.level = 1; b.maxHp = structMaxHp(b.kind, 1); }
+                g.buildEpoch = (g.buildEpoch || 0) + 1;
+                g.events.push({ type: 'buildDown', x: b.x, y: b.y, kind: b.kind });
+              }
+            }
+            break;
+          }
+        }
+        if (!dead) {
+          for (const t of g.towers) {
+            if (t.hp <= 0) continue;
+            if (dist2(s, t) < (BUILD_RADIUS + (s.radius || SHOT_R)) ** 2) {
+              dead = true;
+              t.hp -= 1;
+              g.events.push({ type: 'buildHit', x: t.x, y: t.y });
+              if (t.hp <= 0) towerDown(g, t);
+              break;
+            }
+          }
+        }
+        if (!dead && g.core && g.core.hp > 0
+            && dist2(s, g.core) < (CORE_R + (s.radius || SHOT_R)) ** 2) {
+          dead = true;
+          g.core.hp -= 1;
+          g.events.push({ type: 'coreHit', x: g.core.x, y: g.core.y, hp: Math.max(0, g.core.hp) });
+        }
+        if (!dead && g.cores) {
+          for (let ci = 0; ci < g.cores.length; ci++) {
+            const c = g.cores[ci];
+            if (dist2(s, c) < (CORE_R + (s.radius || SHOT_R)) ** 2) {
+              dead = true;
+              if (c.lit) {
+                c.hp -= 1;
+                g.events.push({ type: 'coreHit', idx: ci, x: c.x, y: c.y, hp: Math.max(0, c.hp) });
+                if (c.hp <= 0) {
+                  c.hp = 0;
+                  c.lit = false;
+                  g.events.push({ type: 'beaconDown', idx: ci, x: c.x, y: c.y });
+                }
+              }
+              break;
+            }
           }
         }
       }
@@ -4668,7 +4888,11 @@ export function snapshot(g, full = true) {
     // stay implicit so classic snapshots never gain the key
     ...(g.shopOffers && g.shopOffers.length !== SHOP_OFFERS.length
       ? { shopOffers: g.shopOffers.map(o => ({ ...o })) } : {}),
-    ...(g.cycle ? { cycle: { phase: g.cycle.phase, nightNo: g.cycle.nightNo, t: g.cycle.t, bloodMoon: g.cycle.bloodMoon, nights: g.bastion.nights } } : {}),
+    // nextBloodMoon flags the DAY before a blood-moon dusk (gated: the key
+    // only appears when true, so classic-bastion snapshots stay byte-stable)
+    // — the client's wave countdown reads it for the day-before red styling.
+    ...(g.cycle ? { cycle: { phase: g.cycle.phase, nightNo: g.cycle.nightNo, t: g.cycle.t, bloodMoon: g.cycle.bloodMoon, nights: g.bastion.nights,
+      ...(g.cycle.phase === 'day' && g.bastion.bloodMoons.includes(g.cycle.nightNo + 1) ? { nextBloodMoon: true } : {}) } } : {}),
     ...(g.chests.length ? { chests: g.chests.map(c => ({ x: c.x, y: c.y, opened: c.opened, loot: c.loot })) } : {}),
     ...(g.crackers.length ? { crackers: g.crackers.map(c => ({ x: c.x, y: c.y, landed: c.landed, fuse: c.fuse })) } : {}),
     ...(g.vehicles.length ? { vehicles: g.vehicles.map(v => ({ id: v.id, x: v.x, y: v.y, kind: v.kind, rider: v.rider })) } : {}),
