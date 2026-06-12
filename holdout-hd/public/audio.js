@@ -403,7 +403,7 @@ function bloodTick() {
 
 // --- weather beds: looping filtered noise, one per weather kind ------------
 const WEATHER_BED = {
-  rain: { freq: 2400, q: 0.6, vol: 0.05 },
+  rain: { freq: 1100, q: 0.5, vol: 0.016 }, // soft patter, not hiss — tuned down per playtest
   snow: { freq: 700, q: 0.4, vol: 0.022 },   // soft high wind, half-buried
   ashstorm: { freq: 380, q: 0.5, vol: 0.045 }, // low gusting roar
   fog: { freq: 240, q: 0.3, vol: 0.018 },     // barely-there low air
@@ -429,7 +429,7 @@ function weatherTick() {
     src.buffer = buf;
     src.loop = true;
     const filt = ctx.createBiquadFilter();
-    filt.type = want === 'rain' ? 'highpass' : 'bandpass';
+    filt.type = 'bandpass'; // highpass rain read as harsh static
     filt.frequency.value = cfg.freq;
     filt.Q.value = cfg.q;
     const g = ctx.createGain();
