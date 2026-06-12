@@ -50,7 +50,7 @@ export function setSfxVolume(v) {
 }
 
 // ============================== ASSET LIBRARY ==============================
-// The HOLDOUT audio pack lives at /assets/audio/<category>/... (463 opus .ogg
+// The Anchorfall audio pack lives at /assets/audio/<category>/... (463 opus .ogg
 // clips: ambient beds, sci-fi interaction cues, enemy combat vocals, Karen &
 // Ian NPC voice lines, crash effects). This layer is ASSET-FIRST: each cue
 // names a list of files; playback rotates through the list DETERMINISTICALLY

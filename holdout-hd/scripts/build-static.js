@@ -1,4 +1,5 @@
-// Builds dist/ — a fully static, serverless build of HOLDOUT HD for couch play
+// Builds dist/ — a fully static, serverless build of MONOLYTHIUM — THE
+// ANCHORFALL for couch play
 // on machines without Node (e.g. Batocera): any static file server + a browser.
 // Local play (solo / couch co-op / story) is fully client-side; online co-op
 // needs the real Node server, so the online buttons are hidden in this build.
@@ -66,7 +67,7 @@ python3 -m http.server "$PORT" >/dev/null 2>&1 &
 SRV=$!
 trap "kill $SRV" EXIT
 URL="http://localhost:$PORT"
-echo "HOLDOUT HD at $URL"
+echo "MONOLYTHIUM - THE ANCHORFALL at $URL"
 chromium --kiosk --no-sandbox --autoplay-policy=no-user-gesture-required "$URL" 2>/dev/null \\
   || flatpak run org.chromium.Chromium --kiosk --autoplay-policy=no-user-gesture-required "$URL" 2>/dev/null \\
   || xdg-open "$URL" 2>/dev/null \\

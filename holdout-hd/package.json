@@ -1,7 +1,7 @@
 {
-  "name": "holdout-hd",
-  "version": "0.1.0",
-  "description": "Top-down tactical action game with roster rescue mechanics. Solo and online co-op.",
+  "name": "monolythium-anchorfall",
+  "version": "1.0.0",
+  "description": "Monolythium — The Anchorfall: top-down tactical co-op on the Monolythium frontier. Solo, couch and online multiplayer.",
   "type": "module",
   "main": "server.js",
   "scripts": {

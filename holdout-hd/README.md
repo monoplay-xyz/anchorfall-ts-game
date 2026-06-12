@@ -1,10 +1,12 @@
-# HOLDOUT HD
+# MONOLYTHIUM — THE ANCHORFALL
 
-The HD remaster of HOLDOUT: same deterministic simulation and co-op netcode as
-v1, with a full tactical-HUD presentation — squad panels with portraits,
-minimap, mission/score panels, weapon readout — and a cold moonlit
-"Monolythium: Anchorfall" look: procedural terrain textures, pseudo-3D walls,
-dynamic lighting/vignette, tracers, and muzzle flashes.
+The official Monolythium game (formerly HOLDOUT HD): hold the line on a
+stranded frontier world while the community waits for testnet. Same
+deterministic simulation and co-op netcode as v1, with a full tactical-HUD
+presentation — squad panels with portraits, minimap, mission/score panels,
+weapon readout — and a cold moonlit Anchorfall look: procedural terrain
+textures, pseudo-3D walls, dynamic lighting/vignette, tracers, and muzzle
+flashes.
 
 ```sh
 npm install
@@ -52,8 +54,16 @@ npm run build-static   # serverless dist/ build for Batocera (docs/BATOCERA.md)
   Royale** (free-for-all on a shrinking zone — couch BR always splits the
   screen so opponents never share a camera).
 - **Online** — host Classic, Story, Stronghold, CTF, or Battle Royale rooms,
-  or join with a 4-letter code. Up to 4 couch seats per machine, 8 players
-  per room. Each machine splitscreens only its own local seats. Rooms
+  join with a 4-letter code, or **Browse Games**: rooms hosted as *public*
+  (the default for versus modes) appear in an in-game browser — anyone can
+  start a match and wait for strangers to fill it. Per-mode caps: co-op
+  rooms hold 8, Battle Royale 16, **CTF 32 (16v16)**. Live public CTF
+  matches stay joinable below cap — late joiners drop straight into the
+  respawn-pick on the smaller team. Two CTF maps ship (the *CTF map*
+  cycler picks one): *Twin Relays* (8p) and *Grand Relays*, a 120×72
+  three-lane battlefield built for 32 — fast mid field, north ridge, and
+  a south canal where skiffs open a flagless raid lane. Up to 4 couch
+  seats per machine; each machine splitscreens only its own seats. Rooms
   survive a host disconnect (leadership migrates to the oldest remaining
   connection; a room only closes when empty), and a dropped player's seats
   are held for 120s — rejoining with the same name and room code mid-level
@@ -144,7 +154,7 @@ Mark a level with `"expedition": true` to get a menu shortcut to it.
 
 ## Audio
 
-The HOLDOUT audio pack lives in `public/assets/audio/` (~460 ogg clips:
+The Anchorfall audio pack lives in `public/assets/audio/` (~460 ogg clips:
 day/night/situation ambient beds, interaction cues, enemy combat vocals, NPC
 voice lines, crash effects) plus the EVA voice pack in `public/assets/voice/`
 (`*.m4a`). Playback is asset-first with deterministic clip rotation (every

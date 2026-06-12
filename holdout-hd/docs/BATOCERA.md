@@ -1,4 +1,4 @@
-# HOLDOUT HD on Batocera (couch co-op, 4 controllers)
+# MONOLYTHIUM — THE ANCHORFALL on Batocera (couch co-op, 4 controllers)
 
 Local play (solo, couch co-op, the story campaign) runs entirely in the
 browser — no Node needed on the box. Batocera ships Python (for the tiny
@@ -19,7 +19,7 @@ file server) and can run Chromium.
    \\BATOCERA\share\roms\ports\holdout\      (i.e. /userdata/roms/ports/holdout/)
    ```
 
-3. Create `/userdata/roms/ports/Holdout HD.sh`:
+3. Create `/userdata/roms/ports/Monolythium - The Anchorfall.sh`:
 
    ```bash
    #!/bin/bash
@@ -66,7 +66,7 @@ splits.
 
 ## Audio
 
-The full HOLDOUT audio pack (~460 ogg ambient/effects/voice clips plus the
+The full Anchorfall audio pack (~460 ogg ambient/effects/voice clips plus the
 EVA `.m4a` voice pack) ships inside `dist/assets/` — no extra download.
 `play.sh` launches Chromium with autoplay enabled so sound starts immediately;
 in a plain browser, audio wakes on the first click or button press. If a clip
