@@ -11,19 +11,22 @@ import { playEvent, playUi, setupAudioToggle } from './audio.js';
 const characters = await (await fetch('/shared/characters.json')).json();
 const charMap = charsById(characters);
 const levels = await (await fetch('/api/levels')).json();
-// Expedition maps live outside the campaign rotation (menu shortcut only).
-// Versus maps carry expedition:true too — keep them out of the expedition list.
-const campaign = levels.filter(l => !l.expedition);
-const expeditions = levels.filter(l => l.expedition && !l.mode);
-// PvP map pools (level JSONs carrying mode:'ctf'/'br'; absent until shipped).
-const ctfLevels = levels.filter(l => l.mode === 'ctf');
-const brLevels = levels.filter(l => l.mode === 'br');
-// Bastion siege maps (mode:'bastion'; expedition-flagged so they stay out of
-// the campaign and expedition rotations).
-const bastionLevels = levels.filter(l => l.mode === 'bastion');
-// Story chapters are expedition-flagged too (kept out of classic + online),
-// ordered by their chapter number.
-const storyLevels = levels.filter(l => l.story).sort((a, b) => (a.chapter ?? 0) - (b.chapter ?? 0));
+// Levels are organized by category subdirectory (classic/story/stronghold/
+// ctf/br) and each def carries its subdir as def.category. Mode lists derive
+// from the category; the old per-def flags stay as fallbacks so a stale
+// flat build (no category field) keeps working.
+const campaign = levels.filter(l => l.category ? l.category === 'classic' : !l.expedition);
+const expeditions = levels.filter(l => !l.category && l.expedition && !l.mode && !l.story);
+const ctfLevels = levels.filter(l => l.category === 'ctf' || (!l.category && l.mode === 'ctf'));
+const brLevels = levels.filter(l => l.category === 'br' || (!l.category && l.mode === 'br'));
+// Stronghold campaign (sim/server mode 'bastion'): sh01..sh25 ordered by
+// their stronghold.level number, filename order as the fallback.
+const bastionLevels = levels
+  .filter(l => l.category === 'stronghold' || (!l.category && l.mode === 'bastion'))
+  .sort((a, b) => (a.stronghold?.level ?? 999) - (b.stronghold?.level ?? 999));
+// Story chapters, ordered by their chapter number.
+const storyLevels = levels.filter(l => l.category === 'story' || (!l.category && l.story))
+  .sort((a, b) => (a.chapter ?? 0) - (b.chapter ?? 0));
 const startingRoster = characters.filter(c => c.starting).map(c => c.id);
 await initTextures();
 
@@ -69,14 +72,36 @@ const keys = {};
 addEventListener('keydown', e => {
   if (e.target?.tagName === 'INPUT') return;
   keys[e.code] = true;
-  if (e.code.startsWith('Arrow') || e.code === 'Space' || e.code === 'Slash') e.preventDefault();
+  // Tab is the kb1 MAP hold — without preventDefault it would walk DOM focus
+  if (e.code.startsWith('Arrow') || e.code === 'Space' || e.code === 'Slash' || e.code === 'Tab') e.preventDefault();
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
 
-// E = interact (matches the on-screen [E/X] prompts), F = special, Q = item
-const KB1 = { up: ['KeyW'], down: ['KeyS'], left: ['KeyA'], right: ['KeyD'], fire: ['Space'], special: ['KeyF'], act: ['KeyE'], item: ['KeyQ'], start: ['Escape'] };
+// E = interact (matches the on-screen [E/X] prompts), F = special, Q = item,
+// hold Tab/M/SELECT = full map. These are the DEFAULTS — the Settings remap
+// screen stores per-device overrides in localStorage and applyBinds() builds
+// the live KB1/KB2/PADMAP tables from defaults + overrides.
+const KB1_DEF = { up: ['KeyW'], down: ['KeyS'], left: ['KeyA'], right: ['KeyD'], fire: ['Space'], special: ['KeyF'], act: ['KeyE'], item: ['KeyQ'], start: ['Escape'], map: ['Tab'] };
 // KB2 pauses with Backspace (a shared Escape would emit start on BOTH seats at once)
-const KB2 = { up: ['ArrowUp'], down: ['ArrowDown'], left: ['ArrowLeft'], right: ['ArrowRight'], fire: ['Enter'], special: ['ShiftRight'], act: ['Slash'], item: ['Period'], start: ['Backspace'] };
+const KB2_DEF = { up: ['ArrowUp'], down: ['ArrowDown'], left: ['ArrowLeft'], right: ['ArrowRight'], fire: ['Enter'], special: ['ShiftRight'], act: ['Slash'], item: ['Period'], start: ['Backspace'], map: ['KeyM'] };
+// Pad button indices (standard mapping); button 8 = Select/Back holds the map
+const PAD_DEF = { up: [12], down: [13], left: [14], right: [15], fire: [0, 7], special: [1, 5], act: [2], item: [3], start: [9], map: [8] };
+const ACTIONS = ['up', 'down', 'left', 'right', 'fire', 'special', 'act', 'item', 'start', 'map'];
+const BIND_KEY = 'holdout-hd.binds'; // { kb1:{action:code}, kb2:{...}, pad:{action:btnIdx} }
+let binds = {};
+try { binds = JSON.parse(localStorage.getItem(BIND_KEY)) || {}; } catch {}
+let KB1 = {}, KB2 = {}, PADMAP = {};
+function applyBinds() {
+  const eff = (def, o = {}) => Object.fromEntries(ACTIONS.map(a => [a, o?.[a] != null ? [o[a]] : (def[a] ?? [])]));
+  KB1 = eff(KB1_DEF, binds.kb1);
+  KB2 = eff(KB2_DEF, binds.kb2);
+  PADMAP = eff(PAD_DEF, binds.pad);
+}
+applyBinds();
+function saveBinds() {
+  try { localStorage.setItem(BIND_KEY, JSON.stringify(binds)); } catch {}
+  applyBinds();
+}
 const DEVICES = ['kb1', 'kb2', 'gp0', 'gp1', 'gp2', 'gp3'];
 const DEVICE_LABEL = { kb1: 'Keyboard WASD', kb2: 'Keyboard Arrows', gp0: 'Pad 1', gp1: 'Pad 2', gp2: 'Pad 3', gp3: 'Pad 4' };
 
@@ -90,18 +115,22 @@ function readPad(i) {
   const gp = navigator.getGamepads?.()[i];
   if (!gp || !gp.connected) return null;
   const ax = gp.axes[0] || 0, ay = gp.axes[1] || 0;
-  const b = j => !!gp.buttons[j]?.pressed;
+  // Linux/Batocera pads often expose the d-pad as a HAT on axes 6/7 instead
+  // of buttons 12-15 — honor both, so carousel/menu d-pad input always lands
+  const hx = gp.axes[6] || 0, hy = gp.axes[7] || 0;
+  const b = a => (PADMAP[a] || []).some(j => !!gp.buttons[j]?.pressed);
   const DZ = 0.35;
   return {
-    up: ay < -DZ || b(12),
-    down: ay > DZ || b(13),
-    left: ax < -DZ || b(14),
-    right: ax > DZ || b(15),
-    fire: b(0) || b(7),
-    special: b(1) || b(5),
-    act: b(2),
-    item: b(3), // Y
-    start: b(9),
+    up: ay < -DZ || hy < -0.5 || b('up'),
+    down: ay > DZ || hy > 0.5 || b('down'),
+    left: ax < -DZ || hx < -0.5 || b('left'),
+    right: ax > DZ || hx > 0.5 || b('right'),
+    fire: b('fire'),
+    special: b('special'),
+    act: b('act'),
+    item: b('item'), // Y
+    start: b('start'),
+    map: b('map'),
   };
 }
 
@@ -178,6 +207,10 @@ function hideBanner() {
   clearTimeout(bannerTimer);
   $('banner').hidden = true;
   $('spectateTag').hidden = true;
+  $('countdown').hidden = true;
+  $('ctrlOverlay').hidden = true;
+  cdSig = null;
+  ctrlSig = null;
 }
 // ---------- loot toast (small popup over the field; chest pickups) ----------
 // One #toast element used to drop same-tick messages (the newest overwrote
@@ -264,6 +297,11 @@ function bannerFor(ev) {
       const ctf = session?.versusMode?.() === 'ctf';
       return { text: `${ctf ? (TEAM_NAME[ev.winner] ?? 'TEAM') : playerName(ev.winner)} WINS THE MATCH` };
     }
+    // stronghold beacon-defense variant + early-extraction ship (all optional)
+    case 'beaconDown': return { text: 'A BEACON GOES DARK', blood: true };
+    case 'beaconLit': return { text: 'BEACON RELIT' };
+    case 'shipDown': return { text: 'THE ANCHORCRAFT HAS LANDED — ALL ABOARD TO EXTRACT' };
+    case 'shipLaunch': return { text: 'ANCHORCRAFT AWAY — FULL CLEAR' };
   }
   return null;
 }
@@ -334,10 +372,15 @@ function setNavFocus(el) {
   navEl = el;
   for (const b of document.querySelectorAll('.navfocus')) if (b !== el) b.classList.remove('navfocus');
   el?.classList.add('navfocus');
+  el?.scrollIntoView?.({ block: 'nearest' }); // scrollable grids (level select)
+  // stronghold cards publish their blurb to the detail line under the grid
+  if (el?.classList.contains('shcard')) $('shBlurb').textContent = el.dataset.blurb || ' ';
 }
 // Runs before session.tick each frame; consumes (zeroes) the *Just edges it
 // handles so the session never double-acts on the same press.
 function navTick(polled) {
+  if (remapListen) return; // a rebind capture owns every input until it lands
+  if (remapBoundGuard > 0) { remapBoundGuard--; return; } // the landing press must not nav
   const screen = visibleScreen();
   if (screen !== navScreen) { navScreen = screen; navDev = null; setNavFocus(null); }
   if (!screen) return;
@@ -357,13 +400,41 @@ function navTick(polled) {
   }
   for (const [dev, st] of Object.entries(polled)) {
     if (screen === 'lobby' && session?.deviceOf?.(dev)) continue; // joined player: dpad = pick cursor
+    // menu pages: SPECIAL (pad B) or START (Escape) backs out one page
+    if (screen === 'menu' && (st.specialJust || st.startJust)) {
+      st.specialJust = st.startJust = false;
+      if (menuBack()) return;
+    }
+    const gridEl = screen === 'menu' ? navEl?.closest?.('.navgrid') : null;
+    if (gridEl && (st.leftJust || st.rightJust)) {
+      // 2D grid nav (stronghold level select): LEFT/RIGHT step one card
+      const cells = btns.filter(b => gridEl.contains(b));
+      const ci = cells.indexOf(navEl);
+      const ni = ci + (st.rightJust ? 1 : -1);
+      st.leftJust = st.rightJust = false;
+      if (ci >= 0 && ni >= 0 && ni < cells.length) { setNavFocus(cells[ni]); navDev = dev; }
+    }
     if (st.upJust || st.downJust) {
-      const idx = btns.indexOf(navEl);
-      const next = idx < 0
-        ? (st.downJust ? 0 : btns.length - 1)
-        : mod(idx + (st.downJust ? 1 : -1), btns.length);
-      setNavFocus(btns[next]);
-      navDev = dev;
+      let next = null;
+      if (gridEl) {
+        // UP/DOWN step one row; off the last/first row exits to the
+        // neighboring page button (Back) in document order
+        const cells = btns.filter(b => gridEl.contains(b));
+        const ci = cells.indexOf(navEl);
+        const cols = Math.max(1, +gridEl.dataset.cols || 5);
+        const ni = ci + (st.downJust ? cols : -cols);
+        if (ci >= 0 && ni >= 0 && ni < cells.length) next = cells[ni];
+        else {
+          const edge = btns.indexOf(st.downJust ? cells[cells.length - 1] : cells[0]);
+          next = btns[mod(edge + (st.downJust ? 1 : -1), btns.length)];
+        }
+      } else {
+        const idx = btns.indexOf(navEl);
+        next = idx < 0
+          ? btns[st.downJust ? 0 : btns.length - 1]
+          : btns[mod(idx + (st.downJust ? 1 : -1), btns.length)];
+      }
+      if (next) { setNavFocus(next); navDev = dev; }
     }
     if (screen === 'msg') {
       // dialogs: FIRE or START from anyone clicks (keeps the old click-through feel)
@@ -500,8 +571,11 @@ function updateMissionPanel() {
   }
   if (session?.bastionMode?.()) {
     // NIGHT n/N itself lives in the bastion HUD panel (updateModePanels)
-    $('missionNo').textContent = 'BASTION SIEGE';
-    $('missionName').textContent = (lvl?.name || '—').toUpperCase();
+    const sh = lvl?.stronghold;
+    $('missionNo').textContent = sh
+      ? `STRONGHOLD ${String(sh.level ?? idx + 1).padStart(2, '0')} / ${String(bastionLevels.length).padStart(2, '0')}`
+      : 'BASTION SIEGE';
+    $('missionName').textContent = ((sh?.name || lvl?.name) || '—').toUpperCase();
     $('missionObj').textContent = lvl?.objective || 'Hold the core until the final dawn';
     return;
   }
@@ -645,6 +719,15 @@ function updateModePanels(snap) {
       const pct = Math.max(0, Math.min(1, (core.hp ?? 0) / (core.maxHp || 1)));
       $('coreFill').style.width = Math.round(pct * 100) + '%';
     }
+    // beacon-defense variant: four monolith pips (lit/dark) instead of one
+    // core bar; the landed Anchorcraft reads as a boarding tag beside them
+    const pips = $('beaconPips');
+    const cores = snap.cores;
+    pips.hidden = !cores?.length;
+    if (cores?.length) {
+      pips.innerHTML = cores.map(c => `<span class="bpip ${(c.hp ?? 0) > 0 ? 'lit' : 'dark'}">⬟</span>`).join('')
+        + (snap.ship?.landed ? ' <span class="bship">⏏ SHIP DOWN — BOARD TO EXTRACT</span>' : '');
+    }
   }
 
   const el = $('pvpInfo');
@@ -783,7 +866,179 @@ function updateHUD(snap) {
   updateHearts(snap);
   updateObjectives(snap);
   updateModePanels(snap);
+  updateCountdown(snap);
+  updateControlsOverlay(snap, me);
   renderMinimap(mmCtx, snap, session?.focusPids() ?? new Set());
+  fogUpdate(snap);
+  fogMaskMinimap(mmCtx, snap);
+}
+
+// ---------- fog of war (client-side exploration; no sim change) ----------
+// The mask accumulates a ~10-tile reveal around EVERY player's position in
+// every snapshot — positions are shared, so every machine derives the same
+// mask. It resets whenever a new grid object arrives (new mission, retry,
+// next chapter). Versus and classic arcade missions keep their full minimap.
+const FOG_R = 10;
+const fog = { gridRef: null, w: 0, h: 0, mask: null, stamp: {} };
+function fogActive() {
+  if (!session) return false;
+  if (session.versusMode?.()) return false;
+  return !!(session.story || session.bastionMode?.() || session.expedition);
+}
+function fogUpdate(snap) {
+  if (!snap.grid || !fogActive()) return;
+  if (fog.gridRef !== snap.grid) {
+    fog.gridRef = snap.grid;
+    fog.w = snap.w;
+    fog.h = snap.h;
+    fog.mask = new Uint8Array(snap.w * snap.h);
+    fog.stamp = {};
+  }
+  for (const p of snap.players ?? []) {
+    if (p.x == null || p.state === 'out') continue;
+    const tx = Math.floor(p.x / TILE), ty = Math.floor(p.y / TILE);
+    const k = tx + ',' + ty;
+    if (fog.stamp[p.pid] === k) continue; // unchanged tile — already stamped
+    fog.stamp[p.pid] = k;
+    for (let dy = -FOG_R; dy <= FOG_R; dy++) {
+      const y = ty + dy;
+      if (y < 0 || y >= fog.h) continue;
+      const span = Math.floor(Math.sqrt(FOG_R * FOG_R - dy * dy));
+      const x0 = Math.max(0, tx - span), x1 = Math.min(fog.w - 1, tx + span);
+      for (let x = x0; x <= x1; x++) fog.mask[y * fog.w + x] = 1;
+    }
+  }
+}
+// Paints unexplored tiles near-black OVER the freshly drawn minimap, so
+// terrain and entity dots only read in explored areas (players reveal their
+// own surroundings, so they always stay visible).
+function fogMaskMinimap(c, snap) {
+  if (!fogActive() || !fog.mask || fog.gridRef !== snap.grid) return;
+  const W = c.canvas.width, H = c.canvas.height;
+  const sx = W / fog.w, sy = H / fog.h;
+  c.fillStyle = '#04060b';
+  for (let y = 0; y < fog.h; y++) {
+    const row = y * fog.w;
+    let x = 0;
+    while (x < fog.w) {
+      if (fog.mask[row + x]) { x++; continue; }
+      let x2 = x + 1;
+      while (x2 < fog.w && !fog.mask[row + x2]) x2++;
+      c.fillRect(x * sx, y * sy, (x2 - x) * sx + 0.25, sy + 0.25);
+      x = x2;
+    }
+  }
+}
+
+// ---------- wave countdown (center-top blinking banner) ----------
+// Driven from snap.cycle (<15s to dusk), the BR zone clock and the CTF
+// sudden-death timer — every read optional so classic snapshots no-op.
+let cdSig = null;
+function updateCountdown(snap) {
+  let text = '', blood = false;
+  if (snap.status === 'play') {
+    const cyc = snap.cycle;
+    if (cyc?.phase === 'day' && cyc.t > 0 && cyc.t <= 15) {
+      blood = !!cyc.bloodMoon;
+      text = `${blood ? 'BLOOD MOON' : 'NIGHTFALL'} IN ${Math.ceil(cyc.t)}`;
+    } else if (snap.zone?.shrinkT > 0 && snap.zone.shrinkT <= 15) {
+      text = `ZONE SHRINKS IN ${Math.ceil(snap.zone.shrinkT)}`;
+    } else if (snap.caps && !snap.untimed && snap.timeLeft > 0 && snap.timeLeft <= 15) {
+      text = `SUDDEN DEATH IN ${Math.ceil(snap.timeLeft)}`;
+    }
+  }
+  const sig = text + (blood ? '!' : '');
+  if (sig === cdSig) return;
+  cdSig = sig;
+  const el = $('countdown');
+  el.hidden = !text;
+  el.textContent = text;
+  el.classList.toggle('blood', blood);
+}
+
+// ---------- controls overlay (corner panel; Settings toggle, default ON) ----
+// Shows the CURRENT bindings (remap-aware) plus a contextual hint when a
+// local seat stands near a shop/carousel/tower/build site.
+let ctrlHudOn = localStorage.getItem('holdout-hd.ctrlhud') !== '0';
+let ctrlSig = null;
+function updateControlsOverlay(snap, me) {
+  const el = $('ctrlOverlay');
+  if (!ctrlHudOn || !session || snap.status !== 'play' || visibleScreen() || session.cutscene) {
+    if (!el.hidden) el.hidden = true;
+    ctrlSig = null;
+    return;
+  }
+  const k = a => keyLabel((KB1[a] ?? [])[0]);
+  const pb = a => padLabel((PADMAP[a] ?? [])[0]);
+  const rows = [
+    `MOVE  WASD · STICK/D-PAD`,
+    `FIRE  ${k('fire')} · ${pb('fire')}`,
+    `SPCL  ${k('special')} · ${pb('special')}`,
+    `ACT   ${k('act')} · ${pb('act')}`,
+    `ITEM  ${k('item')} · ${pb('item')}`,
+    `MAP   hold ${k('map')} · ${pb('map')}`,
+  ];
+  let hint = '';
+  if (me && me.state === 'active') {
+    const near = (o) => o && ((o.x - me.x) ** 2 + (o.y - me.y) ** 2) < (1.5 * TILE) ** 2;
+    if (me.shop) hint = `SHOP — HOLD ${k('act')}/${pb('act')} + ◄ ► CYCLES · FIRE BUYS`;
+    else if (me.selecting) hint = `TURRET TYPE — HOLD ${k('act')}/${pb('act')} + ◄ ► CYCLES · FIRE CONFIRMS`;
+    else if ((snap.builds ?? []).some(b => !b.built && near(b))) hint = `HOLD ${k('act')}/${pb('act')} BUILDS · SHOOT YOUR OWN WALLS TO DEMOLISH`;
+    else if ((snap.towers ?? []).some(t => (t.hp ?? 1) > 0 && t.occupant == null && near(t))) hint = `${k('act')}/${pb('act')} MANS THE TOWER`;
+    else if ((snap.shops ?? []).some(s => near(s))) hint = `HOLD ${k('act')}/${pb('act')} BROWSES THE STALL`;
+    else if ((snap.npcs ?? []).some(n => near(n))) hint = `${k('act')}/${pb('act')} TALKS`;
+  }
+  const sig = rows.join('|') + '#' + hint;
+  if (sig === ctrlSig) return;
+  ctrlSig = sig;
+  el.hidden = false;
+  el.innerHTML = rows.map(r => `<div>${r}</div>`).join('')
+    + (hint ? `<div class="chint">${hint}</div>` : '');
+}
+
+// ---------- full-map overlay (hold MAP: pad SELECT / Tab / M) ----------
+// A scaled copy of the freshly drawn minimap (fog, entities and the camera
+// rect are already baked in) centered over the dimmed field, plus pulsing
+// objective markers. Pure client/render — released, it vanishes instantly.
+function drawMapOverlay(ctx, snap, t) {
+  const W = ctx.canvas.width, H = ctx.canvas.height;
+  ctx.save();
+  ctx.fillStyle = 'rgba(4,6,11,0.8)';
+  ctx.fillRect(0, 0, W, H);
+  const aspect = (snap.w || 1) / (snap.h || 1);
+  let dw = W * 0.8, dh = dw / aspect;
+  if (dh > H * 0.76) { dh = H * 0.76; dw = dh * aspect; }
+  const dx = (W - dw) / 2, dy = (H - dh) / 2;
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage($('minimap'), dx, dy, dw, dh);
+  ctx.imageSmoothingEnabled = true;
+  ctx.strokeStyle = 'rgba(111,216,242,0.55)';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(dx - 1.5, dy - 1.5, dw + 3, dh + 3);
+  // objective markers (world px -> overlay px), fog-respecting
+  const px = x => dx + (x / (snap.w * TILE)) * dw;
+  const py = y => dy + (y / (snap.h * TILE)) * dh;
+  const seen = (x, y) => !fogActive() || !fog.mask || fog.gridRef !== snap.grid
+    || !!fog.mask[Math.min(fog.h - 1, Math.max(0, Math.floor(y / TILE))) * fog.w + Math.min(fog.w - 1, Math.max(0, Math.floor(x / TILE)))];
+  const ring = (x, y, col) => {
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(px(x), py(y), 6 + 2.5 * Math.sin(t * 5), 0, Math.PI * 2);
+    ctx.stroke();
+  };
+  if (snap.core) ring(snap.core.x, snap.core.y, 'rgba(255,217,138,0.9)');
+  for (const c of snap.cores ?? []) ring(c.x, c.y, (c.hp ?? 0) > 0 ? 'rgba(255,217,138,0.9)' : 'rgba(224,72,72,0.9)');
+  for (const q of snap.qitems ?? []) if (q.carrier == null && seen(q.x, q.y)) ring(q.x, q.y, 'rgba(111,216,242,0.9)');
+  if (snap.ship?.landed) ring(snap.ship.x, snap.ship.y, 'rgba(111,216,242,0.95)');
+  ctx.fillStyle = '#DFF3FF';
+  ctx.textAlign = 'center';
+  ctx.font = `bold ${Math.max(14, Math.round(H * 0.024))}px ui-monospace, Menlo, monospace`;
+  ctx.fillText('TACTICAL MAP', W / 2, dy - Math.max(10, H * 0.015));
+  ctx.fillStyle = 'rgba(160,176,204,0.75)';
+  ctx.font = `${Math.max(10, Math.round(H * 0.015))}px ui-monospace, Menlo, monospace`;
+  ctx.fillText('release MAP to return', W / 2, dy + dh + Math.max(16, H * 0.025));
+  ctx.restore();
 }
 
 // ---------- cutscene slide player (shared by Local and Net sessions) ----------
@@ -850,8 +1105,12 @@ class LocalSession {
           : this.expedition ? expeditions : campaign;
     this.levelIdx = this.story
       ? Math.max(0, Math.min((save?.chapter ?? 1) - 1, this.levels.length - 1))
-      : (this.expedition || this.mode || this.bastion) ? 0 : (save?.levelIdx ?? 0);
-    this.roster = save?.roster ?? startingRoster.slice();
+      : this.bastion
+        ? Math.max(0, Math.min(opts.levelIdx ?? 0, Math.max(0, this.levels.length - 1)))
+        : (this.expedition || this.mode) ? 0 : (save?.levelIdx ?? 0);
+    // stronghold lobbies draw from the stronghold roster (starters + every
+    // operative unlocked by beaten levels); other modes are untouched
+    this.roster = save?.roster ?? (this.bastion ? strongholdRoster() : startingRoster.slice());
     this.players = []; // { pid, name, device, charId, cursor }
     this.game = null;
     this.snap = null;
@@ -887,7 +1146,9 @@ class LocalSession {
         : this.mode
           ? `Versus ${ctf ? 'CTF' : 'Royale'} — ${lvl.name}`
           : this.bastion
-            ? `Bastion — ${lvl.name}`
+            ? (lvl.stronghold
+              ? `Stronghold ${String(lvl.stronghold.level ?? this.levelIdx + 1).padStart(2, '0')} — ${lvl.stronghold.name ?? lvl.name}`
+              : `Bastion — ${lvl.name}`)
             : this.expedition
               ? `Expedition — ${lvl.name}`
               : `Mission ${this.levelIdx + 1} / ${this.levels.length} — ${lvl.name}`,
@@ -895,7 +1156,7 @@ class LocalSession {
         ? 'Story campaign · progress autosaves between chapters'
         : ctf ? 'Capture the Flag · first to 3 captures · 2-4 players, join order alternates teams'
           : this.mode === 'br' ? 'Battle Royale · last operative standing · 2-4 players'
-            : this.bastion ? 'Siege survival · hold the core through every night · 1-4 players, no autosave'
+            : this.bastion ? 'Siege survival · hold through every night · 1-4 players · clears unlock the next stronghold and new operatives'
               : this.expedition ? 'One huge map. No autosave — bring everyone home.' : 'Local campaign · progress autosaves',
       hint: 'Press FIRE to join: gamepad (A) · keyboard WASD+Space · keyboard Arrows+Enter — up to 4 players. Move your cursor with LEFT/RIGHT, FIRE to lock in. '
         + 'In the field — SPECIAL: F / RShift / B·RB · ACT: E / Slash / X · ITEM: Q / . / Y. '
@@ -1001,9 +1262,11 @@ class LocalSession {
       this.paused = false;
       hideAll();
     };
-    // Story chapters open on an intro cutscene; the sim is created only after
-    // it ends, so no mission time is lost. Classic/expedition start instantly.
-    if (this.story) this.startCutscene(lvl.intro, begin);
+    // Story chapters and stronghold levels open on an intro cutscene (every
+    // stronghold ships one slide: what is happening + what to do); the sim is
+    // created only after it ends, so no mission time is lost. Classic and
+    // expedition runs start instantly. startSlides() handles missing slides.
+    if (this.story || this.bastion) this.startCutscene(lvl.intro, begin);
     else begin();
   }
   // Cutscenes are client-owned: render.drawCutscene draws, the shared slide
@@ -1178,9 +1441,25 @@ class LocalSession {
         return;
       }
       if (this.bastion) {
-        // expedition-style one-shot: no save written, straight back to menu
+        // stronghold progression: mark the level beaten, unlock the next one
+        // and its operative (toasts ride over the results dialog)
         playUi('victory');
-        showMsg('The Bastion Holds', (resultText(res) || 'Every night survived — the core still stands.') + `\nScore: ${score.toLocaleString()}`, 'Main Menu', () => this.leave());
+        const unlocks = demoMode ? [] : shRecordClear(lvl);
+        const last = this.levelIdx >= this.levels.length - 1;
+        showMsg('The Stronghold Holds',
+          (resultText(res) || 'Every night survived — the line still stands.') + `\nScore: ${score.toLocaleString()}`,
+          last ? 'Main Menu' : 'Level Select',
+          () => {
+            if (last) return this.leave();
+            session = null;
+            shPurpose = 'local';
+            show('menu');
+            showMenuPage('pageSh');
+            refreshContinue();
+          },
+          last ? null : 'Main Menu',
+          last ? null : () => this.leave());
+        for (const t of unlocks) showToast(t, 3000, true);
         return;
       }
       if (this.expedition) {
@@ -1250,7 +1529,7 @@ class LocalSession {
 // request extra pids with addLocal. A machine with no bound seat keeps the
 // classic mouse flow (legacy single-input form, primary pid).
 class NetSession {
-  constructor(mode, code, hostMode = 'classic') {
+  constructor(mode, code, hostMode = 'classic', hostLevelIdx = null) {
     this.myPid = null;
     this.myPick = null;
     this.snap = null;
@@ -1269,6 +1548,10 @@ class NetSession {
         const msg = { t: 'host', name: this.name, resume: code };
         // classic hosting stays byte-identical; story/ctf/br ride the mode field
         if (hostMode && hostMode !== 'classic') msg.mode = hostMode;
+        // stronghold: the host's level-select pick rides along (the server
+        // clamps it; unlock gating is client-side — this menu only offers
+        // unlocked levels)
+        if (hostMode === 'bastion' && hostLevelIdx != null) msg.levelIdx = hostLevelIdx;
         this.ws.send(JSON.stringify(msg));
       } else {
         this.ws.send(JSON.stringify({ t: 'join', room: code, name: this.name }));
@@ -1426,6 +1709,12 @@ class NetSession {
       // story outro plays first (cleared runs only), then the results dialog
       if (m.status === 'cleared' && m.outro?.length) startSlides(this, m.outro, results);
       else results();
+      // online stronghold clears feed the LOCAL progression save too (every
+      // participant earns the unlock); toasts ride over the results dialog
+      if (m.status === 'cleared' && this.lobbyData?.mode === 'bastion') {
+        const def = bastionLevels[this.lobbyData.levelIdx ?? 0];
+        if (def?.stronghold) for (const t of shRecordClear(def)) showToast(t, 3000, true);
+      }
     }
     else if (m.t === 'error') {
       this.close();
@@ -1446,7 +1735,7 @@ class NetSession {
         : vm
           ? `Versus ${ctf ? 'CTF' : 'Royale'} — ${m.levelName || ''}`
           : m.mode === 'bastion'
-            ? `Bastion — ${m.levelName || ''}`
+            ? `Stronghold ${String((m.levelIdx ?? 0) + 1).padStart(2, '0')} — ${m.levelName || ''}`
             : `${story ? 'Chapter' : 'Mission'} ${m.levelIdx + 1} / ${m.totalLevels} — ${m.levelName || ''}`,
       info: m.lan
         ? `Room <b>${m.room}</b> — friends: ${m.lan} (or this machine's address)`
@@ -1575,21 +1864,295 @@ class NetSession {
   leave() { this.close(); show('menu'); refreshContinue(); }
 }
 
+// ---------- stronghold progression (local save) ----------
+// 'holdout-hd.stronghold' = { unlocked: highest unlocked 1-based level,
+// beaten: [levelNo...], chars: [unlocked charIds] }. Level N+1 unlocks when
+// N is beaten; the roster grows by each beaten level's def.stronghold.unlock.
+const SH_KEY = 'holdout-hd.stronghold';
+// Canonical unlock schedule (contract-fixed). Used as the fallback when a
+// level def doesn't carry def.stronghold.unlock yet — defs win when present.
+const SH_UNLOCKS = {
+  2: 'sniper', 3: 'raider', 4: 'pyro', 5: 'engineer', 6: 'bastion', 8: 'duelist',
+  10: 'volt', 12: 'boomer', 14: 'warden', 16: 'shade', 18: 'helix', 20: 'seal', 23: 'atlas',
+};
+function loadShSave() {
+  try {
+    const s = JSON.parse(localStorage.getItem(SH_KEY));
+    if (s && typeof s === 'object') {
+      return {
+        unlocked: Math.max(1, Math.floor(s.unlocked) || 1),
+        beaten: Array.isArray(s.beaten) ? s.beaten : [],
+        chars: Array.isArray(s.chars) ? s.chars : [],
+      };
+    }
+  } catch {}
+  return { unlocked: 1, beaten: [], chars: [] };
+}
+function shUnlockOf(def, n) { return def?.stronghold?.unlock ?? SH_UNLOCKS[n] ?? null; }
+// Stronghold lobby roster: 4 starters + every operative the save has earned.
+function strongholdRoster() {
+  const s = loadShSave();
+  return [...startingRoster, ...s.chars.filter(id => charMap[id] && !startingRoster.includes(id))];
+}
+// Records a cleared level; returns 'UNLOCKED — …' toast lines for the caller.
+function shRecordClear(def) {
+  const n = def?.stronghold?.level ?? (bastionLevels.indexOf(def) + 1);
+  if (!(n >= 1)) return [];
+  const s = loadShSave();
+  const toasts = [];
+  if (!s.beaten.includes(n)) s.beaten.push(n);
+  const nextN = Math.min(bastionLevels.length, n + 1);
+  if (nextN > s.unlocked) {
+    s.unlocked = nextN;
+    const nd = bastionLevels[nextN - 1];
+    if (nd && nextN !== n) {
+      toasts.push(`UNLOCKED — ${String(nd.stronghold?.name ?? nd.name ?? 'STRONGHOLD ' + nextN).toUpperCase()}`);
+    }
+  }
+  const cid = shUnlockOf(def, n);
+  if (cid && charMap[cid] && !startingRoster.includes(cid) && !s.chars.includes(cid)) {
+    s.chars.push(cid);
+    toasts.push(`UNLOCKED — ${charMap[cid].name.toUpperCase()}`);
+  }
+  try { localStorage.setItem(SH_KEY, JSON.stringify(s)); } catch {}
+  return toasts;
+}
+
+// ---------- menu pages (MAIN / SINGLEPLAYER / VERSUS / ONLINE / SETTINGS /
+// REMAP / STRONGHOLD SELECT) — DOM screens inside #menu, pad-navigable ----
+const MENU_PARENT = {
+  pageSingle: 'pageMain', pageVersus: 'pageMain', pageOnline: 'pageMain',
+  pageSettings: 'pageMain', pageRemap: 'pageSettings', pageSh: 'pageSingle',
+};
+let menuPageId = 'pageMain';
+let shPurpose = 'local'; // why the level select is open: 'local' | 'host'
+function showMenuPage(id) {
+  menuPageId = id;
+  for (const el of document.querySelectorAll('#menu .mpage')) el.hidden = el.id !== id;
+  cancelRemapListen();
+  setNavFocus(null); // navTick re-picks a default focus on the new page
+  if (id === 'pageSh') renderShGrid();
+  if (id === 'pageRemap') renderRemap();
+}
+// pad B / Escape: one page back. Returns false on the main page (no-op).
+function menuBack() {
+  const parent = MENU_PARENT[menuPageId];
+  if (!parent || $('menu').hidden) return false;
+  playUi('back');
+  showMenuPage(parent);
+  return true;
+}
+
+// ---------- stronghold level select (25 cards, locked/beaten states) ----------
+function renderShGrid() {
+  const grid = $('shGrid');
+  const s = loadShSave();
+  $('shSub').textContent = shPurpose === 'host'
+    ? 'pick a stronghold to host online — only your unlocked levels are offered'
+    : 'beat a stronghold to unlock the next · new operatives join the roster';
+  $('shBlurb').textContent = ' ';
+  grid.innerHTML = '';
+  bastionLevels.forEach((lvl, idx) => {
+    const sh = lvl.stronghold ?? {};
+    const n = sh.level ?? idx + 1;
+    const locked = n > s.unlocked;
+    const beaten = s.beaten.includes(n);
+    const diff = Math.max(0, Math.min(5, sh.difficulty ?? 1));
+    const cid = shUnlockOf(lvl, n);
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'shcard' + (locked ? ' locked' : '') + (beaten ? ' beaten' : '');
+    card.innerHTML =
+      `<span class="shtop"><b class="shno">${String(n).padStart(2, '0')}</b>`
+      + `<span class="shmark">${locked ? '🔒' : beaten ? '✔' : ''}</span></span>`
+      + `<span class="shname">${sh.name ?? lvl.name ?? '—'}</span>`
+      + `<span class="shmeta">${sh.sizeLabel ?? '?'} · <i class="pips">${'●'.repeat(diff)}${'○'.repeat(5 - diff)}</i> · ${sh.waves ?? '?'} waves</span>`
+      + `<span class="shbadges">${(sh.newFeatures ?? []).slice(0, 2).map(f => `<i class="shnew">NEW · ${f}</i>`).join('')}`
+      + (cid && charMap[cid] ? `<i class="shchar">+${charMap[cid].name.toUpperCase()}</i>` : '')
+      + `</span>`;
+    card.dataset.blurb = locked
+      ? `Locked — beat stronghold ${String(n - 1).padStart(2, '0')} to open the way.`
+      : (sh.blurb ?? lvl.objective ?? '');
+    card.onmouseenter = () => { $('shBlurb').textContent = card.dataset.blurb || ' '; };
+    card.onclick = e => {
+      e.currentTarget.blur();
+      if (locked) return playUi('locked');
+      startStronghold(idx);
+    };
+    grid.appendChild(card);
+  });
+}
+function startStronghold(idx) {
+  if (session) return;
+  playUi('select');
+  if (shPurpose === 'host') {
+    session = new NetSession('host', '', 'bastion', idx);
+  } else {
+    session = new LocalSession(null, { mode: 'bastion', levelIdx: idx });
+    session.lobby();
+  }
+}
+
+// ---------- input remapping (Settings > Input remapping) ----------
+// Listen-for-next-press rebinding per action, per device (both keyboard seats
+// + one shared gamepad layout), saved to localStorage via saveBinds().
+const ACTION_LABEL = {
+  up: 'MOVE UP', down: 'MOVE DOWN', left: 'MOVE LEFT', right: 'MOVE RIGHT',
+  fire: 'FIRE', special: 'SPECIAL', act: 'INTERACT / BUILD', item: 'ITEM',
+  start: 'PAUSE / START', map: 'MAP (HOLD)',
+};
+const KEY_NICE = {
+  Space: 'SPACE', Slash: '/', Period: '.', Comma: ',', Escape: 'ESC', Backspace: 'BKSP',
+  ShiftRight: 'R-SHIFT', ShiftLeft: 'L-SHIFT', ControlRight: 'R-CTRL', ControlLeft: 'L-CTRL',
+  Enter: 'ENTER', Tab: 'TAB',
+};
+const keyLabel = c => c == null ? '—' : (KEY_NICE[c] ?? String(c).replace(/^Key|^Digit|^Arrow/, '').toUpperCase());
+const PADBTN_NICE = {
+  0: 'A', 1: 'B', 2: 'X', 3: 'Y', 4: 'LB', 5: 'RB', 6: 'LT', 7: 'RT',
+  8: 'SELECT', 9: 'START', 10: 'L3', 11: 'R3', 12: 'D-UP', 13: 'D-DOWN', 14: 'D-LEFT', 15: 'D-RIGHT',
+};
+const padLabel = j => j == null ? '—' : (PADBTN_NICE[j] ?? 'BTN ' + j);
+function bindLabel(dev, action) {
+  const m = dev === 'pad' ? PADMAP : dev === 'kb1' ? KB1 : KB2;
+  const list = m[action] ?? [];
+  if (!list.length) return '—';
+  return list.map(dev === 'pad' ? padLabel : keyLabel).join(' / ');
+}
+let remapDev = 'kb1';
+let remapListen = null; // { dev, action, t0 } while waiting for a press
+let remapHeld = null;   // pad buttons already down when listening started
+let remapBoundGuard = 0; // frames navTick skips after a pad bind lands (the
+                         // landing press must not double as B-back/A-click)
+function renderRemap() {
+  for (const b of document.querySelectorAll('#remapDevs .rdev')) {
+    b.classList.toggle('active', b.dataset.dev === remapDev);
+  }
+  const host = $('remapList');
+  host.innerHTML = '';
+  for (const a of ACTIONS) {
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'rrow' + (binds[remapDev]?.[a] != null ? ' custom' : '');
+    const listening = remapListen && remapListen.dev === remapDev && remapListen.action === a;
+    row.innerHTML = `<span>${ACTION_LABEL[a] ?? a.toUpperCase()}</span><b>${listening ? 'PRESS…' : bindLabel(remapDev, a)}</b>`;
+    row.onclick = e => { e.currentTarget.blur(); startRemapListen(remapDev, a); };
+    host.appendChild(row);
+  }
+}
+function startRemapListen(dev, action) {
+  cancelRemapListen();
+  remapListen = { dev, action, t0: performance.now() };
+  if (dev === 'pad') {
+    remapHeld = new Set();
+    for (const gp of navigator.getGamepads?.() ?? []) {
+      if (!gp || !gp.connected) continue;
+      gp.buttons.forEach((bt, j) => { if (bt?.pressed) remapHeld.add(gp.index + ':' + j); });
+    }
+  } else {
+    addEventListener('keydown', remapKeyCapture, true);
+  }
+  renderRemap();
+}
+function remapKeyCapture(e) {
+  if (!remapListen || remapListen.dev === 'pad' || e.repeat) return;
+  e.preventDefault();
+  e.stopPropagation();
+  if (e.code !== 'Escape') {
+    (binds[remapListen.dev] ??= {})[remapListen.action] = e.code;
+    saveBinds();
+    playUi('bind');
+  }
+  cancelRemapListen();
+  renderRemap();
+}
+function cancelRemapListen() {
+  if (!remapListen) return;
+  remapListen = null;
+  remapHeld = null;
+  removeEventListener('keydown', remapKeyCapture, true);
+}
+// Polled from the frame loop: binds the first FRESH pad button press.
+function remapPadTick() {
+  if (!remapListen) return;
+  if (performance.now() - remapListen.t0 > 8000) { // listen timed out
+    cancelRemapListen();
+    renderRemap();
+    return;
+  }
+  if (remapListen.dev !== 'pad') return;
+  for (const gp of navigator.getGamepads?.() ?? []) {
+    if (!gp || !gp.connected) continue;
+    for (let j = 0; j < gp.buttons.length; j++) {
+      const k = gp.index + ':' + j;
+      if (gp.buttons[j]?.pressed) {
+        if (remapHeld.has(k)) continue; // held since before listening
+        (binds.pad ??= {})[remapListen.action] = j;
+        saveBinds();
+        playUi('bind');
+        cancelRemapListen();
+        remapBoundGuard = 1;
+        renderRemap();
+        return;
+      }
+      remapHeld.delete(k); // released — a re-press now counts
+    }
+  }
+}
+
 // ---------- menu wiring ----------
 function refreshContinue() {
   $('btnContinue').hidden = !localStorage.getItem(SAVE_KEY);
   $('btnStory').hidden = !storyLevels.length;
   $('btnStoryContinue').hidden = !storyLevels.length || !localStorage.getItem(STORY_KEY);
   $('btnHostStory').hidden = !storyLevels.length;
-  // versus/bastion buttons only exist once their mode maps ship
+  // versus/stronghold buttons only exist once their mode maps ship
   $('btnBastion').hidden = !bastionLevels.length;
   $('btnHostBastion').hidden = !bastionLevels.length;
   $('btnCtf').hidden = !ctfLevels.length;
   $('btnHostCtf').hidden = !ctfLevels.length;
   $('btnBr').hidden = !brLevels.length;
   $('btnHostBr').hidden = !brLevels.length;
+  // back on the menu with the level select up: re-read unlock/beaten states
+  if (menuPageId === 'pageSh' && !$('menu').hidden) renderShGrid();
 }
 refreshContinue();
+
+// page navigation buttons + every Back control (mouse path; pad B mirrors it)
+$('btnSingle').onclick = e => { e.currentTarget.blur(); showMenuPage('pageSingle'); };
+$('btnVersus').onclick = e => { e.currentTarget.blur(); showMenuPage('pageVersus'); };
+$('btnOnline').onclick = e => { e.currentTarget.blur(); showMenuPage('pageOnline'); };
+$('btnSettings').onclick = e => { e.currentTarget.blur(); showMenuPage('pageSettings'); };
+$('btnRemap').onclick = e => { e.currentTarget.blur(); showMenuPage('pageRemap'); };
+for (const b of document.querySelectorAll('#menu .mback')) {
+  b.onclick = e => {
+    e.currentTarget.blur();
+    showMenuPage(b.dataset.back || MENU_PARENT[menuPageId] || 'pageMain');
+  };
+}
+for (const b of document.querySelectorAll('#remapDevs .rdev')) {
+  b.onclick = e => {
+    e.currentTarget.blur();
+    cancelRemapListen();
+    remapDev = b.dataset.dev;
+    renderRemap();
+  };
+}
+$('btnRemapReset').onclick = e => {
+  e.currentTarget.blur();
+  cancelRemapListen();
+  delete binds[remapDev];
+  saveBinds();
+  renderRemap();
+  showToast('BINDINGS RESET — ' + (remapDev === 'pad' ? 'GAMEPAD' : DEVICE_LABEL[remapDev]).toUpperCase(), 2200, true);
+};
+const ctrlHudSync = () => { $('btnCtrlHud').textContent = `Controls overlay: ${ctrlHudOn ? 'On' : 'Off'}`; };
+$('btnCtrlHud').onclick = e => {
+  e.currentTarget.blur();
+  ctrlHudOn = !ctrlHudOn;
+  try { localStorage.setItem('holdout-hd.ctrlhud', ctrlHudOn ? '1' : '0'); } catch {}
+  ctrlHudSync();
+};
+ctrlHudSync();
 $('nameInput').value = localStorage.getItem('holdout.name') || '';
 $('nameInput').onchange = () => localStorage.setItem('holdout.name', $('nameInput').value);
 
@@ -1625,8 +2188,8 @@ $('btnStoryContinue').onclick = e => {
 $('btnBastion').onclick = e => {
   e.currentTarget.blur();
   if (!bastionLevels.length || session) return;
-  session = new LocalSession(null, { mode: 'bastion' });
-  session.lobby();
+  shPurpose = 'local';
+  showMenuPage('pageSh');
 };
 $('btnCtf').onclick = e => {
   e.currentTarget.blur();
@@ -1648,7 +2211,10 @@ $('btnHost').onclick = e => {
 $('btnHostBastion').onclick = e => {
   e.currentTarget.blur();
   if (!bastionLevels.length || session) return;
-  session = new NetSession('host', $('joinCode').value.trim().toUpperCase(), 'bastion');
+  // the host picks a level FIRST (level select), then the room is created
+  // with {t:'host', mode:'bastion', levelIdx} — see startStronghold()
+  shPurpose = 'host';
+  showMenuPage('pageSh');
 };
 $('btnHostCtf').onclick = e => {
   e.currentTarget.blur();
@@ -1716,19 +2282,27 @@ if (demoMode) {
   }
 }
 
-// ---------- fill the screen: scale the whole stage to the window ----------
-// The stage (canvas + side panels) has a fixed natural size; scaling the box
-// to the viewport removes the dark borders on TVs and laptops alike.
+// ---------- fill the screen: responsive canvas (no letterboxing) ----------
+// The stage spans the whole window (CSS); the side panels keep their fixed
+// width and full height, and the CANVAS's logical resolution adapts to the
+// remaining center area — devicePixelRatio-aware, clamped to sane bounds
+// (~960x540 .. 2560x1440). The camera and all HUD/screen-space drawing read
+// the canvas dims dynamically, so on ultra-wide the field simply shows more
+// world (the cam clamps handle it). No distortion: one uniform scale factor.
 const stageEl = document.getElementById('stage');
-let stageNatW = 0, stageNatH = 0;
 function fitStage() {
-  if (!stageNatW) {
-    const r = stageEl.getBoundingClientRect();
-    stageNatW = r.width; stageNatH = r.height;
-    if (!stageNatW || !stageNatH) return;
-  }
-  const s = Math.min(innerWidth / stageNatW, innerHeight / stageNatH);
-  stageEl.style.transform = `scale(${s.toFixed(4)})`;
+  stageEl.style.transform = 'none'; // the old uniform-scale path is retired
+  const r = canvas.getBoundingClientRect();
+  const cssW = Math.max(1, Math.round(r.width));
+  const cssH = Math.max(1, Math.round(r.height));
+  if (cssW < 8 || cssH < 8) return; // layout not ready yet
+  const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+  // uniform resolution scale: respect dpr, cap at 2560x1440, floor at 960x540
+  let s = Math.min(dpr, 2560 / cssW, 1440 / cssH);
+  s = Math.max(s, 960 / cssW, 540 / cssH);
+  const w = Math.round(cssW * s), h = Math.round(cssH * s);
+  if (canvas.width !== w) canvas.width = w;
+  if (canvas.height !== h) canvas.height = h;
 }
 addEventListener('resize', fitStage);
 fitStage();
@@ -1746,6 +2320,7 @@ function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   const polled = pollDevices();
+  remapPadTick();  // a pad rebind capture polls raw buttons each frame
   navTick(polled); // first: consumes the button edges it handles
   if (session) {
     session.tick?.(polled, dt);
@@ -1767,6 +2342,12 @@ function frame(now) {
       if (snap) {
         render(ctx, snap, charMap, session.focusPids(), now / 1000, dt);
         updateHUD(snap);
+        // hold-MAP full-map overlay (pad SELECT / Tab / M) — play only;
+        // lobbies, menus and dialogs ignore the map button entirely
+        if (snap.status === 'play' && !visibleScreen()
+            && Object.values(polled).some(st => st.map)) {
+          drawMapOverlay(ctx, snap, now / 1000);
+        }
       }
     }
   } else {

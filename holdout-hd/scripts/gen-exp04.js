@@ -1,4 +1,4 @@
-// Generates levels/level14.json — "Chapter IV — Forkfall".
+// Generates levels/story/ch04.json — "Chapter IV — Forkfall".
 // Deterministic (fixed seed 20260614): re-running always produces the same map.
 // The city that exists twice: an 84x64 ruined city whose WEST HALF is generated
 // as city-block rectangles on a street grid (';' worked stone, '#' buildings,
@@ -388,6 +388,6 @@ const def = {
   gate: { need: 3 },
   tiles: grid.map(r => r.join('')),
 };
-const out = path.join(__dirname, '../levels/level14.json');
+const out = path.join(__dirname, '../levels/story/ch04.json');
 fs.writeFileSync(out, JSON.stringify(def, null, 2) + '\n');
 console.log('wrote', out);

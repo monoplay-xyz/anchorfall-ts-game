@@ -1,4 +1,4 @@
-// Generates levels/level17.json — "Chapter VII — The Anchorcraft", Act II opener.
+// Generates levels/story/ch07.json — "Chapter VII — The Anchorcraft", Act II opener.
 // Deterministic (fixed seed 20260617): re-running always produces the same map.
 // A 92x64 crash-site chapter: a road network links a small village (elder,
 // forgekeeper, corridor warden, market, hire post) to the crashed Anchorcraft
@@ -580,6 +580,6 @@ const def = {
   },
   tiles: grid.map(r => r.join('')),
 };
-const out = path.join(__dirname, '../levels/level17.json');
+const out = path.join(__dirname, '../levels/story/ch07.json');
 fs.writeFileSync(out, JSON.stringify(def, null, 2) + '\n');
 console.log('wrote', out);

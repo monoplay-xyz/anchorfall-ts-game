@@ -1,0 +1,957 @@
+{
+  "name": "Stormfield",
+  "objective": "Hold the stormfield for six nights — raise the storm mast so the relief column hears the hold",
+  "time": 600,
+  "expedition": true,
+  "mode": "bastion",
+  "bastion": {
+    "nights": 6,
+    "dayLen": 85,
+    "nightLen": 80,
+    "bloodMoons": [
+      4,
+      6
+    ],
+    "wavesPerNight": 2,
+    "waveMult": 1.6
+  },
+  "stronghold": {
+    "level": 10,
+    "name": "Stormfield",
+    "sizeLabel": "L",
+    "difficulty": 3,
+    "waves": 14,
+    "hpMult": 1.3,
+    "unlock": "volt",
+    "blurb": "A rain-lashed meadow under a dead mast. Lightning favors the coils — and so does the storm her people named Volt.",
+    "newFeatures": [
+      "Volt joins the roster",
+      "Prebuilt tesla turret",
+      "Rain (burn patches die fast)"
+    ]
+  },
+  "intro": [
+    {
+      "title": "Stormfield",
+      "lines": [
+        "The mast is dead, the brooks are rising, and the waves come with the dusk.",
+        "Rain drowns fire fast — let the tesla coils do the crowd work.",
+        "Raise the storm mast and Volt answers the signal."
+      ],
+      "art": "siege"
+    }
+  ],
+  "captiveChars": [],
+  "builds": [
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "comm",
+      "cost": 8
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "turret",
+      "cost": 10,
+      "prebuilt": true,
+      "ttype": "tesla"
+    },
+    {
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "farm",
+      "cost": 6
+    },
+    {
+      "kind": "farm",
+      "cost": 6
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "farm",
+      "cost": 6
+    },
+    {
+      "kind": "farm",
+      "cost": 6
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    }
+  ],
+  "chests": [
+    {
+      "loot": "shield",
+      "amount": 1
+    },
+    {
+      "loot": "shards",
+      "amount": 9
+    },
+    {
+      "loot": "cracker",
+      "amount": 2
+    },
+    {
+      "loot": "controller",
+      "amount": 1
+    },
+    {
+      "loot": "shards",
+      "amount": 8
+    },
+    {
+      "loot": "shards",
+      "amount": 7
+    },
+    {
+      "loot": "token",
+      "amount": 1
+    },
+    {
+      "loot": "medkit",
+      "amount": 1
+    },
+    {
+      "loot": "medkit",
+      "amount": 1
+    },
+    {
+      "loot": "cracker",
+      "amount": 2
+    },
+    {
+      "loot": "toxin",
+      "amount": 1
+    }
+  ],
+  "vehicles": [
+    {
+      "kind": "stag"
+    },
+    {
+      "kind": "stag"
+    }
+  ],
+  "hires": [
+    {
+      "job": "farmer",
+      "cost": 8,
+      "name": "Rainward Polla"
+    },
+    {
+      "job": "engineer",
+      "cost": 10,
+      "name": "Coilwright Hess"
+    },
+    {
+      "job": "smith",
+      "cost": 12,
+      "name": "Stormbrand Ode"
+    },
+    {
+      "job": "caster",
+      "cost": 14,
+      "name": "Galewitch Imra"
+    },
+    {
+      "job": "archer",
+      "cost": 12,
+      "name": "Wetfletch Roun"
+    }
+  ],
+  "npcs": [
+    {
+      "id": "signal-warden",
+      "name": "Signal Warden Tale",
+      "lines": [
+        "The mast across the west brook went dark in the first storm. Raise it and the relief column hears us.",
+        "Rain kills fire. Lightning loves a crowd — the tesla coils do too.",
+        "Volt walked out of the LYTH fields three storms back. Hold the field and she holds with you."
+      ]
+    }
+  ],
+  "quests": [
+    {
+      "id": "storm-mast",
+      "main": true,
+      "title": "Raise the storm mast",
+      "giver": "signal-warden",
+      "kind": "build",
+      "target": "comm",
+      "count": 1,
+      "reward": {
+        "shards": 14
+      },
+      "hint": "The dead mast stands on the knoll across the west brook. Shards and an act-hold raise it."
+    },
+    {
+      "id": "wraith-count",
+      "title": "Ground four Volt Wraiths",
+      "giver": "signal-warden",
+      "kind": "kill",
+      "target": "v",
+      "count": 4,
+      "reward": {
+        "shards": 12
+      },
+      "hint": "The wraiths ride the storm. Grounding four thins the charge."
+    }
+  ],
+  "pickups": [
+    {
+      "kind": "stormgun"
+    }
+  ],
+  "patrols": [
+    {
+      "at": [
+        42,
+        9
+      ],
+      "points": [
+        [
+          41,
+          12
+        ],
+        [
+          38,
+          9
+        ],
+        [
+          42,
+          5
+        ]
+      ]
+    },
+    {
+      "at": [
+        21,
+        12
+      ],
+      "points": [
+        [
+          24,
+          15
+        ],
+        [
+          24,
+          11
+        ],
+        [
+          25,
+          12
+        ]
+      ]
+    },
+    {
+      "at": [
+        20,
+        13
+      ],
+      "points": [
+        [
+          24,
+          13
+        ],
+        [
+          22,
+          15
+        ],
+        [
+          23,
+          16
+        ]
+      ]
+    },
+    {
+      "at": [
+        78,
+        19
+      ],
+      "points": [
+        [
+          74,
+          19
+        ],
+        [
+          78,
+          15
+        ],
+        [
+          81,
+          22
+        ]
+      ]
+    },
+    {
+      "at": [
+        76,
+        20
+      ],
+      "points": [
+        [
+          80,
+          20
+        ],
+        [
+          77,
+          23
+        ],
+        [
+          72,
+          20
+        ]
+      ]
+    },
+    {
+      "at": [
+        16,
+        51
+      ],
+      "points": [
+        [
+          13,
+          50
+        ],
+        [
+          16,
+          47
+        ],
+        [
+          18,
+          53
+        ]
+      ]
+    },
+    {
+      "at": [
+        14,
+        52
+      ],
+      "points": [
+        [
+          18,
+          52
+        ],
+        [
+          15,
+          55
+        ],
+        [
+          14,
+          48
+        ]
+      ]
+    },
+    {
+      "at": [
+        72,
+        55
+      ],
+      "points": [
+        [
+          68,
+          55
+        ],
+        [
+          72,
+          51
+        ],
+        [
+          75,
+          58
+        ]
+      ]
+    },
+    {
+      "at": [
+        70,
+        56
+      ],
+      "points": [
+        [
+          74,
+          56
+        ],
+        [
+          70,
+          60
+        ],
+        [
+          66,
+          56
+        ]
+      ]
+    },
+    {
+      "at": [
+        50,
+        59
+      ],
+      "points": [
+        [
+          46,
+          59
+        ],
+        [
+          50,
+          55
+        ],
+        [
+          53,
+          62
+        ]
+      ]
+    },
+    {
+      "at": [
+        48,
+        60
+      ],
+      "points": [
+        [
+          52,
+          60
+        ],
+        [
+          48,
+          64
+        ],
+        [
+          44,
+          60
+        ]
+      ]
+    }
+  ],
+  "groups": [
+    [
+      [
+        78,
+        19
+      ],
+      [
+        76,
+        20
+      ],
+      [
+        74,
+        21
+      ],
+      [
+        77,
+        22
+      ]
+    ],
+    [
+      [
+        72,
+        55
+      ],
+      [
+        70,
+        56
+      ],
+      [
+        68,
+        57
+      ],
+      [
+        71,
+        58
+      ]
+    ],
+    [
+      [
+        21,
+        12
+      ],
+      [
+        20,
+        13
+      ],
+      [
+        15,
+        16
+      ],
+      [
+        19,
+        16
+      ]
+    ],
+    [
+      [
+        13,
+        51
+      ],
+      [
+        16,
+        51
+      ],
+      [
+        14,
+        52
+      ],
+      [
+        15,
+        54
+      ]
+    ],
+    [
+      [
+        47,
+        58
+      ],
+      [
+        50,
+        59
+      ],
+      [
+        48,
+        60
+      ],
+      [
+        46,
+        61
+      ],
+      [
+        49,
+        62
+      ]
+    ],
+    [
+      [
+        42,
+        9
+      ],
+      [
+        40,
+        10
+      ],
+      [
+        38,
+        11
+      ]
+    ]
+  ],
+  "weather": "rain",
+  "ambience": "meadow",
+  "tiles": [
+    "################################################################################################",
+    "#TTTTTTTTTTTTTTTTTTTTTTTTTTTT~~~TTTTTTTTTTTT,,,.,TTTTTTTTTTTTTT~~~TTTTTTTTTTTTTTTTTTTTTTTTTTTTT#",
+    "#TTTTTTTTTTTTTTTTTTTTTTTTTTTT~~~TTTTTTTT,,.,,....,.,.,.TTTTTTTT~~~TTTTTTTTTTTTTTTTTTTTTTTTTTTTT#",
+    "#TTTTTTTTTTTTTTTTTTTTTTTTTTT~~~~TTTT,.,,,,..,,.,,,,,...,.,TTTTTT~~~TTTTTTTTTTTTTTTTTTTTTTTTTTTT#",
+    "#TTTTTTTTTTTTTTTTTTTTTTTTTTT~~~TTT,,..,.,...,..,,,,..,,..,,,,TTT~~~TTTTTTTTTTTTTTTTTTTTTTTTTTTT#",
+    "#TTTTTTTTTTTTTTTTTTTTTTTTTTT~~~T,,....,..,,,..,.,,.,.,,,.,.....T~~~TTTTTTTTTTTTTTTTTTTTTTTTTTTT#",
+    "#TTTTTTTTTTTTTTTTTTTTTTTTTTT~~~:,,.,,,,,,,.,,,,,.,a,,.,.,.,,,.,:~~~TTTTTTTTTTTTTTTTTTTTTTTTTTTT#",
+    "#TTTTTTTTTTTTTTTTTTTTTTTTTTT~~~:..,..........,,.,.,,.,.,,..,,..:::::::TTTTTTTTTTTTTTTTTTTTTTTTT#",
+    "#TTTTTTTTTTTTTTTTTTTTTTTTTT~~~:,,.,.,......TC,,,,,..,...,,Y,.,:::::::::TTTTTTTTTTTTTTTTTTTTTTTT#",
+    "#TTTTTTTTTTTTTT#TTTTTTTTT:::::::,..,,,,...qTT,.,,,.,,.,..,,,,,.:::::::TTTTTTTTTTTTTTTTTTTTTTTTT#",
+    "#TTTTTTTTTTTTTTTTTTTTTTT:::::::::.,,..,,m..TT.,...,....,..,,..,.:~~~:,,TTTTTTTTTTTTTTTTTTTTTTTT#",
+    "#TTTTTTTTTTT##T#TTTTTTT,.:::::::,.,.,.a.*,TT....,,.....,.,,..,...:~~~:..TTTTTTTTTTTTTTTTTTTTTTT#",
+    "#TTTTTTTTTTTT##TTTTTTr,,,:~~~~:..,,.,,..,..,...,Y,,,,,,,,.,,....,:~~~:,,,,TTTTTTTTTTTTTTTTTTTTT#",
+    "#TTTTTTTTTTTTTTTTTTTs,,..:~~~:...,,,.....,,,,,,.,,,..,.,,,,.....:~~~~:...,ACTTTTTTTTTTTTTTTTTTT#",
+    "#TTTTTTTTTTTTTTTTT*TT,..,:~~~:....,..,.,..,,...,.,,....,..,..,..:~~~:.,,,,,.,TTTTTTTTTTTTTTTTTT#",
+    "#TTTTTTTTTTTTTTTTTTT..,,.:~~~~:...,,..,,,,,,,,,,...,,,..,,,,.,,,:~~~:.,,.,.,..,TTTTTTTTTTTTTTTT#",
+    "#TTTTTTTTTTTTTTa.,TnTT,,..:~~~:.,.,,,.,,.,.,.,,,,,,...,.,#.,,.,:~~~~:,Y,,.,,...,.TTTTTTTTTTTTTT#",
+    "#TTTTTTTTTTTTT,T,,T,,....,:~~~:,,,,.,.,,.,,.,,,,,....,.,#,..T,,T~~~:,...,,.....,.,TTTTTTTTTTTTT#",
+    "#TTTTTTTTTTTC.TT,.....,,,,:~~~~:..,.C,.,.,,.,,,.,...,,.,,,.,,.,:~~~:.,,,,.,..,,,....TTTTTTTTTTT#",
+    "#TTTTTTTTTT..,,,.,..,..,,.,:~~~:..,,.,,,,.,.....,..,.,..,..,..:~~~~T,,,.,,,,,.v...,..TTTTTTTTTT#",
+    "#TTTTTTTTT..,.,.,.,.,,.,,,Y:~~~:.,,,.,,....,,,.,.,....,,...,Y.:~~~T.,,,.,.,,v,.,,.,,..TTTTTTTTT#",
+    "#TTTTTTTT,,..,...,.,,.,..,.:~~~~:,..,,....,.,,,,..,,,,,,,,....:~~~:.,,...,z,*..,.,..,..TTTTTTTT#",
+    "#TTTTTTT......,.,.,,...,,..,:~~~:,.,,.,,.......,.,..,.,...,.,:~~~~:...,,.,.,,z,,,.T..,,.TTTTTTT#",
+    "#TTTTTT,,,.,....,,,,.#.,,,,.:~~~:.,.,,.,,,,..,,,,..,#,..,,,,.:~~~:..,,,,,T,TT,,.,T,,,..,.TTTTTT#",
+    "#TTTTT.,,.......,...,.#.,,.,:~~~~:,,...,...,.,..,.,.,#.....,,:~~~:,..,,,,TT,,,,.TT.T,..,.,TTTTT#",
+    "#TTTTT.,...,,.,..,,C,###,.,,.:~~~:,.................#........~~~~:,,.,.,,,T.,,,.TT....,..,TTTTT#",
+    "#TTTTT,.......,.,..,##,,..,.,:~~~:,..........................~~~:,,.C.,..,......,,,.,....,.TTTT#",
+    "#TTTT....,,,,.,...,,,#..,...,:~~~~:..........................~~~:...,.....,..,.,,,.,.,,..,,TTTT#",
+    "#TTTT.,,,.,,,,..,,.,...,,..,,,:~~~:...BBBBBBBBBBBBBBBBBBBBB..~~~~:,,,,,,.,,,.,.,,...,,.,.,.TTTT#",
+    "#TTTT.,,,..,,..,....,,,..,..,,:~~~:...B;;;;;;;;;;;;;;;;;;;B..:::::::.,,..,,.,,..,,.,..,,,.,TTTT#",
+    "#TTTT,,.n.,,.,,,.,....B,,,,..:~~~~:...B;W;;;;B;;;;B;S;;;W;B..::::::::,..,..,,.,,,..,.,,,...TTTT#",
+    "#TTTT,......,,,.,..,.,..,.,:::::::,...B;;;H;;;;;;;;;;;;;;;B..:::::::.,.,,,,..,,,..,....,..,TTTT#",
+    "#,,.,T.,..,,...,,.,..,,.,.:::::::::...B;;;;;;;;;*;N;;;;;;;B...~~~~:,,,.....,,,...T,T,,C,..,TTTT#",
+    "#....,...,,..,,.,.,,..,..,.:::::::,...B;;;H;;;P;;;P;;;;;;;B...:~~~:,..,,,,,,.,,,,TTT.,.,,.,.TTT#",
+    "#,,,,,.,..Y,..,,.,,,....,.,.:~~~~:....B;;;;;;;;;;;;;;;V;;;B..#:~~~:,,...,,.,.,.....,,.......,.,#",
+    "#........,,..,.,.,,,,,,.....:~~~:.,...B;B;H;;;;;K;;;;;;;B;B...:~~~:,,.,.,..,,,.,..,..,,,,,...,.#",
+    "#,,.,.,,.,.,,..,,,.,,...,,..:~~~:,,...B;;;;;;;;;;;;;;;V;;;B..##~~~~:....,,.,.,,,,,,,..Y,..,,,,,#",
+    "#TTTT..,..,..,.,...,.,,,..,.:~~~:,,...B;;;H;;;P;;;P;;;;;;;B....:~~~:..,,..,...,.,..,.,,.,,.,,,,#",
+    "#TTTTTTT,.,.C,,.,,,,,.,.,,,:~~~~:.,...B;;;;;;;;;*;;B;B;;;;B....:~~~:.,,,..,.,,.,,,,,,,,.TTT.,,.#",
+    "#TTTTTTTT..,.,,,,.,.,,.,,..:~~~:,,,...B;;;H;;;;;;;;;;;;;;;B...,:~~~:,,........,,.,.,,,,,TTTTTTT#",
+    "#TTTTTTTT.,,,,,..,,,,,.,,.,:~~~:,.....B;W;;;;B;;;;BB;B;;W;B....:~~~~:....,Y,,,.,.,,,,,,,TTTTTTT#",
+    "#TTTTTTTTT...,.,,.,.,.,..,,:~~~:.,,...B;;;;;;;;;;;;;;;;;;;B...,,:~~~:,.,,,,.,,,,,,#.,,,TTTTTTTT#",
+    "#TTTTTTTTTT,.,,,.,..,...,,:~~~~:,.....BBBBBBBBBBBBBBBBBBBBB....,:~~~:,,.,...,,,###,,..nTTTTTTTT#",
+    "#TTTTTTTTTT,,.,,,,.,......:~~~:,,,.............................:~~~~:,,,.,.,,..,#,..,,.TTTTTTTT#",
+    "#TTTTTTTTTT,.,,,,,,.,.Y,.,:~~~:..,.............................:~~~:.,,....,,,,.,..,,,.TTTTTTTT#",
+    "#TTTTTTTTTTT,,,...,..,,,,,:~~~~:..,...........................,:~~~:,.,,.,,...,,.,,.,,TTTTTTTTT#",
+    "#TTTTTTTTTTT,..,,,...,,.,..:~~~:.,.....,,,,,,.....,,..,,,.,,..:~~~~:...,,,...,,..,,,..TTTTTTTTT#",
+    "#TTTTTTTTTTT...,,.,,.,..,.,:~~~:..,.,,.,,,,,.,.,,.,...,,,,,,..:~~~:.....,,,....,,,,,,.TTTTTTTTT#",
+    "#TTTTTTTTTTTT.,,.,,.,.,....:~~~~:,,,...,..,,..,.,,,..,,..,....:~~~:.,,,...,,C,,.,.,,..TTTTTTTTT#",
+    "#TTTTTTTTTTTT.,,..,.,.....,,:~~~:,,..,.,.....,...,,,,,....,,:::::::,.,,..,,.,,.,.,..TTTTTTTTTTT#",
+    "#TTTTTTTTTTTT..,..,,,...,...:~~~:.Y.,,,.,,,.........,.,,,.,:::::::::,.,,,.,,,.,,,.,TT,TTTTTTTTT#",
+    "#TTTTTTTTTTTTw,,w.,,,,.,,,.,:::::::,........,,,,,,.,.,.....,:::::::,T,.,,,,.,...,,..TTTTTTTTTTT#",
+    "#TTTTTTTTTTTTTw,,,..,.,....:::::::::.,..,,,,,,#,,.,.,,,..,,.:~~~~:TT,T.,...,,.,.,.T.,TTTTTTTTTT#",
+    "#TTTTTTTTTTTTT*.,..,,,,,,...:::::::.,,,.,.,,,.,...,,,,,,,.,.:~~~TT...T...TTT.,,..,T..TTTTTTTTTT#",
+    "#TTTTTTTTTTTTTTz,..TTT.,.,...:~~~~:,.,.....,.,..,,.,,,.,....:~~~:,T,T,,,,.TT..,,.T.TTTTTTTTTTTT#",
+    "#TTTTTTTTTTTTTT.,.,TTT,,....,,:~~~:.,.,.,.,,.,..,,...,,,,,,:~~~~:T,T.,.,g,,,.,.,...,TTTTTTTTTTT#",
+    "#TTTTTTTTTTTTTTT.,,.T,.,,..,,,:~~~:.,.,.,T...,.,,,..,,.,,,,:~~~TT,.,.,v.,,,,,..,...TTTTTTTTTTTT#",
+    "#TTTTTTTTTTTTTTT,,..T.,.,,....:~~~~:,,,TTTT.,.Y..,,.,,..,.,:~~~:.,.,g,*...,,.,,,,.,TTTTTTTTTTTT#",
+    "#TTTTTTTTTTTTTTTT,,.T,,.C,.,,..:~~~:,,.,.,..,..g,,,,.,....,,:~~~:,.,,,.a.,.,,,,,,.TTTTTTTTTTTTT#",
+    "#TTTTTTTTTTTTTTTTTY,,.,,.,,.,.,:~~~:,..,.,.,.,.,,.z.,.,.,,..:~~~:.,.,.,...,......TTTTTTTTTTTTTT#",
+    "#TTTTTTTTTTTTTTTTTT..,..,,,..,:~~~:.,.,,,...,.,.z.,....,.,..:~~~:.,...,,,,,,..,,TTTTTTTTTTTTTTT#",
+    "#TTTTTTTTTTTTTTTTTTTT,.,.,..,.:~~~:.,....,.,,.z.*....,...,,,,:~~~#.,,,...,,,,TTTTTTTTTTTTTTTTTT#",
+    "#TTTTTTTTTTTTTTTTTTTTT.,...,..:~~~:,.,,.,.,,,..,.w...,,.C,.,,:~~~:,.,..,,,..,TTTTTTTTTTTTTTTTTT#",
+    "#TTTTTTTTTTTTTTTTTTTTTTTT.,..:~~~~:.,,,,,..,,,.,,,.,...TTT..,:~~~##.,....,TTTTTTTTTTTTTTTTTTTTT#",
+    "#TTTTTTTTTTTTTTTTTTTTTTTTTT,.:~~~:.,.,.,Y.,,,,..,...,...TTT,,,:~~~:,,..TTTTTTTTTTTTTTTTTTTTTTTT#",
+    "#TTTTTTTTTTTTTTTTTTTTTTTTTTTTT~~~:.,...,,...,.,,,.,..,,T.T,..,:~~~:TTTTTTTTTTTTTTTTTTTTTTTTTTTT#",
+    "#TTTTTTTTTTTTTTTTTTTTTTTTTTTTT~~~TTTTTTTTTTTTTT....,TTTTTTTTTTT~~~TTTTTTTTTTTTTTTTTTTTTTTTTTTTT#",
+    "#TTTTTTTTTTTTTTTTTTTTTTTTTTTT~~~TTTTTTTTTTTTTTTT,.,,.TTTTTTTTTTT~~~TTTTTTTTTTTTTTTTTTTTTTTTTTTT#",
+    "#TTTTTTTTTTTTTTTTTTTTTTTTTTTT~~~TTTTTTTTTTTTTTTT..,,,TTTTTTTTTTT~~~TTTTTTTTTTTTTTTTTTTTTTTTTTTT#",
+    "################################################################################################"
+  ]
+}

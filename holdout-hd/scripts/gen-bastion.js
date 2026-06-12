@@ -1,4 +1,5 @@
-// Generates levels/level20-bastion.json — "The Last Bastion" (mode: bastion).
+// Generates levels/stronghold/sh01.json — "The Last Bastion" (mode: bastion),
+// stronghold campaign level 1.
 // Deterministic (fixed seed): re-running always produces the same map.
 // An 84x64 SIEGE SURVIVAL map: a walled bastion sits at the center of the
 // frontier with the base core 'K' at its heart, watchtowers on the corners,
@@ -64,7 +65,11 @@ for (let y = 1; y < H - 1; y++)
   for (let x = 1; x < W - 1; x++)
     if (inLake(x, y)) set(x, y, inIsle(x, y) ? '.' : '~');
 
-// --- the bastion (x 32..52, y 24..40): walls, stone floor, six wall gaps ---
+// --- the bastion (x 32..52, y 24..40): FORTIFIED WALLS (frontier IV), stone
+// floor, six wall gaps. The perimeter is no longer indestructible '#' rock:
+// every segment is a PREBUILT 'wall' build (cost 5, hp 20) — damageable by
+// enemies, repairable, upgradable, rebuildable, and (direct hits only)
+// shootable by the squad itself for the official self-rescue path. ---
 const BX0 = 32, BX1 = 52, BY0 = 24, BY1 = 40;
 // clear a 2-tile apron outside the walls so the killing ground stays open
 for (let y = BY0 - 2; y <= BY1 + 2; y++)
@@ -72,10 +77,15 @@ for (let y = BY0 - 2; y <= BY1 + 2; y++)
     if (inBounds(x, y) && x > 0 && y > 0 && x < W - 1 && y < H - 1) set(x, y, '.');
 for (let y = BY0; y <= BY1; y++)
   for (let x = BX0; x <= BX1; x++)
-    set(x, y, x === BX0 || x === BX1 || y === BY0 || y === BY1 ? '#' : ';');
+    set(x, y, ';');
 // gates: N double, S double, W single, E single — every gap takes a barricade
 const gateTiles = [[41, BY0], [42, BY0], [BX0, 32], [BX1, 32], [41, BY1], [42, BY1]];
-for (const [gx, gy] of gateTiles) set(gx, gy, ';');
+const isGate = (x, y) => gateTiles.some(([gx, gy]) => gx === x && gy === y);
+// wall segments: the full perimeter minus the six gate gaps
+const wallTiles = [];
+for (let x = BX0; x <= BX1; x++) { wallTiles.push([x, BY0]); wallTiles.push([x, BY1]); }
+for (let y = BY0 + 1; y < BY1; y++) { wallTiles.push([BX0, y]); wallTiles.push([BX1, y]); }
+const wallPlan = wallTiles.filter(([x, y]) => !isGate(x, y));
 
 // --- four cardinal approach lanes, gate to map edge ---
 for (let y = 1; y < BY0; y++) { set(41, y, '.'); set(42, y, '.'); }            // north: forest edge
@@ -134,6 +144,7 @@ for (const v of vehiclePlan) {
 // inside (38,31 pairs within 4 tiles of 38,28 so prism chaining is on the
 // table; 50,32 covers the far east gate), 4 farm plots in the southeast yard ---
 const buildPlan = [
+  ...wallPlan.map(([x, y]) => ({ kind: 'wall', cost: 5, prebuilt: true, x, y })),
   ...gateTiles.map(([x, y]) => ({ kind: 'barricade', cost: 4, x, y })),
   { kind: 'turret', cost: 10, x: 38, y: 28 },
   { kind: 'turret', cost: 10, x: 38, y: 31 },
@@ -149,10 +160,13 @@ for (const b of buildPlan) {
   set(b.x, b.y, 'B');
 }
 buildPlan.sort((a, b) => a.y - b.y || a.x - b.x);
-const builds = buildPlan.map(b => ({ kind: b.kind, cost: b.cost }));
+const builds = buildPlan.map(b => ({ kind: b.kind, cost: b.cost, ...(b.prebuilt ? { prebuilt: true } : {}) }));
 
-// --- walk reachability from the first spawn (entity letters never block) ---
+// --- walk reachability from the first spawn (entity letters never block,
+// but a STANDING prebuilt wall does — the honest routes go through gates) ---
+const wallSet = new Set(wallPlan.map(([x, y]) => y * W + x));
 const PASS = c => c !== '#' && c !== 'T' && c !== '~' && c !== 'o';
+const PASSXY = (x, y) => PASS(get(x, y)) && !wallSet.has(y * W + x);
 function reachableFrom(sx, sy) {
   const seen = Array.from({ length: H }, () => Array(W).fill(false));
   const q = [[sx, sy]];
@@ -161,7 +175,7 @@ function reachableFrom(sx, sy) {
     const [x, y] = q.pop();
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const nx = x + dx, ny = y + dy;
-      if (inBounds(nx, ny) && !seen[ny][nx] && PASS(get(nx, ny))) {
+      if (inBounds(nx, ny) && !seen[ny][nx] && PASSXY(nx, ny)) {
         seen[ny][nx] = true;
         q.push([nx, ny]);
       }
@@ -289,7 +303,8 @@ for (const [letter, ex, ey] of enemyPlan) {
     ['shop', 46, 28],
     ...hirePlan.map(h => [h.job, h.x, h.y]),
     ...vehiclePlan.map(v => [v.kind, v.x, v.y]),
-    ...buildPlan.map(b => [b.kind, b.x, b.y]),
+    // prebuilt wall segments BLOCK the walk — only open sites must be reachable
+    ...buildPlan.filter(b => !b.prebuilt).map(b => [b.kind, b.x, b.y]),
     ...chestPlan.filter(c => !c.isle).map(c => ['chest', c.x, c.y]),
   ];
   for (const [what, x, y] of walkSpots)
@@ -304,7 +319,7 @@ for (const [letter, ex, ey] of enemyPlan) {
     const [x, y] = sq.pop();
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const nx = x + dx, ny = y + dy;
-      if (inBounds(nx, ny) && !sea[ny][nx] && (get(nx, ny) === '~' || PASS(get(nx, ny)))) {
+      if (inBounds(nx, ny) && !sea[ny][nx] && (get(nx, ny) === '~' || PASSXY(nx, ny))) {
         sea[ny][nx] = true;
         sq.push([nx, ny]);
       }
@@ -339,7 +354,7 @@ for (const [letter, ex, ey] of enemyPlan) {
   // counts
   const counts = {};
   for (const row of grid) for (const c of row) counts[c] = (counts[c] || 0) + 1;
-  const expect = { P: 4, K: 1, W: 4, S: 1, H: 5, V: 3, C: 15, Y: 12, B: 14 };
+  const expect = { P: 4, K: 1, W: 4, S: 1, H: 5, V: 3, C: 15, Y: 12, B: 14 + wallPlan.length };
   for (const [ch, n] of Object.entries(expect))
     if ((counts[ch] || 0) !== n) fail(`tile '${ch}' count ${counts[ch] || 0} != ${n}`);
   if (enemyCount !== 28) fail(`enemy count ${enemyCount} != 28`);
@@ -383,6 +398,15 @@ const def = {
   expedition: true,
   mode: 'bastion',
   bastion: { nights: 5, dayLen: 90, nightLen: 75, bloodMoons: [3, 5] },
+  stronghold: {
+    level: 1,
+    name: 'The Last Bastion',
+    sizeLabel: 'S',
+    difficulty: 1,
+    waves: 5,
+    blurb: 'One walled bastion, four lanes, five nights. Hold the line where the campaign begins.',
+    newFeatures: ['The first stronghold', 'Fortified walls — repair, upgrade, rebuild'],
+  },
   intro: [
     {
       title: 'The Last Bastion',
@@ -412,6 +436,6 @@ const def = {
   hires: hirePlan.map(h => ({ job: h.job, cost: h.cost, name: h.name })),
   tiles: grid.map(r => r.join('')),
 };
-const out = path.join(__dirname, '../levels/level20-bastion.json');
+const out = path.join(__dirname, '../levels/stronghold/sh01.json');
 fs.writeFileSync(out, JSON.stringify(def, null, 2) + '\n');
 console.log('wrote', out);

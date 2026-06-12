@@ -20,8 +20,8 @@ import { fileURLToPath } from 'url';
 import { applyResults, charsById, createGame, snapshot, step, TILE } from '../shared/game.js';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const brDef = JSON.parse(fs.readFileSync(path.join(root, 'levels/level22-br.json'), 'utf8'));
-const classicDef = JSON.parse(fs.readFileSync(path.join(root, 'levels/level01.json'), 'utf8'));
+const brDef = JSON.parse(fs.readFileSync(path.join(root, 'levels/br/level22-br.json'), 'utf8'));
+const classicDef = JSON.parse(fs.readFileSync(path.join(root, 'levels/classic/level01.json'), 'utf8'));
 const characters = JSON.parse(fs.readFileSync(path.join(root, 'shared/characters.json'), 'utf8'));
 const charMap = charsById(characters);
 

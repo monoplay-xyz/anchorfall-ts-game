@@ -7,7 +7,7 @@ npm install
 npm start              # http://localhost:3001
 npm test
 npm run gen-assets     # rebuild public/assets/*.png from shared/characters.json
-npm run gen-expedition # regenerate levels/level11.json (deterministic)
+npm run gen-expedition # regenerate levels/story/ch01.json (deterministic)
 ```
 
 ## Story campaign — Anchorfall Crossing
@@ -38,7 +38,7 @@ the alarm — and they pathfind (A*) around walls and water instead of hugging
 the nearest wall. Small classic maps keep the original everyone-attacks
 arcade behavior.
 
-`levels/level11.json` — **The Long Crossing** (96×64) — is the first
+`levels/story/ch01.json` — **The Long Crossing** (96×64) — is the first
 expedition map: a west-to-east journey through a meadow, river fords, deep
 forest, a fortified village, a sniper ridge over a swamp, and a boss gate.
 Mark a level with `"expedition": true` to get a menu shortcut to it.

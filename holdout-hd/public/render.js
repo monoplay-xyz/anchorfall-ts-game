@@ -4,7 +4,7 @@
 // placeholder PNGs no longer apply); if missing, a procedural canvas is baked.
 // The world reads as cold moonlit frontier; warm LYTH light = safety/value.
 import { TILE } from '/shared/game.js';
-import { playEvent } from './audio.js'; // render-detected cues (hound engage bark)
+import { playEvent, setScene } from './audio.js'; // render-detected cues + ambience scene feed
 
 const particles = [];
 const flashes = [];
@@ -429,6 +429,136 @@ function bakeFirebase(seed) {
   }, seed);
 }
 
+// '=' SAND — pale moonlit dunes; the lightest ground in the frontier.
+function bakeSand(seed) {
+  return bake(TILE, TILE, (ctx, rnd) => {
+    ctx.fillStyle = '#5E563E';
+    ctx.fillRect(0, 0, TILE, TILE);
+    // dune ripple shadows: long shallow arcs
+    ctx.strokeStyle = 'rgba(58,50,34,0.7)';
+    ctx.lineWidth = 1.6;
+    for (let i = 0; i < 4; i++) {
+      const ry = 5 + rnd() * (TILE - 10);
+      ctx.beginPath();
+      ctx.moveTo(-2, ry);
+      ctx.quadraticCurveTo(TILE / 2, ry + (rnd() - 0.5) * 9, TILE + 2, ry + (rnd() - 0.5) * 5);
+      ctx.stroke();
+    }
+    // moonlit crest highlights just above the ripples
+    ctx.strokeStyle = 'rgba(168,156,120,0.5)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 2; i++) {
+      const ry = 6 + rnd() * (TILE - 12);
+      ctx.beginPath();
+      ctx.moveTo(2 + rnd() * 8, ry);
+      ctx.quadraticCurveTo(TILE / 2, ry - 2 - rnd() * 3, TILE - 2 - rnd() * 8, ry);
+      ctx.stroke();
+    }
+    // grain speckle
+    const grains = 26 + Math.floor(rnd() * 14);
+    for (let i = 0; i < grains; i++) {
+      ctx.fillStyle = rnd() < 0.5 ? '#6B6248' : '#4E4834';
+      ctx.fillRect(rnd() * TILE, rnd() * TILE, 1, 1);
+    }
+    if (rnd() < 0.2) { // a half-buried pale stone
+      ctx.fillStyle = '#8C8266';
+      ctx.beginPath();
+      ctx.ellipse(4 + rnd() * (TILE - 8), 4 + rnd() * (TILE - 8), 2.4, 1.6, rnd() * 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }, seed);
+}
+
+// '!' LAVA — black crust riven by molten channels (glow/shimmer animate live).
+function bakeLava(seed) {
+  return bake(TILE, TILE, (ctx, rnd) => {
+    ctx.fillStyle = '#1E0D07';
+    ctx.fillRect(0, 0, TILE, TILE);
+    // crust plates
+    for (let i = 0; i < 5; i++) {
+      ctx.fillStyle = rnd() < 0.5 ? '#2A1209' : '#240F08';
+      ctx.beginPath();
+      ctx.ellipse(rnd() * TILE, rnd() * TILE, 7 + rnd() * 9, 5 + rnd() * 7, rnd() * 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // molten cracks: hot random-walk channels with a soft glow
+    ctx.lineCap = 'round';
+    for (let i = 0; i < 3; i++) {
+      let cx2 = rnd() * TILE, cy2 = rnd() * TILE;
+      ctx.strokeStyle = i === 0 ? '#FFC04A' : '#FF7A2A';
+      ctx.shadowColor = '#FF7A2A';
+      ctx.shadowBlur = 5;
+      ctx.lineWidth = i === 0 ? 2.2 : 1.5;
+      ctx.beginPath();
+      ctx.moveTo(cx2, cy2);
+      for (let k2 = 0; k2 < 4; k2++) {
+        cx2 += (rnd() - 0.5) * 22; cy2 += (rnd() - 0.5) * 22;
+        ctx.lineTo(cx2, cy2);
+      }
+      ctx.stroke();
+    }
+    ctx.shadowBlur = 0;
+    // ember pinpricks on the crust
+    for (let i = 0; i < 6; i++) {
+      ctx.fillStyle = rnd() < 0.5 ? '#E05A1E' : '#FFB03A';
+      ctx.fillRect(rnd() * TILE, rnd() * TILE, 1.4, 1.4);
+    }
+  }, seed);
+}
+
+// '^' ICE — glacial sheen, pressure cracks and old skid lines.
+function bakeIce(seed) {
+  return bake(TILE, TILE, (ctx, rnd) => {
+    ctx.fillStyle = '#27384C';
+    ctx.fillRect(0, 0, TILE, TILE);
+    // sheen patches
+    for (let i = 0; i < 3; i++) {
+      ctx.fillStyle = rnd() < 0.5 ? 'rgba(61,90,116,0.8)' : 'rgba(47,70,94,0.8)';
+      ctx.beginPath();
+      ctx.ellipse(rnd() * TILE, rnd() * TILE, 9 + rnd() * 11, 6 + rnd() * 8, rnd() * 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // hairline pressure cracks
+    ctx.strokeStyle = 'rgba(191,251,255,0.30)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 2; i++) {
+      let cx2 = rnd() * TILE, cy2 = rnd() * TILE;
+      ctx.beginPath();
+      ctx.moveTo(cx2, cy2);
+      for (let k2 = 0; k2 < 3; k2++) {
+        cx2 += (rnd() - 0.5) * 26; cy2 += (rnd() - 0.5) * 26;
+        ctx.lineTo(cx2, cy2);
+      }
+      ctx.stroke();
+    }
+    // skid lines: two close parallel scratches with a slight curve
+    if (rnd() < 0.75) {
+      const sx0 = rnd() * TILE, sy0 = rnd() * TILE, a = rnd() * Math.PI;
+      const dx2 = Math.cos(a), dy2 = Math.sin(a);
+      ctx.strokeStyle = 'rgba(223,243,255,0.18)';
+      ctx.lineWidth = 1.2;
+      for (const off of [0, 3]) {
+        ctx.beginPath();
+        ctx.moveTo(sx0 - dy2 * off, sy0 + dx2 * off);
+        ctx.quadraticCurveTo(
+          sx0 + dx2 * 11 - dy2 * (off + 2.5), sy0 + dy2 * 11 + dx2 * (off + 2.5),
+          sx0 + dx2 * 22 - dy2 * off, sy0 + dy2 * 22 + dx2 * off);
+        ctx.stroke();
+      }
+    }
+    // cold sparkle
+    for (let i = 0; i < 3; i++) {
+      ctx.fillStyle = '#BFD0E8';
+      ctx.fillRect(rnd() * TILE, rnd() * TILE, 1, 1);
+    }
+    // top-left moon glint
+    ctx.fillStyle = 'rgba(223,243,255,0.10)';
+    ctx.beginPath();
+    ctx.ellipse(10 + rnd() * 6, 9 + rnd() * 5, 8, 4.5, -0.5, 0, Math.PI * 2);
+    ctx.fill();
+  }, seed);
+}
+
 const BAKERS = {
   meadow0: () => bakeMeadow(301), meadow1: () => bakeMeadow(302), meadow2: () => bakeMeadow(303),
   meadow3: () => bakeMeadow(304), meadow4: () => bakeMeadow(305), meadow5: () => bakeMeadow(306),
@@ -441,6 +571,9 @@ const BAKERS = {
   tree0: () => bakeTree(371), tree1: () => bakeTree(372), tree2: () => bakeTree(373), tree3: () => bakeTree(374),
   sandbags2: () => bakeSandbags(381),
   firebase: () => bakeFirebase(391),
+  sand0: () => bakeSand(401), sand1: () => bakeSand(402), sand2: () => bakeSand(403),
+  lava0: () => bakeLava(411), lava1: () => bakeLava(412), lava2: () => bakeLava(413),
+  ice0: () => bakeIce(421), ice1: () => bakeIce(422), ice2: () => bakeIce(423),
 };
 
 // floor letter -> [texture base name, variant count]
@@ -450,15 +583,18 @@ const FLOOR_TEX = {
   ':': ['swamp', 4],
   ';': ['stone', 4],
   '_': ['ash', 4],
+  '=': ['sand', 3],
+  '^': ['ice', 3],
 };
 
 // Unknown letters fall back to meadow so classic maps (and future letters)
 // never break. Tall/decor letters pick a fitting ground to sit on.
+// ('~' water, '!' lava and '%' void are painted live in the floor pass.)
 function floorTex(c, x, y) {
   let f = FLOOR_TEX[c];
   if (!f) {
     if (c === 'T') f = FLOOR_TEX[','];
-    else if (c === 'E') f = FLOOR_TEX[';'];
+    else if (c === 'E' || c === 'K') f = FLOOR_TEX[';'];
     else if (c === '*') f = FLOOR_TEX['_'];
     else f = FLOOR_TEX['.'];
   }
@@ -488,8 +624,285 @@ export async function initTextures() {
 }
 
 // ============================== PORTRAITS & ICONS ==============================
-// Operator bust: graphite plate, cyan visor slit, char-color energy trim.
-// Override with /assets/portrait2_<id>.png.
+// Cartoon operator busts: big readable human faces, head + shoulders, soft
+// 2-tone shading + rim light, the character color as a jacket/collar accent,
+// and a small pushed-up visor / earpiece keeping the operator flavor without
+// hiding the face. Pure vector — crisp at every size (extra micro-detail
+// switches on at >= 80px). Override with /assets/portrait2_<id>.png.
+
+const SKIN_TONES = ['#F4D6B8', '#EBBE96', '#D9A06B', '#B97E4F', '#9A6238', '#7A4A2B'];
+
+// Expression presets: brow tilt (+ = angry inner-down), brow raise, eyelid
+// droop 0..1 (1 = closed), iris look offset, mouth style.
+const PORTRAIT_EXPR = {
+  keen:   { tilt: -0.10, raise: 1.0, lid: 0.05, look: 0.15, mouth: 'smile' },
+  stoic:  { tilt: 0.14, raise: 0.0, lid: 0.20, look: 0, mouth: 'flat' },
+  grin:   { tilt: -0.06, raise: 1.4, lid: 0.05, look: 0, mouth: 'grin' },
+  warm:   { tilt: -0.16, raise: 0.6, lid: 0.18, look: 0, mouth: 'smile' },
+  calm:   { tilt: 0.02, raise: -0.2, lid: 0.45, look: 0, mouth: 'flat' },
+  wild:   { tilt: 0.26, raise: 1.2, lid: 0.0, look: 0.1, mouth: 'grin' },
+  manic:  { tilt: -0.05, raise: 2.0, lid: -0.10, look: 0, mouth: 'grin' },
+  stern:  { tilt: 0.30, raise: -0.6, lid: 0.22, look: 0, mouth: 'frown' },
+  focus:  { tilt: 0.10, raise: 0.4, lid: 0.15, look: -0.1, mouth: 'smile' },
+  smirk:  { tilt: -0.04, raise: 0.6, lid: 0.20, look: 0.2, mouth: 'smirk', asym: true },
+  spark:  { tilt: -0.12, raise: 1.8, lid: 0.0, look: 0, mouth: 'open' },
+  laugh:  { tilt: -0.10, raise: 1.0, lid: 1.0, look: 0, mouth: 'open' },
+  aloof:  { tilt: 0.04, raise: 0.2, lid: 0.32, look: 0.4, mouth: 'flat' },
+  curious:{ tilt: -0.08, raise: 1.3, lid: 0.08, look: -0.2, mouth: 'smile', asym: true },
+  gentle: { tilt: -0.10, raise: 0.3, lid: 0.26, look: 0, mouth: 'smile' },
+  serene: { tilt: -0.06, raise: 0.1, lid: 0.38, look: 0, mouth: 'smile' },
+};
+
+// Per-character cast sheet (17 operators): gender presentation, skin tone,
+// hair style + color, expression, identity prop. Mix per the casting call.
+const PORTRAIT_CAST = {
+  scout:     { fem: true, skin: 1, hair: 'pixie', hairCol: '#5A4632', expr: 'keen', prop: 'ear' },
+  soldier:   { fem: false, skin: 2, hair: 'buzz', hairCol: '#33291E', expr: 'stoic', prop: 'visor' },
+  grenadier: { fem: false, skin: 4, hair: 'mohawk', hairCol: '#1E1812', expr: 'grin', prop: 'ear' },
+  medic:     { fem: true, skin: 0, hair: 'bob', hairCol: '#8C5A38', expr: 'warm', prop: 'cross', freckles: true },
+  sniper:    { fem: true, skin: 3, hair: 'pony', hairCol: '#241E18', expr: 'calm', prop: 'visor' },
+  raider:    { fem: false, skin: 1, hair: 'spikes', hairCol: '#7A2F22', expr: 'wild', prop: 'ear', scar: true },
+  pyro:      { fem: true, skin: 0, hair: 'asym', hairCol: '#D9542F', expr: 'manic', prop: 'visor', smudge: true },
+  bastion:   { fem: false, skin: 5, hair: 'bald', hairCol: '#2A211A', expr: 'stern', prop: 'ear', beard: 'full' },
+  engineer:  { fem: true, skin: 2, hair: 'bun', hairCol: '#6E4A26', expr: 'focus', prop: 'goggles' },
+  duelist:   { fem: true, skin: 1, hair: 'sweep', hairCol: '#3A2C4E', expr: 'smirk', prop: 'ear' },
+  volt:      { fem: false, skin: 0, hair: 'upspikes', hairCol: '#3FA8C2', expr: 'spark', prop: 'ear' },
+  boomer:    { fem: false, skin: 3, hair: 'flattop', hairCol: '#262019', expr: 'laugh', prop: 'ear' },
+  warden:    { fem: false, skin: 4, hair: 'crop', hairCol: '#1C1610', expr: 'stoic', prop: 'visor', beard: 'chin' },
+  shade:     { fem: true, skin: 0, hair: 'longstraight', hairCol: '#1C1A26', expr: 'aloof', prop: 'ear' },
+  helix:     { fem: true, skin: 2, hair: 'buns2', hairCol: '#4A3A5C', expr: 'curious', prop: 'ear' },
+  atlas:     { fem: false, skin: 5, hair: 'curls', hairCol: '#1E1812', expr: 'gentle', prop: 'visor' },
+  seal:      { fem: true, skin: 3, hair: 'wet', hairCol: '#202E33', expr: 'serene', prop: 'ear' },
+};
+
+// Hair back layers (drawn behind the head) for the long styles.
+function portraitHairBack(ctx, style, col, dark) {
+  ctx.fillStyle = dark;
+  if (style === 'pony') {
+    // high tail swinging out left
+    ctx.beginPath();
+    ctx.moveTo(19, 16);
+    ctx.quadraticCurveTo(8, 22, 10, 40);
+    ctx.quadraticCurveTo(11.5, 45, 14.5, 43);
+    ctx.quadraticCurveTo(13, 30, 21, 22);
+    ctx.closePath(); ctx.fill();
+  } else if (style === 'longstraight' || style === 'wet') {
+    // hair mass falling to both shoulders
+    ctx.beginPath();
+    ctx.moveTo(16, 17);
+    ctx.quadraticCurveTo(12.5, 32, 14, 46);
+    ctx.lineTo(42, 46);
+    ctx.quadraticCurveTo(43.5, 32, 40, 17);
+    ctx.closePath(); ctx.fill();
+  } else if (style === 'sweep') {
+    // one long side mass over the right shoulder
+    ctx.beginPath();
+    ctx.moveTo(34, 14);
+    ctx.quadraticCurveTo(43, 22, 42.5, 44);
+    ctx.quadraticCurveTo(38.5, 47, 35.5, 44);
+    ctx.quadraticCurveTo(36.5, 28, 31, 18);
+    ctx.closePath(); ctx.fill();
+  } else if (style === 'bob') {
+    // curtains down to the jawline
+    ctx.beginPath();
+    ctx.moveTo(15.5, 18);
+    ctx.quadraticCurveTo(13.5, 30, 15.5, 36.5);
+    ctx.lineTo(40.5, 36.5);
+    ctx.quadraticCurveTo(42.5, 30, 40.5, 18);
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.fillStyle = col;
+}
+
+// Hair front/top layers, drawn over the head. cx=28, head top ~12.5.
+function portraitHairFront(ctx, style, col, dark, fine) {
+  ctx.fillStyle = col;
+  if (style === 'pixie') {
+    ctx.beginPath();
+    ctx.moveTo(16, 26);
+    ctx.quadraticCurveTo(14.5, 13, 28, 11.5);
+    ctx.quadraticCurveTo(41.5, 13, 40, 24);
+    ctx.quadraticCurveTo(36, 16.5, 30, 16.5); // side sweep notch
+    ctx.quadraticCurveTo(22, 17.5, 20.5, 21.5);
+    ctx.quadraticCurveTo(18.5, 18.5, 16, 26);
+    ctx.closePath(); ctx.fill();
+    if (fine) { ctx.strokeStyle = dark; ctx.lineWidth = 0.8; ctx.beginPath(); ctx.moveTo(24, 14); ctx.quadraticCurveTo(28, 13, 33, 15); ctx.stroke(); }
+  } else if (style === 'buzz') {
+    ctx.globalAlpha *= 0.88; // tight cut: scalp shows through
+    ctx.beginPath();
+    ctx.moveTo(16.5, 22);
+    ctx.quadraticCurveTo(16, 12.5, 28, 11.8);
+    ctx.quadraticCurveTo(40, 12.5, 39.5, 22);
+    ctx.quadraticCurveTo(34, 17.5, 28, 17.2);
+    ctx.quadraticCurveTo(22, 17.5, 16.5, 22);
+    ctx.closePath(); ctx.fill();
+    ctx.globalAlpha /= 0.88;
+  } else if (style === 'mohawk') {
+    // shaved sides + a proud central ridge
+    ctx.globalAlpha *= 0.45;
+    ctx.beginPath();
+    ctx.moveTo(17, 21); ctx.quadraticCurveTo(17, 14, 24, 12.6); ctx.lineTo(24, 17.5); ctx.quadraticCurveTo(20, 18.5, 17, 21);
+    ctx.moveTo(39, 21); ctx.quadraticCurveTo(39, 14, 32, 12.6); ctx.lineTo(32, 17.5); ctx.quadraticCurveTo(36, 18.5, 39, 21);
+    ctx.closePath(); ctx.fill();
+    ctx.globalAlpha /= 0.45;
+    ctx.beginPath();
+    ctx.moveTo(24.5, 17);
+    ctx.lineTo(24.5, 9.5); ctx.lineTo(27, 6.5); ctx.lineTo(29, 9.2); ctx.lineTo(31.5, 7); ctx.lineTo(31.5, 17);
+    ctx.quadraticCurveTo(28, 15.5, 24.5, 17);
+    ctx.closePath(); ctx.fill();
+  } else if (style === 'bob') {
+    ctx.beginPath();
+    ctx.moveTo(15.5, 26);
+    ctx.quadraticCurveTo(14, 12, 28, 11.5);
+    ctx.quadraticCurveTo(42, 12, 40.5, 26);
+    ctx.lineTo(38.5, 20.5);
+    ctx.quadraticCurveTo(35, 16, 25, 16.8); // straight fringe with a side gap
+    ctx.lineTo(19.5, 19.5);
+    ctx.lineTo(17.5, 26);
+    ctx.closePath(); ctx.fill();
+  } else if (style === 'pony') {
+    ctx.beginPath();
+    ctx.moveTo(16, 24);
+    ctx.quadraticCurveTo(14.5, 12.5, 28, 11.8);
+    ctx.quadraticCurveTo(41.5, 12.5, 40, 24);
+    ctx.quadraticCurveTo(37.5, 16.5, 28, 16.2);
+    ctx.quadraticCurveTo(18.5, 16.5, 16, 24);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = dark; // tie band hint at the temple
+    ctx.fillRect(17.5, 17.5, 2.6, 1.6);
+    ctx.fillStyle = col;
+  } else if (style === 'spikes') {
+    ctx.beginPath();
+    ctx.moveTo(15.5, 24);
+    for (const [sx2, sy2, mx, my] of [
+      [15.5, 24, 14.5, 14], [21, 16.5, 20, 8.5], [26, 15, 27, 6.8],
+      [31, 15, 34.5, 8], [36, 17, 41, 11], [40.5, 24, 40.5, 24],
+    ]) { ctx.lineTo(mx, my); ctx.lineTo(sx2 + 3, sy2); }
+    ctx.quadraticCurveTo(28, 14.5, 15.5, 24);
+    ctx.closePath(); ctx.fill();
+  } else if (style === 'bald') {
+    // clean dome: just a soft crown highlight
+    ctx.fillStyle = 'rgba(223,243,255,0.16)';
+    ctx.beginPath(); ctx.ellipse(24, 15.5, 5, 2.6, -0.4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = col;
+  } else if (style === 'bun') {
+    ctx.beginPath();
+    ctx.moveTo(16, 23.5);
+    ctx.quadraticCurveTo(15, 12.5, 28, 11.8);
+    ctx.quadraticCurveTo(41, 12.5, 40, 23.5);
+    ctx.quadraticCurveTo(36, 16.8, 28, 16.4);
+    ctx.quadraticCurveTo(20, 16.8, 16, 23.5);
+    ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.arc(28, 9.4, 4.4, 0, Math.PI * 2); ctx.fill(); // topknot
+    if (fine) { // loose working strands
+      ctx.strokeStyle = col; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(17, 20); ctx.quadraticCurveTo(15.5, 23, 16.5, 26); ctx.stroke();
+    }
+  } else if (style === 'sweep') {
+    // deep asymmetric fringe covering one brow
+    ctx.beginPath();
+    ctx.moveTo(15.5, 25);
+    ctx.quadraticCurveTo(14.5, 12, 28, 11.5);
+    ctx.quadraticCurveTo(42, 12.5, 40.5, 22);
+    ctx.quadraticCurveTo(38, 15.5, 30, 15.8);
+    ctx.quadraticCurveTo(34, 19.5, 36.5, 25.5); // the sweep dives across
+    ctx.quadraticCurveTo(30, 19, 22, 18.4);
+    ctx.quadraticCurveTo(17.5, 19.5, 15.5, 25);
+    ctx.closePath(); ctx.fill();
+  } else if (style === 'upspikes') {
+    // static-charged upward flick
+    ctx.beginPath();
+    ctx.moveTo(16, 22.5);
+    ctx.lineTo(15, 11.5); ctx.lineTo(20.5, 15);
+    ctx.lineTo(22.5, 7.5); ctx.lineTo(26.5, 13.6);
+    ctx.lineTo(31, 6.5); ctx.lineTo(33, 13.4);
+    ctx.lineTo(38.5, 8.5); ctx.lineTo(38, 16);
+    ctx.lineTo(41, 14); ctx.lineTo(40, 22.5);
+    ctx.quadraticCurveTo(28, 15.5, 16, 22.5);
+    ctx.closePath(); ctx.fill();
+  } else if (style === 'flattop') {
+    ctx.beginPath();
+    ctx.moveTo(16.5, 22);
+    ctx.lineTo(16.5, 10.5); ctx.lineTo(39.5, 10.5); ctx.lineTo(39.5, 22);
+    ctx.quadraticCurveTo(34, 16.5, 28, 16.4);
+    ctx.quadraticCurveTo(22, 16.5, 16.5, 22);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(223,243,255,0.10)';
+    ctx.fillRect(17.5, 10.5, 21, 1.4);
+    ctx.fillStyle = col;
+  } else if (style === 'crop') {
+    ctx.beginPath();
+    ctx.moveTo(16.5, 22.5);
+    ctx.quadraticCurveTo(16, 12.5, 28, 12);
+    ctx.quadraticCurveTo(40, 12.5, 39.5, 22.5);
+    ctx.lineTo(38, 18);
+    ctx.lineTo(20, 18); // straight military fringe line
+    ctx.lineTo(18, 20);
+    ctx.closePath(); ctx.fill();
+  } else if (style === 'longstraight') {
+    ctx.beginPath();
+    ctx.moveTo(15, 28);
+    ctx.quadraticCurveTo(13.5, 12, 28, 11.5);
+    ctx.quadraticCurveTo(42.5, 12, 41, 28);
+    ctx.lineTo(39, 21);
+    ctx.quadraticCurveTo(37.5, 16.5, 31.5, 16.6); // center-side part
+    ctx.lineTo(33.5, 21);
+    ctx.quadraticCurveTo(27, 16.8, 21.5, 17.4); // side bangs over one eye
+    ctx.quadraticCurveTo(17.5, 19.5, 17, 24);
+    ctx.lineTo(15, 28);
+    ctx.closePath(); ctx.fill();
+  } else if (style === 'buns2') {
+    ctx.beginPath();
+    ctx.moveTo(16, 23.5);
+    ctx.quadraticCurveTo(15, 12.5, 28, 11.8);
+    ctx.quadraticCurveTo(41, 12.5, 40, 23.5);
+    ctx.quadraticCurveTo(35, 16.5, 28, 16.6);
+    ctx.quadraticCurveTo(21, 16.5, 16, 23.5);
+    ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.arc(18.5, 10.5, 3.8, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(37.5, 10.5, 3.8, 0, Math.PI * 2); ctx.fill();
+  } else if (style === 'curls') {
+    // a cap of tight curl bumps
+    ctx.beginPath();
+    for (const [bx, by, br] of [[18, 19, 4], [22, 14.5, 4.4], [28, 12.5, 4.8], [34, 14.5, 4.4], [38, 19, 4], [28, 16, 5.5]]) {
+      ctx.moveTo(bx + br, by);
+      ctx.arc(bx, by, br, 0, Math.PI * 2);
+    }
+    ctx.fill();
+  } else if (style === 'wet') {
+    // slicked straight back off the brow — fresh out of the water
+    ctx.beginPath();
+    ctx.moveTo(16.5, 24);
+    ctx.quadraticCurveTo(15.5, 13.5, 28, 12.6);
+    ctx.quadraticCurveTo(40.5, 13.5, 39.5, 24);
+    ctx.quadraticCurveTo(35.5, 17.2, 28, 17);
+    ctx.quadraticCurveTo(20.5, 17.2, 16.5, 24);
+    ctx.closePath(); ctx.fill();
+    // wet shine streaks raked backward
+    ctx.strokeStyle = 'rgba(223,243,255,0.35)';
+    ctx.lineWidth = 0.9;
+    ctx.beginPath();
+    ctx.moveTo(22, 16.5); ctx.quadraticCurveTo(21, 14, 22.5, 12.6);
+    ctx.moveTo(28, 16); ctx.quadraticCurveTo(27.5, 14, 28, 12.4);
+    ctx.moveTo(34, 16.5); ctx.quadraticCurveTo(35, 14, 33.5, 12.6);
+    ctx.stroke();
+    ctx.fillStyle = col;
+  }
+  if (style === 'asym') {
+    // flame-cut asymmetric bob: long on the left, cropped on the right
+    ctx.beginPath();
+    ctx.moveTo(14.5, 32);
+    ctx.quadraticCurveTo(13, 12.5, 28, 11.5);
+    ctx.quadraticCurveTo(41.5, 12.5, 40, 21.5);
+    ctx.quadraticCurveTo(36.5, 16, 29, 16.4);
+    ctx.quadraticCurveTo(21.5, 17, 19, 22);
+    ctx.quadraticCurveTo(17, 26.5, 17.5, 31);
+    ctx.quadraticCurveTo(16, 32.5, 14.5, 32);
+    ctx.closePath(); ctx.fill();
+    if (fine) { ctx.strokeStyle = dark; ctx.lineWidth = 0.8; ctx.beginPath(); ctx.moveTo(16.5, 24); ctx.quadraticCurveTo(15.5, 28, 16.5, 31); ctx.stroke(); }
+  }
+}
+
 export function drawPortrait(canvas, ch, size = 56) {
   canvas.width = size; canvas.height = size;
   const ctx = canvas.getContext('2d');
@@ -497,72 +910,332 @@ export function drawPortrait(canvas, ch, size = 56) {
     .then(img => ctx.drawImage(img, 0, 0, size, size))
     .catch(() => {
       const s = size / 56;
+      const fine = size >= 80; // extra micro-detail only when it can resolve
+      const cfg = PORTRAIT_CAST[ch.id] ?? { fem: false, skin: 2, hair: 'crop', hairCol: '#2A211A', expr: 'stoic', prop: 'ear' };
+      const ex = PORTRAIT_EXPR[cfg.expr] ?? PORTRAIT_EXPR.stoic;
+      const skin = SKIN_TONES[cfg.skin] ?? SKIN_TONES[2];
+      const skinDk = shade(skin, -34);
+      const hairDk = shade(cfg.hairCol, -22);
+      // --- backdrop: night plate + char-color aura behind the head ---
       const g = ctx.createLinearGradient(0, 0, 0, size);
       g.addColorStop(0, '#141625');
       g.addColorStop(1, '#0B0A14');
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, size, size);
-      // faint moonlight from the upper-left
-      const mg = ctx.createRadialGradient(size * 0.2, size * 0.1, 2, size * 0.2, size * 0.1, size * 0.9);
-      mg.addColorStop(0, 'rgba(191,208,232,0.12)');
-      mg.addColorStop(1, 'rgba(191,208,232,0)');
-      ctx.fillStyle = mg;
+      const ag = ctx.createRadialGradient(size * 0.5, size * 0.42, 2, size * 0.5, size * 0.42, size * 0.62);
+      ag.addColorStop(0, 'rgba(191,208,232,0.10)');
+      ag.addColorStop(0.6, `${ch.color}26`);
+      ag.addColorStop(1, 'rgba(11,10,20,0)');
+      ctx.fillStyle = ag;
       ctx.fillRect(0, 0, size, size);
-      ctx.strokeStyle = 'rgba(23,74,74,0.9)';
-      ctx.strokeRect(0.5, 0.5, size - 1, size - 1);
       ctx.save();
       ctx.scale(s, s);
-      // shoulder plate
+      ctx.lineJoin = 'round';
+      const cx = 28;
+      // --- shoulders + jacket (graphite, char-color collar accent) ---
+      const shW = cfg.fem ? 19.5 : 22.5;
       ctx.fillStyle = PAL.graphMid;
       ctx.beginPath();
-      ctx.ellipse(28, 57, 23, 16, 0, Math.PI, 0);
-      ctx.fill();
-      ctx.fillStyle = PAL.graphDark;
-      ctx.fillRect(8, 52, 40, 2);
-      // char-color energy trim across the shoulders
-      ctx.strokeStyle = ch.color;
-      ctx.lineWidth = 2;
-      ctx.shadowColor = ch.color;
-      ctx.shadowBlur = 5;
-      ctx.beginPath();
-      ctx.moveTo(7, 49); ctx.lineTo(20, 45);
-      ctx.moveTo(36, 45); ctx.lineTo(49, 49);
-      ctx.stroke();
-      ctx.shadowBlur = 0;
-      // teal collar tick — squad marking
-      ctx.fillStyle = PAL.teal;
-      ctx.fillRect(24, 42, 8, 2);
-      // helmet dome + chin guard, no face shown
-      ctx.fillStyle = '#3A4050';
-      ctx.beginPath();
-      ctx.arc(28, 27, 13.5, Math.PI, 0);
-      ctx.fill();
-      ctx.fillStyle = PAL.graphPlate;
-      ctx.fillRect(14.5, 26, 27, 13);
-      ctx.fillStyle = 'rgba(11,10,20,0.4)';
-      ctx.fillRect(14.5, 35, 27, 4);
-      // moonsteel rim from the upper-left
-      ctx.strokeStyle = PAL.moonsteel;
-      ctx.lineWidth = 1.8;
-      ctx.beginPath();
-      ctx.arc(28, 27, 12.6, Math.PI * 1.02, Math.PI * 1.55);
-      ctx.stroke();
-      // relay-cyan visor slit
-      ctx.fillStyle = PAL.relay;
-      ctx.shadowColor = PAL.relay;
-      ctx.shadowBlur = 7;
-      ctx.fillRect(18, 29.5, 20, 3.6);
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = PAL.anchor;
-      ctx.fillRect(20, 30.4, 7, 1.2);
-      // char-color crown dot
+      ctx.moveTo(cx - shW, 56);
+      ctx.quadraticCurveTo(cx - shW + 1, 44.5, cx - 9, 42.5);
+      ctx.lineTo(cx + 9, 42.5);
+      ctx.quadraticCurveTo(cx + shW - 1, 44.5, cx + shW, 56);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = PAL.graphDark; // jacket zip seam
+      ctx.fillRect(cx - 0.8, 46, 1.6, 10);
+      // char-color collar: two raised lapel chevrons + glow seam
       ctx.fillStyle = ch.color;
+      ctx.save();
       ctx.shadowColor = ch.color;
       ctx.shadowBlur = 4;
       ctx.beginPath();
-      ctx.arc(28, 17.5, 2, 0, Math.PI * 2);
+      ctx.moveTo(cx - 10.5, 43.5); ctx.lineTo(cx - 3, 46.5); ctx.lineTo(cx - 4, 49.5); ctx.lineTo(cx - 12, 46.5);
+      ctx.moveTo(cx + 10.5, 43.5); ctx.lineTo(cx + 3, 46.5); ctx.lineTo(cx + 4, 49.5); ctx.lineTo(cx + 12, 46.5);
+      ctx.closePath(); ctx.fill();
+      ctx.restore();
+      if (fine) { // stitch ticks on the shoulder seams
+        ctx.strokeStyle = 'rgba(138,152,184,0.4)';
+        ctx.lineWidth = 0.7;
+        ctx.beginPath();
+        ctx.moveTo(cx - shW + 2.5, 50); ctx.lineTo(cx - 12, 46.8);
+        ctx.moveTo(cx + shW - 2.5, 50); ctx.lineTo(cx + 12, 46.8);
+        ctx.stroke();
+      }
+      // --- neck ---
+      ctx.fillStyle = skin;
+      ctx.fillRect(cx - 4.2, 34, 8.4, 10.5);
+      ctx.fillStyle = 'rgba(11,10,20,0.22)'; // chin shadow on the neck
+      ctx.fillRect(cx - 4.2, 34, 8.4, 3.4);
+      // --- hair back layer (behind the head) ---
+      portraitHairBack(ctx, cfg.hair, cfg.hairCol, hairDk);
+      // --- head: soft cartoon oval, gendered jaw ---
+      const hr = cfg.fem ? 11.4 : 12.1; // half-width
+      ctx.fillStyle = skin;
+      ctx.beginPath();
+      ctx.moveTo(cx - hr, 24);
+      ctx.quadraticCurveTo(cx - hr - 0.6, 12.5, cx, 12);
+      ctx.quadraticCurveTo(cx + hr + 0.6, 12.5, cx + hr, 24);
+      if (cfg.fem) { // tapered chin
+        ctx.quadraticCurveTo(cx + hr - 1, 32.5, cx, 37);
+        ctx.quadraticCurveTo(cx - hr + 1, 32.5, cx - hr, 24);
+      } else { // squared jaw
+        ctx.quadraticCurveTo(cx + hr, 33, cx + 5.5, 36.6);
+        ctx.quadraticCurveTo(cx, 38, cx - 5.5, 36.6);
+        ctx.quadraticCurveTo(cx - hr, 33, cx - hr, 24);
+      }
+      ctx.closePath(); ctx.fill();
+      // ears
+      ctx.beginPath();
+      ctx.ellipse(cx - hr - 0.6, 26, 2.2, 3.1, 0, 0, Math.PI * 2);
+      ctx.ellipse(cx + hr + 0.6, 26, 2.2, 3.1, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = skinDk; // inner ear notch
+      ctx.lineWidth = 0.9;
+      ctx.beginPath();
+      ctx.arc(cx - hr - 0.6, 26, 1.1, -0.8, 1.6);
+      ctx.moveTo(cx + hr + 1.5, 25);
+      ctx.arc(cx + hr + 0.6, 26, 1.1, Math.PI - 1.6, Math.PI + 0.8);
+      ctx.stroke();
+      // --- 2-tone shading: shaded right side + rim light on the left ---
+      ctx.save();
+      ctx.beginPath(); // clip to the head oval (slightly generous)
+      ctx.ellipse(cx, 25, hr + 0.7, 12.8, 0, 0, Math.PI * 2);
+      ctx.clip();
+      ctx.fillStyle = 'rgba(31,21,38,0.16)';
+      ctx.beginPath();
+      ctx.ellipse(cx + hr + 3, 25.5, 9.5, 14, 0.12, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
+      ctx.strokeStyle = 'rgba(223,243,255,0.5)'; // moonlit rim
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.arc(cx - 0.5, 25, hr + 0.2, Math.PI * 0.78, Math.PI * 1.22);
+      ctx.stroke();
+      // --- face: big readable cartoon features ---
+      const eyeY = 25, eyeDX = 5.1;
+      const lid = Math.max(-0.15, Math.min(1, ex.lid));
+      for (const side of [-1, 1]) {
+        const exx = cx + side * eyeDX + ex.look * 1.6;
+        if (lid >= 1) {
+          // closed-happy: an upturned arc per eye
+          ctx.strokeStyle = '#33271E';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.arc(exx, eyeY + 1.2, 2.8, Math.PI * 1.15, Math.PI * 1.85);
+          ctx.stroke();
+        } else {
+          const ry = 2.5 * (1 - lid * 0.62) + (lid < 0 ? 0.5 : 0);
+          ctx.fillStyle = '#F6F3EC';
+          ctx.beginPath();
+          ctx.ellipse(exx, eyeY, 3.3, ry, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#33271E'; // iris
+          ctx.beginPath();
+          ctx.arc(exx + ex.look * 1.4, eyeY + 0.3, Math.min(1.9, ry * 0.9), 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#FFFFFF'; // glint
+          ctx.fillRect(exx + ex.look * 1.4 - 1.3, eyeY - 1.1, 1, 1);
+          if (lid > 0.05) { // upper lid line
+            ctx.strokeStyle = skinDk;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(exx - 3.3, eyeY - ry * 0.7);
+            ctx.quadraticCurveTo(exx, eyeY - ry - 0.6, exx + 3.3, eyeY - ry * 0.7);
+            ctx.stroke();
+          }
+        }
+      }
+      // brows: expression carriers (asym raises the right one)
+      ctx.strokeStyle = hairDk;
+      ctx.lineWidth = cfg.fem ? 1.3 : 1.9;
+      for (const side of [-1, 1]) {
+        const raise = ex.raise + (ex.asym && side === 1 ? 1.4 : 0);
+        const by = eyeY - 4.6 - raise * 0.9;
+        const tilt = ex.tilt * side * 3.4;
+        ctx.beginPath();
+        ctx.moveTo(cx + side * (eyeDX - 3.1), by + tilt);
+        ctx.quadraticCurveTo(cx + side * eyeDX, by - 1.1, cx + side * (eyeDX + 3.1), by - tilt * 0.4);
+        ctx.stroke();
+      }
+      // nose: small wedge
+      ctx.strokeStyle = skinDk;
+      ctx.lineWidth = 1.1;
+      ctx.beginPath();
+      ctx.moveTo(cx + 0.6, 27);
+      ctx.quadraticCurveTo(cx + 1.6, 29.6, cx - 0.4, 30.2);
+      ctx.stroke();
+      // mouth
+      const mY = 33;
+      if (ex.mouth === 'grin') {
+        ctx.fillStyle = '#5A2520';
+        ctx.beginPath();
+        ctx.moveTo(cx - 4.6, mY - 1);
+        ctx.quadraticCurveTo(cx, mY + 3.8, cx + 4.6, mY - 1);
+        ctx.quadraticCurveTo(cx, mY + 0.6, cx - 4.6, mY - 1);
+        ctx.closePath(); ctx.fill();
+        ctx.fillStyle = '#F6F3EC'; // teeth band
+        ctx.beginPath();
+        ctx.moveTo(cx - 3.9, mY - 0.8);
+        ctx.quadraticCurveTo(cx, mY + 0.9, cx + 3.9, mY - 0.8);
+        ctx.quadraticCurveTo(cx, mY + 0.1, cx - 3.9, mY - 0.8);
+        ctx.closePath(); ctx.fill();
+      } else if (ex.mouth === 'open') {
+        ctx.fillStyle = '#5A2520';
+        ctx.beginPath();
+        ctx.ellipse(cx, mY + 0.4, 3.1, 2.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#F6F3EC';
+        ctx.fillRect(cx - 2.2, mY - 1.9, 4.4, 1.3);
+      } else if (ex.mouth === 'smirk') {
+        ctx.strokeStyle = '#7A3B33';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(cx - 3.4, mY + 0.6);
+        ctx.quadraticCurveTo(cx + 1.5, mY + 1.6, cx + 4.4, mY - 1.6);
+        ctx.stroke();
+      } else if (ex.mouth === 'frown') {
+        ctx.strokeStyle = '#7A3B33';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(cx - 3.6, mY + 1);
+        ctx.quadraticCurveTo(cx, mY - 0.8, cx + 3.6, mY + 1);
+        ctx.stroke();
+      } else if (ex.mouth === 'flat') {
+        ctx.strokeStyle = '#7A3B33';
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.moveTo(cx - 3, mY); ctx.lineTo(cx + 3.2, mY);
+        ctx.stroke();
+      } else { // smile
+        ctx.strokeStyle = '#7A3B33';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(cx - 3.8, mY - 0.6);
+        ctx.quadraticCurveTo(cx, mY + 1.9, cx + 3.8, mY - 0.6);
+        ctx.stroke();
+      }
+      // identity marks
+      if (cfg.scar) {
+        ctx.strokeStyle = 'rgba(150,62,52,0.85)';
+        ctx.lineWidth = 1.1;
+        ctx.beginPath();
+        ctx.moveTo(cx + 6.5, 20.5); ctx.lineTo(cx + 9.2, 28.5);
+        if (fine) { ctx.moveTo(cx + 6.6, 23.5); ctx.lineTo(cx + 8.9, 22.6); }
+        ctx.stroke();
+      }
+      if (cfg.smudge) { // soot streak across one cheekbone
+        ctx.fillStyle = 'rgba(40,32,30,0.45)';
+        ctx.beginPath();
+        ctx.ellipse(cx - 7, 29.5, 3.4, 1.4, 0.35, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      if (cfg.freckles) {
+        ctx.fillStyle = 'rgba(160,100,60,0.55)';
+        for (const [fx2, fy2] of [[-6.5, 28.6], [-4.8, 29.6], [5.2, 28.8], [6.8, 29.7], [-6, 30.4]]) {
+          ctx.fillRect(cx + fx2, fy2, 0.9, 0.9);
+        }
+      }
+      if (cfg.beard === 'full') {
+        ctx.fillStyle = cfg.hairCol;
+        ctx.beginPath();
+        ctx.moveTo(cx - hr + 1, 26.5);
+        ctx.quadraticCurveTo(cx - hr + 1, 36, cx, 38.6);
+        ctx.quadraticCurveTo(cx + hr - 1, 36, cx + hr - 1, 26.5);
+        ctx.quadraticCurveTo(cx + 6, 30.5, cx, 30.5);
+        ctx.quadraticCurveTo(cx - 6, 30.5, cx - hr + 1, 26.5);
+        ctx.closePath(); ctx.fill();
+        ctx.fillStyle = '#5A2520'; // mouth reads through the beard
+        ctx.fillRect(cx - 2.6, mY - 0.4, 5.2, 1.3);
+      } else if (cfg.beard === 'chin') {
+        ctx.strokeStyle = cfg.hairCol;
+        ctx.lineWidth = 2.6;
+        ctx.beginPath();
+        ctx.moveTo(cx - 7.5, 31);
+        ctx.quadraticCurveTo(cx, 38.2, cx + 7.5, 31);
+        ctx.stroke();
+      }
+      // --- hair front layer ---
+      portraitHairFront(ctx, cfg.hair, cfg.hairCol, hairDk, fine);
+      // --- operator props (kept small: the face stays the hero) ---
+      if (cfg.prop === 'visor') {
+        // visor pushed UP onto the hairline
+        ctx.fillStyle = PAL.graphPlate;
+        ctx.beginPath();
+        ctx.moveTo(cx - 10.5, 15.5);
+        ctx.quadraticCurveTo(cx, 11.2, cx + 10.5, 15.5);
+        ctx.quadraticCurveTo(cx, 13.8, cx - 10.5, 15.5);
+        ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = PAL.relay; // parked slit still glows faintly
+        ctx.lineWidth = 1;
+        ctx.shadowColor = PAL.relay;
+        ctx.shadowBlur = 3;
+        ctx.beginPath();
+        ctx.moveTo(cx - 8, 14.9);
+        ctx.quadraticCurveTo(cx, 12.4, cx + 8, 14.9);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = PAL.graphDark; // hinge studs at the temples
+        ctx.fillRect(cx - 11.6, 15.2, 1.8, 1.8);
+        ctx.fillRect(cx + 9.8, 15.2, 1.8, 1.8);
+      } else if (cfg.prop === 'goggles') {
+        // work goggles parked ON the forehead, never over the eyes
+        ctx.strokeStyle = 'rgba(20,22,31,0.9)'; // strap around the crown
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.moveTo(cx - hr - 0.5, 18);
+        ctx.quadraticCurveTo(cx, 14.2, cx + hr + 0.5, 18);
+        ctx.stroke();
+        for (const side of [-1, 1]) {
+          ctx.fillStyle = '#3E4452';
+          ctx.beginPath(); ctx.arc(cx + side * 4.4, 16, 3.3, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = '#7E97AE';
+          ctx.beginPath(); ctx.arc(cx + side * 4.4, 16, 2.1, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = 'rgba(255,255,255,0.75)'; // lens glint
+          ctx.fillRect(cx + side * 4.4 - 1.6, 14.7, 1.1, 1.1);
+          ctx.strokeStyle = PAL.graphDark;
+          ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.arc(cx + side * 4.4, 16, 3.3, 0, Math.PI * 2); ctx.stroke();
+        }
+      } else { // 'ear' (default): comms earpiece with a char-color status dot
+        ctx.fillStyle = PAL.graphPlate;
+        ctx.beginPath();
+        ctx.ellipse(cx + hr + 1, 25.6, 1.9, 2.6, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = PAL.graphPlate; // tiny mic stub
+        ctx.lineWidth = 1.1;
+        ctx.beginPath();
+        ctx.moveTo(cx + hr + 0.6, 27.8);
+        ctx.quadraticCurveTo(cx + hr - 1.5, 30.5, cx + hr - 3.6, 31);
+        ctx.stroke();
+        ctx.fillStyle = ch.color;
+        ctx.shadowColor = ch.color;
+        ctx.shadowBlur = 3;
+        ctx.beginPath();
+        ctx.arc(cx + hr + 1.2, 24.6, 0.9, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+      if (cfg.prop === 'cross') {
+        // medic: field-cross pin on the collar (earpiece too — she runs comms)
+        ctx.fillStyle = PAL.graphPlate;
+        ctx.beginPath(); ctx.ellipse(cx + hr + 1, 25.6, 1.9, 2.6, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#E8F4F2';
+        ctx.fillRect(cx + 6.4, 45.4, 4.6, 4.6);
+        ctx.fillStyle = '#D2554A';
+        ctx.fillRect(cx + 8.1, 46.1, 1.2, 3.2);
+        ctx.fillRect(cx + 7.1, 47.1, 3.2, 1.2);
+      }
+      if (cfg.hair === 'wet' && fine) {
+        // one droplet tracing the temple
+        ctx.fillStyle = 'rgba(191,251,255,0.8)';
+        ctx.beginPath();
+        ctx.ellipse(cx - 9.4, 22.5, 0.7, 1.1, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+      // frame
+      ctx.strokeStyle = 'rgba(23,74,74,0.9)';
+      ctx.strokeRect(0.5, 0.5, size - 1, size - 1);
     });
 }
 
@@ -1104,6 +1777,30 @@ export function addEventFX(ev) {
     if (ev.x != null && ev.tx != null) {
       streaks.push({ x: ev.x, y: ev.y, tx: ev.tx, ty: ev.ty, life: 0.25, max: 0.5, rgb: '142,79,209' });
     }
+  }
+  // --- stronghold: beacon-defense variant + early extraction ---
+  else if (ev.type === 'beaconDown') {
+    coreAlarmT = Math.max(coreAlarmT, 3);
+    if (ev.x != null) { burst(22, PAL.red, 220, 0.7); burst(10, PAL.glitch, 150, 0.6); ring(110, PAL.red, 0.8, 3.5); }
+    popups.push({ screen: true, x: 0, y: 0, text: 'A BEACON GOES DARK', life: 2.6, max: 2.6, color: PAL.red, size: 28 });
+    shake = Math.max(shake, 9);
+  }
+  else if (ev.type === 'beaconLit' || ev.type === 'beaconRelit') {
+    if (ev.x != null) { ring(70, PAL.lythGold, 0.8, 3); burst(16, PAL.lythGold, 160, 0.6); burst(6, PAL.lythPale, 220, 0.4); }
+    popups.push({ screen: true, x: 0, y: 0, text: 'BEACON RELIT', life: 2.2, max: 2.2, color: PAL.lythGold, size: 26 });
+  }
+  else if (ev.type === 'shipDown') {
+    if (ev.x != null) { ring(160, PAL.relay, 1.1, 4); ring(90, PAL.anchor, 0.8, 3); burst(26, PAL.anchor, 240, 0.8); }
+    popups.push({ screen: true, x: 0, y: 0, text: 'THE ANCHORCRAFT DESCENDS — ALL ABOARD', life: 3.2, max: 3.2, color: PAL.anchor, size: 26 });
+    shake = Math.max(shake, 10);
+  }
+  else if (ev.type === 'shipLaunch') {
+    if (ev.x != null) { ring(200, PAL.anchor, 1.2, 4.5); burst(32, PAL.anchor, 280, 0.9); burst(12, PAL.lythGold, 200, 0.7); }
+    popups.push({ screen: true, x: 0, y: 0, text: 'ANCHORCRAFT AWAY — FULL CLEAR', life: 3.2, max: 3.2, color: PAL.lythGold, size: 30 });
+    shake = Math.max(shake, 12);
+  }
+  else if (ev.type === 'aboard') {
+    if (ev.x != null) { burst(8, PAL.relay, 110, 0.4); popups.push({ x: ev.x, y: ev.y - 24, text: 'ABOARD', life: 0.9, max: 0.9, color: PAL.relay }); }
   }
   // unknown event types are ignored gracefully
 }
@@ -4313,6 +5010,19 @@ function holoShape(ctx, kind, x, y) {
     ctx.closePath();
     ctx.fill(); ctx.stroke();
     ctx.beginPath(); ctx.ellipse(x, y - 20, 3.6, 4.6, 0, 0, Math.PI * 2); ctx.stroke();
+  } else if (kind === 'wall') {
+    // crenellated wall segment outline
+    ctx.fillRect(x - 21, y - 12, 42, 22);
+    ctx.strokeRect(x - 21, y - 12, 42, 22);
+    ctx.beginPath();
+    for (const mx of [-16, -2, 12]) ctx.rect(x + mx, y - 17, 8, 5);
+    ctx.stroke();
+  } else if (kind === 'comm') {
+    // comm mast + dish outline
+    ctx.beginPath();
+    ctx.moveTo(x - 6, y + 8); ctx.lineTo(x - 2, y - 26); ctx.lineTo(x + 2, y - 26); ctx.lineTo(x + 6, y + 8);
+    ctx.closePath(); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x + 5, y - 22, 5.5, -1.2, 1.6); ctx.stroke();
   } else { // barricade
     ctx.fillRect(x - 18, y - 10, 36, 18);
     ctx.strokeRect(x - 18, y - 10, 36, 18);
@@ -4372,6 +5082,327 @@ function drawBarricade(ctx, b, t) {
       ctx.restore();
     }
   }
+}
+
+// ---- FORTIFIED WALLS: tile-aligned segments that read as one connected
+// run (joint seams toward built neighbors, end caps where the run stops,
+// level trims, damage cracks). Bases built from these are damageable,
+// repairable, upgradable — never indestructible '#' grid.
+let wallIdx = { list: null, set: null };
+function wallSetFor(snap) {
+  const list = snap?.builds ?? [];
+  if (wallIdx.list !== list) {
+    const set = new Set();
+    for (const b of list) {
+      if (b.kind === 'wall' && b.built) set.add(`${Math.floor(b.x / TILE)},${Math.floor(b.y / TILE)}`);
+    }
+    wallIdx = { list, set };
+  }
+  return wallIdx.set;
+}
+
+function drawWallSegment(ctx, b, t, snap) {
+  const set = wallSetFor(snap);
+  const gx = Math.floor(b.x / TILE), gy = Math.floor(b.y / TILE);
+  const px = gx * TILE, py = gy * TILE;
+  const nN = set.has(`${gx},${gy - 1}`), nS = set.has(`${gx},${gy + 1}`);
+  const nW = set.has(`${gx - 1},${gy}`), nE = set.has(`${gx + 1},${gy}`);
+  const lvl = b.level ?? 1;
+  const hpf = Math.max(0, Math.min(1, (b.hp ?? 20) / (b.maxHp || 20)));
+  const top = py - 6; // raised plate, same elevation read as '#' rock
+  // drop shadow
+  ctx.fillStyle = 'rgba(11,10,20,0.45)';
+  ctx.fillRect(px + 4, py + 6, TILE, TILE);
+  // ore-built plate body
+  ctx.fillStyle = lvl >= 3 ? '#3E4452' : lvl >= 2 ? '#3A3F4E' : '#363B4A';
+  ctx.fillRect(px, top, TILE, TILE);
+  // deterministic plate mottling
+  ctx.fillStyle = 'rgba(20,22,30,0.32)';
+  if ((gx + gy) % 2) ctx.fillRect(px + 6, top + 9, 15, 10);
+  else ctx.fillRect(px + 22, top + 21, 17, 9);
+  // front face: elevation read where the run ends below
+  if (!nS) {
+    ctx.fillStyle = '#23262F';
+    ctx.fillRect(px, py + TILE - 6, TILE, 6);
+    ctx.fillStyle = 'rgba(138,152,184,0.14)';
+    ctx.fillRect(px, py + TILE - 6, TILE, 1);
+  }
+  // moonlit top rim where the run ends above
+  if (!nN) {
+    ctx.fillStyle = 'rgba(138,152,184,0.35)';
+    ctx.fillRect(px, top, TILE, 2);
+  }
+  // joints toward neighbors, caps where the run stops
+  ctx.strokeStyle = 'rgba(17,19,28,0.8)';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  if (nW) { ctx.moveTo(px + 0.6, top + 4); ctx.lineTo(px + 0.6, top + TILE - 4); }
+  if (nE) { ctx.moveTo(px + TILE - 0.6, top + 4); ctx.lineTo(px + TILE - 0.6, top + TILE - 4); }
+  if (nN) { ctx.moveTo(px + 4, top + 0.6); ctx.lineTo(px + TILE - 4, top + 0.6); }
+  if (nS) { ctx.moveTo(px + 4, top + TILE - 0.6); ctx.lineTo(px + TILE - 4, top + TILE - 0.6); }
+  ctx.stroke();
+  if (!nW) { // west end cap pillar
+    ctx.fillStyle = '#2A2E3A';
+    ctx.fillRect(px, top, 5, TILE);
+    ctx.fillStyle = 'rgba(138,152,184,0.3)';
+    ctx.fillRect(px, top, 1.4, TILE);
+  }
+  if (!nE) { // east end cap pillar
+    ctx.fillStyle = '#2A2E3A';
+    ctx.fillRect(px + TILE - 5, top, 5, TILE);
+    ctx.fillStyle = 'rgba(11,10,20,0.4)';
+    ctx.fillRect(px + TILE - 1.4, top, 1.4, TILE);
+  }
+  // level trims: L2 steel band + rivets, L3 moonsteel crenellation
+  if (lvl >= 2) {
+    ctx.fillStyle = PAL.steel;
+    ctx.fillRect(px + 2, top + TILE * 0.56, TILE - 4, 2.4);
+    ctx.fillStyle = '#6E7A94';
+    for (const rx of [8, 24, 40]) ctx.fillRect(px + rx - 1, top + TILE * 0.56 + 0.4, 1.8, 1.8);
+  }
+  if (lvl >= 3) {
+    for (let i = 0; i < 3; i++) {
+      const mx = px + 5 + i * 15;
+      ctx.fillStyle = '#3E4452';
+      ctx.fillRect(mx, top - 5, 9, 6);
+      ctx.fillStyle = PAL.moonsteel;
+      ctx.fillRect(mx, top - 5, 9, 1.4);
+    }
+  }
+  // operator-built teal tag, one segment in five
+  if ((gx * 7 + gy * 13) % 5 === 0) {
+    ctx.fillStyle = PAL.teal;
+    ctx.fillRect(px + TILE - 12, top + TILE - 12, 5, 3);
+  }
+  // damage cracks + failing weld glow (shoot a wall to demolish it — direct
+  // hits from your own fire are the official way out of a self-lock-in)
+  if (hpf < 0.6) {
+    ctx.strokeStyle = '#14161E';
+    ctx.lineWidth = 1.3;
+    ctx.beginPath();
+    ctx.moveTo(px + 12, top + 2); ctx.lineTo(px + 17, top + 14); ctx.lineTo(px + 10, top + 26);
+    ctx.moveTo(px + 33, top + 6); ctx.lineTo(px + 29, top + 19);
+    if (hpf < 0.4) { ctx.moveTo(px + 40, top + 14); ctx.lineTo(px + 34, top + 30); ctx.lineTo(px + 40, top + 41); }
+    ctx.stroke();
+    if (hpf < 0.25) {
+      ctx.save();
+      ctx.strokeStyle = PAL.lythAmber;
+      ctx.shadowColor = PAL.lythAmber;
+      ctx.shadowBlur = 6;
+      ctx.globalAlpha *= 0.5 + 0.4 * Math.sin(t * 7 + gx);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(px + 12, top + 2); ctx.lineTo(px + 17, top + 14); ctx.lineTo(px + 10, top + 26);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+}
+
+// ---- COMM TOWER ('comm' build): mission-prep structure. Unbuilt sites read
+// as a BROKEN tower (leaning lattice, fallen dish, dying sparks); repaired,
+// it stands straight with a blinking beacon and rising signal rings.
+function drawCommTower(ctx, b, t, broken, lights) {
+  const { x, y } = b;
+  shadowBlob(ctx, x + 2, y + 7, 14, 5);
+  ctx.save();
+  if (broken) {
+    ctx.translate(x, y + 6);
+    ctx.rotate(0.16);
+    ctx.translate(-x, -(y + 6));
+  }
+  // lattice mast
+  ctx.strokeStyle = PAL.graphPlate;
+  ctx.lineWidth = 2.2;
+  ctx.beginPath();
+  ctx.moveTo(x - 6, y + 7); ctx.lineTo(x - 1.5, y - 34);
+  ctx.moveTo(x + 6, y + 7); ctx.lineTo(x + 1.5, y - 34);
+  ctx.stroke();
+  ctx.strokeStyle = PAL.graphDark; // cross-bracing
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  for (let i = 0; i < 4; i++) {
+    const k = i / 4, k2 = (i + 1) / 4;
+    const w0 = 6 - k * 4.5, w1 = 6 - k2 * 4.5;
+    const y0 = y + 7 - k * 41, y1 = y + 7 - k2 * 41;
+    ctx.moveTo(x - w0, y0); ctx.lineTo(x + w1, y1);
+    ctx.moveTo(x + w0, y0); ctx.lineTo(x - w1, y1);
+  }
+  ctx.stroke();
+  ctx.fillStyle = PAL.moonsteel;
+  ctx.fillRect(x - 2, y - 36, 4, 3); // mast head
+  if (broken) {
+    ctx.restore();
+    // the dish lies dead at the base
+    ctx.fillStyle = PAL.graphMid;
+    ctx.beginPath();
+    ctx.ellipse(x + 12, y + 5, 7, 3.2, 0.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = PAL.graphDark;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    // a sheared feed cable, sparking now and then
+    ctx.strokeStyle = '#2A2E3A';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(x + 2, y - 20);
+    ctx.quadraticCurveTo(x + 9, y - 10, x + 10, y + 2);
+    ctx.stroke();
+    if (fract(t * 0.7 + x * 0.013) < 0.12) {
+      ctx.save();
+      ctx.strokeStyle = PAL.eye;
+      ctx.shadowColor = PAL.relay;
+      ctx.shadowBlur = 6;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      jagPath(ctx, x + 10, y + 2, x + 14, y + 6, 3, 3, Math.floor(t * 30) + x);
+      ctx.stroke();
+      ctx.restore();
+    }
+  } else {
+    ctx.restore();
+    // dish locked skyward + red aircraft lamp + signal rings
+    ctx.fillStyle = PAL.graphMid;
+    ctx.beginPath();
+    ctx.ellipse(x + 5.5, y - 29, 5.5, 3.4, -0.9, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = PAL.moonsteel;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = PAL.anchor;
+    ctx.fillRect(x + 7.5, y - 32.5, 1.6, 1.6); // feed horn
+    const blink = Math.floor(t * 1.4) % 2 === 0;
+    ctx.fillStyle = blink ? PAL.red : '#5A2230';
+    if (blink) { ctx.shadowColor = PAL.red; ctx.shadowBlur = 6; }
+    ctx.beginPath(); ctx.arc(x, y - 38, 1.8, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+    // signal ring rising every 2s
+    const sp = fract(t * 0.5 + x * 0.01);
+    ctx.save();
+    ctx.globalAlpha *= (1 - sp) * 0.7;
+    ctx.strokeStyle = PAL.relay;
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.arc(x, y - 38, 3 + sp * 12, -Math.PI * 0.85, -Math.PI * 0.15);
+    ctx.stroke();
+    ctx.restore();
+    lights.push({ x, y: y - 32, r: 36, rgb: '111,216,242', a: 0.07 });
+  }
+}
+
+// ---- THE ANCHORCRAFT, LANDED (stronghold early extraction): all four
+// beacons lit under wave pressure and the vessel comes down by the base.
+// Boarding glow marks the hatch; she waits — boarding stays optional.
+function drawShip(ctx, ship, t, lights) {
+  const { x, y } = ship;
+  const breath = 0.7 + 0.3 * Math.sin(t * 1.6);
+  // scorched landing ground
+  ctx.fillStyle = 'rgba(11,10,20,0.5)';
+  ctx.beginPath();
+  ctx.ellipse(x, y + 16, 58, 17, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // boarding glow ring at the hatch (under everything else)
+  ctx.save();
+  ctx.strokeStyle = `rgba(255,217,138,${0.35 + 0.35 * breath})`;
+  ctx.shadowColor = PAL.lythGold;
+  ctx.shadowBlur = 10;
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.ellipse(x, y + 16, 30 + breath * 3, 10 + breath, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+  // landing legs + skids
+  ctx.strokeStyle = PAL.graphDark;
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(x - 30, y - 4); ctx.lineTo(x - 38, y + 13);
+  ctx.moveTo(x + 30, y - 4); ctx.lineTo(x + 38, y + 13);
+  ctx.stroke();
+  ctx.fillStyle = PAL.graphPlate;
+  ctx.fillRect(x - 45, y + 12, 15, 3);
+  ctx.fillRect(x + 30, y + 12, 15, 3);
+  // hull: long graphite lifting body, nose left
+  ctx.fillStyle = PAL.graphMid;
+  ctx.beginPath();
+  ctx.moveTo(x - 52, y - 2);
+  ctx.quadraticCurveTo(x - 50, y - 16, x - 22, y - 19);
+  ctx.lineTo(x + 30, y - 19);
+  ctx.quadraticCurveTo(x + 52, y - 16, x + 50, y - 3);
+  ctx.quadraticCurveTo(x + 30, y + 5, x, y + 5);
+  ctx.quadraticCurveTo(x - 40, y + 5, x - 52, y - 2);
+  ctx.closePath(); ctx.fill();
+  // belly shadow
+  ctx.fillStyle = PAL.graphDark;
+  ctx.beginPath();
+  ctx.moveTo(x - 48, y - 1);
+  ctx.quadraticCurveTo(x, y + 6, x + 48, y - 2);
+  ctx.quadraticCurveTo(x + 30, y + 5, x, y + 5);
+  ctx.quadraticCurveTo(x - 40, y + 5, x - 48, y - 1);
+  ctx.closePath(); ctx.fill();
+  // tail fin
+  ctx.fillStyle = PAL.graphPlate;
+  ctx.beginPath();
+  ctx.moveTo(x + 30, y - 18);
+  ctx.lineTo(x + 38, y - 34);
+  ctx.lineTo(x + 44, y - 18);
+  ctx.closePath(); ctx.fill();
+  // moonsteel dorsal rim
+  ctx.strokeStyle = PAL.moonsteel;
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.moveTo(x - 49, y - 7);
+  ctx.quadraticCurveTo(x - 46, y - 16.5, x - 22, y - 18.4);
+  ctx.lineTo(x + 28, y - 18.4);
+  ctx.stroke();
+  // cockpit glow strip on the nose
+  ctx.save();
+  ctx.fillStyle = PAL.relay;
+  ctx.shadowColor = PAL.relay;
+  ctx.shadowBlur = 8;
+  ctx.beginPath();
+  ctx.moveTo(x - 46, y - 9);
+  ctx.quadraticCurveTo(x - 42, y - 14, x - 30, y - 14.5);
+  ctx.lineTo(x - 30, y - 11.5);
+  ctx.quadraticCurveTo(x - 40, y - 11, x - 46, y - 9);
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+  // engine pods idling cold-blue
+  for (const ex2 of [-12, 14]) {
+    ctx.fillStyle = PAL.graphPlate;
+    ctx.beginPath();
+    ctx.ellipse(x + ex2, y - 21, 7, 3.4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.save();
+    ctx.fillStyle = `rgba(111,216,242,${0.25 + 0.2 * breath})`;
+    ctx.shadowColor = PAL.relay;
+    ctx.shadowBlur = 5;
+    ctx.fillRect(x + ex2 - 4.5, y - 22.2, 9, 2.2);
+    ctx.restore();
+  }
+  // open boarding hatch: warm light spilling down the ramp
+  ctx.fillStyle = '#11131F';
+  ctx.fillRect(x - 7, y - 13, 14, 16);
+  const hg = ctx.createLinearGradient(0, y - 13, 0, y + 14);
+  hg.addColorStop(0, `rgba(255,217,138,${0.55 * breath + 0.25})`);
+  hg.addColorStop(1, 'rgba(255,217,138,0)');
+  ctx.fillStyle = hg;
+  ctx.beginPath();
+  ctx.moveTo(x - 6, y - 12);
+  ctx.lineTo(x + 6, y - 12);
+  ctx.lineTo(x + 13, y + 14);
+  ctx.lineTo(x - 13, y + 14);
+  ctx.closePath(); ctx.fill();
+  // tail beacon blink
+  if (Math.floor(t * 2.2) % 2 === 0) {
+    ctx.save();
+    ctx.fillStyle = PAL.lythGold;
+    ctx.shadowColor = PAL.lythGold;
+    ctx.shadowBlur = 7;
+    ctx.beginPath(); ctx.arc(x + 38, y - 35, 1.8, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+  lights.push({ x, y: y + 4, r: 80, rgb: '255,217,138', a: 0.1 * breath + 0.05 });
+  lights.push({ x: x - 38, y: y - 11, r: 46, rgb: '111,216,242', a: 0.08 });
 }
 
 // Shared tripod + ring base for every turret type.
@@ -4662,12 +5693,14 @@ function drawBuild(ctx, b, t, snap, lights) {
   const { x, y } = b;
   if (b.built) {
     if (b.kind === 'barricade') drawBarricade(ctx, b, t);
+    else if (b.kind === 'wall') drawWallSegment(ctx, b, t, snap);
+    else if (b.kind === 'comm') drawCommTower(ctx, b, t, false, lights);
     else if (b.kind === 'turret') drawTurret(ctx, b, t, snap, lights);
     else if (b.kind === 'farm') drawFarm(ctx, b, t, lights);
     else if (b.kind === 'beacon') drawBeacon(ctx, b, t, lights);
     else drawPylon(ctx, b, t, lights);
     if (b.maxHp && b.hp != null && b.hp < b.maxHp) drawHpPips(ctx, x, y - 28, b.hp / b.maxHp);
-    if (b.kind !== 'farm') drawLevelPips(ctx, x, y + 14, b.level);
+    if (b.kind !== 'farm' && b.kind !== 'wall') drawLevelPips(ctx, x, y + 14, b.level);
     // fresh turret awaiting its type pick (builder holds act + cycles)
     if (b.kind === 'turret' && b.typeSelect) drawTypeSelect(ctx, b, t);
     // upgrade underway: same relay progress ring as a fresh build
@@ -4696,17 +5729,23 @@ function drawBuild(ctx, b, t, snap, lights) {
     ctx.moveTo(x + cxs - 2.5, y + 11); ctx.lineTo(x + cxs, y + 8); ctx.lineTo(x + cxs + 2.5, y + 11);
     ctx.closePath(); ctx.fill();
   }
-  // ghost hologram of the finished shape, flickering
-  let vis = 0.22 + 0.08 * Math.sin(t * 2.1 + x * 0.05);
-  if (flick(Math.floor(t * 1.3) + x) < 0.18) vis *= 0.35;
-  ctx.save();
-  ctx.globalAlpha *= vis;
-  ctx.strokeStyle = PAL.pylonBlue;
-  ctx.fillStyle = 'rgba(62,143,224,0.18)';
-  ctx.lineWidth = 1.5;
-  ctx.setLineDash([4, 3]);
-  holoShape(ctx, b.kind, x, y);
-  ctx.restore();
+  if (b.kind === 'comm') {
+    // a comm tower site is no hologram — it is the BROKEN tower itself,
+    // leaning and sparking until somebody repairs it
+    drawCommTower(ctx, b, t, true, lights);
+  } else {
+    // ghost hologram of the finished shape, flickering
+    let vis = 0.22 + 0.08 * Math.sin(t * 2.1 + x * 0.05);
+    if (flick(Math.floor(t * 1.3) + x) < 0.18) vis *= 0.35;
+    ctx.save();
+    ctx.globalAlpha *= vis;
+    ctx.strokeStyle = PAL.pylonBlue;
+    ctx.fillStyle = 'rgba(62,143,224,0.18)';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 3]);
+    holoShape(ctx, b.kind, x, y);
+    ctx.restore();
+  }
   // scaffold truss + progress ring once work is underway
   if ((b.progress || 0) > 0) {
     ctx.strokeStyle = '#2A2830';
@@ -4989,8 +6028,245 @@ function drawEdgeArrow(ctx, wx, wy, color, label) {
   ctx.restore();
 }
 
+// ============================== FOG OF WAR ==============================
+// Exploration is pure client math from player positions in every snapshot —
+// identical on every machine, no sim involvement. ~10-tile reveal radius,
+// accumulated per mission, reset whenever the level (grid) changes. Maps
+// small enough to frame whole-screen are considered fully scouted.
+const explore = { key: null, w: 0, h: 0, mask: null, count: 0, fogCanvas: null, fogCount: -1 };
+
+function updateExplore(snap) {
+  const key = snap.grid || snap.name;
+  if (explore.key !== key) {
+    explore.key = key;
+    explore.w = snap.w; explore.h = snap.h;
+    explore.mask = new Uint8Array(snap.w * snap.h);
+    explore.count = 0;
+    explore.fogCount = -1;
+  }
+  const total = explore.w * explore.h;
+  if (explore.count >= total) return;
+  // single-screen maps: everything is on camera, so everything is known
+  const fitZ = Math.min(cam.vw / (snap.w * TILE), cam.vh / (snap.h * TILE));
+  if (fitZ >= 0.8) {
+    explore.mask.fill(1);
+    explore.count = total;
+    return;
+  }
+  const R = 10;
+  for (const p of snap.players ?? []) {
+    if (p.state !== 'active') continue;
+    const cx2 = Math.floor(p.x / TILE), cy2 = Math.floor(p.y / TILE);
+    for (let dy = -R; dy <= R; dy++) {
+      const yy = cy2 + dy;
+      if (yy < 0 || yy >= explore.h) continue;
+      const span = Math.floor(Math.sqrt(R * R - dy * dy));
+      const row = yy * explore.w;
+      for (let dx = -span; dx <= span; dx++) {
+        const xx = cx2 + dx;
+        if (xx < 0 || xx >= explore.w) continue;
+        if (!explore.mask[row + xx]) { explore.mask[row + xx] = 1; explore.count++; }
+      }
+    }
+  }
+}
+
+// The client may grab the live mask (e.g. to pass into drawFullMap).
+export function exploreMask(snap) {
+  if (snap?.grid) updateExplore(snap);
+  return explore.mask;
+}
+
+// has a world-space point been scouted? (no mask = no fog yet: show all)
+function seenAt(wx, wy) {
+  const m = explore.mask;
+  if (!m) return true;
+  const x = Math.max(0, Math.min(explore.w - 1, Math.floor(wx / TILE)));
+  const y = Math.max(0, Math.min(explore.h - 1, Math.floor(wy / TILE)));
+  return m[y * explore.w + x] === 1;
+}
+
+// 1px-per-tile fog overlay, rebuilt only when new ground is revealed; the
+// scaled draw (smoothing on) gives the soft frontier edge for free.
+function fogLayer() {
+  if (!explore.mask) return null;
+  if (explore.count >= explore.w * explore.h) return null; // fully scouted
+  if (explore.fogCanvas && explore.fogCount === explore.count
+    && explore.fogCanvas.width === explore.w) return explore.fogCanvas;
+  let c = explore.fogCanvas;
+  if (!c || c.width !== explore.w || c.height !== explore.h) {
+    c = document.createElement('canvas');
+    c.width = explore.w; c.height = explore.h;
+    explore.fogCanvas = c;
+  }
+  const fctx = c.getContext('2d');
+  const img = fctx.createImageData(explore.w, explore.h);
+  const data = img.data;
+  for (let i = 0; i < explore.mask.length; i++) {
+    if (explore.mask[i]) continue;
+    const o = i * 4;
+    data[o] = 4; data[o + 1] = 4; data[o + 2] = 9; data[o + 3] = 243;
+  }
+  fctx.putImageData(img, 0, 0);
+  explore.fogCount = explore.count;
+  return c;
+}
+
+// ============================== WEATHER FX ==============================
+// Screen-space weather layers driven by snap.weather ('rain'|'snow'|
+// 'ashstorm'|'fog'). Pure functions of t — deterministic drift, no state.
+function drawWeather(ctx, VW, VH, weather, t) {
+  if (!weather || weather === 'clear') return;
+  ctx.save();
+  if (weather === 'rain') {
+    // two parallax layers of slanted streaks + a cold sheen on the world
+    ctx.fillStyle = 'rgba(60,80,110,0.05)';
+    ctx.fillRect(0, 0, VW, VH);
+    for (const [n, sp, ln, al, seed] of [[54, 950, 13, 0.30, 11], [34, 1350, 19, 0.42, 77]]) {
+      ctx.strokeStyle = `rgba(150,180,215,${al})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let i = 0; i < n; i++) {
+        const rx = flick(i * 7.3 + seed), ry = flick(i * 13.7 + seed * 3);
+        const px2 = ((rx * VW + t * sp * 0.22) % (VW + 40)) - 20;
+        const py2 = ((ry * VH + t * sp) % (VH + 60)) - 30;
+        ctx.moveTo(px2, py2);
+        ctx.lineTo(px2 - ln * 0.28, py2 + ln);
+      }
+      ctx.stroke();
+    }
+    // puddle shimmer: brief twinkles low in the frame
+    for (let i = 0; i < 7; i++) {
+      const ph = fract(t * 1.7 + i * 0.143);
+      if (ph > 0.2) continue;
+      const cyc2 = Math.floor(t * 1.7 + i * 0.143);
+      const rx = flick(i * 31.7 + cyc2);
+      const ry = flick(i * 17.3 + cyc2 * 3);
+      ctx.fillStyle = `rgba(190,215,240,${(1 - ph / 0.2) * 0.5})`;
+      ctx.fillRect(rx * VW, VH * (0.62 + ry * 0.36), 3 + ph * 9, 1.2);
+    }
+  } else if (weather === 'snow') {
+    // drifting flakes, two depths, with sinuous sway + a pale world tint
+    ctx.fillStyle = 'rgba(200,220,240,0.05)';
+    ctx.fillRect(0, 0, VW, VH);
+    for (const [n, fall, r, al, seed] of [[44, 34, 1.4, 0.5, 5], [26, 62, 2.2, 0.75, 51]]) {
+      ctx.fillStyle = `rgba(228,238,250,${al})`;
+      ctx.beginPath();
+      for (let i = 0; i < n; i++) {
+        const rx = flick(i * 7.9 + seed), ry = flick(i * 12.3 + seed * 2);
+        const py2 = ((ry * VH + t * fall) % (VH + 20)) - 10;
+        const px2 = ((rx * VW + Math.sin(t * 0.8 + i) * 22 + t * 9) % (VW + 20)) - 10;
+        ctx.moveTo(px2 + r, py2);
+        ctx.arc(px2, py2, r, 0, Math.PI * 2);
+      }
+      ctx.fill();
+    }
+    // accumulation: a faint frost line creeping up the bottom of the frame
+    const fg2 = ctx.createLinearGradient(0, VH - 60, 0, VH);
+    fg2.addColorStop(0, 'rgba(225,238,250,0)');
+    fg2.addColorStop(1, 'rgba(225,238,250,0.10)');
+    ctx.fillStyle = fg2;
+    ctx.fillRect(0, VH - 60, VW, 60);
+  } else if (weather === 'ashstorm') {
+    // hot grey wind: swirling ash flakes + rising ember motes + dust veil
+    ctx.fillStyle = 'rgba(60,48,44,0.10)';
+    ctx.fillRect(0, 0, VW, VH);
+    ctx.fillStyle = 'rgba(150,140,135,0.45)';
+    for (let i = 0; i < 56; i++) {
+      const rx = flick(i * 9.1 + 3), ry = flick(i * 15.7 + 9);
+      const px2 = ((rx * VW - t * (160 + ry * 130)) % (VW + 30) + VW + 30) % (VW + 30) - 15;
+      const py2 = ((ry * VH + Math.sin(t * 1.3 + i * 1.7) * 30 + t * 26) % (VH + 20)) - 10;
+      ctx.fillRect(px2, py2, 2 + ry * 1.6, 1.4);
+    }
+    for (let i = 0; i < 9; i++) {
+      const ph = fract(t * 0.4 + i * 0.111);
+      const rx = flick(i * 23.3 + Math.floor(t * 0.4 + i * 0.111));
+      ctx.fillStyle = `rgba(240,140,60,${Math.sin(ph * Math.PI) * 0.7})`;
+      ctx.fillRect(rx * VW + Math.sin(t * 2 + i * 2.3) * 14, VH * (1 - ph), 1.8, 1.8);
+    }
+  } else if (weather === 'fog') {
+    // rolling banks: big soft blobs sliding across + an even haze
+    ctx.fillStyle = 'rgba(94,107,140,0.13)';
+    ctx.fillRect(0, 0, VW, VH);
+    for (let i = 0; i < 5; i++) {
+      const ry = flick(i * 13.1 + 4);
+      const px2 = ((flick(i * 7.7) * VW + t * (14 + i * 7)) % (VW + 600)) - 300;
+      const py2 = ry * VH;
+      const rr = VW * (0.16 + ry * 0.14);
+      const bg2 = ctx.createRadialGradient(px2, py2, rr * 0.2, px2, py2, rr);
+      bg2.addColorStop(0, 'rgba(150,164,196,0.13)');
+      bg2.addColorStop(1, 'rgba(150,164,196,0)');
+      ctx.fillStyle = bg2;
+      ctx.fillRect(px2 - rr, py2 - rr, rr * 2, rr * 2);
+    }
+  }
+  ctx.restore();
+}
+
+// ============================== ALARM HUD ==============================
+// Big blinking countdown banner: dusk/nightwave inbound (<15s on the day
+// clock), BR zone about to shrink, CTF sudden death. Center-top, unmissable.
+function drawCountdownBanner(ctx, VW, snap, t) {
+  let secs = null, label = '', col = PAL.glitch;
+  const cyc = snap.cycle;
+  if (cyc && cyc.phase === 'day' && cyc.t != null && cyc.t <= 15 && cyc.t > 0) {
+    secs = cyc.t;
+    label = 'NIGHTWAVE IN';
+    col = PAL.glitch;
+  } else if (snap.zone && snap.zone.shrinkT != null && snap.zone.shrinkT > 0 && snap.zone.shrinkT <= 15
+    && (snap.zone.targetR == null || snap.zone.targetR < snap.zone.r - 1)) {
+    secs = snap.zone.shrinkT;
+    label = 'ZONE SHRINKS IN';
+    col = PAL.relay;
+  } else if ((snap.flags?.length ?? 0) > 0 && snap.timeLeft != null && snap.timeLeft > 0 && snap.timeLeft <= 15) {
+    secs = snap.timeLeft;
+    label = 'SUDDEN DEATH IN';
+    col = '#FF6A5A';
+  }
+  if (secs == null) return;
+  const n = Math.max(1, Math.ceil(secs));
+  const blink = 0.55 + 0.45 * Math.sin(t * (secs < 5 ? 11 : 6));
+  ctx.save();
+  ctx.globalAlpha = blink;
+  ctx.font = 'bold 34px monospace';
+  ctx.textAlign = 'center';
+  ctx.shadowColor = col;
+  ctx.shadowBlur = 16;
+  ctx.fillStyle = col;
+  ctx.fillText(`${label} ${n}`, VW / 2, 116);
+  ctx.restore();
+}
+
+// Beacon pips: stronghold beacon-defense HUD — one monolith pip per beacon,
+// gold while lit, cracked violet-grey while dark. Lose only if ALL go dark.
+function drawBeaconPips(ctx, VW, cores, t) {
+  const n = cores.length;
+  const w = 22, x0 = VW / 2 - (n * w) / 2 + w / 2;
+  ctx.save();
+  for (let i = 0; i < n; i++) {
+    const c = cores[i];
+    const lit = (c.hp ?? 0) > 0;
+    const x = x0 + i * w, y = 26;
+    ctx.fillStyle = lit ? PAL.lythAmber : '#3A3344';
+    if (lit) { ctx.shadowColor = PAL.lythAmber; ctx.shadowBlur = 6 + 2 * Math.sin(t * 3 + i); }
+    ctx.beginPath();
+    ctx.moveTo(x - 4.5, y + 7); ctx.lineTo(x - 3, y - 7); ctx.lineTo(x + 3, y - 7); ctx.lineTo(x + 4.5, y + 7);
+    ctx.closePath(); ctx.fill();
+    ctx.shadowBlur = 0;
+    if (!lit) { // dark beacon: a violet fault line through the pip
+      ctx.strokeStyle = 'rgba(142,79,209,0.8)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x - 2, y - 5); ctx.lineTo(x + 1, y); ctx.lineTo(x - 1, y + 6);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
 // ============================== MAIN RENDER ==============================
 export function render(ctx, snap, charMap, focusPids, t, dt) {
+  setScene(snap); // ambience beds/music/weather follow the live snapshot
   // a lite snapshot can arrive before levelStart re-attaches the cached grid
   if (!snap.grid) return;
   const focus = focusPids instanceof Set ? focusPids
@@ -5093,6 +6369,7 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
   const VW = cam.vw, VH = cam.vh;
   computeCamera(snap, focus, dt);
   const z = cam.z;
+  updateExplore(snap); // fog-of-war ledger: shared by minimap + full map
 
   ctx.fillStyle = PAL.voidNight;
   ctx.fillRect(0, 0, VW, VH);
@@ -5131,7 +6408,70 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
         ctx.stroke();
         continue;
       }
+      if (c === '!') {
+        // LAVA — molten channels breathe; crust edges against solid ground
+        ctx.drawImage(tex['lava' + ((x * 7 + y * 13) % 3)], px, py);
+        const fl = Math.sin(t * 2.1 + x * 1.3 + y * 0.9);
+        ctx.fillStyle = `rgba(255,140,40,${0.10 + 0.06 * fl})`;
+        ctx.fillRect(px, py, TILE, TILE);
+        // heat shimmer: a wavering bright vein
+        const wob = Math.sin(t * 3.1 + x * 0.9 + y * 1.4) * 7;
+        ctx.fillStyle = 'rgba(255,200,120,0.12)';
+        ctx.fillRect(px + 5, py + TILE / 2 + wob, TILE - 10, 1.6);
+        // dark crust lip where lava meets land
+        ctx.strokeStyle = 'rgba(30,12,6,0.9)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        if ((snap.grid[y - 1]?.[x] ?? '!') !== '!') { ctx.moveTo(px + 1, py + 1.2); ctx.lineTo(px + TILE - 1, py + 1.2); }
+        if ((snap.grid[y + 1]?.[x] ?? '!') !== '!') { ctx.moveTo(px + 1, py + TILE - 1.2); ctx.lineTo(px + TILE - 1, py + TILE - 1.2); }
+        if ((snap.grid[y][x - 1] ?? '!') !== '!') { ctx.moveTo(px + 1.2, py + 1); ctx.lineTo(px + 1.2, py + TILE - 1); }
+        if ((snap.grid[y][x + 1] ?? '!') !== '!') { ctx.moveTo(px + TILE - 1.2, py + 1); ctx.lineTo(px + TILE - 1.2, py + TILE - 1); }
+        ctx.stroke();
+        // a rising ember mote on some tiles
+        if (flick(x * 3.1 + y * 9.7) > 0.62) {
+          const ph = fract(t * 0.55 + flick(x * 13.7 + y * 7.1));
+          ctx.fillStyle = `rgba(255,176,58,${(1 - ph) * 0.85})`;
+          ctx.fillRect(px + 8 + flick(x + y * 3) * (TILE - 16), py + TILE - 6 - ph * (TILE + 8), 1.8, 1.8);
+        }
+        // sparse light pools keep the flow glowing without flooding the pass
+        if ((x * 31 + y * 17) % 9 === 0) {
+          lights.push({ x: px + TILE / 2, y: py + TILE / 2, r: 58, rgb: '255,120,30', a: 0.10 + 0.04 * fl });
+        }
+        continue;
+      }
+      if (c === '%') {
+        // VOID — a starry abyss where the shard simply ends
+        ctx.fillStyle = '#05060C';
+        ctx.fillRect(px, py, TILE, TILE);
+        for (let i = 0; i < 3; i++) {
+          const sxr = flick(x * 12.9 + y * 78.2 + i * 37.7);
+          const syr = flick(x * 39.4 + y * 11.8 + i * 53.3);
+          const tw = 0.2 + 0.55 * flick(Math.floor(t * 1.5) + x * 7 + y * 5 + i);
+          ctx.fillStyle = `rgba(191,208,232,${tw})`;
+          ctx.fillRect(px + 2 + sxr * (TILE - 5), py + 2 + syr * (TILE - 5), i === 0 ? 1.7 : 1, i === 0 ? 1.7 : 1);
+        }
+        // entropy-violet rim where the world's edge crumbles into the void
+        ctx.strokeStyle = `rgba(90,46,140,${0.4 + 0.15 * Math.sin(t * 1.6 + x + y)})`;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        if ((snap.grid[y - 1]?.[x] ?? '%') !== '%') { ctx.moveTo(px + 1, py + 1); ctx.lineTo(px + TILE - 1, py + 1); }
+        if ((snap.grid[y + 1]?.[x] ?? '%') !== '%') { ctx.moveTo(px + 1, py + TILE - 1); ctx.lineTo(px + TILE - 1, py + TILE - 1); }
+        if ((snap.grid[y][x - 1] ?? '%') !== '%') { ctx.moveTo(px + 1, py + 1); ctx.lineTo(px + 1, py + TILE - 1); }
+        if ((snap.grid[y][x + 1] ?? '%') !== '%') { ctx.moveTo(px + TILE - 1, py + 1); ctx.lineTo(px + TILE - 1, py + TILE - 1); }
+        ctx.stroke();
+        continue;
+      }
       ctx.drawImage(floorTex(c, x, y), px, py);
+      if (c === '^') {
+        // ICE — a slow gleam slides across the glassy sheet
+        const gl = fract(t * 0.1 + x * 0.23 + y * 0.31);
+        ctx.fillStyle = 'rgba(191,251,255,0.07)';
+        ctx.fillRect(px + gl * (TILE - 6), py + 2, 4.5, TILE - 4);
+        if (flick(x * 5.3 + y * 8.9) > 0.8 && fract(t * 0.7 + flick(x + y * 17)) < 0.12) {
+          ctx.fillStyle = 'rgba(223,243,255,0.8)'; // cold sparkle blink
+          ctx.fillRect(px + 6 + flick(x * 9 + y) * (TILE - 12), py + 6 + flick(x + y * 9) * (TILE - 12), 1.6, 1.6);
+        }
+      }
       if (c === 'E') {
         if (gateOpen) {
           // settled ground: cold sheen breathing under the open Anchor
@@ -5193,6 +6533,31 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
           ctx.fillRect(px, py + TILE - 6, TILE, 6);
           ctx.fillStyle = 'rgba(138,152,184,0.12)';
           ctx.fillRect(px, py + TILE - 6, TILE, 1);
+        } else if ((snap.grid[y - 1]?.[x] ?? '#') === '#'
+          && (snap.grid[y][x - 1] ?? '#') === '#' && (snap.grid[y][x + 1] ?? '#') === '#'
+          && (x * 13 + y * 7) % 4 === 0) {
+          // deep range interior: a mountain peak rises off the rock band
+          const apex = px + TILE / 2 + (flick(x * 3 + y * 5) - 0.5) * 10;
+          ctx.fillStyle = '#3E4452';
+          ctx.beginPath();
+          ctx.moveTo(px + 5, py + TILE - 10);
+          ctx.lineTo(apex, py - 16);
+          ctx.lineTo(px + TILE - 5, py + TILE - 10);
+          ctx.closePath(); ctx.fill();
+          ctx.fillStyle = '#2A2E3A'; // shadowed east face
+          ctx.beginPath();
+          ctx.moveTo(apex, py - 16);
+          ctx.lineTo(px + TILE - 5, py + TILE - 10);
+          ctx.lineTo(apex + 4, py + TILE - 10);
+          ctx.closePath(); ctx.fill();
+          ctx.fillStyle = '#9FB2CC'; // moonlit snowcap
+          ctx.beginPath();
+          ctx.moveTo(apex, py - 16);
+          ctx.lineTo(apex + 6, py - 5);
+          ctx.lineTo(apex + 1, py - 7);
+          ctx.lineTo(apex - 3, py - 3);
+          ctx.lineTo(apex - 6, py - 6);
+          ctx.closePath(); ctx.fill();
         }
       } else if (c === 'T') {
         const v = (x * 5 + y * 11) % 4;
@@ -5252,6 +6617,32 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
   for (const h of hires) if (inView(h.x, h.y, 80)) drawHirePost(ctx, h, t, lights);
   for (const tw of towers) if (inView(tw.x, tw.y, 90)) drawTower(ctx, tw, t, lights);
   if (core && inView(core.x, core.y, 120)) drawCore(ctx, core, t, lights);
+  // beacon-defense variant: FOUR beacon monoliths instead of one core. A
+  // beacon at 0 hp goes DARK, not destroyed — relight it during the day.
+  const cores = snap.cores ?? [];
+  for (const c2 of cores) {
+    if (!inView(c2.x, c2.y, 120)) continue;
+    drawCore(ctx, c2, t, lights);
+    if ((c2.hp ?? 0) <= 0) {
+      // gone dark: entropy veins crawl the dead monolith
+      ctx.save();
+      ctx.strokeStyle = `rgba(142,79,209,${0.5 + 0.25 * Math.sin(t * 2.4 + c2.x)})`;
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(c2.x - 6, c2.y); ctx.lineTo(c2.x - 3, c2.y - 14); ctx.lineTo(c2.x - 5, c2.y - 26);
+      ctx.moveTo(c2.x + 5, c2.y - 4); ctx.lineTo(c2.x + 3, c2.y - 20); ctx.lineTo(c2.x + 5.5, c2.y - 32);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(154,143,192,0.9)';
+      ctx.font = 'bold 9px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('DARK', c2.x, c2.y - 50);
+      ctx.restore();
+    }
+  }
+  // early extraction: the landed Anchorcraft waits by the base once all four
+  // beacons burned together through a night (boarding stays optional)
+  const ship = snap.ship ?? null;
+  if (ship && inView(ship.x, ship.y, 180)) drawShip(ctx, ship, t, lights);
   for (const v of vehicles) if (inView(v.x, v.y, 80)) drawVehicle(ctx, v, t, dt, lights);
   // lure crackers: the sim snapshot is authoritative when it ships them
   // ([{x,y,landed,fuse}]); otherwise fall back to the event-driven list.
@@ -5582,6 +6973,11 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
     }
     if (!busy) cands.push({ x: s.x, y: s.y, py: s.y - 40, text: '[hold E/X] SHOP' });
   }
+  // stronghold: dark beacons take a hold-act relight; the landed ship boards
+  for (const c2 of cores) {
+    if ((c2.hp ?? 0) <= 0) cands.push({ x: c2.x, y: c2.y, py: c2.y - 62, text: '[hold E/X] RELIGHT BEACON 8◆' });
+  }
+  if (ship?.landed) cands.push({ x: ship.x, y: ship.y, py: ship.y - 46, text: '[E/X] BOARD THE ANCHORCRAFT' });
   const promptOthers = new Set();
   for (const fp of focusActive) {
     if (busyPids.has(fp.pid)) continue;
@@ -6055,6 +7451,9 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
     ctx.restore();
   }
 
+  // --- weather: full-screen FX layers riding snap.weather ---
+  drawWeather(ctx, VW, VH, snap.weather, t);
+
   // --- vignette (screen space, Void Night; deeper on dark missions, pulled
   // far back under the bastion's daylight) ---
   const vg = ctx.createRadialGradient(VW / 2, VH / 2, VH * (darkWorld ? 0.24 : 0.32 + 0.18 * dayK), VW / 2, VH / 2, VH * 0.85);
@@ -6101,6 +7500,12 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
   }
   ctx.globalAlpha = 1;
 
+  // --- big blinking countdown (wave inbound / zone shrink / sudden death) ---
+  drawCountdownBanner(ctx, VW, snap, t);
+
+  // --- beacon pips: the four monoliths' state, always on screen ---
+  if (cores.length > 1) drawBeaconPips(ctx, VW, cores, t);
+
   // --- offscreen pointers: teammates, stranded captives, the Anchor ---
   for (const p of snap.players) {
     if (p.state !== 'active' || inView(p.x, p.y, -20)) continue;
@@ -6123,6 +7528,9 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
     if (near && !inView(near.px, near.py, -20)) {
       drawEdgeArrow(ctx, near.px, near.py, gateOpen ? PAL.relay : PAL.glitch, 'ANCHOR');
     }
+  }
+  if (ship?.landed && !inView(ship.x, ship.y, -20)) {
+    drawEdgeArrow(ctx, ship.x, ship.y, PAL.lythGold, 'SHIP');
   }
 
   // --- respawn pick bars: fallen players choose their next operative ---
@@ -6154,9 +7562,11 @@ export function render(ctx, snap, charMap, focusPids, t, dt) {
 const MM_TILE = {
   '.': '#1c242b', ',': '#221C22', ':': '#2A2820', ';': '#272b38', '_': '#15121a',
   '#': '#343A48', 'T': '#23392b', '~': '#101A2E', 'o': '#4A4232', '*': '#F0A93C',
+  '=': '#3E3829', '!': '#5A2210', '^': '#243648', '%': '#04040A', 'K': '#3A3F4E',
 };
 let mmCache = { key: null, canvas: null };
 export function renderMinimap(ctx, snap, focusPids) {
+  if (!snap.grid) return;
   const focus = focusPids instanceof Set ? focusPids
     : new Set(Array.isArray(focusPids) ? focusPids : [focusPids]);
   const W = ctx.canvas.width, H = ctx.canvas.height;
@@ -6178,46 +7588,62 @@ export function renderMinimap(ctx, snap, focusPids) {
     }
     mmCache = { key, canvas: c };
   }
+  updateExplore(snap); // keep the fog ledger fresh even between renders
   ctx.drawImage(mmCache.canvas, 0, 0);
+  // fortified wall segments read as wall pixels (they ARE the base now)
+  for (const b of snap.builds ?? []) {
+    if (b.kind !== 'wall' || !b.built) continue;
+    ctx.fillStyle = '#3E4452';
+    ctx.fillRect(Math.floor(b.x / TILE) * TILE * sx, Math.floor(b.y / TILE) * TILE * sy, TILE * sx + 0.5, TILE * sy + 0.5);
+  }
+  // doors read as wall/gap (terrain-like: under the fog)
+  for (const d of snap.doors ?? []) {
+    ctx.fillStyle = d.open ? '#1E2028' : (d.sealLock ? '#7A5A1E' : '#343A48');
+    ctx.fillRect(d.x * TILE * sx, d.y * TILE * sy, (d.w ?? 1) * TILE * sx + 0.5, (d.h ?? 1) * TILE * sy + 0.5);
+  }
+  // FOG OF WAR: unexplored ground reads near-black; entity dots only show
+  // on scouted tiles (players + mission objectives always show).
+  const fog = fogLayer();
+  if (fog) ctx.drawImage(fog, 0, 0, W, H);
   const dot = (x, y, col, r = 2.5) => {
     ctx.fillStyle = col;
     ctx.beginPath();
     ctx.arc(x * sx, y * sy, r, 0, Math.PI * 2);
     ctx.fill();
   };
-  // the Anchor: live color by gate state
+  // the Anchor: live color by gate state (objective: never fogged)
   const gOpen = !snap.gate || snap.gate.open;
   ctx.fillStyle = gOpen ? PAL.relay : PAL.glitch;
   for (const e of exitTiles(snap)) {
     ctx.fillRect(e.x * TILE * sx, e.y * TILE * sy, TILE * sx + 0.5, TILE * sy + 0.5);
   }
-  for (const c of snap.crystals ?? []) dot(c.x, c.y, PAL.lythAmber, 2);
-  for (const d of snap.drops ?? []) dot(d.x, d.y, PAL.lythGold, 1.5);
+  for (const c of snap.crystals ?? []) if (seenAt(c.x, c.y)) dot(c.x, c.y, PAL.lythAmber, 2);
+  for (const d of snap.drops ?? []) if (seenAt(d.x, d.y)) dot(d.x, d.y, PAL.lythGold, 1.5);
   for (const b of snap.builds ?? []) {
+    if (b.kind === 'wall' && b.built) continue; // already drawn as wall pixels
+    if (!seenAt(b.x, b.y)) continue;
     ctx.fillStyle = b.built ? PAL.teal : 'rgba(62,143,224,0.6)';
     ctx.fillRect(b.x * sx - 1.5, b.y * sy - 1.5, 3, 3);
   }
-  for (const n of snap.npcs ?? []) dot(n.x, n.y, PAL.coldHi, 2);
+  for (const n of snap.npcs ?? []) if (seenAt(n.x, n.y)) dot(n.x, n.y, PAL.coldHi, 2);
   for (const e of snap.enemies) {
+    if (!seenAt(e.x, e.y)) continue;
     if (e.awake === false) ctx.globalAlpha = 0.45;
     dot(e.x, e.y, PAL.red, 2);
     ctx.globalAlpha = 1;
   }
   // frontier entities (all optional)
   for (const pa of snap.patches ?? []) {
+    if (!seenAt(pa.x, pa.y)) continue;
     ctx.fillStyle = pa.kind === 'toxin' ? 'rgba(140,200,80,0.45)' : 'rgba(240,140,40,0.45)';
     ctx.beginPath();
     ctx.arc(pa.x * sx, pa.y * sy, Math.max(1.5, (pa.r || TILE) * sx), 0, Math.PI * 2);
     ctx.fill();
   }
-  for (const fo of snap.followers ?? []) dot(fo.x, fo.y, PAL.teal, 1.6);
-  for (const c of snap.chests ?? []) if (!c.opened) dot(c.x, c.y, PAL.lythGold, 1.8);
-  // frontier III (all optional): doors read as wall/gap, puzzles as marks
-  for (const d of snap.doors ?? []) {
-    ctx.fillStyle = d.open ? '#1E2028' : (d.sealLock ? '#7A5A1E' : '#343A48');
-    ctx.fillRect(d.x * TILE * sx, d.y * TILE * sy, (d.w ?? 1) * TILE * sx + 0.5, (d.h ?? 1) * TILE * sy + 0.5);
-  }
+  for (const fo of snap.followers ?? []) if (seenAt(fo.x, fo.y)) dot(fo.x, fo.y, PAL.teal, 1.6);
+  for (const c of snap.chests ?? []) if (!c.opened && seenAt(c.x, c.y)) dot(c.x, c.y, PAL.lythGold, 1.8);
   for (const tp of snap.teleports ?? []) {
+    if (!seenAt(tp.x, tp.y)) continue;
     ctx.strokeStyle = 'rgba(111,216,242,0.85)';
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -6225,22 +7651,26 @@ export function renderMinimap(ctx, snap, focusPids) {
     ctx.stroke();
   }
   for (const sw of snap.switches ?? []) {
+    if (!seenAt(sw.x, sw.y)) continue;
     ctx.fillStyle = sw.burned || sw.dead ? '#15121A' : sw.on ? PAL.lythGold : '#5E6B8C';
     ctx.fillRect(sw.x * sx - 1.5, sw.y * sy - 1.5, 3, 3);
   }
-  for (const gl of snap.glyphs ?? []) dot(gl.x, gl.y, gl.lit ? PAL.lythGold : '#4A4650', 1.5);
+  for (const gl of snap.glyphs ?? []) if (seenAt(gl.x, gl.y)) dot(gl.x, gl.y, gl.lit ? PAL.lythGold : '#4A4650', 1.5);
   for (const pi of snap.pillars ?? []) {
-    if ((pi.hp ?? 1) <= 0) continue;
+    if ((pi.hp ?? 1) <= 0 || !seenAt(pi.x, pi.y)) continue;
     ctx.fillStyle = PAL.moonsteel;
     ctx.fillRect(pi.x * sx - 1.5, pi.y * sy - 2, 3, 4);
   }
-  for (const fo2 of snap.forges ?? []) dot(fo2.x, fo2.y, PAL.lythAmber, 2.4);
-  for (const pk of snap.pickups ?? []) dot(pk.x, pk.y, (PICKUP_STYLE[pk.kind] || {}).col || PAL.lythGold, 2);
-  for (const q of snap.qitems ?? []) dot(q.x, q.y, '#FFEFC2', 2.2);
-  for (const tw of snap.towers ?? []) if ((tw.hp ?? 1) > 0) dot(tw.x, tw.y, PAL.moonsteel, 2);
-  for (const v of snap.vehicles ?? []) dot(v.x, v.y, '#A9C4CE', 2);
+  for (const fo2 of snap.forges ?? []) if (seenAt(fo2.x, fo2.y)) dot(fo2.x, fo2.y, PAL.lythAmber, 2.4);
+  for (const pk of snap.pickups ?? []) if (seenAt(pk.x, pk.y)) dot(pk.x, pk.y, (PICKUP_STYLE[pk.kind] || {}).col || PAL.lythGold, 2);
+  for (const q of snap.qitems ?? []) if (seenAt(q.x, q.y)) dot(q.x, q.y, '#FFEFC2', 2.2);
+  for (const tw of snap.towers ?? []) if ((tw.hp ?? 1) > 0 && seenAt(tw.x, tw.y)) dot(tw.x, tw.y, PAL.moonsteel, 2);
+  for (const v of snap.vehicles ?? []) if (seenAt(v.x, v.y)) dot(v.x, v.y, '#A9C4CE', 2);
+  // objectives: flags, core(s), the landed ship — always visible
   for (const f of snap.flags ?? []) dot(f.x, f.y, TEAM_COL[(f.team ?? 0) % 2], 3);
   if (snap.core) dot(snap.core.x, snap.core.y, PAL.lythAmber, 3.5);
+  for (const c2 of snap.cores ?? []) dot(c2.x, c2.y, (c2.hp ?? 0) > 0 ? PAL.lythAmber : '#4A3A5A', 3);
+  if (snap.ship) dot(snap.ship.x, snap.ship.y, PAL.anchor, 3.2);
   if (snap.zone?.r) {
     ctx.strokeStyle = 'rgba(111,216,242,0.8)';
     ctx.lineWidth = 1;
@@ -6248,7 +7678,7 @@ export function renderMinimap(ctx, snap, focusPids) {
     ctx.arc(snap.zone.x * sx, snap.zone.y * sy, snap.zone.r * sx, 0, Math.PI * 2);
     ctx.stroke();
   }
-  for (const c of snap.captives) if (!c.owner) dot(c.x, c.y, '#5fd2b4');
+  for (const c of snap.captives) if (!c.owner && seenAt(c.x, c.y)) dot(c.x, c.y, '#5fd2b4');
   for (const p of snap.players) if (p.state === 'active') dot(p.x, p.y, focus.has(p.pid) ? '#ffffff' : PAL.relay, 3);
   // camera viewport rectangle
   ctx.strokeStyle = 'rgba(191,208,232,0.5)';
@@ -6261,6 +7691,192 @@ export function renderMinimap(ctx, snap, focusPids) {
   );
   ctx.strokeStyle = 'rgba(54,160,138,0.35)';
   ctx.strokeRect(0.5, 0.5, W - 1, H - 1);
+}
+
+// ============================== FULL MAP OVERLAY ==============================
+// Held-map view ('map' input: pad Select, Tab/M): a large centered field map
+// over the dimmed game — terrain, fog, entities, objectives, camera rect.
+// The client calls this on top of its normal frame while the button is held;
+// pass mask=null to use the renderer's own exploration ledger.
+let fmCache = { key: null, canvas: null };
+export function drawFullMap(ctx, snap, mask, focus) {
+  if (!snap?.grid) return;
+  updateExplore(snap);
+  const m = mask ?? explore.mask;
+  const seen2 = (wx, wy) => {
+    if (!m) return true;
+    const x = Math.max(0, Math.min(snap.w - 1, Math.floor(wx / TILE)));
+    const y = Math.max(0, Math.min(snap.h - 1, Math.floor(wy / TILE)));
+    return m[y * snap.w + x] === 1;
+  };
+  const fset = focus instanceof Set ? focus
+    : new Set(Array.isArray(focus) ? focus : focus != null ? [focus] : []);
+  const W = ctx.canvas.width, H = ctx.canvas.height;
+  ctx.save();
+  // dim the live game beneath
+  ctx.fillStyle = 'rgba(6,7,14,0.78)';
+  ctx.fillRect(0, 0, W, H);
+  // centered map rect, aspect preserved
+  const sc = Math.min((W * 0.86) / (snap.w * TILE), (H * 0.78) / (snap.h * TILE));
+  const mw = snap.w * TILE * sc, mh = snap.h * TILE * sc;
+  const ox = (W - mw) / 2, oy = (H - mh) / 2 + H * 0.015;
+  const px = (wx) => ox + wx * sc, py = (wy) => oy + wy * sc;
+  // frame plate
+  ctx.fillStyle = 'rgba(13,14,24,0.95)';
+  ctx.fillRect(ox - 10, oy - 10, mw + 20, mh + 20);
+  ctx.strokeStyle = 'rgba(111,216,242,0.5)';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(ox - 10, oy - 10, mw + 20, mh + 20);
+  // terrain backdrop, baked once per level at 1px/tile and scaled crisp
+  const key = snap.grid || snap.name;
+  if (fmCache.key !== key) {
+    const c = document.createElement('canvas');
+    c.width = snap.w; c.height = snap.h;
+    const fctx = c.getContext('2d');
+    fctx.fillStyle = PAL.voidNight;
+    fctx.fillRect(0, 0, snap.w, snap.h);
+    for (let y = 0; y < snap.h; y++) {
+      for (let x = 0; x < snap.w; x++) {
+        const ch2 = snap.grid[y][x];
+        if (ch2 === 'E') continue;
+        fctx.fillStyle = MM_TILE[ch2] ?? MM_TILE['.'];
+        fctx.fillRect(x, y, 1, 1);
+      }
+    }
+    fmCache = { key, canvas: c };
+  }
+  const smoothWas = ctx.imageSmoothingEnabled;
+  ctx.imageSmoothingEnabled = false; // chunky cartographic tiles
+  ctx.drawImage(fmCache.canvas, ox, oy, mw, mh);
+  // walls + doors over the terrain
+  const cell = TILE * sc;
+  for (const b of snap.builds ?? []) {
+    if (b.kind !== 'wall' || !b.built) continue;
+    ctx.fillStyle = '#3E4452';
+    ctx.fillRect(px(Math.floor(b.x / TILE) * TILE), py(Math.floor(b.y / TILE) * TILE), cell + 0.5, cell + 0.5);
+  }
+  for (const d of snap.doors ?? []) {
+    ctx.fillStyle = d.open ? '#1E2028' : (d.sealLock ? '#7A5A1E' : '#343A48');
+    ctx.fillRect(px(d.x * TILE), py(d.y * TILE), (d.w ?? 1) * cell + 0.5, (d.h ?? 1) * cell + 0.5);
+  }
+  // fog over everything terrain-like
+  if (m && explore.mask === m) {
+    const fog = fogLayer();
+    if (fog) { ctx.imageSmoothingEnabled = true; ctx.drawImage(fog, ox, oy, mw, mh); }
+  } else if (m) {
+    // explicit external mask: cover unexplored tiles directly
+    ctx.fillStyle = 'rgba(4,4,9,0.95)';
+    for (let y = 0; y < snap.h; y++) {
+      for (let x = 0; x < snap.w; x++) {
+        if (!m[y * snap.w + x]) ctx.fillRect(px(x * TILE), py(y * TILE), cell + 0.6, cell + 0.6);
+      }
+    }
+  }
+  ctx.imageSmoothingEnabled = smoothWas;
+  const ds = Math.max(2, cell * 0.42); // dot scale
+  const dot = (wx, wy, col, k = 1) => {
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.arc(px(wx), py(wy), ds * k, 0, Math.PI * 2);
+    ctx.fill();
+  };
+  // scouted entities
+  for (const c of snap.crystals ?? []) if (seen2(c.x, c.y)) dot(c.x, c.y, PAL.lythAmber, 0.7);
+  for (const b of snap.builds ?? []) {
+    if ((b.kind === 'wall' && b.built) || !seen2(b.x, b.y)) continue;
+    ctx.fillStyle = b.built ? PAL.teal : 'rgba(62,143,224,0.6)';
+    ctx.fillRect(px(b.x) - ds * 0.6, py(b.y) - ds * 0.6, ds * 1.2, ds * 1.2);
+  }
+  for (const n of snap.npcs ?? []) if (seen2(n.x, n.y)) dot(n.x, n.y, PAL.coldHi, 0.7);
+  for (const c of snap.chests ?? []) if (!c.opened && seen2(c.x, c.y)) dot(c.x, c.y, PAL.lythGold, 0.6);
+  for (const tw of snap.towers ?? []) if ((tw.hp ?? 1) > 0 && seen2(tw.x, tw.y)) dot(tw.x, tw.y, PAL.moonsteel, 0.7);
+  for (const pk of snap.pickups ?? []) if (seen2(pk.x, pk.y)) dot(pk.x, pk.y, (PICKUP_STYLE[pk.kind] || {}).col || PAL.lythGold, 0.7);
+  for (const q of snap.qitems ?? []) if (seen2(q.x, q.y)) dot(q.x, q.y, '#FFEFC2', 0.7);
+  for (const tp of snap.teleports ?? []) {
+    if (!seen2(tp.x, tp.y)) continue;
+    ctx.strokeStyle = 'rgba(111,216,242,0.85)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(px(tp.x), py(tp.y), ds, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  for (const e of snap.enemies ?? []) {
+    if (!seen2(e.x, e.y)) continue;
+    ctx.globalAlpha = e.awake === false ? 0.45 : 1;
+    dot(e.x, e.y, PAL.red, e.kind === 'boss' ? 1.1 : 0.6);
+    ctx.globalAlpha = 1;
+  }
+  for (const c of snap.captives ?? []) if (!c.owner && seen2(c.x, c.y)) dot(c.x, c.y, '#5fd2b4', 0.9);
+  // objective markers, labeled — these never fog out
+  ctx.font = `bold ${Math.max(9, Math.round(H / 64))}px monospace`;
+  ctx.textAlign = 'center';
+  const exits = exitTiles(snap);
+  if (exits.length) {
+    let ax = 0, ay = 0;
+    for (const e of exits) { ax += (e.x + 0.5) * TILE; ay += (e.y + 0.5) * TILE; }
+    ax /= exits.length; ay /= exits.length;
+    const open = !snap.gate || snap.gate.open;
+    ctx.save();
+    ctx.translate(px(ax), py(ay));
+    ctx.rotate(Math.PI / 4);
+    ctx.fillStyle = open ? PAL.relay : PAL.glitch;
+    ctx.fillRect(-ds, -ds, ds * 2, ds * 2);
+    ctx.restore();
+    ctx.fillStyle = open ? PAL.relay : PAL.glitch;
+    ctx.fillText('ANCHOR', px(ax), py(ay) - ds - 4);
+  }
+  const allCores = snap.cores ?? (snap.core ? [snap.core] : []);
+  for (const c2 of allCores) {
+    const lit = (c2.hp ?? 0) > 0;
+    ctx.fillStyle = lit ? PAL.lythAmber : '#4A3A5A';
+    ctx.fillRect(px(c2.x) - ds * 0.8, py(c2.y) - ds * 1.3, ds * 1.6, ds * 2.6);
+    if (!lit) {
+      ctx.fillStyle = 'rgba(142,79,209,0.9)';
+      ctx.fillText('DARK', px(c2.x), py(c2.y) - ds * 1.3 - 3);
+    }
+  }
+  for (const f of snap.flags ?? []) {
+    ctx.fillStyle = TEAM_COL[(f.team ?? 0) % 2];
+    ctx.beginPath();
+    ctx.moveTo(px(f.x), py(f.y) - ds * 1.6);
+    ctx.lineTo(px(f.x) + ds * 1.4, py(f.y) - ds * 0.8);
+    ctx.lineTo(px(f.x), py(f.y));
+    ctx.closePath(); ctx.fill();
+  }
+  if (snap.ship) {
+    dot(snap.ship.x, snap.ship.y, PAL.anchor, 1.2);
+    ctx.fillStyle = PAL.anchor;
+    ctx.fillText('SHIP', px(snap.ship.x), py(snap.ship.y) - ds - 4);
+  }
+  if (snap.zone?.r) {
+    ctx.strokeStyle = 'rgba(111,216,242,0.8)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.arc(px(snap.zone.x), py(snap.zone.y), snap.zone.r * sc, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  // players: focus seats in white, squadmates in relay cyan, named
+  for (const p of snap.players ?? []) {
+    if (p.state !== 'active') continue;
+    const isFocus = fset.has(p.pid);
+    dot(p.x, p.y, isFocus ? '#FFFFFF' : PAL.relay, isFocus ? 1.1 : 0.9);
+    ctx.fillStyle = isFocus ? '#FFFFFF' : 'rgba(191,208,232,0.85)';
+    ctx.fillText(String(p.name ?? '').toUpperCase().slice(0, 8), px(p.x), py(p.y) - ds - 4);
+  }
+  // camera rect
+  ctx.strokeStyle = 'rgba(191,208,232,0.6)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(
+    px(cam.x - cam.vw / 2 / cam.z), py(cam.y - cam.vh / 2 / cam.z),
+    (cam.vw / cam.z) * sc, (cam.vh / cam.z) * sc);
+  // header + hint
+  ctx.font = `bold ${Math.max(13, Math.round(H / 38))}px monospace`;
+  ctx.fillStyle = PAL.anchor;
+  ctx.fillText(`${String(snap.name ?? 'FIELD').toUpperCase()} — FIELD MAP`, W / 2, oy - 20);
+  ctx.font = `bold ${Math.max(9, Math.round(H / 60))}px monospace`;
+  ctx.fillStyle = 'rgba(138,152,184,0.85)';
+  ctx.fillText('RELEASE TO CLOSE', W / 2, oy + mh + 18);
+  ctx.restore();
 }
 
 // ============================== STORY CUTSCENES ==============================
@@ -7084,6 +8700,7 @@ export function drawCutscene(ctx, slide, t, slideElapsed) {
 // Cheap animated backdrop behind the DOM menu: dark field, a distant dormant
 // monolith, drifting motes. Called every frame while no session exists.
 export function drawMenuBackdrop(ctx, t) {
+  setScene(null); // menus: fade mission ambience back to the quiet base bed
   const W = ctx.canvas.width, H = ctx.canvas.height;
   ctx.save();
   const g = ctx.createLinearGradient(0, 0, 0, H);

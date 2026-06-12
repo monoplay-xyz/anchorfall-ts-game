@@ -31,7 +31,7 @@
     /* loot toast: small transient popup over the field (chest pickups) */
     #toast { position: absolute; bottom: 12%; left: 50%; transform: translateX(-50%); padding: 6px 16px; font-size: 13px; font-weight: 800; letter-spacing: 2px; color: #ffe9b0; background: rgba(8,10,18,.82); border: 1px solid var(--panel-edge); border-left: 3px solid var(--amber); pointer-events: none; text-transform: uppercase; white-space: nowrap; }
     #toast[hidden] { display: none; }
-    /* system notices (corrupt save beacon) surface above the screen overlays */
+    /* system notices (corrupt save beacon, stronghold unlocks) surface above the screen overlays */
     #toast.front { z-index: 6; }
     /* per-mission XP readout in the weapon panel (non-arcade missions only) */
     #wXp .xpbar { height: 3px; margin-top: 2px; background: rgba(255,255,255,.08); border-radius: 2px; overflow: hidden; }
@@ -44,6 +44,61 @@
     #objectivesPanel .obj.done .otxt { color: #5E6B8C; text-decoration: line-through; }
     #objectivesPanel .obj.main .otxt { font-weight: 800; letter-spacing: 1px; }
     #objectivesPanel .obj.sec { font-size: 10px; color: #9fb0cc; }
+
+    /* ---- true fullscreen fill: the canvas's LOGICAL resolution adapts to the
+       window (set by fitStage in client.js) — no letterboxing, no distortion.
+       Side panels keep their fixed width and stretch to full height. ---- */
+    body { align-items: stretch; justify-content: stretch; }
+    #stage { width: 100vw; height: 100vh; }
+    #center { flex: 1 1 auto; min-width: 0; }
+    #game { width: 100%; height: 100%; }
+
+    /* ---- menu pages (MAIN / SINGLEPLAYER / VERSUS / ONLINE / SETTINGS /
+       REMAP / STRONGHOLD SELECT) — one .mpage visible at a time ---- */
+    .mpage { display: flex; flex-direction: column; align-items: center; gap: 13px; width: 100%; min-height: 0; }
+    .mpage[hidden] { display: none; }
+
+    /* ---- wave countdown banner (dusk / zone shrink / sudden death) ---- */
+    #countdown { position: absolute; top: 15%; left: 50%; transform: translateX(-50%); padding: 8px 28px; font-size: 26px; font-weight: 800; letter-spacing: 5px; color: var(--amber); background: rgba(8,10,18,.78); border: 1px solid var(--panel-edge); pointer-events: none; white-space: nowrap; animation: cdblink .8s steps(2, jump-none) infinite; }
+    #countdown.blood { color: #ff7a6a; text-shadow: 0 0 18px rgba(255,60,40,.55); }
+    #countdown[hidden] { display: none; }
+    @keyframes cdblink { 50% { opacity: .35; } }
+
+    /* ---- controls overlay (corner panel, toggle in Settings) ---- */
+    #ctrlOverlay { position: absolute; left: 10px; bottom: 10px; padding: 7px 10px; font: 10px/1.65 ui-monospace, Menlo, monospace; letter-spacing: .5px; color: #9fb0cc; background: rgba(8,10,18,.62); border: 1px solid rgba(23,74,74,.6); border-radius: 4px; pointer-events: none; white-space: nowrap; }
+    #ctrlOverlay[hidden] { display: none; }
+    #ctrlOverlay .chint { color: var(--amber); margin-top: 3px; }
+
+    /* ---- beacon pips (beacon-defense strongholds: 4 monoliths) ---- */
+    #beaconPips { margin-top: 4px; letter-spacing: 4px; font-size: 15px; }
+    #beaconPips[hidden] { display: none; }
+    .bpip.lit { color: var(--amber); text-shadow: 0 0 8px rgba(255,217,138,.6); }
+    .bpip.dark { color: rgba(255,255,255,.16); }
+    .bship { color: var(--relay); font-size: 10px; letter-spacing: 1px; }
+
+    /* ---- stronghold level select (25 cards, pad-navigable grid) ---- */
+    #shGrid { display: grid; grid-template-columns: repeat(5, 158px); gap: 8px; max-height: 56vh; overflow-y: auto; padding: 4px; }
+    button.shcard { width: 158px; padding: 7px 9px 8px; text-align: left; background: rgba(255,255,255,.05); color: #cfd8e8; clip-path: none; border: 1px solid rgba(54,160,138,.3); border-radius: 5px; display: flex; flex-direction: column; gap: 3px; font-weight: 500; letter-spacing: 0; font-size: 11px; }
+    button.shcard .shtop { display: flex; justify-content: space-between; align-items: baseline; }
+    button.shcard .shno { color: var(--relay); font-weight: 800; font-size: 12px; }
+    button.shcard .shmark { font-size: 11px; color: var(--green); }
+    button.shcard .shname { font-weight: 800; font-size: 12px; letter-spacing: .5px; color: #eaf6ff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    button.shcard .shmeta { color: #76829c; font-size: 10px; }
+    button.shcard .shmeta .pips { font-style: normal; color: var(--amber); letter-spacing: 1px; }
+    button.shcard .shbadges { display: flex; gap: 4px; flex-wrap: wrap; min-height: 13px; }
+    button.shcard .shnew { font-style: normal; font-size: 8px; font-weight: 800; letter-spacing: .5px; color: #0b121a; background: var(--amber); border-radius: 3px; padding: 1px 4px; max-width: 136px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    button.shcard .shchar { font-style: normal; font-size: 8px; font-weight: 800; letter-spacing: .5px; color: var(--teal); border: 1px solid rgba(54,160,138,.55); border-radius: 3px; padding: 0 4px; }
+    button.shcard.locked { opacity: .38; filter: grayscale(.7); cursor: default; }
+    button.shcard.beaten { border-color: rgba(111,216,242,.5); }
+    #shBlurb { min-height: 2.6em; max-width: 640px; margin-top: 4px; }
+
+    /* ---- input remapping (Settings > Input remapping) ---- */
+    #remapList { display: flex; flex-direction: column; gap: 5px; max-height: 44vh; overflow-y: auto; padding: 3px; }
+    button.rrow { width: 330px; display: flex; justify-content: space-between; gap: 14px; background: rgba(255,255,255,.06); color: #c2cde0; clip-path: none; border-radius: 4px; padding: 7px 14px; font-size: 12px; letter-spacing: 1px; }
+    button.rrow b { color: var(--amber); }
+    button.rrow.custom b { color: var(--relay); }
+    #remapDevs .rdev { width: 150px; font-size: 12px; padding: 8px 6px; }
+    #remapDevs .rdev.active { box-shadow: inset 0 0 0 2px var(--teal); color: #eaf6ff; }
   </style>
 </head>
 <body>
@@ -63,44 +118,104 @@
 
     <main id="center">
       <canvas id="game" width="1280" height="720"></canvas>
-      <!-- event banner + spectate tag sit below the .screen overlays in DOM order,
-           so open menus/dialogs always paint over them -->
+      <!-- event banner + spectate tag + countdown + controls overlay sit below
+           the .screen overlays in DOM order, so open menus/dialogs paint over them -->
       <div id="banner" hidden></div>
       <div id="toast" hidden></div>
       <div id="spectateTag" hidden>ELIMINATED &mdash; SPECTATING</div>
+      <div id="countdown" hidden></div>
+      <div id="ctrlOverlay" hidden></div>
 
       <div id="menu" class="screen">
-        <h1>HOLD<span>OUT</span> <em>HD</em></h1>
-        <p class="tag">Hold the line. Rescue the lost. Reach the exit.</p>
-        <input id="nameInput" placeholder="Your name" maxlength="12" autocomplete="off">
-        <button id="btnAudio" class="ghost">Audio: On</button>
-        <button id="btnFullscreen" class="ghost">Fullscreen</button>
-        <button id="btnSolo">Local Game (1&ndash;4 Players)</button>
-        <button id="btnContinue" hidden>Continue Campaign</button>
-        <button id="btnStory">Story: Anchorfall Crossing</button>
-        <button id="btnStoryContinue" hidden>Continue Story</button>
-        <button id="btnBastion" hidden>Bastion: The Last Bastion</button>
-        <button id="btnCtf" hidden>Versus: Capture the Flag</button>
-        <button id="btnBr" hidden>Versus: Battle Royale</button>
-        <button id="btnHost">Host Online: Classic</button>
-        <button id="btnHostStory">Host Online: Story</button>
-        <button id="btnHostBastion" hidden>Host Online: Bastion</button>
-        <button id="btnHostCtf" hidden>Host Online: Versus CTF</button>
-        <button id="btnHostBr" hidden>Host Online: Versus Royale</button>
-        <div class="joinrow">
-          <input id="joinCode" placeholder="CODE" maxlength="4" autocomplete="off">
-          <button id="btnJoin">Join Online</button>
+        <!-- MAIN -->
+        <div class="mpage" id="pageMain">
+          <h1>HOLD<span>OUT</span> <em>HD</em></h1>
+          <p class="tag">Hold the line. Rescue the lost. Reach the exit.</p>
+          <button id="btnSingle">Singleplayer</button>
+          <button id="btnVersus">Versus</button>
+          <button id="btnOnline">Online</button>
+          <button id="btnSettings">Settings</button>
+          <p class="help">Couch co-op everywhere: plug in controllers, everyone presses FIRE in a lobby to join.<br>
+          Audio wakes on your first click or button press. Pad: A selects &middot; B backs out of any page.</p>
         </div>
-        <p class="help">Couch co-op: plug in controllers, everyone presses FIRE in the lobby to join.<br>
-        Keyboard fits two: WASD &middot; Space fire &middot; E talk/build &middot; F special &middot; Q item &nbsp;|&nbsp; Arrows &middot; Enter fire &middot; / talk/build &middot; RShift special &middot; . item<br>
-        Gamepad: stick/d-pad &middot; A/RT fire &middot; X talk/build &middot; B/RB special &middot; Y item &middot; Start pauses<br>
-        Hold E on a build site to construct &mdash; LYTH shards drop from fallen Entropy<br>
-        New turrets ask for a type: stand close, hold E/X &mdash; LEFT/RIGHT cycles Gun &middot; Prism &middot; Tesla &middot; Toxin, FIRE confirms<br>
-        Selkie swims: water is open to her &mdash; slower afloat, harpoon cooldown +50% on water<br>
-        Field weapon caches dot the wild &mdash; stand close and press E/X to shoulder one, hold Q&hairsp;/&hairsp;.&hairsp;/&hairsp;Y to drop it for a teammate<br>
-        Teleport pads channel for a moment, then jump you to their twin &mdash; enemies can't follow. Save beacons checkpoint story runs.<br>
-        Walk into stranded allies to pick them up &mdash; carry them to the exit to recruit them.<br>
-        Online rooms now fit four couch players per machine &mdash; press FIRE to add a seat.</p>
+
+        <!-- SINGLEPLAYER -->
+        <div class="mpage" id="pageSingle" hidden>
+          <h2>Singleplayer</h2>
+          <p class="tag">1&ndash;4 players, one screen</p>
+          <button id="btnSolo">Classic Campaign</button>
+          <button id="btnContinue" hidden>Continue Classic</button>
+          <button id="btnStory">Story: Anchorfall Crossing</button>
+          <button id="btnStoryContinue" hidden>Continue Story</button>
+          <button id="btnBastion" hidden>Stronghold</button>
+          <button class="ghost mback">Back</button>
+        </div>
+
+        <!-- VERSUS (couch) -->
+        <div class="mpage" id="pageVersus" hidden>
+          <h2>Versus &mdash; Couch</h2>
+          <p class="tag">2&ndash;4 players, one screen</p>
+          <button id="btnCtf" hidden>Capture the Flag</button>
+          <button id="btnBr" hidden>Battle Royale</button>
+          <button class="ghost mback">Back</button>
+        </div>
+
+        <!-- ONLINE -->
+        <div class="mpage" id="pageOnline" hidden>
+          <h2>Online</h2>
+          <p class="tag">host a room, or join with a code &mdash; 4 couch seats per machine, 8 per room</p>
+          <button id="btnHost">Host Classic</button>
+          <button id="btnHostStory">Host Story</button>
+          <button id="btnHostBastion" hidden>Host Stronghold</button>
+          <button id="btnHostCtf" hidden>Host CTF</button>
+          <button id="btnHostBr" hidden>Host Battle Royale</button>
+          <div class="joinrow">
+            <input id="joinCode" placeholder="CODE" maxlength="4" autocomplete="off">
+            <button id="btnJoin">Join Online</button>
+          </div>
+          <button class="ghost mback">Back</button>
+        </div>
+
+        <!-- SETTINGS -->
+        <div class="mpage" id="pageSettings" hidden>
+          <h2>Settings</h2>
+          <input id="nameInput" placeholder="Your name" maxlength="12" autocomplete="off">
+          <button id="btnAudio" class="ghost">Audio: On</button>
+          <button id="btnFullscreen" class="ghost">Fullscreen</button>
+          <button id="btnCtrlHud" class="ghost">Controls overlay: On</button>
+          <button id="btnRemap" class="ghost">Input remapping</button>
+          <p class="help">Keyboard fits two: WASD &middot; Space fire &middot; E talk/build &middot; F special &middot; Q item &middot; hold Tab for the map &nbsp;|&nbsp; Arrows &middot; Enter fire &middot; / talk/build &middot; RShift special &middot; . item &middot; hold M for the map<br>
+          Gamepad: stick/d-pad &middot; A/RT fire &middot; X talk/build &middot; B/RB special &middot; Y item &middot; hold SELECT for the map &middot; Start pauses<br>
+          Hold E/X on a build site to construct &mdash; LYTH shards drop from fallen Entropy. Your own shots demolish your own walls, barricades and turrets (direct hits) &mdash; built yourself in? Shoot your way out.<br>
+          New turrets ask for a type: stand close, hold E/X &mdash; LEFT/RIGHT cycles Gun &middot; Prism &middot; Tesla &middot; Toxin, FIRE confirms<br>
+          Field weapon caches dot the wild &mdash; press E/X to shoulder one, hold Q&hairsp;/&hairsp;.&hairsp;/&hairsp;Y to drop it for a teammate<br>
+          Teleport pads jump you to their twin &mdash; enemies can't follow. Save beacons checkpoint story runs.<br>
+          Walk into stranded allies to pick them up &mdash; carry them to the exit to recruit them.</p>
+          <button class="ghost mback">Back</button>
+        </div>
+
+        <!-- INPUT REMAPPING -->
+        <div class="mpage" id="pageRemap" hidden>
+          <h2>Input Remapping</h2>
+          <p class="tag">pick a device, pick an action, then press its new key/button &mdash; Esc cancels</p>
+          <div class="btnrow" id="remapDevs">
+            <button class="ghost rdev" data-dev="kb1">Keyboard WASD</button>
+            <button class="ghost rdev" data-dev="kb2">Keyboard Arrows</button>
+            <button class="ghost rdev" data-dev="pad">Gamepad</button>
+          </div>
+          <div id="remapList"></div>
+          <button id="btnRemapReset" class="ghost">Reset device to defaults</button>
+          <button class="ghost mback" data-back="pageSettings">Back</button>
+        </div>
+
+        <!-- STRONGHOLD LEVEL SELECT -->
+        <div class="mpage" id="pageSh" hidden>
+          <h2>Stronghold</h2>
+          <p class="tag" id="shSub">beat a stronghold to unlock the next &middot; new operatives join the roster</p>
+          <div id="shGrid" class="navgrid" data-cols="5"></div>
+          <p class="help" id="shBlurb">&nbsp;</p>
+          <button class="ghost mback" data-back="pageSingle">Back</button>
+        </div>
       </div>
 
       <div id="lobby" class="screen" hidden>
@@ -137,6 +252,7 @@
             <div id="coreLabel" class="dim">CORE</div>
             <div class="hbar"><i id="coreFill"></i></div>
           </div>
+          <div id="beaconPips" hidden></div>
         </div>
         <div id="pvpInfo" hidden>—</div>
       </div>

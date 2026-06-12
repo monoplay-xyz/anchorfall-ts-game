@@ -1,0 +1,2973 @@
+{
+  "name": "Atlas Rise",
+  "objective": "Hold the summit core behind three rings for ten nights",
+  "time": 600,
+  "expedition": true,
+  "mode": "bastion",
+  "bastion": {
+    "nights": 10,
+    "dayLen": 100,
+    "nightLen": 90,
+    "bloodMoons": [
+      4,
+      7,
+      10
+    ],
+    "wavesPerNight": 2,
+    "waveMult": 2.47
+  },
+  "stronghold": {
+    "level": 23,
+    "name": "Atlas Rise",
+    "sizeLabel": "XL",
+    "difficulty": 5,
+    "waves": 23,
+    "hpMult": 1.73,
+    "unlock": "atlas",
+    "blurb": "A mountainhold behind three concentric wall rings — L1, L2, L3 — under snow, ice and a patient siege.",
+    "newFeatures": [
+      "Atlas joins the roster",
+      "Three concentric wall rings (L1/L2/L3)",
+      "Glaze-ice slopes"
+    ]
+  },
+  "weather": "snow",
+  "ambience": "city",
+  "intro": [
+    {
+      "title": "Atlas Rise",
+      "lines": [
+        "Three rings of wall climb the mountain; the gates never line up.",
+        "Ice glazes the slopes — your boots and theirs slide alike.",
+        "Atlas built this hold. Hold it, and Atlas marches with you."
+      ],
+      "art": "siege"
+    }
+  ],
+  "outro": [
+    {
+      "title": "The Mountain Stands",
+      "lines": [
+        "Ten dawns and the inner ring never broke.",
+        "Atlas shoulders the gate beam back into place and nods."
+      ],
+      "art": "dawn"
+    }
+  ],
+  "captiveChars": [],
+  "tiles": [
+    "##########################################################################################################",
+    "##############################..##########################################..##############################",
+    "##############################^.##########################################.^##############################",
+    "##############################^.##########################################;.##############################",
+    "##############################..##########################################^.##############################",
+    "#####^....^.;;.....;;;^...^...;.##########################################;.##############################",
+    "#####.^.;.^..;.^.^..;#^;;^;......^......;;.^.....^^;;#####################..##############################",
+    "#####.^..^^.;^^.^.;...........^.^;.;.;.g^...^.^;^.....;.;....;..;...^^####^;##############################",
+    "#####..;^^.^....^;^^###.^....;^.;.....a.C;;.^...^^..^Y^......;^....;..Y.....;^.;;;.^...^......^...########",
+    "#####^.^...^^^..^..;^.#.;..^;...^.;...;.;n..^.^..^...^;.;^^^........;...;^.^^.^..^;;..^^.^.^^;.;.^########",
+    "#####.^..;C..;;^^^^^^^^^^..;^^.^..;..;...;..Y...;..^...^...;..C...^....;.;;^.;...^....^;..^;^...;^########",
+    "#####......^....^^^^^^^^^;^.^..^.^;.....^....^...;.^.;...;;.;^..^......^....;..^.^;.^^^^^;;.......########",
+    "#####^...;.^^.a.^^^^^^^^^^;^^^..^...^;..^.....^;.....x^.....^....;...;.;;;..^.;^..^^^^^^^^v.^^C;..########",
+    "#####....^.;.r..^^^^^^^^^^..^;;..;.^..^;...#;.....;......;^^;;;.;...^.......;^...^.^^^^^^^^^^.;...########",
+    "#####;^;..;....^s^^^^^^^^^^;A.^.^^....;^.^.##..;;;...;.;...;.;...;;..^^^.;..;.;.;.^^^^^^^^^;;.^.;.########",
+    "#####.;...;;.s;.^^^^^^^^^.;...;.;.^.^.^..#.;....BBBBBBBBBBB.....;;..^.....^..;..^^.^^^^^^x..;^.;.;########",
+    "#####;..^^.^;...^^^^^^^^^.;^..;.....;;...;.;.BBBB;..;..;..BBBB.....^........;^;....^^^^^^^^x..;...########",
+    "####......^.^^^.^^^^^^^^^;...^;...;.....;.BBBB......;...;....BBBB...;.;.;..;.;^.;..^^^^^^.^.;.....########",
+    "####....;.;.^...;^^^^^^^....^^;;^..^..;;.BB....;...;;.....;;....BBB..;^;.^^^.^.;......^;;;..^...;..#######",
+    "####^;;;;..^^.;;;..;^.....^...^......;.BBB.;.....B..;W...;.....;..BB;..;.;...;^;^......^..;...^.^.^#######",
+    "####^;;.;......^;;..^;^;...^.....^....BB.....;..;..........;.......BBB..^^.^^;^^^^;;;.;.....^.^.;.;#######",
+    "####^........;...;^.....^.^..^..;.;..BB....................;..;...;;.BB.^......^;.^;..;.....;..^...#######",
+    "#.^...^^^.;...^^..Y......;^;.....;;.BB..;;..;...............;.;..;....BB..;.....^^;.;;.;;;.^....;^;#######",
+    "#.^^............;^^^.^..;^^;......;BB...........;BBBBBBBBB....;.;;;....BB.....^;..;;.^...^.....^...#######",
+    "####..;;....^.^..;....^^..C;;.....BB.;;;...;...BBB...;...BBBB;;.....;..;B.;.....C^.........^;.^.^.....^..#",
+    "####..;.;^...^..^....^...^..;.;..BB.;.......BBBB........;...BBB.......;.BB....;...^.^.;;^^^..^;...;..;...#",
+    "####...;......^^.;......^..^;.^..B...;;..;.BB......;..........BB.;..;;..;BB...^..;;..;..^.;..^;.^^^#######",
+    "####.^..;.;.^.;.^^#^..;..^......BB;......WBB;;.;.;..;..........BBW........B...........;..;.^^.;.;;.#######",
+    "####;;.^.;.^Y....#^#.^^...;^.^.BB.....;.;BB......;.;;........;..BB......;.BB.^..^^;..;...;.^Y..^..^#######",
+    "####;;;^^;..^.;.###^^.^........B.;......BB..;..;.............;...BB........B..^.^;;;.^...;.^.^..^..#######",
+    "####^^.;^^..^..;;^.;.^...;.^^..B...;...BB.;.;............;;..;....BB.;....;B.;...^^^;..^...;;..^^.^#######",
+    "####^.^^..;;..^;.;.^...;^;.^^.BB...;;;;B;;......;.BBBBBBB.;...;....B...;...BB;...^....^.^^;.;.;....#######",
+    "####..^.;.;....^.;;..^m.;..^;.B..;;;...B..;.;....BB;;;;;BBB.;.;..;;BB;..;...B.;;...;...;;...^.^.^^.#######",
+    "####.;^.^^^.^.;^....;.^....;..B;....;.BB;..V...BBB;;;;;;;;BB;;.V;...B..;....B;..^;^.....^^....^....#######",
+    "####..^^.^;.^^...;.....^;;...BB.;...;.B..;...;.B;;;;;;;;;;;BB..;.;;.B.....;.BB..^^^.;;.^;.^...^^;.^#######",
+    "####....^^..^..........^^.;^.B...B.;.BB.;.....BB;;;;;;;;;;;;B...;...BB...B.;.B......;.^.^...^^.^^.^#######",
+    "#####...;.^...;;...^.^.^...^.B.;.....B..;....BB;H;H;H*H;H;;;BB..;....B..;....B......^.....^..^;^...#######",
+    "#####.;^.^^^^.....^.^..^.....B;...;.;B.;...;.B;;;;;P;;;P;;;;;B.;;;;..B.;...;;B..^;..;;^;...^^^...^^#######",
+    "#####;;....^.....^^^.....^...B......;B;......B;;;;;;;;;;;;;;;B.;;.;;.B.;;..;.B.^^^....^.....;;;.^..#######",
+    "#####^;.^..^.##;..;^.^..^^.;.B.;.....B....;..B;;;;;;;K;;;S;;;B;;.....B....;;.B......^.......^;^.^..#######",
+    "#####;.^C^;####.^^^..^;..^^..BY......B.....;.B;;;;;;;;;;;;;;;B..;;...B..;...YB...;.;...;^.Y;..;....#######",
+    "#####.^;..;.#^#.^..;..;.;....B....;..B......;B;;;;;P;;;P;;;;;B.B.B...B.......B...;.^....^....^;....#######",
+    "#####;^..^.#^#;#^......^^.;..B..;..;.B.......BB;;;;;;*;;;;;;BB.....;.B....;;;B........^^.^.;..^;.^.#######",
+    "#####;^..;..#.#...^^...^.;...B;.;..;.BB.....;.B;;B;;;;;;;B;BB;.B;B;.BB.;...;;B.^;..^^..^;^...^^;...#######",
+    "#####^;.;;.....^..;...^.^^...BB.;;..;.B...;...BB;;;;;;;;;;;B........B....;..BB..^...m;..^..;......^#######",
+    "#####^....^z;^..;..^.^...;....B.;;.;..B.;;.....BB;;;;;;;;BBB.......BB;......B.;.;.^^;;;.^.;.^^^....#######",
+    "#####...;s^...........^.^.....B..;.;..BB....;..;BBB;;;;;BB....;;...B......;.B;....^.^;....;..;..C;.#######",
+    "#####.^^;^..r^..;;..;^^;......BB;..;.;.B...;.;.;..BBBBBBB;........;B;......BB...^^^^^^;..;.........#######",
+    "#####....;r..;.;...;^....^.;;;.B.......BB.;...;......;..;;;..;..;.BB..;....B........^.;.^;..;...^^.#######",
+    "#####^;.^...;.;..;.^;...^^.....B.....;..BB.;...;....;.;....;..;.;BB.;...;..B.;;...^.;...^...^^.^^^.#######",
+    "#####.....;.;.;.;^.^^;Y^.;.;..;BB....;...BB.;..;......;;;..;;.;.BB..;..;;.BB.^#;.;.;..^^....;.^.;^.#######",
+    "#####;.^..;.;;.;;^.^^.^..;...^;.B..;.....WBB..........;;.;..;..BBW;......BB..#;...^..;....^...s;^..#######",
+    "######;;^.Y^....;;;.^;^^.;..;...BB.;.......BB............;;...BB.........B;.^#C..;;^......;.^..;^..#######",
+    "######.^...;^.^.^....;..;.;#..;..BB.....;...BBB............BBBB......;..BB..#^^.^^...;.^...^a^^n^..#######",
+    "######..;;...^...;.^.;.^..##......B;.......;.;BBBB....;;.BBB;..........BB...^#....;;^^...^.^....^..#######",
+    "######........^.;..^;.;....##.....BB.......;.....BBBBBBBBB..;.........BB.....^.....^^^^^^^^.^;..^.;#######",
+    "#.^;....^.^..^^.;^..^;.^....;;C....BB.......;;.............;;..;.....BB..;;^......;..^^^^^^^^^;....#######",
+    "#..;.;...^;^.^..;...;.;.^;^.#.^^..;.BB......;.;..;;..;..;..;...;....BB....^..;;#....^^^^^^^^^Y;;.^.#######",
+    "######^.....;.;.^^..^.;^.^^......^^.;BBB....;..;;.......;..........BB;..;.......##.^^^^^^^^^^^#...^#######",
+    "######^;^.......^;.;....;^.^.;.........BB..;......;;.W;..B...;.;.BBB.........^.^##.^^^^^^^^^^^#^^^;#######",
+    "######^....;..^.;.v^...^;...^.;......^..BBB............;;..;;..;BBY.;..;......#####^^^^^^^^^^^;;;^;.^.^^.#",
+    "#######;;..;^;;^.^.^^..^....^..^..^.^..^..BBBB;.;........;;..BBBB.;..^..^..^.;###..^^^^^^^^^^^..^..^...;.#",
+    "######.;.^^^;^.....;^...^..^....^..;;...^....BBBB;.;....;.BBBB.;.;^.;....^...####;;^^^^^^^^^^^;;^^.#######",
+    "######.^..;;^..;^^.^^;..^.^^^..;..^...^^..^;....BBBBBBBBBBB....;.;...^..^;..#^###A..^^^^^^^^^^..#..#######",
+    "#######...^.^;..^^......;;....;#.^.....^..;^;^............;..^;^...^^.....;.###.#..;^^^^^^^^.....^^#######",
+    "######....^...^..^.^;..^.....^^#..;^.;.^....^^^;..;;.;..^;;......^^^.^..^;^;...#......^^^^^;;..;;.^#######",
+    "######....^.^^^.^.^;.^;.^.;q...#.^^^^;......^.^.^..^..;^.....;...;;.^........a.;.^^;^;^...^.^^..^.^#######",
+    "######;^......;^..^^;...^;.;^..;.^....^.^.^..^^;.....^;^...^.^...;.^^^...^...^.u..;..;;;...;.^.....#######",
+    "######^^;.;.^^C...;.......#.v.....Y^......;;..;.^.....;..;.;..^^..^wY.^....;^...g^;...^^C;.^.;.;^.^#######",
+    "######....^;....^^^...#...^v^#....;;;;;.....;^^...^..^....^.....z.^;.;...;;^w.;..;;............^.^^#######",
+    "######;...^....^^^..^^.##.^...^....;......;^^.......CY^..;.^.^;.....^^..;.^..g.....^;..^.^.^^..;..^#######",
+    "######^.....;;..;;..^##;..##^...;^....;^^^^.^.....;..;.^...;^^..^z..q;..;;;.^.^.^.^^;^..^...;^############",
+    "#################################..;.^..........;^.........;;^...^;.^;.;##################################",
+    "####################################..################################..##################################",
+    "####################################;.################################;.##################################",
+    "####################################..################################.^##################################",
+    "####################################^.################################.^##################################",
+    "##########################################################################################################"
+  ],
+  "builds": [
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "farm",
+      "cost": 6
+    },
+    {
+      "kind": "farm",
+      "cost": 6
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "farm",
+      "cost": 6
+    },
+    {
+      "kind": "farm",
+      "cost": 6
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    }
+  ],
+  "chests": [
+    {
+      "loot": "medkit",
+      "amount": 1
+    },
+    {
+      "loot": "shards",
+      "amount": 11
+    },
+    {
+      "loot": "token",
+      "amount": 1
+    },
+    {
+      "loot": "cracker",
+      "amount": 2
+    },
+    {
+      "loot": "toxin",
+      "amount": 1
+    },
+    {
+      "loot": "shards",
+      "amount": 10
+    },
+    {
+      "loot": "shield",
+      "amount": 1
+    },
+    {
+      "loot": "shield",
+      "amount": 1
+    },
+    {
+      "loot": "token",
+      "amount": 1
+    },
+    {
+      "loot": "controller",
+      "amount": 1
+    },
+    {
+      "loot": "cracker",
+      "amount": 2
+    },
+    {
+      "loot": "shards",
+      "amount": 12
+    },
+    {
+      "loot": "medkit",
+      "amount": 1
+    }
+  ],
+  "hires": [
+    {
+      "job": "hound",
+      "cost": 10,
+      "name": "Fang Crag"
+    },
+    {
+      "job": "farmer",
+      "cost": 8,
+      "name": "Sage Alpenna"
+    },
+    {
+      "job": "engineer",
+      "cost": 10,
+      "name": "Wrench Col"
+    },
+    {
+      "job": "smith",
+      "cost": 12,
+      "name": "Forgemaster Scree"
+    },
+    {
+      "job": "archer",
+      "cost": 12,
+      "name": "Fletch Rime"
+    }
+  ],
+  "vehicles": [
+    {
+      "kind": "stag"
+    },
+    {
+      "kind": "stag"
+    }
+  ],
+  "pickups": [
+    {
+      "kind": "railcannon"
+    },
+    {
+      "kind": "mortarMk2"
+    }
+  ],
+  "groups": [
+    [
+      [
+        16,
+        14
+      ],
+      [
+        13,
+        15
+      ],
+      [
+        13,
+        13
+      ],
+      [
+        14,
+        12
+      ]
+    ],
+    [
+      [
+        91,
+        16
+      ],
+      [
+        89,
+        15
+      ],
+      [
+        90,
+        12
+      ]
+    ],
+    [
+      [
+        95,
+        53
+      ],
+      [
+        92,
+        53
+      ],
+      [
+        94,
+        51
+      ]
+    ],
+    [
+      [
+        80,
+        68
+      ],
+      [
+        77,
+        70
+      ],
+      [
+        76,
+        69
+      ],
+      [
+        77,
+        66
+      ],
+      [
+        79,
+        67
+      ]
+    ],
+    [
+      [
+        28,
+        68
+      ],
+      [
+        27,
+        69
+      ],
+      [
+        27,
+        66
+      ]
+    ],
+    [
+      [
+        12,
+        47
+      ],
+      [
+        10,
+        48
+      ],
+      [
+        9,
+        46
+      ],
+      [
+        11,
+        45
+      ]
+    ],
+    [
+      [
+        41,
+        9
+      ],
+      [
+        38,
+        8
+      ],
+      [
+        39,
+        7
+      ]
+    ],
+    [
+      [
+        68,
+        71
+      ],
+      [
+        65,
+        71
+      ],
+      [
+        64,
+        69
+      ],
+      [
+        67,
+        68
+      ]
+    ]
+  ],
+  "patrols": [
+    {
+      "at": [
+        16,
+        14
+      ],
+      "points": [
+        [
+          13,
+          8
+        ],
+        [
+          14,
+          19
+        ],
+        [
+          11,
+          12
+        ]
+      ]
+    },
+    {
+      "at": [
+        13,
+        15
+      ],
+      "points": [
+        [
+          17,
+          18
+        ],
+        [
+          16,
+          16
+        ],
+        [
+          10,
+          14
+        ]
+      ]
+    },
+    {
+      "at": [
+        13,
+        13
+      ],
+      "points": [
+        [
+          18,
+          14
+        ],
+        [
+          7,
+          10
+        ],
+        [
+          13,
+          11
+        ],
+        [
+          9,
+          7
+        ]
+      ]
+    },
+    {
+      "at": [
+        91,
+        16
+      ],
+      "points": [
+        [
+          96,
+          13
+        ],
+        [
+          94,
+          17
+        ]
+      ]
+    },
+    {
+      "at": [
+        89,
+        15
+      ],
+      "points": [
+        [
+          89,
+          11
+        ],
+        [
+          94,
+          10
+        ],
+        [
+          91,
+          17
+        ]
+      ]
+    },
+    {
+      "at": [
+        90,
+        12
+      ],
+      "points": [
+        [
+          92,
+          18
+        ],
+        [
+          84,
+          11
+        ]
+      ]
+    },
+    {
+      "at": [
+        94,
+        51
+      ],
+      "points": [
+        [
+          94,
+          52
+        ],
+        [
+          96,
+          52
+        ]
+      ]
+    },
+    {
+      "at": [
+        80,
+        68
+      ],
+      "points": [
+        [
+          76,
+          71
+        ],
+        [
+          77,
+          61
+        ],
+        [
+          85,
+          67
+        ],
+        [
+          75,
+          68
+        ]
+      ]
+    },
+    {
+      "at": [
+        77,
+        70
+      ],
+      "points": [
+        [
+          73,
+          69
+        ],
+        [
+          80,
+          71
+        ],
+        [
+          70,
+          71
+        ],
+        [
+          82,
+          69
+        ]
+      ]
+    },
+    {
+      "at": [
+        76,
+        69
+      ],
+      "points": [
+        [
+          72,
+          71
+        ],
+        [
+          75,
+          67
+        ],
+        [
+          71,
+          65
+        ]
+      ]
+    },
+    {
+      "at": [
+        79,
+        67
+      ],
+      "points": [
+        [
+          77,
+          59
+        ],
+        [
+          75,
+          66
+        ]
+      ]
+    },
+    {
+      "at": [
+        28,
+        68
+      ],
+      "points": [
+        [
+          24,
+          68
+        ],
+        [
+          29,
+          63
+        ],
+        [
+          28,
+          65
+        ]
+      ]
+    },
+    {
+      "at": [
+        27,
+        69
+      ],
+      "points": [
+        [
+          28,
+          71
+        ],
+        [
+          29,
+          71
+        ],
+        [
+          30,
+          66
+        ]
+      ]
+    },
+    {
+      "at": [
+        27,
+        66
+      ],
+      "points": [
+        [
+          27,
+          60
+        ],
+        [
+          32,
+          69
+        ]
+      ]
+    },
+    {
+      "at": [
+        12,
+        47
+      ],
+      "points": [
+        [
+          15,
+          48
+        ],
+        [
+          7,
+          48
+        ],
+        [
+          18,
+          46
+        ]
+      ]
+    },
+    {
+      "at": [
+        10,
+        48
+      ],
+      "points": [
+        [
+          7,
+          48
+        ],
+        [
+          7,
+          44
+        ],
+        [
+          14,
+          44
+        ],
+        [
+          12,
+          45
+        ]
+      ]
+    },
+    {
+      "at": [
+        9,
+        46
+      ],
+      "points": [
+        [
+          10,
+          44
+        ],
+        [
+          6,
+          51
+        ],
+        [
+          8,
+          50
+        ]
+      ]
+    },
+    {
+      "at": [
+        11,
+        45
+      ],
+      "points": [
+        [
+          8,
+          45
+        ],
+        [
+          12,
+          38
+        ]
+      ]
+    },
+    {
+      "at": [
+        39,
+        7
+      ],
+      "points": [
+        [
+          37,
+          9
+        ],
+        [
+          37,
+          6
+        ]
+      ]
+    },
+    {
+      "at": [
+        68,
+        71
+      ],
+      "points": [
+        [
+          71,
+          68
+        ],
+        [
+          71,
+          70
+        ],
+        [
+          64,
+          72
+        ],
+        [
+          74,
+          71
+        ]
+      ]
+    },
+    {
+      "at": [
+        65,
+        71
+      ],
+      "points": [
+        [
+          68,
+          66
+        ],
+        [
+          67,
+          69
+        ]
+      ]
+    },
+    {
+      "at": [
+        64,
+        69
+      ],
+      "points": [
+        [
+          70,
+          68
+        ],
+        [
+          64,
+          72
+        ],
+        [
+          61,
+          66
+        ]
+      ]
+    },
+    {
+      "at": [
+        67,
+        68
+      ],
+      "points": [
+        [
+          66,
+          72
+        ],
+        [
+          64,
+          70
+        ],
+        [
+          69,
+          69
+        ],
+        [
+          67,
+          64
+        ]
+      ]
+    },
+    {
+      "at": [
+        53,
+        12
+      ],
+      "points": [
+        [
+          50,
+          14
+        ],
+        [
+          50,
+          14
+        ],
+        [
+          57,
+          14
+        ]
+      ]
+    },
+    {
+      "at": [
+        18,
+        60
+      ],
+      "points": [
+        [
+          17,
+          62
+        ],
+        [
+          18,
+          66
+        ],
+        [
+          19,
+          66
+        ]
+      ]
+    }
+  ]
+}

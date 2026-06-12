@@ -1,4 +1,4 @@
-// Generates levels/level12.json — "Chapter II — Lythium Basin", story chapter 2.
+// Generates levels/story/ch02.json — "Chapter II — Lythium Basin", story chapter 2.
 // Deterministic (fixed seed): re-running always produces the same map.
 // An 88x60 north-to-south descent through a drowned LYTH refinery basin:
 // meadow pockets at the top, then a swamp maze of water channels crossed by
@@ -425,6 +425,6 @@ const def = {
   }
   def.tiles = grid.map(r => r.join(''));
 }
-const out = path.join(__dirname, '../levels/level12.json');
+const out = path.join(__dirname, '../levels/story/ch02.json');
 fs.writeFileSync(out, JSON.stringify(def, null, 2) + '\n');
 console.log('wrote', out);

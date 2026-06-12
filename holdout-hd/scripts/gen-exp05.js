@@ -1,4 +1,4 @@
-// Generates levels/level15.json — "Chapter V — Cluster Siege".
+// Generates levels/story/ch05.json — "Chapter V — Cluster Siege".
 // Deterministic (fixed seed): re-running always produces the same map.
 // A 72x56 NIGHT DEFENSE map: the squad starts INSIDE a walled cluster camp
 // (stone floor, campfires, both NPCs) in the middle of a dark meadow/forest.
@@ -350,6 +350,6 @@ const def = {
   gate: { need: 3, after: 600 }, // the Anchor charges through the night — hold until the last wave breaks
   tiles: grid.map(r => r.join('')),
 };
-const out = path.join(__dirname, '../levels/level15.json');
+const out = path.join(__dirname, '../levels/story/ch05.json');
 fs.writeFileSync(out, JSON.stringify(def, null, 2) + '\n');
 console.log('wrote', out);

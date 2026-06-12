@@ -1,4 +1,4 @@
-// Generates levels/level11.json — "The Long Crossing", Chapter I of the
+// Generates levels/story/ch01.json — "The Long Crossing", Chapter I of the
 // Anchorfall story campaign (also the first expedition map).
 // Deterministic (fixed seed): re-running always produces the same map.
 // A 96x64 west-to-east journey: moonlit meadow, river fords, deep forest under
@@ -430,6 +430,6 @@ const def = {
   gate: { need: 3 },
   tiles: grid.map(r => r.join('')),
 };
-const out = path.join(__dirname, '../levels/level11.json');
+const out = path.join(__dirname, '../levels/story/ch01.json');
 fs.writeFileSync(out, JSON.stringify(def, null, 2) + '\n');
 console.log('wrote', out);

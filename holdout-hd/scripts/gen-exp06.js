@@ -1,4 +1,4 @@
-// Generates levels/level16.json — "Chapter VI — Final Settlement", the finale.
+// Generates levels/story/ch06.json — "Chapter VI — Final Settlement", the finale.
 // Deterministic (fixed seed 20260616): re-running always produces the same map.
 // A 90x60 fortified approach WEST->EAST through three escalating defensive
 // rings (ash and stone, heavy walls, sandbag lines, tree windbreaks) to the
@@ -389,6 +389,6 @@ const def = {
   modifiers: { waves: [{ at: 420, letters: 'rrssgg', edge: 'w' }] },
   tiles: grid.map(r => r.join('')),
 };
-const out = path.join(__dirname, '../levels/level16.json');
+const out = path.join(__dirname, '../levels/story/ch06.json');
 fs.writeFileSync(out, JSON.stringify(def, null, 2) + '\n');
 console.log('wrote', out);

@@ -1,4 +1,4 @@
-// Generates levels/level21-ctf.json — "Twin Relays" (versus: capture the flag).
+// Generates levels/ctf/level21-ctf.json — "Twin Relays" (versus: capture the flag).
 // Deterministic (fixed seed 20260621): re-running always produces the same map.
 // A 64x44 mirror-symmetric battlefield (gen-exp04's mirror trick: the WEST
 // half is generated, then reflected tile-for-tile onto the east half). Two
@@ -238,6 +238,6 @@ const def = {
   vehicles: [{ kind: 'stag' }, { kind: 'stag' }],
   tiles: grid.map(r => r.join('')),
 };
-const out = path.join(__dirname, '../levels/level21-ctf.json');
+const out = path.join(__dirname, '../levels/ctf/level21-ctf.json');
 fs.writeFileSync(out, JSON.stringify(def, null, 2) + '\n');
 console.log('wrote', out);

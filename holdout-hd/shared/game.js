@@ -87,7 +87,10 @@ const WAVE_ENGAGE = 6; // tiles: a core-marcher engages a player it SEES this cl
 const WAVE_DISENGAGE = 9; // tiles: it resumes the march once they slip this far
 
 // --- structure levels, towers, shops, hires, vehicles, pvp tuning ---
-const STRUCT_HP = { barricade: [14, 22, 32], turret: [10, 14, 18], tower: [20, 28, 38] };
+// 'wall' is the frontier IV fortified segment (cost 5 by convention): a real
+// damageable structure, so stronghold bases ship as PREBUILT wall perimeters
+// instead of indestructible '#' rock.
+const STRUCT_HP = { barricade: [14, 22, 32], turret: [10, 14, 18], tower: [20, 28, 38], wall: [20, 35, 60] };
 const TURRET_DMG = [1, 2, 3];
 const TURRET_RANGE = [5.5, 6, 6.5]; // tiles, targeting radius by level
 const TURRET_PERIOD = 0.55; // seconds between gun shots (reliable single-target dps)
@@ -204,10 +207,44 @@ const TELE_CHANNEL_T = 0.8;
 const TELE_COOLDOWN = 2;
 const DOOR_TOUCH = 10; // px beyond the player radius for lythseal door touches
 
+// --- frontier IV: stronghold campaign, alive world, new terrain -------------
+// Beacon-defense variant: four 'K' monoliths instead of one core. A beacon at
+// 0 hp goes DARK (never destroyed); a day-time act-hold plus 8 shards relights
+// it at full hp. Lose only when all four are dark at once.
+const RELIGHT_COST = 8; // shards to relight a dark beacon
+const RELIGHT_HOLD_T = 1.5; // seconds of act-hold at the dark monolith
+// Anchorcraft early extraction: from night 2 on, all four beacons lit AT NIGHT
+// lands the ship; boarding everyone launches with a full-clear bonus.
+const SHIP_BOARD_TILES = 1.5; // act reach to board, like extraction
+const SHIP_CLEAR_BONUS = 2000;
+// Terrain: '=' sand drags, '^' ice skates and drifts, '!' lava sears,
+// '%' void blocks everything (move, sight, shots).
+const SAND_SLOW = 0.85;
+const ICE_FAST = 1.05;
+const ICE_DRIFT = 0.6; // fraction of last tick's movement carried as drift
+const LAVA_PLAYER_TICK = 0.8; // seconds per 1 hp standing in lava (players)
+const LAVA_ENEMY_TICK = 1; // seconds per 1 hp for enemies
+// Weather (def.weather): fog/ashstorm cap all sim sight at 9 tiles, snow slows
+// every entity to x0.92, rain burns ground fire patches out twice as fast.
+const WEATHERS = new Set(['rain', 'snow', 'ashstorm', 'fog']);
+const WEATHER_SIGHT_TILES = 9;
+const SNOW_SLOW = 0.92;
+// Alive world: camp patrols walk waypoints at 0.6x while unaware; a living
+// camp sniper inside 8 tiles spots for its group-mates (+4 tiles aggro).
+const PATROL_SPEED = 0.6;
+const SPOTTER_RANGE = 8; // tiles
+const SPOTTER_BONUS = 4; // tiles of aggro granted by the spotter
+// Toxic air (def.modifiers.toxicAir {until}): unmasked operatives bleed
+// 0.5 hp per 4s until the deadline. The mask item is persistent once worn.
+const TOXIC_AIR_TICK = 4;
+const MASK_OFFER = { what: 'mask', cost: 10, amount: 1 };
+
 function buildMaxHp(kind) {
   if (kind === 'barricade') return 14;
   if (kind === 'turret') return 10;
   if (kind === 'farm') return 6;
+  if (kind === 'wall') return 20; // fortified segment, L1 (20/35/60 by level)
+  if (kind === 'comm') return 25; // comm mast: mission-prep repair objective
   return 20; // pylon/beacon: never take damage once built (indestructible)
 }
 
@@ -266,6 +303,28 @@ function makeEnemy(letter, x, y, id) {
   };
 }
 
+// Stronghold strength scaling: applied once at spawn, BEFORE mutations (a
+// bulk mutant doubles the scaled pool) and blood-moon/late-night additives.
+// Ceil keeps hp integral and the scaling deterministic.
+function scaleEnemyHp(mult, e) {
+  if (!(mult > 1)) return;
+  e.hp = Math.ceil(e.hp * mult);
+  e.maxHp = Math.ceil(e.maxHp * mult);
+}
+
+// GROUP ALERT: a camp member that spots trouble (sight or bump — never a
+// silent long-range kill) wakes its whole camp on a deterministic 0.25..1s
+// stagger. Members already waking keep their earlier clock.
+function alertGroup(g, e) {
+  if (e.group === undefined) return;
+  let k = 0;
+  for (const o of g.enemies) {
+    if (o === e || o.dead || o.awake || o.group !== e.group) continue;
+    if (!(o.groupWakeT > 0)) o.groupWakeT = 0.25 + (k % 4) * 0.25;
+    k++;
+  }
+}
+
 export function parseLevel(def) {
   const grid = def.tiles.map(r => r.split(''));
   const h = grid.length;
@@ -289,6 +348,7 @@ export function parseLevel(def) {
   const pillars = [];
   const forges = [];
   const teleports = [];
+  const cores = []; // every 'K' monolith (beacon-defense maps field four)
   let core = null;
   let ci = 0;
   let ni = 0;
@@ -313,14 +373,25 @@ export function parseLevel(def) {
       } else if (c === 'B') {
         const bd = (def.builds || [])[bi++];
         if (bd) {
+          // prebuilt:true ships the structure already standing (paid in
+          // full) — stronghold base perimeters are prebuilt wall segments.
+          // An optional bd.level (leveled kinds only) pre-upgrades it.
+          const lvl0 = STRUCT_HP[bd.kind] ? Math.min(3, Math.max(1, bd.level || 1)) : undefined;
+          const maxHp = lvl0 !== undefined ? STRUCT_HP[bd.kind][lvl0 - 1] : buildMaxHp(bd.kind);
           builds.push({
             x: px, y: py, kind: bd.kind, cost: bd.cost,
-            progress: 0, paid: 0, built: false,
-            hp: 0, maxHp: buildMaxHp(bd.kind),
+            progress: bd.prebuilt ? 1 : 0,
+            paid: bd.prebuilt ? bd.cost : 0,
+            built: !!bd.prebuilt,
+            hp: bd.prebuilt ? maxHp : 0, maxHp,
             cool: 0, evT: 0,
             ...(bd.kind === 'farm' ? { stage: 0, growT: 0 } : {}),
-            // barricades and turrets carry an upgrade level; pylons never do
-            ...(STRUCT_HP[bd.kind] ? { level: 1 } : {}),
+            // barricades/turrets/walls carry an upgrade level; pylons never do
+            ...(lvl0 !== undefined ? { level: lvl0 } : {}),
+            ...(bd.prebuilt ? { invested: bd.cost } : {}),
+            // a prebuilt turret skips the type carousel: def.ttype or 'gun'
+            ...(bd.prebuilt && bd.kind === 'turret'
+              ? { ttype: TURRET_TYPES.includes(bd.ttype) ? bd.ttype : 'gun' } : {}),
           });
         }
         grid[y][x] = '.';
@@ -329,7 +400,7 @@ export function parseLevel(def) {
         chests.push({ x: px, y: py, opened: false, loot: ld.loot, amount: ld.amount });
         grid[y][x] = '.';
       } else if (c === 'K') {
-        core = { x: px, y: py, hp: 30, maxHp: 30 };
+        cores.push({ x: px, y: py, hp: 30, maxHp: 30 });
         grid[y][x] = '.';
       } else if (c === 'V') {
         const vd = (def.vehicles || [])[vehicles.length] || {};
@@ -406,7 +477,10 @@ export function parseLevel(def) {
   teleports.forEach((t, i) => {
     if (t.twin == null) t.twin = (teleports[i ^ 1] || {}).id ?? null;
   });
-  return { grid: grid.map(r => r.join('')), w, h, spawns, captives, enemies, npcs, builds, crystals, chests, vehicles, towers, shops, hires, flags, pickups, qitems, switches, glyphs, pillars, forges, teleports, core };
+  // single-core maps keep their one 'K' on .core; beacon-defense maps read
+  // the full .cores array (createGame decides by def.bastionVariant)
+  core = cores.length ? cores[0] : null;
+  return { grid: grid.map(r => r.join('')), w, h, spawns, captives, enemies, npcs, builds, crystals, chests, vehicles, towers, shops, hires, flags, pickups, qitems, switches, glyphs, pillars, forges, teleports, core, cores };
 }
 
 export function createGame(def, party, charMap, roster) {
@@ -428,6 +502,30 @@ export function createGame(def, party, charMap, roster) {
       else if (e.kind === 'boss') e.spawnCool = 7;
     }
   }
+  // Stronghold enemy strength scaling: def.stronghold.hpMult (1.0 -> 1.8
+  // across the 25-level arc) raises every enemy's hp pool, spawn-time only.
+  const hpMult = (def.stronghold && def.stronghold.hpMult) || 1;
+  if (hpMult > 1) for (const e of lvl.enemies) scaleEnemyHp(hpMult, e);
+  // Alive-world bindings, by home tile (row-major spawn position):
+  // def.patrols [{at:[x,y], points:[[x,y],...]}] gives a sleeping enemy a
+  // waypoint loop; def.groups [[[x,y],...], ...] stamps camp group ids.
+  const atTile = (x, y) => lvl.enemies.find(e2 => e2.homeX === (x + 0.5) * TILE && e2.homeY === (y + 0.5) * TILE);
+  for (const pd of def.patrols || []) {
+    const e = pd.at && atTile(pd.at[0], pd.at[1]);
+    if (e && Array.isArray(pd.points) && pd.points.length) {
+      e.patrol = pd.points.map(pt => ({ x: (pt[0] + 0.5) * TILE, y: (pt[1] + 0.5) * TILE }));
+      e.patrolI = 0;
+    }
+  }
+  (def.groups || []).forEach((camp, gi) => {
+    for (const at of camp) {
+      const e = atTile(at[0], at[1]);
+      if (e) e.group = gi;
+    }
+  });
+  // Beacon-defense variant: the four 'K' monoliths become g.cores; the
+  // single-core fields (and their lose rule) stay null on these maps.
+  const beaconVariant = def.bastionVariant === 'beacons' && def.mode === 'bastion';
   const players = party.map((p, i) => {
     const s = lvl.spawns[i % lvl.spawns.length] || { x: TILE * 2, y: TILE * 2 };
     return spawnPlayer(p.pid, p.name, p.charId, s.x + (i * 10), s.y);
@@ -495,7 +593,19 @@ export function createGame(def, party, charMap, roster) {
     shops: lvl.shops,
     hires: lvl.hires,
     flags: lvl.flags,
-    core: lvl.core,
+    core: beaconVariant ? null : lvl.core,
+    // beacon-defense: four lit monoliths; dark at 0 hp, relightable by day
+    cores: beaconVariant
+      ? lvl.cores.slice(0, 4).map(c => ({ x: c.x, y: c.y, hp: c.hp, maxHp: c.maxHp, lit: true, relightT: 0 }))
+      : null,
+    ship: null, // the landed Anchorcraft (early-extraction reward), if any
+    hpMult,
+    // alive world: weather/ambience pass through to snapshots for render/audio
+    weather: WEATHERS.has(def.weather) ? def.weather : null,
+    ambience: def.ambience || null,
+    // toxic air: unmasked operatives bleed until the deadline (elapsed s)
+    toxicAir: mods.toxicAir ? { until: mods.toxicAir.until || 0, warned: false } : null,
+    shopOffers: mods.toxicAir ? SHOP_OFFERS.concat([MASK_OFFER]) : SHOP_OFFERS,
     crackers: [],
     // ground patches (burn/toxin) and hired combat followers. Always present;
     // snapshots only ship them when populated, so classics never gain a key.
@@ -542,7 +652,7 @@ export function createGame(def, party, charMap, roster) {
     // classic defs carry no mode so nothing changes for them.
     mode: def.mode || null,
     bastion,
-    cycle: bastion ? { phase: 'day', nightNo: 0, t: bastion.dayLen, bloodMoon: false, warned: false } : null,
+    cycle: bastion ? { phase: 'day', nightNo: 0, t: bastion.dayLen, bloodMoon: false, warned: false, waveN: 0 } : null,
     // CTF score and BR shrink zone. Null on every other mode (snapshot omits).
     caps: def.mode === 'ctf' ? [0, 0] : null,
     // CTF per-team shard pools; null everywhere else (g.shards rules there —
@@ -607,11 +717,29 @@ function tileAt(g, x, y) {
 
 // Trees block movement (and sight); water and sandbags block movement only.
 // New floor letters (',' ':' ';' '_') and the campfire '*' are all passable.
-function blocksMove(c) { return c === '#' || c === 'T' || c === '~' || c === 'o'; }
+// '%' VOID (shattered-shard abyss) blocks movement, sight and shots alike.
+// '=' sand, '!' lava and '^' ice are passable terrain (with their own rules).
+function blocksMove(c) { return c === '#' || c === 'T' || c === '~' || c === 'o' || c === '%'; }
 
 // Swimmers (char.swims, the seal) treat water as open ground — everything
 // else that blocks movement still blocks them.
-function blocksMoveSwim(c) { return c === '#' || c === 'T' || c === 'o'; }
+function blocksMoveSwim(c) { return c === '#' || c === 'T' || c === 'o' || c === '%'; }
+
+// Pathing-only blocker: lava is physically walkable but enemies route AROUND
+// it — both the straight-line steering check and the A* grid treat '!' as
+// blocked, so a burning enemy is one knocked back, spawned in, or cornered.
+function blocksPath(c) { return blocksMove(c) || c === '!'; }
+
+// Terrain + weather speed: sand drags everyone to x0.85, ice skates at x1.05
+// (drift momentum rides separately), snowfall slows every entity to x0.92.
+// Plain floors under clear skies multiply by 1 — classics are untouched.
+function moveMult(g, x, y) {
+  let m = g.weather === 'snow' ? SNOW_SLOW : 1;
+  const t = tileAt(g, x, y);
+  if (t === '=') m *= SAND_SLOW;
+  else if (t === '^') m *= ICE_FAST;
+  return m;
+}
 
 // A closed door covers its tile rect like rock: movement, sight, shots and
 // A* all stop at it. Maps without doors pay one length check and move on.
@@ -683,9 +811,9 @@ function norm(dx, dy) {
   return [dx / d, dy / d, d];
 }
 
-// Sight stops at rock and trees — shots fly over water and sandbags, so
-// enemies must be able to see (and shoot) across those too.
-function blocksSight(c) { return c === '#' || c === 'T'; }
+// Sight stops at rock, trees and the void — shots fly over water and
+// sandbags, so enemies must be able to see (and shoot) across those too.
+function blocksSight(c) { return c === '#' || c === 'T' || c === '%'; }
 
 // True when the straight segment between two points crosses no blocking tile.
 function hasLoS(g, ax, ay, bx, by, blocks = blocksMove) {
@@ -707,12 +835,16 @@ const DARK_SIGHT_TILES = 8;
 
 function canSee(g, e, tgt) {
   if (g.dark && dist2(e, tgt) > (TILE * DARK_SIGHT_TILES) ** 2) return false;
+  // fog banks and ashstorms cap ALL sight at 9 tiles, dark or lit
+  if ((g.weather === 'fog' || g.weather === 'ashstorm')
+      && dist2(e, tgt) > (TILE * WEATHER_SIGHT_TILES) ** 2) return false;
   return hasLoS(g, e.x, e.y, tgt.x, tgt.y, blocksSight);
 }
 
 function tileBlocked(g, tx, ty) {
   if (tx < 0 || ty < 0 || tx >= g.w || ty >= g.h) return true;
-  if (blocksMove(g.grid[ty][tx])) return true;
+  // lava is walkable but never PATHED through: A* routes around the flows
+  if (blocksPath(g.grid[ty][tx])) return true;
   // A* respects closed doors exactly like rock (they reopen the route later)
   if (g.doors && g.doors.length) {
     for (const d of g.doors) {
@@ -848,65 +980,98 @@ function wakeEnemy(g, e, ripple = true) {
 // A* waypoints when not. A failed search respects the repath cooldown so a
 // stranded enemy can't burn a full A* budget every tick.
 function moveToward(g, e, tgt, dt, speed = e.speed, r = ENEMY_R) {
-  if (hasLoS(g, e.x, e.y, tgt.x, tgt.y) && !segmentHitsBuild(g, e.x, e.y, tgt.x, tgt.y, r)) {
+  // terrain underfoot scales the stride (sand x0.85, ice x1.05, snow x0.92)
+  speed *= moveMult(g, e.x, e.y);
+  // straight-line steering is lava-aware (blocksPath): a clear line through a
+  // flow is no line at all — the A* fallback below routes around it.
+  // BIG MAPS ONLY: a chaser kicked by the anti-wedge below stays OFF the
+  // straight line until it truly moves again — a zero-width clear ray can
+  // corner-pin a radius-r body (ray clear, both move axes blocked) and the
+  // ray flickers clear/blocked as the body see-saws ~1px on the corner, so
+  // the straight-line branch and the A* branch live-lock each other forever.
+  // Arcade keeps the original branch unconditionally (classic fidelity).
+  if ((g.arcade || !e.chaseKicked)
+      && hasLoS(g, e.x, e.y, tgt.x, tgt.y, blocksPath) && !segmentHitsBuild(g, e.x, e.y, tgt.x, tgt.y, r)) {
     e.path = null;
     e.repathT = 0;
     e.pathFailed = false; // a clear line is a route: the goal is reachable
-    // a clear straight line means not wedged: reset the anti-wedge tracker
-    e.stuckX = undefined;
-    e.stuckY = undefined;
-    e.chaseStuckT = 0;
-    e.chaseKicked = false;
+    if (g.arcade) {
+      // classic behavior, byte-identical: a clear line resets the tracker
+      // and skips it entirely this tick
+      e.stuckX = undefined;
+      e.stuckY = undefined;
+      e.chaseStuckT = 0;
+      e.chaseKicked = false;
+      const [afx, afy] = norm(tgt.x - e.x, tgt.y - e.y);
+      e.fx = afx; e.fy = afy;
+      moveCircle(g, e, afx * speed * dt, afy * speed * dt, r);
+      return;
+    }
     const [fx, fy] = norm(tgt.x - e.x, tgt.y - e.y);
     e.fx = fx; e.fy = fy;
     moveCircle(g, e, fx * speed * dt, fy * speed * dt, r);
-    return;
+  } else {
+    e.repathT -= dt;
+    if (e.repathT <= 0 || (e.path && e.pathI >= e.path.length)) {
+      // Core-marching night waves and x100-aggro hunters cross the whole map;
+      // the stock 2400 budget exhausts on long detours and they wedge at the
+      // first wall — give them a deep search instead.
+      const budget = (e.targetCore || e.aggro >= TILE * 100) ? 8000 : 2400;
+      e.path = findPath(
+        g,
+        Math.floor(e.x / TILE), Math.floor(e.y / TILE),
+        Math.floor(tgt.x / TILE), Math.floor(tgt.y / TILE),
+        budget,
+        !!tgt.adj // gnaw targets sit on blocked tiles: stop beside them
+      );
+      e.pathI = 0;
+      e.repathT = 0.6 + (e.id % 5) * 0.08;
+      // an exhausted search marks the goal sealed (core-marchers retarget the
+      // blocking structure in nearestTarget rather than pinning on a corner)
+      e.pathFailed = !e.path;
+    }
+    let wp = e.path && e.path[e.pathI];
+    while (wp && Math.hypot(wp.x - e.x, wp.y - e.y) < TILE * 0.45) {
+      e.pathI++;
+      wp = e.path[e.pathI];
+    }
+    const aim = wp || tgt;
+    const [fx, fy] = norm(aim.x - e.x, aim.y - e.y);
+    e.fx = fx; e.fy = fy;
+    moveCircle(g, e, fx * speed * dt, fy * speed * dt, r);
   }
-  e.repathT -= dt;
-  if (e.repathT <= 0 || (e.path && e.pathI >= e.path.length)) {
-    // Core-marching night waves and x100-aggro hunters cross the whole map;
-    // the stock 2400 budget exhausts on long detours and they wedge at the
-    // first wall — give them a deep search instead.
-    const budget = (e.targetCore || e.aggro >= TILE * 100) ? 8000 : 2400;
-    e.path = findPath(
-      g,
-      Math.floor(e.x / TILE), Math.floor(e.y / TILE),
-      Math.floor(tgt.x / TILE), Math.floor(tgt.y / TILE),
-      budget,
-      !!tgt.adj // gnaw targets sit on blocked tiles: stop beside them
-    );
-    e.pathI = 0;
-    e.repathT = 0.6 + (e.id % 5) * 0.08;
-    // an exhausted search marks the goal sealed (core-marchers retarget the
-    // blocking structure in nearestTarget rather than pinning on a corner)
-    e.pathFailed = !e.path;
-  }
-  let wp = e.path && e.path[e.pathI];
-  while (wp && Math.hypot(wp.x - e.x, wp.y - e.y) < TILE * 0.45) {
-    e.pathI++;
-    wp = e.path[e.pathI];
-  }
-  const aim = wp || tgt;
-  const [fx, fy] = norm(aim.x - e.x, aim.y - e.y);
-  e.fx = fx; e.fy = fy;
-  moveCircle(g, e, fx * speed * dt, fy * speed * dt, r);
   // Anti-wedge (chasers only — returning home has its own giveup in
-  // stepEnemy): a chaser that has not MOVED 0.5px in 3s is wedged. Progress
-  // is measured positionally, not by distance-to-target — a legitimate long
+  // stepEnemy): a chaser that has not MOVED in 3s is wedged. Progress is
+  // measured positionally, not by distance-to-target — a legitimate long
   // detour walks AWAY from the target for a while and must never trip this.
-  // First trip forces a repath (path cleared, cooldown zeroed); still pinned
-  // 3s after the kick, it gives up and re-sleeps exactly like the returning
-  // giveup. Never teleport — determinism would survive it, feel would not.
+  // Big maps run it across BOTH branches with a 4px bar (corner-pin see-saw
+  // jitter reaches ~2px; the slowest real walker still clears 30px in 3s);
+  // arcade keeps the original 0.5px A*-branch-only semantics above.
+  // First trip forces a repath (path cleared, cooldown zeroed) and parks the
+  // chaser on A* steering until it truly moves; still pinned 3s after the
+  // kick, it gives up and re-sleeps exactly like the returning giveup.
+  // Never teleport — determinism would survive it, feel would not.
   if (!e.returning) {
-    if (e.stuckX === undefined || Math.hypot(e.x - e.stuckX, e.y - e.stuckY) > 0.5) {
+    const eps = g.arcade ? 0.5 : 4;
+    // A kicked chaser hands the wheel back to straight-line steering only
+    // once it has GENUINELY escaped the pin — over half a tile from where
+    // the kick fired. The 4px tracker reset alone would re-enable the very
+    // ray that pinned it (climb 4px up the corner, slide 4px back, forever).
+    if (e.chaseKicked && !g.arcade
+        && Math.hypot(e.x - (e.kickX ?? e.x), e.y - (e.kickY ?? e.y)) > TILE * 0.6) {
+      e.chaseKicked = false;
+    }
+    if (e.stuckX === undefined || Math.hypot(e.x - e.stuckX, e.y - e.stuckY) > eps) {
       e.stuckX = e.x;
       e.stuckY = e.y;
       e.chaseStuckT = 0;
-      e.chaseKicked = false;
+      if (g.arcade) e.chaseKicked = false; // classic reset semantics
     } else {
       e.chaseStuckT = (e.chaseStuckT || 0) + dt;
       if (!e.chaseKicked && e.chaseStuckT >= 3) {
         e.chaseKicked = true;
+        e.kickX = e.x;
+        e.kickY = e.y;
         e.path = null;
         e.repathT = 0;
       } else if (e.chaseKicked && e.chaseStuckT >= 6) {
@@ -1145,6 +1310,7 @@ function releaseHoldings(g, p) {
 function downPlayer(g, p) {
   if (p.state !== 'active' || p.invuln > 0) return;
   releaseHoldings(g, p);
+  p.aboard = false; // going down steps off the landed Anchorcraft
   // BR: no rescue, no captive body — straight out, last one standing wins.
   if (g.mode === 'br') {
     p.state = 'out';
@@ -1578,7 +1744,12 @@ function splitSpawn(g, e, k) {
     if (!collides(g, x, y, ENEMY_R)) {
       const sk = makeEnemy('w', x, y, g.nextEnemyId++);
       sk.awake = true;
-      if (e.targetCore) { sk.targetCore = true; sk.aggro *= 100; }
+      scaleEnemyHp(g.hpMult, sk);
+      if (e.targetCore) {
+        sk.targetCore = true;
+        sk.aggro *= 100;
+        if (e.coreI !== undefined) sk.coreI = e.coreI; // same beacon as the parent
+      }
       g.enemies.push(sk);
       g.events.push({ type: 'spawnEnemy', x, y, kind: sk.kind });
       return;
@@ -1702,7 +1873,26 @@ function nearestTarget(g, e) {
   }
   // Bastion night-wave enemies march on the base core (they still gnaw
   // structures and hit players en route via the existing melee rules).
-  if (e.targetCore && g.core && g.core.hp > 0) {
+  // Beacon-defense: each wave enemy marches its ASSIGNED monolith (coreI,
+  // round-robin over the lit set at spawn); a beacon going dark hands its
+  // besiegers to the next lit one, scanning from the assignment.
+  let coreGoal = null;
+  if (e.targetCore) {
+    if (g.cores) {
+      const n = g.cores.length;
+      for (let k = 0; k < n; k++) {
+        const cc = g.cores[((e.coreI || 0) + k) % n];
+        if (cc.lit) {
+          if (k) e.coreI = ((e.coreI || 0) + k) % n;
+          coreGoal = cc;
+          break;
+        }
+      }
+    } else if (g.core && g.core.hp > 0) {
+      coreGoal = g.core;
+    }
+  }
+  if (coreGoal) {
     // Sighted defender: engage a player SEEN within 6 tiles and fight until
     // they die or slip 9+ tiles away, then resume the march. The resume
     // radius keeps the wave honest — nobody kites it across the map forever.
@@ -1760,7 +1950,7 @@ function nearestTarget(g, e) {
         }
       }
     }
-    return [{ x: g.core.x, y: g.core.y, nonPlayer: true }, dist2(e, g.core)];
+    return [{ x: coreGoal.x, y: coreGoal.y, nonPlayer: true }, dist2(e, coreGoal)];
   }
   let tgt = null, best = Infinity, eff = Infinity;
   for (const p of g.players) {
@@ -1803,6 +1993,7 @@ function spawnSkitter(g, e, tgt) {
     if (!collides(g, x, y, ENEMY_R)) {
       const sk = makeEnemy('w', x, y, g.nextEnemyId++);
       sk.awake = true;
+      scaleEnemyHp(g.hpMult, sk);
       if (tgt) {
         [sk.fx, sk.fy] = norm(tgt.x - x, tgt.y - y);
       }
@@ -1874,10 +2065,31 @@ function attackBuilds(g, e, dt) {
 }
 
 // The base core is gnawed exactly like a structure: 1 dmg per 0.9s of melee
-// contact. Loss (hp <= 0) is judged in step()'s end conditions.
+// contact. Loss (hp <= 0) is judged in step()'s end conditions. Beacon-
+// defense maps gnaw whichever LIT monolith the enemy touches: at 0 hp it
+// goes DARK (beaconDown) — never destroyed, relightable by day.
 function attackCore(g, e, dt) {
-  if (!g.core || g.core.hp <= 0 || !MELEE_KINDS.has(e.kind)) return false;
+  if (!MELEE_KINDS.has(e.kind)) return false;
   const rr = CORE_R + ENEMY_R + 3;
+  if (g.cores) {
+    for (let i = 0; i < g.cores.length; i++) {
+      const c = g.cores[i];
+      if (!c.lit || dist2(e, c) >= rr * rr) continue;
+      if (e.hitCool <= 0) {
+        e.hitCool = 0.9;
+        c.hp -= 1;
+        g.events.push({ type: 'coreHit', idx: i, x: c.x, y: c.y, hp: Math.max(0, c.hp) });
+        if (c.hp <= 0) {
+          c.hp = 0;
+          c.lit = false;
+          g.events.push({ type: 'beaconDown', idx: i, x: c.x, y: c.y });
+        }
+      }
+      return true;
+    }
+    return false;
+  }
+  if (!g.core || g.core.hp <= 0) return false;
   if (dist2(e, g.core) >= rr * rr) return false;
   if (e.hitCool <= 0) {
     e.hitCool = 0.9;
@@ -1983,7 +2195,8 @@ function stepPatches(g, dt) {
   if (!g.patches.length) return;
   for (let i = g.patches.length - 1; i >= 0; i--) {
     const pa = g.patches[i];
-    pa.ttl -= dt;
+    // rain douses ground fire: burn patches expire twice as fast
+    pa.ttl -= (g.weather === 'rain' && pa.kind === 'burn') ? dt * 2 : dt;
     if (pa.ttl <= 0) { g.patches.splice(i, 1); continue; }
     const r2 = pa.r * pa.r;
     // hostile patches (Pyre Beetle bursts) are the mirror image: they sear
@@ -2113,6 +2326,24 @@ function stepEnemy(g, e, dt) {
   if (e.hurt > 0) e.hurt -= dt;
   if (e.hitCool > 0) e.hitCool -= dt;
   if (e.gnawScanT > 0) e.gnawScanT -= dt;
+  // group alert: a camp-mate spotted trouble — wake on the staggered clock
+  if (e.groupWakeT > 0 && !e.awake) {
+    e.groupWakeT -= dt;
+    if (e.groupWakeT <= 0) {
+      e.groupWakeT = 0;
+      wakeEnemy(g, e, false);
+    }
+  }
+  // lava sears enemies at 1 hp/s; their pathing routes around the flows, so
+  // a burning enemy was knocked back, spawned in, or cut a corner
+  if (tileAt(g, e.x, e.y) === '!') {
+    e.lavaT = (e.lavaT || 0) + dt;
+    while (e.lavaT >= LAVA_ENEMY_TICK && !e.dead) {
+      e.lavaT -= LAVA_ENEMY_TICK;
+      damageEnemy(g, e, 1, e.x, e.y, 'lava');
+    }
+    if (e.dead) return;
+  } else if (e.lavaT) e.lavaT = 0;
   // Mind-controlled enemies fight for the squad; stunned ones do nothing at
   // all (no actions, no movement — the clocks tick in stepStatuses).
   if (e.convertedT > 0) {
@@ -2125,14 +2356,45 @@ function stepEnemy(g, e, dt) {
   if (!tgt) return;
 
   // Dark missions shrink every aggro radius to 75% (leash shrinks with it).
-  const aggro = g.dark ? e.aggro * 0.75 : e.aggro;
+  let aggro = g.dark ? e.aggro * 0.75 : e.aggro;
+
+  // Sniper spotters: a living camp sniper inside 8 tiles calls targets for
+  // its group-mates (+4 tiles aggro). Kill the sniper first: the camp is
+  // literally blinded back to its own eyes.
+  if (e.group !== undefined && e.kind !== 'sniper') {
+    const r2s = (TILE * SPOTTER_RANGE) ** 2;
+    for (const o of g.enemies) {
+      if (!o.dead && o !== e && o.kind === 'sniper' && o.group === e.group && dist2(e, o) < r2s) {
+        aggro += TILE * SPOTTER_BONUS;
+        break;
+      }
+    }
+  }
 
   // Sleeping enemies hold their post until a player is seen inside aggro
   // range, bumps into them, or damages them (handled in damageEnemy).
+  // Spotting by sight or bump raises the whole camp (alertGroup) — a silent
+  // kill from beyond their eyes never does.
   if (!e.awake) {
-    if (best < aggro * aggro && canSee(g, e, tgt)) wakeEnemy(g, e);
-    else if (best < (TILE * 2.2) ** 2) wakeEnemy(g, e);
-    else return;
+    if (best < aggro * aggro && canSee(g, e, tgt)) {
+      wakeEnemy(g, e);
+      alertGroup(g, e);
+    } else if (best < (TILE * 2.2) ** 2) {
+      wakeEnemy(g, e);
+      alertGroup(g, e);
+    } else {
+      // patrols: unaware mobile enemies walk their waypoint loop at 0.6x
+      // speed, deterministic round-robin — pre-aggro wandering only
+      if (e.patrol && e.patrol.length && !STATIONARY_KINDS.has(e.kind)) {
+        const wp = e.patrol[e.patrolI % e.patrol.length];
+        if (Math.hypot(wp.x - e.x, wp.y - e.y) < TILE * 0.45) {
+          e.patrolI = (e.patrolI + 1) % e.patrol.length;
+        } else {
+          moveToward(g, e, wp, dt, e.speed * PATROL_SPEED);
+        }
+      }
+      return;
+    }
   }
 
   // Leash (big maps only — arcade keeps classic behavior byte-identical):
@@ -2393,7 +2655,9 @@ function waveEntryPoints(g, edge, n) {
       else if (edge === 's') { tx = i; ty = g.h - 1 - depth; }
       else if (edge === 'w') { tx = depth; ty = i; }
       else { tx = g.w - 1 - depth; ty = i; }
-      if (!blocksMove(g.grid[ty][tx])) {
+      // never spawn a wave INTO lava (it is walkable, but searing); void and
+      // the other hard blockers are already excluded by blocksMove
+      if (!blocksMove(g.grid[ty][tx]) && g.grid[ty][tx] !== '!') {
         cands.push({ x: (tx + 0.5) * TILE, y: (ty + 0.5) * TILE });
         break;
       }
@@ -2428,6 +2692,7 @@ function stepWaves(g) {
       const e = makeEnemy(w.letters[i], pts[i].x, pts[i].y, g.nextEnemyId++);
       e.awake = true;
       e.aggro *= 100;
+      scaleEnemyHp(g.hpMult, e); // stronghold strength arc
       g.enemies.push(e);
     }
     // x,y = center of the entry band, for FX/audio.
@@ -2450,9 +2715,11 @@ function stepWaves(g) {
 // The f/q specials take the trailing slots so every staple still shows.
 // Size also scales with the squad: ceil(base * (0.6 + 0.2 * players)) — 0.8x
 // solo, 1.0x duo, 1.4x for a full couch. The global 90 cap still rules.
-function bastionWaveLetters(n, players = 1) {
+// `mult` is the stronghold wave-size multiplier (def.bastion.waveMult,
+// 1.0..2.6 across the arc); 1 keeps the classic bastion sizes exactly.
+function bastionWaveLetters(n, players = 1, mult = 1) {
   const base = Math.min(14, 4 + n * 2);
-  const size = Math.ceil(base * (0.6 + 0.2 * players));
+  const size = Math.max(1, Math.ceil(base * (0.6 + 0.2 * players) * mult));
   const cycle = n >= 3 ? 'zgwur' : n >= 2 ? 'zzwu' : 'zzw';
   const letters = [];
   for (let i = 0; i < size; i++) {
@@ -2479,22 +2746,43 @@ function applyMutation(e, mut) {
 // speed. Normal waves from night 3 on carry +15% hp (rounded up).
 // Mutation roll is the contract formula (nightNo*31+i)%5 over
 // [none, feral, bulk, volatile, split]; blood moons re-roll 'none' as %4.
-function spawnNightWave(g) {
+// `off` offsets the mutation roll for the night's SECOND/THIRD waves
+// (def.bastion.wavesPerNight) so repeat waves don't clone their mutations.
+function spawnNightWave(g, off = 0) {
   const n = g.cycle.nightNo;
-  const letters = bastionWaveLetters(n, g.players.length);
+  const letters = bastionWaveLetters(n, g.players.length, (g.bastion && g.bastion.waveMult) || 1);
   const edges = g.cycle.bloodMoon
     ? [WAVE_EDGES[(n - 1) % 4], WAVE_EDGES[(n + 1) % 4]]
     : [WAVE_EDGES[(n - 1) % 4]];
-  let mi = 0; // mutation index runs across the whole night's spawns
+  // Finale bosses: def.bastion.bossNights [6,8,10] marches exactly ONE
+  // Entropy boss at the head of each listed night's FIRST wave (first edge
+  // only, so a blood-moon double edge never doubles the boss). Def-gated:
+  // classic bastion defs never carry the field and play exactly as before.
+  let bossDue = off === 0 && Array.isArray(g.bastion.bossNights)
+    && g.bastion.bossNights.includes(n) ? 1 : 0;
+  let mi = off; // mutation index runs across the whole night's spawns
   for (const edge of edges) {
-    const room = Math.max(0, 90 - g.enemies.length);
-    const count = Math.min(letters.length, room);
+    const boss = bossDue > 0;
+    bossDue = 0;
+    const ls = boss ? 'b' + letters : letters;
+    // A scheduled boss ALWAYS marches — a one-slot exception to the global
+    // 90 cap (the rest of its wave still respects the ceiling), so a packed
+    // field can never silently swallow a finale boss.
+    const room = Math.max(boss ? 1 : 0, 90 - g.enemies.length);
+    const count = Math.min(ls.length, room);
     const pts = waveEntryPoints(g, edge, count);
     for (let i = 0; i < pts.length; i++) {
-      const e = makeEnemy(letters[i], pts[i].x, pts[i].y, g.nextEnemyId++);
+      const e = makeEnemy(ls[i], pts[i].x, pts[i].y, g.nextEnemyId++);
       e.awake = true;
       e.aggro *= 100; // hunters: never leash home
       e.targetCore = true;
+      scaleEnemyHp(g.hpMult, e); // stronghold strength arc (before mutation)
+      // beacon-defense: split the wave across the LIT monoliths, round-robin
+      if (g.cores) {
+        const lit = [];
+        for (let k = 0; k < g.cores.length; k++) if (g.cores[k].lit) lit.push(k);
+        if (lit.length) e.coreI = lit[mi % lit.length];
+      }
       const roll = (n * 31 + mi) % 5;
       let mut = roll === 0 ? null : MUTATIONS[roll - 1];
       if (g.cycle.bloodMoon && !mut) mut = MUTATIONS[(n * 31 + mi) % 4];
@@ -2541,9 +2829,17 @@ function stepCycle(g, dt) {
       cy.bloodMoon = g.bastion.bloodMoons.includes(cy.nightNo);
       cy.warned = false;
       g.events.push({ type: 'dusk', nightNo: cy.nightNo, bloodMoon: cy.bloodMoon, x: evX, y: evY });
-      spawnNightWave(g);
+      spawnNightWave(g, 0);
+      cy.waveN = 1;
     }
     return;
+  }
+  // stronghold difficulty: def.bastion.wavesPerNight (1..3) pours the night's
+  // later waves in at even intervals; 1 (the default) is classic bastion.
+  const wpn = Math.max(1, Math.min(3, g.bastion.wavesPerNight || 1));
+  if ((cy.waveN || 0) < wpn && cy.t > 0 && cy.t <= g.bastion.nightLen * (1 - (cy.waveN || 0) / wpn)) {
+    spawnNightWave(g, (cy.waveN || 0) * 17);
+    cy.waveN = (cy.waveN || 0) + 1;
   }
   if (cy.t <= 0) {
     g.events.push({ type: 'dawn', nightNo: cy.nightNo, x: evX, y: evY });
@@ -2555,6 +2851,88 @@ function stepCycle(g, dt) {
     cy.phase = 'day';
     cy.bloodMoon = false;
     cy.t = g.bastion.dayLen;
+  }
+}
+
+// --- beacon-defense: day relight + the Anchorcraft early extraction ---------
+// A dark monolith relights under a daytime act-hold (1.5s, scaled by holders)
+// once the pool can pay the 8 shards: full hp, lit again, 'beaconLit'.
+function stepBeacons(g, inputs, dt) {
+  if (!g.cores) return;
+  const day = g.cycle && g.cycle.phase === 'day';
+  const r2 = (TILE * BUILD_REACH) ** 2;
+  for (let i = 0; i < g.cores.length; i++) {
+    const c = g.cores[i];
+    if (c.lit || !day) { c.relightT = 0; continue; }
+    let holders = 0;
+    let payer = null;
+    for (const p of g.players) {
+      if (p.state !== 'active' || p.towerId != null || p.riding || p.shopping || p.selecting) continue;
+      const inp = inputs[p.pid] || {};
+      if (inp.act && dist2(p, c) < r2) {
+        holders++;
+        if (!payer) payer = p;
+      }
+    }
+    if (!holders || getShards(g, payer) < RELIGHT_COST) { c.relightT = 0; continue; }
+    c.relightT = (c.relightT || 0) + dt * holders;
+    if (c.relightT < RELIGHT_HOLD_T) continue;
+    c.relightT = 0;
+    addShards(g, payer, -RELIGHT_COST);
+    c.lit = true;
+    c.hp = c.maxHp;
+    g.events.push({ type: 'beaconLit', idx: i, x: c.x, y: c.y });
+  }
+}
+
+// From night 2 onward, ALL FOUR beacons lit at once WHILE IT IS NIGHT (a real
+// feat under wave pressure) lands the Anchorcraft near the base ('shipDown').
+// The ship persists once landed; boarding stays optional. Every active player
+// boarding (act within 1.5 tiles) is marked aboard — all aboard launches:
+// immediate clear with a full-clear bonus ('shipLaunch').
+function stepShip(g, inputs, dt) {
+  if (!g.cores || g.status !== 'play') return;
+  if (!g.ship) {
+    if (!g.cycle || g.cycle.phase !== 'night' || g.cycle.nightNo < 2) return;
+    if (!g.cores.every(c => c.lit)) return;
+    // touchdown: nearest open spot ring-scanned from the beacons' centroid
+    const cx = g.cores.reduce((s, c) => s + c.x, 0) / g.cores.length;
+    const cy = g.cores.reduce((s, c) => s + c.y, 0) / g.cores.length;
+    let lx = cx, ly = cy;
+    outer: for (let r = 0; r <= 6; r++) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          const x = cx + dx * TILE, y = cy + dy * TILE;
+          if (x > TILE && y > TILE && x < (g.w - 1) * TILE && y < (g.h - 1) * TILE
+              && !collides(g, x, y, PLAYER_R)) {
+            lx = x;
+            ly = y;
+            break outer;
+          }
+        }
+      }
+    }
+    g.ship = { x: lx, y: ly, landed: true };
+    g.events.push({ type: 'shipDown', x: lx, y: ly });
+    return;
+  }
+  const r2 = (TILE * SHIP_BOARD_TILES) ** 2;
+  for (const p of g.players) {
+    if (p.state !== 'active' || p.aboard) continue;
+    const inp = inputs[p.pid] || {};
+    if (inp.act && !p.riding && p.towerId == null && dist2(p, g.ship) < r2) {
+      p.aboard = true;
+      g.events.push({ type: 'shipBoard', pid: p.pid, x: g.ship.x, y: g.ship.y });
+    }
+  }
+  const active = g.players.filter(p => p.state === 'active');
+  if (active.length && active.every(p => p.aboard)) {
+    g.score += SHIP_CLEAR_BONUS;
+    g.events.push({ type: 'shipLaunch', x: g.ship.x, y: g.ship.y, points: SHIP_CLEAR_BONUS });
+    for (const p of active) extractPlayer(g, p);
+    g.status = 'cleared';
+    g.events.push({ type: 'clear', x: g.ship.x, y: g.ship.y, points: Math.round(g.score) });
   }
 }
 
@@ -2641,15 +3019,19 @@ function typeSelectNear(g, p) {
 }
 
 function buyOffer(g, p) {
-  const o = SHOP_OFFERS[p.shopIdx || 0];
-  if (getShards(g, p) < o.cost) return;
+  // toxic-air levels stock a mask offer beyond the standard five
+  const offers = g.shopOffers || SHOP_OFFERS;
+  const o = offers[p.shopIdx || 0];
+  if (!o || getShards(g, p) < o.cost) return;
   if (o.what === 'token') {
     if ((p.dmgBonus || 0) >= 2) return; // tokens cap at +2 — never waste shards
     p.dmgBonus = (p.dmgBonus || 0) + 1;
   } else if (o.what === 'shield') {
     if (p.shield === undefined || p.shield >= SHIELD_MAX) return;
     p.shield = Math.min(SHIELD_MAX, p.shield + 2);
-  } else { // cracker | medkit fill the item slot (stack same kind, else swap)
+  } else if (o.what === 'mask' && p.mask) {
+    return; // already wearing one: a second mask buys nothing
+  } else { // cracker | medkit | mask fill the item slot (stack same kind, else swap)
     if (p.item && p.item.kind === o.what) p.item.count += o.amount;
     else p.item = { kind: o.what, count: o.amount };
   }
@@ -2850,6 +3232,11 @@ export function step(g, inputs, dt) {
   if (g.status !== 'play') return;
 
   g.elapsed += dt;
+  // toxic air: one EVA-style warning the moment the mission opens
+  if (g.toxicAir && !g.toxicAir.warned) {
+    g.toxicAir.warned = true;
+    g.events.push({ type: 'toxicAir', until: g.toxicAir.until, x: g.w * TILE / 2, y: TILE });
+  }
   stepWaves(g);
   stepCycle(g, dt); // bastion day/night clock (final dawn can clear here)
   if (g.status !== 'play') return;
@@ -3001,8 +3388,9 @@ export function step(g, inputs, dt) {
       const edgeR = !!inp.right && !p.shopPrev.right;
       const edgeF = !!inp.fire && !p.shopPrev.fire;
       p.shopPrev = { left: !!inp.left, right: !!inp.right, fire: !!inp.fire };
-      if (edgeL) p.shopIdx = (p.shopIdx + SHOP_OFFERS.length - 1) % SHOP_OFFERS.length;
-      if (edgeR) p.shopIdx = (p.shopIdx + 1) % SHOP_OFFERS.length;
+      const nOffers = (g.shopOffers || SHOP_OFFERS).length;
+      if (edgeL) p.shopIdx = (p.shopIdx + nOffers - 1) % nOffers;
+      if (edgeR) p.shopIdx = (p.shopIdx + 1) % nOffers;
       if (edgeF) buyOffer(g, p);
     }
 
@@ -3098,6 +3486,14 @@ export function step(g, inputs, dt) {
         g.patches.push({ x: tx, y: ty, kind: 'toxin', r: TOXIN_PATCH_R * TILE, ttl: TOXIN_PATCH_TTL, pid: p.pid });
         g.events.push({ type: 'patch', x: tx, y: ty, kind: 'toxin', r: TOXIN_PATCH_R * TILE });
         used = true;
+      } else if (it.kind === 'mask') {
+        // breather mask: worn for good (p.mask is persistent), the toxic-air
+        // bleed never touches a masked operative. A second mask is refused.
+        if (!p.mask) {
+          p.mask = true;
+          g.events.push({ type: 'maskOn', pid: p.pid, x: p.x, y: p.y });
+          used = true;
+        }
       } else if (it.kind === 'controller') {
         // mind control: the nearest NON-BOSS enemy within 4 tiles fights for
         // the squad for 10s, then burns out. No target in reach wastes nothing.
@@ -3118,7 +3514,12 @@ export function step(g, inputs, dt) {
       if (used && --it.count <= 0) p.item = null;
     }
 
-    // --- movement (dash overrides stick input; stim grants +30% speed) ---
+    // --- movement (dash overrides stick input; stim grants +30% speed).
+    // Ice momentum: standing on '^', 60% of the previous tick's movement
+    // vector carries over as drift before the stick is read — deterministic
+    // skating for players and enemies alike. mvX/mvY record the tick's total
+    // displacement (drift included) for the next tick's carry. ---
+    const mvX0 = p.x, mvY0 = p.y;
     if (p.dashT > 0) {
       p.dashT -= dt;
       // 3 tiles over 0.15s, in collision-checked sub-steps so the dash
@@ -3138,6 +3539,9 @@ export function step(g, inputs, dt) {
         p.x = tower.x; p.y = tower.y;
       }
     } else {
+      if (!g.arcade && (p.mvX || p.mvY) && !(p.stunT > 0) && tileAt(g, p.x, p.y) === '^') {
+        moveCircle(g, p, p.mvX * ICE_DRIFT, p.mvY * ICE_DRIFT, PLAYER_R, swims ? blocksMoveSwim : blocksMove);
+      }
       const dx = (inp.right ? 1 : 0) - (inp.left ? 1 : 0);
       const dy = (inp.down ? 1 : 0) - (inp.up ? 1 : 0);
       // a volt-zap root pins the feet for its 0.3s; aim and items still work
@@ -3146,6 +3550,7 @@ export function step(g, inputs, dt) {
         p.fx = mx; p.fy = my;
         let v = ch.speed * TILE * dt * (p.stimT > 0 ? 1.3 : 1);
         if (vehicle) v = ch.speed * TILE * dt * (vehicle.kind === 'stag' ? STAG_SPEED : 1);
+        v *= moveMult(g, p.x, p.y); // sand drags, ice skates, snowfall slows
         if (g.flags.length && g.flags.some(f => f.carrier === p.pid)) v *= CARRY_SLOW;
         if (!vehicle && onWater) v *= SWIM_SLOW; // swimmers paddle slower
         // toxin pools slow EVERYONE wading through — patches carry no team
@@ -3160,6 +3565,8 @@ export function step(g, inputs, dt) {
       }
       if (vehicle) { vehicle.x = p.x; vehicle.y = p.y; }
     }
+    p.mvX = p.x - mvX0;
+    p.mvY = p.y - mvY0;
     p.cool -= dt;
     if (inp.fire && p.cool <= 0 && !vehicle && !p.shopping && !p.selecting && !(p.stunT > 0)) {
       let weapon, cd;
@@ -3398,6 +3805,40 @@ export function step(g, inputs, dt) {
 
     // A dormant gate keeps its 'E' tiles inert — players just walk over them.
     if (tileAt(g, p.x, p.y) === 'E' && (!g.gate || g.gate.open)) extractPlayer(g, p);
+
+    // --- frontier IV environmental hazards (survival maps only) ---
+    // Lava sears anyone standing in it: 1 hp per 0.8s, shield pips absorb
+    // first. Wading is voluntary, so the tick bypasses the hit-grace — the
+    // throttled 'sizzle' doubles as the audio hook.
+    if (p.maxHp !== undefined && p.state === 'active' && tileAt(g, p.x, p.y) === '!') {
+      p.lavaT = (p.lavaT || 0) + dt;
+      while (p.lavaT >= LAVA_PLAYER_TICK && p.state === 'active') {
+        p.lavaT -= LAVA_PLAYER_TICK;
+        if (p.shield > 0) p.shield--;
+        else p.hp--;
+        g.events.push({ type: 'sizzle', pid: p.pid, x: p.x, y: p.y, hp: p.hp, shield: p.shield });
+        g.events.push({ type: 'playerHit', pid: p.pid, x: p.x, y: p.y, hp: p.hp, shield: p.shield });
+        if (p.hp <= 0) {
+          p.invuln = 0; // the flow grants no grace
+          downPlayer(g, p);
+        }
+      }
+    } else if (p.lavaT) p.lavaT = 0;
+    // Toxic air (def.modifiers.toxicAir): until the deadline, an unmasked
+    // operative bleeds 0.5 hp per 4s — one 1-hp tick every 8s through the
+    // standard shield/invuln rules. A worn mask (p.mask) is full immunity.
+    if (g.toxicAir && g.elapsed < g.toxicAir.until && p.state === 'active'
+        && p.maxHp !== undefined && !p.mask) {
+      p.airT = (p.airT || 0) + dt;
+      while (p.airT >= TOXIC_AIR_TICK) {
+        p.airT -= TOXIC_AIR_TICK;
+        p.airAcc = (p.airAcc || 0) + 0.5;
+        if (p.airAcc >= 1) {
+          p.airAcc -= 1;
+          damagePlayer(g, p, 1);
+        }
+      }
+    } else if (p.airT) p.airT = 0;
   }
 
   // --- build sites and built structures: nearby players holding 'act' work
@@ -3829,14 +4270,31 @@ export function step(g, inputs, dt) {
   stepDoors(g);
   stepTeleports(g, dt);
 
+  // --- beacon-defense: day relights, the Anchorcraft landing/boarding (can
+  // clear the mission outright on an all-aboard launch) ---
+  stepBeacons(g, inputs, dt);
+  stepShip(g, inputs, dt);
+  if (g.status !== 'play') return;
+
   // --- pvp: carried flags track their runners, dropped ones tick home;
   // the BR zone closes in and burns whoever lingers outside ---
   stepFlags(g, dt);
   stepZone(g, dt);
 
-  // --- enemies (frozen during the level-start grace period) ---
+  // --- enemies (frozen during the level-start grace period). Ice momentum
+  // mirrors the player rule: 60% of last tick's movement drifts first. ---
   if (g.graceT > 0) g.graceT -= dt;
-  else for (const e of g.enemies) stepEnemy(g, e, dt);
+  else {
+    for (const e of g.enemies) {
+      const ex0 = e.x, ey0 = e.y;
+      if (!g.arcade && !e.dead && !(e.stunT > 0) && (e.mvX || e.mvY) && tileAt(g, e.x, e.y) === '^') {
+        moveCircle(g, e, e.mvX * ICE_DRIFT, e.mvY * ICE_DRIFT, ENEMY_R);
+      }
+      stepEnemy(g, e, dt);
+      e.mvX = e.x - ex0;
+      e.mvY = e.y - ey0;
+    }
+  }
 
   // --- combat depth: status clocks (stun/burn/toxin/mind-control), ground
   // patches, hired combat followers. All empty on classics — pure no-ops. ---
@@ -3939,6 +4397,49 @@ export function step(g, inputs, dt) {
           }
         }
       }
+      // FORTIFIED WALLS: player shots demolish structures on DIRECT hits —
+      // walls, barricades, turrets, towers and comm masts; NEVER pylons or
+      // beacons (inert), never farms. Seat-fired rounds only (turret and
+      // follower fire carries no ownerPid) and lobbed overWalls arcs sail
+      // clean over. AoE splash and ground patches never touch structures —
+      // so this is the official self-rescue: built yourself in? Shoot out.
+      if (!dead && s.ownerPid !== undefined && !s.overWalls) {
+        for (let bi = 0; bi < g.builds.length; bi++) {
+          const b = g.builds[bi];
+          if (!b.built || inertBuild(b.kind) || b.kind === 'farm' || s.hits.includes('b' + bi)) continue;
+          if (dist2(s, b) < (BUILD_RADIUS + (s.radius || SHOT_R)) ** 2) {
+            s.hits.push('b' + bi);
+            b.hp -= s.dmg;
+            g.events.push({ type: 'buildHit', x: b.x, y: b.y });
+            if (b.hp <= 0) {
+              b.hp = 0;
+              b.built = false;
+              b.progress = 0;
+              b.paid = 0;
+              if (b.level) { b.level = 1; b.maxHp = structMaxHp(b.kind, 1); }
+              g.events.push({ type: 'buildDown', x: b.x, y: b.y, kind: b.kind });
+            }
+            if (s.pierce > 0) s.pierce--;
+            else dead = true;
+            break;
+          }
+        }
+        if (!dead) {
+          for (let ti = 0; ti < g.towers.length; ti++) {
+            const t = g.towers[ti];
+            if (t.hp <= 0 || s.hits.includes('t' + ti)) continue;
+            if (dist2(s, t) < (BUILD_RADIUS + (s.radius || SHOT_R)) ** 2) {
+              s.hits.push('t' + ti);
+              t.hp -= s.dmg;
+              g.events.push({ type: 'buildHit', x: t.x, y: t.y });
+              if (t.hp <= 0) towerDown(g, t);
+              if (s.pierce > 0) s.pierce--;
+              else dead = true;
+              break;
+            }
+          }
+        }
+      }
       // pvp: player fire hits OTHER-team operatives (friendly fire is off;
       // shots sail through teammates and invulnerable targets)
       if (!dead && (g.mode === 'ctf' || g.mode === 'br') && s.pid !== undefined) {
@@ -3991,6 +4492,14 @@ export function step(g, inputs, dt) {
   if (g.followers.length) g.followers = g.followers.filter(f => !f.dead);
 
   // --- end conditions ---
+  // Beacon-defense: the mission is lost only when ALL FOUR monoliths are
+  // dark at once (single dark beacons are recoverable by day).
+  if (g.cores && g.cores.every(c => !c.lit)) {
+    g.status = 'failed';
+    g.events.push({ type: 'allDark', x: g.w * TILE / 2, y: g.h * TILE / 2 });
+    g.events.push({ type: 'fail', x: g.w * TILE / 2, y: g.h * TILE / 2 });
+    return;
+  }
   // Bastion: the base core falling loses the mission outright.
   if (g.core && g.core.hp <= 0) {
     g.status = 'failed';
@@ -4146,6 +4655,19 @@ export function snapshot(g, full = true) {
     // a key (downstream reads all use ?? / optional chaining).
     ...(g.mode ? { mode: g.mode } : {}),
     ...(g.core ? { core: { x: g.core.x, y: g.core.y, hp: g.core.hp, maxHp: g.core.maxHp } } : {}),
+    // beacon-defense: the four monoliths with HUD-ready lit flags, plus the
+    // landed Anchorcraft once the all-lit night feat earns it
+    ...(g.cores ? { cores: g.cores.map(c => ({ x: c.x, y: c.y, hp: c.hp, maxHp: c.maxHp, lit: c.lit })) } : {}),
+    ...(g.ship ? { ship: { x: g.ship.x, y: g.ship.y, landed: true } } : {}),
+    // alive world: weather/ambience for the render FX and audio beds; the
+    // toxic-air deadline (live flag included) for the EVA banner
+    ...(g.weather ? { weather: g.weather } : {}),
+    ...(g.ambience ? { ambience: g.ambience } : {}),
+    ...(g.toxicAir ? { toxicAir: { until: g.toxicAir.until, active: g.elapsed < g.toxicAir.until } } : {}),
+    // extended stalls (mask stock) ship their offer list; the standard five
+    // stay implicit so classic snapshots never gain the key
+    ...(g.shopOffers && g.shopOffers.length !== SHOP_OFFERS.length
+      ? { shopOffers: g.shopOffers.map(o => ({ ...o })) } : {}),
     ...(g.cycle ? { cycle: { phase: g.cycle.phase, nightNo: g.cycle.nightNo, t: g.cycle.t, bloodMoon: g.cycle.bloodMoon, nights: g.bastion.nights } } : {}),
     ...(g.chests.length ? { chests: g.chests.map(c => ({ x: c.x, y: c.y, opened: c.opened, loot: c.loot })) } : {}),
     ...(g.crackers.length ? { crackers: g.crackers.map(c => ({ x: c.x, y: c.y, landed: c.landed, fuse: c.fuse })) } : {}),
@@ -4175,6 +4697,9 @@ export function snapshot(g, full = true) {
       // within 6 tiles of this seat and rings the bearer in checkpoint gold
       ...(p.lythseal ? { hasSeal: true, lythseal: true } : {}),
       ...(p.channelT > 0 ? { channelT: p.channelT } : {}),
+      // frontier IV: worn breather mask; aboard the landed Anchorcraft
+      ...(p.mask ? { mask: true } : {}),
+      ...(p.aboard ? { aboard: true } : {}),
       // on-the-spot leveling (non-arcade seats only; arcade never gains keys)
       ...(p.level !== undefined ? { xp: p.xp, level: p.level } : {}),
       ...(p.state === 'pick' ? { pick: { idx: p.pickIdx, choices: freeChars(g) } } : {}),

@@ -1,4 +1,4 @@
-// Generates levels/level18.json — "Chapter VIII — The Prover Array", the Act II
+// Generates levels/story/ch08.json — "Chapter VIII — The Prover Array", the Act II
 // finale. Deterministic (fixed seed 20260618): re-running always reproduces it.
 // A 96x60 shard-world of vast prover fields split by impassable chasms that are
 // crossed ONLY via a four-pair Settled Corridor (teleport) network:
@@ -514,6 +514,6 @@ console.log('qitems (scan order):', def.qitems.map(q => q.id).join(', '));
 console.log('teleports (scan order):', def.teleports.map(t => `${t.id}->${t.twin}`).join(', '));
 console.log('switches: 10 voices, quorum 7-of-10 inside a 120s window');
 
-const out = path.join(__dirname, '../levels/level18.json');
+const out = path.join(__dirname, '../levels/story/ch08.json');
 fs.writeFileSync(out, JSON.stringify(def, null, 2) + '\n');
 console.log('wrote', out);

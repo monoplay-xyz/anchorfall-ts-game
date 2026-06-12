@@ -1,4 +1,4 @@
-// Headless playtest: CHAPTER VII — The Anchorcraft (levels/level17.json).
+// Headless playtest: CHAPTER VII — The Anchorcraft (levels/story/ch07.json).
 // Two scripted operatives drive the FULL quest chain through the real sim
 // (shared/game.js) with flow-field (BFS) pathing and scripted quest intent:
 // the director reads def.quests and the npc hint lines (riddle -> rune table)
@@ -21,7 +21,7 @@ import { fileURLToPath } from 'url';
 import { charsById, createGame, restoreGame, serializeGame, snapshot, step, TILE } from '../shared/game.js';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const def = JSON.parse(fs.readFileSync(path.join(root, 'levels/level17.json'), 'utf8'));
+const def = JSON.parse(fs.readFileSync(path.join(root, 'levels/story/ch07.json'), 'utf8'));
 const characters = JSON.parse(fs.readFileSync(path.join(root, 'shared/characters.json'), 'utf8'));
 const charMap = charsById(characters);
 

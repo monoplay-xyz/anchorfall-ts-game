@@ -13,6 +13,18 @@
       5
     ]
   },
+  "stronghold": {
+    "level": 1,
+    "name": "The Last Bastion",
+    "sizeLabel": "S",
+    "difficulty": 1,
+    "waves": 5,
+    "blurb": "One walled bastion, four lanes, five nights. Hold the line where the campaign begins.",
+    "newFeatures": [
+      "The first stronghold",
+      "Fortified walls — repair, upgrade, rebuild"
+    ]
+  },
   "intro": [
     {
       "title": "The Last Bastion",
@@ -38,8 +50,185 @@
   "captiveChars": [],
   "builds": [
     {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
       "kind": "barricade",
       "cost": 4
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
     },
     {
       "kind": "barricade",
@@ -50,32 +239,65 @@
       "cost": 10
     },
     {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "farm",
+      "cost": 6
+    },
+    {
+      "kind": "farm",
+      "cost": 6
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
       "kind": "turret",
       "cost": 10
     },
     {
-      "kind": "barricade",
-      "cost": 4
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
     },
     {
-      "kind": "turret",
-      "cost": 10
-    },
-    {
-      "kind": "barricade",
-      "cost": 4
-    },
-    {
-      "kind": "farm",
-      "cost": 6
-    },
-    {
-      "kind": "farm",
-      "cost": 6
-    },
-    {
-      "kind": "turret",
-      "cost": 10
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
     },
     {
       "kind": "farm",
@@ -86,12 +308,132 @@
       "cost": 6
     },
     {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
       "kind": "barricade",
       "cost": 4
     },
     {
       "kind": "barricade",
       "cost": 4
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
     }
   ],
   "chests": [
@@ -219,23 +561,23 @@
     "#,T,TTT,.T,.,.,,,TTT,,,..,,,,,,,...................................................#",
     "#,T.T,TTT,,,,,,.,,,,,,,.,,,,,,,,.......o....o.........................g............#",
     "#..,TTT,,,,.,,,,,.,,,,,.,.,,,,,,...................................................#",
-    "#....T.T........#...............#########BB##########..............................#",
-    "#................#..............#;;;;;;;;;;;;;;;;;;;#..............................#",
-    "#.............#.##..............#;W;;;;;;;;;;;;;;;W;#..............................#",
-    "#...............#...............#;;;;;;;;;;;;;;;;;;;#..............................#",
-    "#...............................#;;;;;B;;;;;;;S;;;;;#..............................#",
-    "#...............................#;;H;;;;;;*;;;;;;;;;#..............................#",
-    "#....C........................o.#;;;;;;;P;;;P;;;;;;;#.o..#.........................#",
-    "#...........Y...................#;;H;;B;;;;;;V;;;;;;#.......Y.................Y....#",
+    "#....T.T........#...............BBBBBBBBBBBBBBBBBBBBB..............................#",
+    "#................#..............B;;;;;;;;;;;;;;;;;;;B..............................#",
+    "#.............#.##..............B;W;;;;;;;;;;;;;;;W;B..............................#",
+    "#...............#...............B;;;;;;;;;;;;;;;;;;;B..............................#",
+    "#...............................B;;;;;B;;;;;;;S;;;;;B..............................#",
+    "#...............................B;;H;;;;;;*;;;;;;;;;B..............................#",
+    "#....C........................o.B;;;;;;;P;;;P;;;;;;;B.o..#.........................#",
+    "#...........Y...................B;;H;;B;;;;;;V;;;;;;B.......Y.................Y....#",
     "#...............................B;;;;;;;;;K;;;;;;;B;B..............................#",
-    "#...................Y...........#;;H;;;;;;;;;V;;;;;;#..#..............Y.....C.#....#",
-    "#.............................o.#;;;;;;;P;;;P;;;;;;;#.o..#....................##...#",
-    "#...............................#;;H;;;;;;*;B;B;;;;;#..##.................#.###.#..#",
-    "#...............................#;;;;;B;;;;;;;;;;;;;#.....................##.#.....#",
-    "#...............................#;;H;;;;;;;;B;B;;;;;#.......................##.#...#",
-    "#.......r.......................#;W;;;;;;;;;;;;;;;W;#.......................#......#",
-    "#...............................#;;;;;;;;;;;;;;;;;;;#..............................#",
-    "#........................##.....#########BB##########...........#..................#",
+    "#...................Y...........B;;H;;;;;;;;;V;;;;;;B..#..............Y.....C.#....#",
+    "#.............................o.B;;;;;;;P;;;P;;;;;;;B.o..#....................##...#",
+    "#...............................B;;H;;;;;;*;B;B;;;;;B..##.................#.###.#..#",
+    "#...............................B;;;;;B;;;;;;;;;;;;;B.....................##.#.....#",
+    "#...............................B;;H;;;;;;;;B;B;;;;;B.......................##.#...#",
+    "#.......r.......................B;W;;;;;;;;;;;;;;;W;B.......................#......#",
+    "#...............................B;;;;;;;;;;;;;;;;;;;B..............................#",
+    "#........................##.....BBBBBBBBBBBBBBBBBBBBB...........#..................#",
     "#:::.::.::::::::..::::::.##::..:.....................____.__C._.__##._._____.__.__.#",
     "#.::::.::::::::::::.:.:.::##::::.......o....o........_________.#.###__.______..___.#",
     "#::..:.:::::::::..::::.:..::::::....................._________.__#_#._##__.________#",

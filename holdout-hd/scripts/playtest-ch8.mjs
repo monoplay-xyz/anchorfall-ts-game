@@ -1,4 +1,4 @@
-// Headless playtest: STORY CHAPTER VIII (levels/level18.json, "The Prover Array").
+// Headless playtest: STORY CHAPTER VIII (levels/story/ch08.json, "The Prover Array").
 // Four scripted operatives drive the full chapter through the real sim:
 //
 //   pid 0  LANCE  sniper  pillar demolition (rail + railcannon), sw4
@@ -27,7 +27,7 @@ import { fileURLToPath } from 'url';
 import { charsById, createGame, restoreGame, serializeGame, snapshot, step, TILE } from '../shared/game.js';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const def = JSON.parse(fs.readFileSync(path.join(root, 'levels/level18.json'), 'utf8'));
+const def = JSON.parse(fs.readFileSync(path.join(root, 'levels/story/ch08.json'), 'utf8'));
 const characters = JSON.parse(fs.readFileSync(path.join(root, 'shared/characters.json'), 'utf8'));
 const charMap = charsById(characters);
 

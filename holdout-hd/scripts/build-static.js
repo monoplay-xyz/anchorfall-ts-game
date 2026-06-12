@@ -13,10 +13,16 @@ fs.rmSync(dist, { recursive: true, force: true });
 fs.mkdirSync(path.join(dist, 'shared'), { recursive: true });
 fs.mkdirSync(path.join(dist, 'assets'), { recursive: true });
 
-// levels -> one sorted JSON array, exactly like /api/levels serves them
+// levels/<category>/ subdirs -> one flat JSON array with def.category set,
+// exactly like /api/levels serves them (classic-first, then story/stronghold/ctf/br)
 const levelsDir = path.join(root, 'levels');
-const levels = fs.readdirSync(levelsDir).filter(f => f.endsWith('.json')).sort()
-  .map(f => JSON.parse(fs.readFileSync(path.join(levelsDir, f), 'utf8')));
+const CATEGORY_ORDER = ['classic', 'story', 'stronghold', 'ctf', 'br'];
+const catRank = c => { const i = CATEGORY_ORDER.indexOf(c); return i === -1 ? CATEGORY_ORDER.length : i; };
+const levels = fs.readdirSync(levelsDir, { withFileTypes: true })
+  .filter(d => d.isDirectory()).map(d => d.name)
+  .sort((a, b) => catRank(a) - catRank(b) || (a < b ? -1 : a > b ? 1 : 0))
+  .flatMap(cat => fs.readdirSync(path.join(levelsDir, cat)).filter(f => f.endsWith('.json')).sort()
+    .map(f => Object.assign(JSON.parse(fs.readFileSync(path.join(levelsDir, cat, f), 'utf8')), { category: cat })));
 fs.writeFileSync(path.join(dist, 'levels.json'), JSON.stringify(levels));
 
 // shared sim + data

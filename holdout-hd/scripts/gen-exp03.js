@@ -1,4 +1,4 @@
-// Generates levels/level13.json — "Chapter III — Broken Quorum".
+// Generates levels/story/ch03.json — "Chapter III — Broken Quorum".
 // Deterministic (fixed seed 20260613): re-running always produces the same map.
 // A 96x56 west-to-east march across the relay field that failed at six-of-ten:
 // scorched ash littered with dead relay stumps in graveyard rows, a long
@@ -373,6 +373,6 @@ const def = {
   gate: { need: 4 },
   tiles: grid.map(r => r.join('')),
 };
-const out = path.join(__dirname, '../levels/level13.json');
+const out = path.join(__dirname, '../levels/story/ch03.json');
 fs.writeFileSync(out, JSON.stringify(def, null, 2) + '\n');
 console.log('wrote', out);

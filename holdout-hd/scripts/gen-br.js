@@ -1,4 +1,4 @@
-// Generates levels/level22-br.json — "The Shattering", the battle royale map.
+// Generates levels/br/level22-br.json — "The Shattering", the battle royale map.
 // Deterministic (fixed seed 20260622): re-running always produces the same map.
 //
 // ~72x72 arena: four terrain quarters (NW meadow, NE forest, SW ruin, SE swamp)
@@ -310,6 +310,6 @@ const def = {
   vehicles: vehiclesRM.map(v => ({ kind: v.kind })),
   tiles: grid.map(r => r.join('')),
 };
-const out = path.join(__dirname, '../levels/level22-br.json');
+const out = path.join(__dirname, '../levels/br/level22-br.json');
 fs.writeFileSync(out, JSON.stringify(def, null, 2) + '\n');
 console.log('wrote', out);

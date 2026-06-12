@@ -16,20 +16,29 @@ const characters = JSON.parse(fs.readFileSync(path.join(__dirname, 'shared/chara
 const charMap = charsById(characters);
 const startingRoster = characters.filter(c => c.starting).map(c => c.id);
 
+// levels/ is organized by category subdirectory (classic/story/stronghold/ctf/br);
+// each def carries its subdir name as def.category, and the mode lists below
+// derive from it. /api/levels stays one flat array so the client keeps working.
 const levelsDir = path.join(__dirname, 'levels');
-const levels = fs.readdirSync(levelsDir).filter(f => f.endsWith('.json')).sort()
-  .map(f => {
-    const def = JSON.parse(fs.readFileSync(path.join(levelsDir, f), 'utf8'));
-    const w = def.tiles[0].length;
-    if (!def.tiles.every(r => r.length === w)) throw new Error(`Level ${f}: all tile rows must be the same width`);
-    return def;
-  });
-// Expedition maps are local-couch shortcuts; the online classic campaign skips them.
-const classicLevels = levels.filter(l => !l.expedition);
-const storyLevels = levels.filter(l => l.story).sort((a, b) => (a.chapter ?? 0) - (b.chapter ?? 0));
-const ctfLevels = levels.filter(l => l.mode === 'ctf');
-const brLevels = levels.filter(l => l.mode === 'br');
-const bastionLevels = levels.filter(l => l.mode === 'bastion');
+const CATEGORY_ORDER = ['classic', 'story', 'stronghold', 'ctf', 'br'];
+const catRank = c => { const i = CATEGORY_ORDER.indexOf(c); return i === -1 ? CATEGORY_ORDER.length : i; };
+const categories = fs.readdirSync(levelsDir, { withFileTypes: true })
+  .filter(d => d.isDirectory()).map(d => d.name)
+  .sort((a, b) => catRank(a) - catRank(b) || (a < b ? -1 : a > b ? 1 : 0));
+const levels = categories.flatMap(cat =>
+  fs.readdirSync(path.join(levelsDir, cat)).filter(f => f.endsWith('.json')).sort()
+    .map(f => {
+      const def = JSON.parse(fs.readFileSync(path.join(levelsDir, cat, f), 'utf8'));
+      const w = def.tiles[0].length;
+      if (!def.tiles.every(r => r.length === w)) throw new Error(`Level ${cat}/${f}: all tile rows must be the same width`);
+      def.category = cat;
+      return def;
+    }));
+const classicLevels = levels.filter(l => l.category === 'classic');
+const storyLevels = levels.filter(l => l.category === 'story').sort((a, b) => (a.chapter ?? 0) - (b.chapter ?? 0));
+const ctfLevels = levels.filter(l => l.category === 'ctf');
+const brLevels = levels.filter(l => l.category === 'br');
+const bastionLevels = levels.filter(l => l.category === 'stronghold');
 const roomLevels = room => room.mode === 'story' ? storyLevels
   : room.mode === 'ctf' ? ctfLevels
   : room.mode === 'br' ? brLevels
@@ -39,7 +48,7 @@ const isPvp = room => room.mode === 'ctf' || room.mode === 'br';
 // pvp and bastion rooms are one-shots: never saved, never resumed, never
 // advanced — the lobby is the rematch on the same map
 const isOneShot = room => isPvp(room) || room.mode === 'bastion';
-console.log(`Loaded ${levels.length} levels (${classicLevels.length} classic, ${storyLevels.length} story, ${ctfLevels.length} ctf, ${brLevels.length} br, ${bastionLevels.length} bastion), ${characters.length} characters`);
+console.log(`Loaded ${levels.length} levels (${classicLevels.length} classic, ${storyLevels.length} story, ${bastionLevels.length} stronghold, ${ctfLevels.length} ctf, ${brLevels.length} br), ${characters.length} characters`);
 
 const savesDir = path.join(__dirname, 'saves');
 fs.mkdirSync(savesDir, { recursive: true });
@@ -190,6 +199,13 @@ wss.on('connection', ws => {
           levelIdx = Math.min(save.levelIdx ?? 0, (mode === 'story' ? storyLevels : classicLevels).length - 1);
           roster = save.roster;
         } catch { /* corrupt save: start fresh */ }
+      }
+      // stronghold: the host's level-select pick rides the host message
+      // (narrow levelIdx passthrough for 'bastion' rooms, clamped; unlock
+      // gating is client-side by design — the host menu only offers unlocked levels)
+      if (mode === 'bastion' && m.levelIdx != null && bastionLevels.length) {
+        const li = Math.floor(Number(m.levelIdx));
+        if (Number.isFinite(li)) levelIdx = Math.max(0, Math.min(bastionLevels.length - 1, li));
       }
       const r = { code, mode, hostPid: me.pid, players: new Map([[me.pid, me]]), levelIdx, roster, game: null, timer: null, phase: 'lobby' };
       rooms.set(code, r);

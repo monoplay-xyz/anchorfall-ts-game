@@ -8,10 +8,19 @@ const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const characters = JSON.parse(fs.readFileSync(path.join(root, 'shared/characters.json'), 'utf8'));
 const charMap = charsById(characters);
 const startingRoster = characters.filter(c => c.starting).map(c => c.id);
-const levels = fs.readdirSync(path.join(root, 'levels'))
-  .filter(f => f.endsWith('.json'))
-  .sort()
-  .map(f => JSON.parse(fs.readFileSync(path.join(root, 'levels', f), 'utf8')));
+// levels/ is organized by category subdirectory (classic/story/stronghold/ctf/br);
+// the loader walks them recursively, classic-first so levels[0] stays level01,
+// and tags each def with its subdir name as def.category (mirroring the server).
+const levelsDir = path.join(root, 'levels');
+const CATEGORY_ORDER = ['classic', 'story', 'stronghold', 'ctf', 'br'];
+const catRank = c => { const i = CATEGORY_ORDER.indexOf(c); return i === -1 ? CATEGORY_ORDER.length : i; };
+const levels = fs.readdirSync(levelsDir, { withFileTypes: true })
+  .filter(d => d.isDirectory()).map(d => d.name)
+  .sort((a, b) => catRank(a) - catRank(b) || (a < b ? -1 : a > b ? 1 : 0))
+  .flatMap(cat => fs.readdirSync(path.join(levelsDir, cat))
+    .filter(f => f.endsWith('.json'))
+    .sort()
+    .map(f => Object.assign(JSON.parse(fs.readFileSync(path.join(levelsDir, cat, f), 'utf8')), { category: cat })));
 
 function run(g, inputFn, seconds, dt = 1 / 30) {
   const frames = Math.ceil(seconds / dt);
@@ -45,8 +54,9 @@ function aimAtNearest(g, p) {
 }
 
 function testLevelsParse() {
-  const classics = levels.filter(l => !l.story && !l.expedition);
+  const classics = levels.filter(l => l.category === 'classic');
   assert.equal(classics.length, 10, 'classic campaign keeps exactly its 10 missions');
+  assert.ok(classics.every(l => !l.story && !l.expedition && !l.mode), 'classic dir holds only plain campaign maps');
   assert.ok(levels.length >= 11, 'at least one story/expedition level ships beside the classics');
   const validChars = new Set(characters.map(c => c.id));
   const captiveIds = new Set();
@@ -289,7 +299,12 @@ function testStoryLevelIntegrity() {
       assert.ok(def.expedition, `${tag}: mode maps must be expedition-tagged so rotations skip them`);
     }
     if (def.mode === 'ctf') assert.equal(parsed.flags.length, 2, `${tag}: ctf maps carry exactly two flag stands`);
-    if (def.mode === 'bastion') assert.ok(parsed.core, `${tag}: bastion maps carry a base core`);
+    // bastion maps carry a base core; the beacon-defense variant carries
+    // exactly four 'K' monoliths instead
+    if (def.mode === 'bastion') {
+      if (def.bastionVariant === 'beacons') assert.equal(parsed.cores.length, 4, `${tag}: beacon variant fields exactly 4 K monoliths`);
+      else assert.ok(parsed.core, `${tag}: bastion maps carry a base core`);
+    }
     // entity arrays must match their tile counts exactly
     const tileCount = ch => def.tiles.reduce((n, r) => n + (r.split(ch).length - 1), 0);
     assert.equal((def.captiveChars || []).length, tileCount('c'), `${tag}: captiveChars length matches 'c' tiles`);
@@ -343,8 +358,9 @@ function testStoryLevelIntegrity() {
       assert.ok(def.gate.need <= pylons, `${tag}: gate.need ${def.gate.need} <= ${pylons} pylon sites`);
     }
     // walkable connectivity (BFS) from the first spawn to every objective
-    // ('T' trees block movement; crystals are parsed out and never block)
-    const pass = c => c !== '#' && c !== 'T' && c !== '~' && c !== 'o';
+    // ('T' trees and '%' void block movement; crystals are parsed out and
+    // never block; '=' sand, '!' lava and '^' ice are walkable terrain)
+    const pass = c => c !== '#' && c !== 'T' && c !== '~' && c !== 'o' && c !== '%';
     // doors must cover walkable floor inside the map (the rect is a route
     // once the door opens; the BFS below deliberately walks through closed
     // doors — the validator assumes solvable puzzles open them eventually)
@@ -423,6 +439,7 @@ function testStoryLevelIntegrity() {
     for (const v of parsed.vehicles) reach(v.x, v.y, `${v.kind}`);
     for (const f of parsed.flags) reach(f.x, f.y, `team ${f.team} flag stand`);
     if (parsed.core) reach(parsed.core.x, parsed.core.y, 'base core');
+    for (const c of parsed.cores || []) reach(c.x, c.y, 'beacon monolith');
     for (const s of parsed.switches) reach(s.x, s.y, `relay ${s.id}`);
     for (const s of parsed.glyphs) reach(s.x, s.y, `glyph ${s.id}`);
     for (const pl of parsed.pillars) reach(pl.x, pl.y, `pillar ${pl.id}`);
@@ -4890,6 +4907,801 @@ function testSerializeRestoreRoundTrip() {
   assert.equal(JSON.stringify(serializeGame(g3)), JSON.stringify(stored), 'the stored beacon survives a restore untouched');
 }
 
+// =============================================================================
+// --- frontier IV: stronghold campaign, fortified walls, alive world ----------
+// =============================================================================
+
+// Stronghold def validator: every levels/stronghold/*.json must carry a sane
+// def.stronghold block, legal tiles (new terrain included), a valid unlock,
+// and — on the beacon variant — exactly four 'K' monoliths.
+function testStrongholdDefIntegrity() {
+  const shs = levels.filter(l => l.category === 'stronghold');
+  assert.ok(shs.length >= 1, 'stronghold dir ships at least sh01');
+  const validChars = new Set(characters.map(c => c.id));
+  const BUILD_KINDS = new Set(['pylon', 'barricade', 'turret', 'farm', 'beacon', 'wall', 'comm']);
+  const LEGAL_TILES = new Set('#.To~,:;_*=!^%E' + 'PcNBCKVWSHDYAIQJXZO' + 'garsmnwbzfqvxu');
+  for (const def of shs) {
+    const tag = def.name || 'stronghold level';
+    assert.equal(def.mode, 'bastion', `${tag}: stronghold levels run bastion mode`);
+    const sh = def.stronghold;
+    assert.ok(sh && typeof sh === 'object', `${tag}: def.stronghold present`);
+    assert.ok(Number.isInteger(sh.level) && sh.level >= 1 && sh.level <= 25, `${tag}: stronghold.level 1..25`);
+    assert.ok(typeof sh.name === 'string' && sh.name.length > 0, `${tag}: stronghold.name set`);
+    assert.ok(['S', 'M', 'L', 'XL'].includes(sh.sizeLabel), `${tag}: sizeLabel S/M/L/XL`);
+    assert.ok(Number.isInteger(sh.difficulty) && sh.difficulty >= 1 && sh.difficulty <= 5, `${tag}: difficulty 1..5`);
+    const b = def.bastion || {};
+    const nights = b.nights ?? 5;
+    const wpn = Math.max(1, Math.min(3, b.wavesPerNight || 1));
+    const moons = (b.bloodMoons || []).length;
+    assert.ok(Number.isInteger(sh.waves) && sh.waves >= nights && sh.waves <= nights * wpn + moons,
+      `${tag}: waves ${sh.waves} sane for ${nights} nights x${wpn} (+${moons} blood doubles)`);
+    if (b.waveMult !== undefined) assert.ok(b.waveMult >= 1 && b.waveMult <= 2.6, `${tag}: waveMult 1..2.6`);
+    if (b.bossNights !== undefined) {
+      assert.ok(Array.isArray(b.bossNights) && b.bossNights.length >= 1, `${tag}: bossNights is a non-empty list`);
+      for (const bn of b.bossNights) assert.ok(Number.isInteger(bn) && bn >= 1 && bn <= nights, `${tag}: boss night ${bn} within 1..${nights}`);
+    }
+    if (sh.hpMult !== undefined) assert.ok(sh.hpMult >= 1 && sh.hpMult <= 2, `${tag}: hpMult 1..2`);
+    if (sh.unlock !== undefined) assert.ok(validChars.has(sh.unlock), `${tag}: unlock '${sh.unlock}' is a real character`);
+    assert.ok(typeof sh.blurb === 'string' && sh.blurb.length > 0, `${tag}: blurb set`);
+    assert.ok(Array.isArray(sh.newFeatures) && sh.newFeatures.every(s => typeof s === 'string'), `${tag}: newFeatures are strings`);
+    assert.ok(Array.isArray(def.intro) && def.intro.length >= 1, `${tag}: stronghold levels ship an intro slide`);
+    for (const row of def.tiles) {
+      for (const c of row) assert.ok(LEGAL_TILES.has(c), `${tag}: tile '${c}' is a legal letter`);
+    }
+    const ks = def.tiles.reduce((n2, r) => n2 + (r.split('K').length - 1), 0);
+    if (def.bastionVariant === 'beacons') assert.equal(ks, 4, `${tag}: beacon variant fields exactly 4 K tiles`);
+    else assert.equal(ks, 1, `${tag}: core bastion fields exactly 1 K tile`);
+    for (const bd of def.builds || []) {
+      assert.ok(BUILD_KINDS.has(bd.kind), `${tag}: build kind '${bd.kind}' is known`);
+      assert.ok(typeof bd.cost === 'number' && bd.cost >= 0, `${tag}: build cost sane`);
+      if (bd.prebuilt !== undefined) assert.equal(typeof bd.prebuilt, 'boolean', `${tag}: prebuilt is boolean`);
+    }
+    if (def.weather) assert.ok(['clear', 'rain', 'snow', 'ashstorm', 'fog'].includes(def.weather), `${tag}: weather '${def.weather}' known`);
+    if (def.ambience) assert.ok(['meadow', 'forest', 'swamp', 'ash', 'city', 'night', 'lava', 'ship'].includes(def.ambience), `${tag}: ambience '${def.ambience}' known`);
+    for (const pd of def.patrols || []) {
+      assert.ok(Array.isArray(pd.at) && pd.at.length === 2, `${tag}: patrol carries its enemy home tile`);
+      assert.ok(Array.isArray(pd.points) && pd.points.length >= 2 && pd.points.length <= 4, `${tag}: patrol routes 2-4 points`);
+    }
+  }
+}
+
+// --- fortified walls: the wall kind, prebuilt structures, upgrade ladder ---
+function testWallsAndPrebuilt() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const def = bastionDef({ nights: 1, dayLen: 1000, nightLen: 10, bloodMoons: [] });
+  def.tiles[5] = put(put(put('#' + '.'.repeat(38) + '#', 4, 'B'), 8, 'B'), 12, 'B');
+  def.builds = [
+    { kind: 'wall', cost: 5, prebuilt: true },
+    { kind: 'wall', cost: 5 },
+    { kind: 'turret', cost: 8, prebuilt: true, ttype: 'tesla' },
+  ];
+  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const [w1, w2, tu] = g.builds;
+  assert.equal(w1.built, true, 'prebuilt wall ships standing');
+  assert.equal(w1.hp, 20, 'wall L1 has 20 hp');
+  assert.equal(w1.maxHp, 20);
+  assert.equal(w1.paid, 5, 'prebuilt structures ship paid in full');
+  assert.equal(w1.level, 1, 'walls carry an upgrade level');
+  assert.equal(w2.built, false, 'a non-prebuilt wall site ships open');
+  assert.equal(tu.built, true, 'prebuilt turret ships standing');
+  assert.equal(tu.ttype, 'tesla', 'prebuilt turret takes its def type, no carousel');
+  assert.ok(!tu.typeSelect, 'prebuilt turret never enters typeSelect');
+  // prebuilt walls block movement like barricades
+  const p = g.players[0];
+  p.invuln = 1e9;
+  p.x = w1.x - TILE;
+  p.y = w1.y;
+  run(g, () => ({ 0: { right: true } }), 1);
+  assert.ok(p.x < w1.x - 14, 'a standing wall blocks the walk');
+  // an open wall site builds like any structure, then upgrades 20/35/60
+  g.shards = 60;
+  p.x = w2.x - TILE * 1.2;
+  p.y = w2.y;
+  run(g, () => ({ 0: { act: true } }), 5);
+  assert.equal(w2.built, true, 'wall site builds under an act-hold');
+  assert.equal(w2.hp, 20, 'fresh wall stands at L1 hp');
+  run(g, () => ({ 0: { act: true } }), 7);
+  assert.equal(w2.level, 2, 'held act upgrades the wall');
+  assert.equal(w2.maxHp, 35, 'wall L2 maxHp is 35');
+  assert.equal(w2.hp, 35, 'upgrade completes at full hp');
+}
+
+// --- fortified walls: player DIRECT shots demolish own structures — the
+// official shoot-your-way-out self-rescue. Pylons/beacons immune, splash
+// immune, ownerless (turret) fire immune. ---
+function testShootYourWayOut() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const def = bastionDef({ nights: 1, dayLen: 1000, nightLen: 10, bloodMoons: [] });
+  // player pocket: a prebuilt barricade due east of the operative
+  def.tiles[10] = put(put(def.tiles[10], 6, 'B'), 10, 'B');
+  def.builds = [
+    { kind: 'barricade', cost: 4, prebuilt: true },
+    { kind: 'pylon', cost: 10, prebuilt: true },
+  ];
+  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const [bar, pyl] = g.builds;
+  const p = g.players[0];
+  p.invuln = 1e9;
+  // stand west of the barricade, fire east at it
+  p.x = bar.x - TILE * 1.2;
+  p.y = bar.y;
+  const hp0 = bar.hp;
+  run(g, () => {
+    p.fx = 1;
+    p.fy = 0;
+    return { 0: { fire: true } };
+  }, 1.2);
+  assert.ok(bar.hp < hp0, 'player direct fire damages the own barricade');
+  assert.ok(g.events.some(ev => ev.type === 'buildHit'), 'buildHit events land');
+  run(g, () => {
+    p.fx = 1;
+    p.fy = 0;
+    return { 0: { fire: true } };
+  }, 8);
+  assert.equal(bar.built, false, 'the barricade falls to sustained fire');
+  assert.ok(g.events.some(ev => ev.type === 'buildDown' && ev.kind === 'barricade'), 'buildDown fired');
+  // the way is open: walk through where the barricade stood
+  const x0 = p.x;
+  run(g, () => ({ 0: { right: true } }), 1.5);
+  assert.ok(p.x > x0 + TILE, 'the demolished wall opens the way out');
+  // pylons never take player fire
+  p.x = pyl.x - TILE * 1.2;
+  p.y = pyl.y;
+  run(g, () => {
+    p.fx = 1;
+    p.fy = 0;
+    return { 0: { fire: true } };
+  }, 2);
+  assert.equal(pyl.hp, pyl.maxHp, 'pylons are immune to player fire');
+  assert.equal(pyl.built, true, 'the pylon stands');
+  // AoE splash never hurts structures: an exploding shot beside a wall
+  const def2 = bastionDef({ nights: 1, dayLen: 1000, nightLen: 10, bloodMoons: [] });
+  def2.tiles[10] = put(def2.tiles[10], 6, 'B');
+  def2.builds = [{ kind: 'wall', cost: 5, prebuilt: true }];
+  const g2 = createGame(def2, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const wall2 = g2.builds[0];
+  g2.shots.push({
+    id: g2.nextShotId++, x: wall2.x - 40, y: wall2.y, vx: 0, vy: 0, ttl: 0,
+    dmg: 5, who: 'p', overWalls: false, pierce: 0, aoeRadius: TILE * 2, curve: 0,
+    radius: 5, kind: 'test', ownerPid: 0, pid: 0, hits: [],
+  });
+  step(g2, { 0: {} }, 1 / 30);
+  assert.equal(wall2.hp, wall2.maxHp, 'AoE splash never hurts own structures');
+  // ownerless fire (turrets/followers) sails clean over structures
+  g2.shots.push({
+    id: g2.nextShotId++, x: wall2.x - 30, y: wall2.y, vx: 10 * TILE, vy: 0, ttl: 0.4,
+    dmg: 5, who: 'p', overWalls: false, pierce: 0, aoeRadius: 0, curve: 0,
+    radius: 5, kind: 'turret', hits: [],
+  });
+  run(g2, () => ({ 0: {} }), 0.5);
+  assert.equal(wall2.hp, wall2.maxHp, 'ownerless (turret) fire never demolishes');
+}
+
+// --- beacon-defense variant: a 40x20 field with four 'K' monoliths ---
+function beaconsDef(b = {}, extraRows = []) {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const tiles = [];
+  tiles.push('#'.repeat(40));
+  for (let y = 1; y < 19; y++) tiles.push('#' + '.'.repeat(38) + '#');
+  tiles.push('#'.repeat(40));
+  tiles[2] = '#PP' + '.'.repeat(36) + '#';
+  tiles[8] = put(put(tiles[8], 16, 'K'), 24, 'K');
+  tiles[12] = put(put(tiles[12], 16, 'K'), 24, 'K');
+  for (const [y, row] of extraRows) tiles[y] = row;
+  return {
+    name: 'Beacons Test', time: 600, captiveChars: [], mode: 'bastion',
+    bastionVariant: 'beacons',
+    bastion: { nights: 3, dayLen: 5, nightLen: 300, bloodMoons: [], ...b },
+    tiles,
+  };
+}
+
+// --- beacons: cores array, wave split, dark (not destroyed), day relight,
+// all-dark loss ---
+function testBeaconSiegeDarkRelightAndLoss() {
+  const def = beaconsDef();
+  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const p = g.players[0];
+  p.invuln = 1e9;
+  assert.equal(g.core, null, 'the variant nulls the single core');
+  assert.equal(g.cores.length, 4, 'four monoliths parse into g.cores');
+  assert.ok(g.cores.every(c => c.lit && c.hp === 30), 'all four ship lit at full hp');
+  const s0 = snapshot(g, false);
+  assert.equal(s0.core, undefined, 'no single-core key on variant snapshots');
+  assert.equal(s0.cores.length, 4, 'snapshot ships the cores array');
+  assert.ok(s0.cores.every(c => c.lit === true), 'snapshot carries HUD-ready lit flags');
+  // dusk 1: the wave splits round-robin across the four LIT beacons
+  run(g, () => ({ 0: {} }), 5.2);
+  const wave = g.enemies.slice();
+  assert.ok(wave.length >= 5, 'the night wave spawned');
+  assert.deepEqual(wave.slice(0, 4).map(e => e.coreI), [0, 1, 2, 3], 'wave targets split across the lit beacons');
+  // gnaw beacon 0 dark: it goes DARK, never destroyed
+  const c0 = g.cores[0];
+  c0.hp = 1;
+  const gnawer = wave[0];
+  gnawer.x = c0.x - TILE * 0.5;
+  gnawer.y = c0.y;
+  gnawer.hitCool = 0;
+  g.graceT = 0;
+  run(g, () => ({ 0: {} }), 1);
+  assert.equal(c0.lit, false, 'a beacon at 0 hp goes dark');
+  assert.equal(c0.hp, 0);
+  assert.equal(g.cores.length, 4, 'dark beacons are never destroyed');
+  assert.ok(g.events.some(ev => ev.type === 'beaconDown' && ev.idx === 0), 'beaconDown event fired');
+  assert.ok(g.events.some(ev => ev.type === 'coreHit' && ev.idx === 0), 'beacon gnaws fire indexed coreHit');
+  assert.equal(g.status, 'play', 'one dark beacon never loses the mission');
+  // its besiegers retarget the next lit monolith
+  run(g, () => ({ 0: {} }), 0.2);
+  assert.ok(g.enemies.filter(e => !e.dead && e.targetCore).every(e => g.cores[e.coreI].lit),
+    'enemies abandon dark beacons for lit ones');
+  // relight refuses at NIGHT, even with shards and a held act
+  g.shards = 20;
+  p.x = c0.x - TILE;
+  p.y = c0.y;
+  run(g, () => ({ 0: { act: true } }), 3);
+  assert.equal(c0.lit, false, 'no relighting under the night sky');
+  // by day, hold-act + 8 shards relights at full hp
+  g.cycle.phase = 'day';
+  g.cycle.t = 500;
+  run(g, () => ({ 0: { act: true } }), 2);
+  assert.equal(c0.lit, true, 'a day act-hold relights the beacon');
+  assert.equal(c0.hp, c0.maxHp, 'relit beacons stand at full hp');
+  assert.equal(g.shards, 12, 'relighting costs 8 shards');
+  assert.ok(g.events.some(ev => ev.type === 'beaconLit' && ev.idx === 0), 'beaconLit event fired');
+  // an empty pool stalls the relight
+  c0.lit = false;
+  c0.hp = 0;
+  g.shards = 7;
+  run(g, () => ({ 0: { act: true } }), 3);
+  assert.equal(c0.lit, false, '7 shards cannot pay the 8-shard relight');
+  // LOSE only when all four are dark at once
+  for (const c of g.cores) { c.lit = false; c.hp = 0; }
+  step(g, { 0: {} }, 1 / 30);
+  assert.equal(g.status, 'failed', 'all four dark at once loses the mission');
+  assert.ok(g.events.some(ev => ev.type === 'allDark'), 'allDark event fired');
+  assert.ok(g.events.some(ev => ev.type === 'fail'), 'fail event fired');
+}
+
+// --- beacons: surviving to the final dawn with >=1 lit clears ---
+function testBeaconFinalDawnWin() {
+  const def = beaconsDef({ nights: 1, dayLen: 2, nightLen: 3, bloodMoons: [] });
+  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  g.players[0].invuln = 1e9;
+  g.graceT = 1e9; // hold the wave still: this test is about the clock
+  // three beacons dark, one lit: still a win at the final dawn
+  for (const c of g.cores.slice(1)) { c.lit = false; c.hp = 0; }
+  run(g, () => ({ 0: {} }), 6);
+  assert.equal(g.status, 'cleared', 'final dawn with one lit beacon wins');
+  assert.ok(g.events.length === 0 || true, 'sanity');
+}
+
+// --- beacons: the all-lit night feat lands the Anchorcraft; all aboard
+// launches an immediate full-clear ---
+function testAnchorcraftEarlyExtraction() {
+  const def = beaconsDef({ nights: 4, dayLen: 2, nightLen: 1000, bloodMoons: [] });
+  const party = startingRoster.slice(0, 2).map((id, i) => ({ pid: i, name: id, charId: id }));
+  const g = createGame(def, party, charMap, startingRoster);
+  for (const p of g.players) p.invuln = 1e9;
+  g.graceT = 1e9; // the wave holds; beacons stay lit
+  // night 1, all four lit: the ship does NOT land before night 2
+  run(g, () => ({ 0: {}, 1: {} }), 3);
+  assert.equal(g.cycle.phase, 'night');
+  assert.ok(g.cores.every(c => c.lit), 'all four still lit');
+  assert.equal(g.ship, null, 'night 1 never lands the ship');
+  // night 2 with all four lit: touchdown
+  g.cycle.nightNo = 2;
+  step(g, { 0: {}, 1: {} }, 1 / 30);
+  assert.ok(g.ship && g.ship.landed, 'the Anchorcraft lands on the all-lit night feat');
+  assert.ok(g.events.some(ev => ev.type === 'shipDown'), 'shipDown event fired');
+  const s = snapshot(g, false);
+  assert.deepEqual(s.ship, { x: g.ship.x, y: g.ship.y, landed: true }, 'snapshot ships the landed vessel');
+  // a dark beacon afterwards never recalls the landed ship
+  g.cores[0].lit = false;
+  step(g, { 0: {}, 1: {} }, 1 / 30);
+  assert.ok(g.ship, 'the ship persists once landed');
+  g.cores[0].lit = true;
+  // player 0 boards (act within 1.5 tiles); the match keeps playing
+  const [p0, p1] = g.players;
+  p0.x = g.ship.x - TILE;
+  p0.y = g.ship.y;
+  step(g, { 0: { act: true }, 1: {} }, 1 / 30);
+  assert.equal(p0.aboard, true, 'acting at the ramp marks the operative aboard');
+  assert.ok(g.events.some(ev => ev.type === 'shipBoard' && ev.pid === 0), 'shipBoard event fired');
+  assert.equal(g.status, 'play', 'one aboard of two active: still playing');
+  assert.ok(snapshot(g, false).players.find(q => q.pid === 0).aboard, 'snapshot flags the boarded seat');
+  // player 1 boards: launch, immediate clear with the full-clear bonus
+  const score0 = g.score;
+  p1.x = g.ship.x + TILE;
+  p1.y = g.ship.y;
+  step(g, { 0: {}, 1: { act: true } }, 1 / 30);
+  assert.equal(g.status, 'cleared', 'all active aboard launches an immediate clear');
+  assert.ok(g.events.some(ev => ev.type === 'shipLaunch'), 'shipLaunch event fired');
+  assert.ok(g.score >= score0 + 2000, 'the launch pays the full-clear bonus');
+  assert.ok(g.players.every(q => q.state === 'extracted'), 'boarders extract with the ship');
+}
+
+// --- stronghold hp scaling: def.stronghold.hpMult raises every spawn ---
+function testStrongholdHpMult() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const def = bastionDef({ nights: 1, dayLen: 2, nightLen: 100, bloodMoons: [] });
+  def.tiles[15] = put('#' + '.'.repeat(38) + '#', 30, 'g');
+  def.stronghold = { level: 9, name: 'Scaled', sizeLabel: 'M', difficulty: 3, waves: 1, hpMult: 1.5, blurb: 'x', newFeatures: [] };
+  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const grunt = g.enemies[0];
+  assert.equal(grunt.maxHp, 3, 'initial grunt pool scales ceil(2 x 1.5) = 3');
+  assert.equal(grunt.hp, 3);
+  g.players[0].invuln = 1e9;
+  g.graceT = 1e9;
+  run(g, () => ({ 0: {} }), 2.2);
+  const wave = g.enemies.slice(1);
+  assert.equal(wave.length, 5, 'night 1 solo wave spawned');
+  // letters z z w z z; mutations [feral, bulk, volatile, split, none]:
+  // base 1 hp scales to 2; the bulk mutant doubles the SCALED pool to 4
+  assert.deepEqual(wave.map(e => e.maxHp), [2, 4, 2, 2, 2], 'wave pools ride the multiplier (bulk doubles the scaled pool)');
+  // vanilla bastion: base pools byte-identical
+  const def2 = bastionDef({ nights: 1, dayLen: 2, nightLen: 100, bloodMoons: [] });
+  const g2 = createGame(def2, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  g2.players[0].invuln = 1e9;
+  g2.graceT = 1e9;
+  run(g2, () => ({ 0: {} }), 2.2);
+  assert.deepEqual(g2.enemies.map(e => e.maxHp), [1, 2, 1, 1, 1], 'no stronghold def: base pools untouched');
+}
+
+// --- '=' sand: players AND enemies stride at x0.85 ---
+function testSandSlowsEveryone() {
+  const mk = sand => {
+    const fill = sand ? '=' : '.';
+    // the skitter sits 13.5 tiles out: inside its 18.9-tile leash, outside
+    // melee reach for the test's duration
+    const row = '#P' + fill.repeat(13) + 'w' + fill.repeat(23) + '#';
+    const level = bigEmptyLevel([[5, row]]);
+    const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+    g.graceT = 0;
+    g.players[0].invuln = 1e9;
+    g.enemies[0].awake = true;
+    return g;
+  };
+  const gF = mk(false), gS = mk(true);
+  const px0 = gF.players[0].x, ex0 = gF.enemies[0].x;
+  run(gF, () => ({ 0: { right: true } }), 1.5);
+  run(gS, () => ({ 0: { right: true } }), 1.5);
+  const pdF = gF.players[0].x - px0;
+  const pdS = gS.players[0].x - px0;
+  assert.ok(pdS < pdF * 0.9 && pdS > pdF * 0.78, `sand drags players to ~x0.85 (got ${(pdS / pdF).toFixed(2)})`);
+  const edF = ex0 - gF.enemies[0].x;
+  const edS = ex0 - gS.enemies[0].x;
+  assert.ok(edS < edF * 0.9 && edS > edF * 0.78, `sand drags enemies to ~x0.85 (got ${(edS / edF).toFixed(2)})`);
+}
+
+// --- '^' ice: x1.05 pace plus 60% drift momentum, players and enemies ---
+function testIceDriftAndPace() {
+  const mk = ice => {
+    const fill = ice ? '^' : '.';
+    const row = '#P' + fill.repeat(13) + 'w' + fill.repeat(23) + '#';
+    const level = bigEmptyLevel([[5, row]]);
+    const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+    g.graceT = 0;
+    g.players[0].invuln = 1e9;
+    g.enemies[0].awake = true;
+    return g;
+  };
+  const gF = mk(false), gI = mk(true);
+  const ex0 = gF.enemies[0].x;
+  run(gF, () => ({ 0: { right: true } }), 1);
+  run(gI, () => ({ 0: { right: true } }), 1);
+  assert.ok(gI.players[0].x > gF.players[0].x, 'ice skates players faster (x1.05 + momentum)');
+  assert.ok(ex0 - gI.enemies[0].x > ex0 - gF.enemies[0].x, 'enemies skate too');
+  // release the stick: floor stops dead, ice keeps sliding
+  const fx = gF.players[0].x, ix = gI.players[0].x;
+  run(gF, () => ({ 0: {} }), 0.3);
+  run(gI, () => ({ 0: {} }), 0.3);
+  assert.equal(gF.players[0].x, fx, 'releasing the stick on floor stops instantly');
+  assert.ok(gI.players[0].x > ix + 4, 'on ice the slide carries on, decaying deterministically');
+}
+
+// --- '!' lava: sears players 1 hp/0.8s (shield absorbs, sizzle throttled),
+// enemies 1 hp/s; enemy pathing routes AROUND the flows ---
+function testLavaSearsAndPathsAround() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const level = bigEmptyLevel([
+    [2, '#P' + '.'.repeat(37) + '#'],
+    [5, '#' + '!'.repeat(5) + '.'.repeat(33) + '#'],
+    [7, put('#' + '.'.repeat(38) + '#', 30, 'n')],
+  ]);
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  g.graceT = 0;
+  const p = g.players[0];
+  p.shield = 2;
+  p.x = 3.5 * TILE;
+  p.y = 5.5 * TILE; // standing mid-lava
+  run(g, () => ({ 0: {} }), 2.5);
+  assert.equal(p.shield, 0, 'shield pips absorb the first sizzles');
+  assert.equal(p.hp, 2, 'then hp burns at 1 per 0.8s');
+  assert.equal(g.events.filter(ev => ev.type === 'sizzle').length, 3, 'sizzle events ride the 0.8s cadence');
+  p.x = 15.5 * TILE;
+  p.y = 2.5 * TILE;
+  const hp1 = p.hp;
+  run(g, () => ({ 0: {} }), 1.5);
+  assert.equal(p.hp, hp1, 'off the lava the searing stops');
+  // enemies: a stationary sniper dropped into lava cooks at 1 hp/s
+  const sn = g.enemies[0];
+  sn.x = 2.5 * TILE;
+  sn.y = 5.5 * TILE;
+  run(g, () => ({ 0: {} }), 1.1);
+  assert.equal(sn.hp, 1, 'lava cooks enemies at 1 hp per second');
+  assert.ok(g.events.some(ev => ev.type === 'hit' && ev.cause === 'lava'), 'lava damage is evented');
+  // pathing: a skitter crosses AROUND a lava strip, never through it
+  const level2 = bigEmptyLevel([
+    [1, '#P' + '.'.repeat(37) + '#'],
+    [2, put('#' + '.'.repeat(38) + '#', 6, '!')],
+    [3, put(put('#' + '.'.repeat(38) + '#', 6, '!'), 10, 'w')],
+    [4, put('#' + '.'.repeat(38) + '#', 6, '!')],
+    [5, put('#' + '.'.repeat(38) + '#', 6, '!')],
+  ]);
+  const g2 = createGame(level2, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  g2.graceT = 0;
+  g2.players[0].invuln = 1e9;
+  g2.players[0].x = 2.5 * TILE;
+  g2.players[0].y = 3.5 * TILE;
+  const sk = g2.enemies[0];
+  run(g2, () => ({ 0: {} }), 7);
+  assert.ok(!g2.events.some(ev => ev.type === 'hit' && ev.cause === 'lava'), 'the chaser never waded the flow');
+  assert.ok(Math.hypot(sk.x - g2.players[0].x, sk.y - g2.players[0].y) < TILE * 5,
+    'it pathed around the lava to reach the operative');
+}
+
+// --- '%' void: blocks movement, sight and shots ---
+function testVoidBlocksAll() {
+  const level = bigEmptyLevel([
+    [4, '#...%' + '.'.repeat(34) + '#'],
+    [5, '#P..%..a' + '.'.repeat(31) + '#'],
+    [6, '#...%' + '.'.repeat(34) + '#'],
+  ]);
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  g.graceT = 0;
+  const p = g.players[0];
+  p.invuln = 1e9;
+  const archer = g.enemies[0];
+  run(g, () => ({ 0: {} }), 1);
+  assert.equal(archer.awake, false, 'void blocks enemy sight (6 tiles, inside aggro)');
+  run(g, () => ({ 0: { right: true } }), 1.5);
+  assert.ok(p.x < 4 * TILE, 'void blocks movement like rock');
+  run(g, () => {
+    p.fx = 1;
+    p.fy = 0;
+    return { 0: { fire: true } };
+  }, 0.6);
+  assert.ok(g.events.some(ev => ev.type === 'hitWall'), 'shots die at the void');
+  assert.equal(archer.hp, archer.maxHp, 'nothing crosses the abyss');
+}
+
+// --- weather: fog/ashstorm sight cap, snow slow, rain douses burn patches ---
+function testWeatherFogSnowRain() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const sniperWakes = weather => {
+    const level = bigEmptyLevel([
+      [2, '#P' + '.'.repeat(37) + '#'],
+      [10, put('#' + '.'.repeat(38) + '#', 25, 'n')],
+    ]);
+    if (weather) level.weather = weather;
+    const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+    g.graceT = 0;
+    g.players[0].invuln = 1e9;
+    g.players[0].x = 15.5 * TILE; // 10 tiles out, clear line
+    g.players[0].y = 10.5 * TILE;
+    run(g, () => ({ 0: {} }), 1);
+    return g.enemies[0].awake;
+  };
+  assert.equal(sniperWakes(null), true, 'clear skies: the sniper marks at 10 tiles');
+  assert.equal(sniperWakes('fog'), false, 'fog caps all sight at 9 tiles');
+  assert.equal(sniperWakes('ashstorm'), false, 'ashstorm caps all sight at 9 tiles');
+  // snow: every entity strides at x0.92 (a far sentry keeps the field live)
+  const sprint = weather => {
+    const level = bigEmptyLevel([
+      [5, '#P' + '.'.repeat(37) + '#'],
+      [17, put('#' + '.'.repeat(38) + '#', 36, 'g')],
+    ]);
+    if (weather) level.weather = weather;
+    const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+    const x0 = g.players[0].x;
+    run(g, () => ({ 0: { right: true } }), 1.5);
+    return g.players[0].x - x0;
+  };
+  const clearD = sprint(null), snowD = sprint('snow');
+  assert.ok(Math.abs(snowD - clearD * 0.92) < 6, `snow slows the stride to x0.92 (got ${(snowD / clearD).toFixed(3)})`);
+  // rain: burn patches expire twice as fast; toxin pools are untouched
+  const mkRain = weather => {
+    const level = bigEmptyLevel([
+      [5, '#P' + '.'.repeat(37) + '#'],
+      [17, put('#' + '.'.repeat(38) + '#', 36, 'g')],
+    ]);
+    if (weather) level.weather = weather;
+    const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+    g.patches.push({ x: 30 * TILE, y: 10 * TILE, kind: 'burn', r: TILE, ttl: 3 });
+    g.patches.push({ x: 34 * TILE, y: 10 * TILE, kind: 'toxin', r: TILE, ttl: 3 });
+    run(g, () => ({ 0: {} }), 1.7);
+    return g;
+  };
+  const gRain = mkRain('rain');
+  assert.ok(!gRain.patches.some(pa => pa.kind === 'burn'), 'rain douses burn patches in half the time');
+  assert.ok(gRain.patches.some(pa => pa.kind === 'toxin'), 'toxin pools ignore the rain');
+  const gClear = mkRain(null);
+  assert.ok(gClear.patches.some(pa => pa.kind === 'burn'), 'clear skies: the burn patch still smolders at 1.7s');
+  assert.equal(snapshot(gRain, false).weather, 'rain', 'snapshot carries the weather');
+}
+
+// --- alive world: patrols, group alert, sniper spotters ---
+function testPatrolsGroupAlertAndSpotters() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  // patrol: a sleeping sentry walks its loop at 0.6x and still spots
+  const level = bigEmptyLevel([
+    [2, '#P' + '.'.repeat(37) + '#'],
+    [10, put('#' + '.'.repeat(38) + '#', 10, 'g')],
+  ]);
+  level.patrols = [{ at: [10, 10], points: [[13, 10], [10, 10]] }];
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  g.graceT = 0;
+  g.players[0].invuln = 1e9;
+  const e = g.enemies[0];
+  const x0 = e.x;
+  run(g, () => ({ 0: {} }), 2);
+  assert.equal(e.awake, false, 'patrolling is pre-aggro wandering: still asleep');
+  assert.ok(e.x > x0 + TILE * 0.8, 'the sentry walks its route while unaware');
+  run(g, () => ({ 0: {} }), 3);
+  assert.equal(e.patrolI, 1, 'reaching a waypoint advances the round-robin');
+  run(g, () => ({ 0: {} }), 4);
+  assert.equal(e.patrolI, 0, 'the loop wraps deterministically');
+  g.players[0].x = e.x - TILE * 3;
+  g.players[0].y = e.y;
+  run(g, () => ({ 0: {} }), 0.5);
+  assert.equal(e.awake, true, 'patrolling sentries still spot by sight');
+  // group alert: sight-waking one member raises the whole camp inside 1s
+  const campRow = put(put('#' + '.'.repeat(38) + '#', 8, 'g'), 18, 'g');
+  const level2 = bigEmptyLevel([
+    [2, '#P' + '.'.repeat(37) + '#'],
+    [10, campRow],
+  ]);
+  level2.groups = [[[8, 10], [18, 10]]];
+  const g2 = createGame(level2, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  g2.graceT = 0;
+  g2.players[0].invuln = 1e9;
+  const [a2, b2] = g2.enemies;
+  g2.players[0].x = a2.x - TILE * 4;
+  g2.players[0].y = a2.y;
+  step(g2, { 0: {} }, 1 / 30);
+  assert.equal(a2.awake, true, 'the seen member wakes at once');
+  assert.equal(b2.awake, false, 'its camp-mate (10 tiles off) is not instantly awake');
+  assert.ok(b2.groupWakeT > 0, 'but the staggered alarm is running');
+  run(g2, () => ({ 0: {} }), 1.1);
+  assert.equal(b2.awake, true, 'the whole camp is up within a second');
+  // a silent long-range kill never trips the camp
+  const g3 = createGame(level2, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  g3.graceT = 0;
+  const [a3, b3] = g3.enemies;
+  playerShotAt(g3, a3, 5);
+  step(g3, { 0: {} }, 1 / 30);
+  assert.ok(a3.dead, 'one shot from beyond their eyes');
+  assert.ok(!(b3.groupWakeT > 0), 'no group alarm from a silent kill');
+  run(g3, () => ({ 0: {} }), 2);
+  assert.equal(b3.awake, false, 'the camp sleeps on — stealth play stands');
+  // sniper spotters: +4 tiles of aggro inside 8 tiles of a LIVING sniper
+  const level3 = bigEmptyLevel([
+    [2, '#PP' + '.'.repeat(36) + '#'],
+    [10, put(put('#' + '.'.repeat(38) + '#', 25, 'g'), 28, 'n')],
+  ]);
+  level3.groups = [[[25, 10], [28, 10]]];
+  const gruntMarks = killSniper => {
+    const g4 = createGame(level3, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+    g4.graceT = 0;
+    g4.players[0].invuln = 1e9;
+    if (killSniper) g4.enemies.find(e2 => e2.kind === 'sniper').dead = true;
+    g4.players[0].x = 12.9 * TILE; // 12.6 tiles from the grunt: 9 < 12.6 < 9+4
+    g4.players[0].y = 10.5 * TILE;
+    run(g4, () => ({ 0: {} }), 0.5);
+    return g4.enemies.find(e2 => e2.kind === 'grunt').awake;
+  };
+  assert.equal(gruntMarks(false), true, 'the sniper calls targets: the grunt marks at 12.6 tiles');
+  assert.equal(gruntMarks(true), false, 'sniper down first: the camp is blind again');
+}
+
+// --- toxic air + masks: the bleed, the chest stock, the stall offer ---
+function testToxicAirAndMasks() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const level = bigEmptyLevel([
+    [2, '#P' + '.'.repeat(37) + '#'],
+    [4, put(put('#' + '.'.repeat(38) + '#', 6, 'C'), 10, 'S')],
+    [17, put('#' + '.'.repeat(38) + '#', 36, 'g')],
+  ]);
+  level.modifiers = { toxicAir: { until: 60 } };
+  level.chests = [{ loot: 'mask' }];
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const p = g.players[0];
+  step(g, { 0: {} }, 1 / 30);
+  assert.ok(g.events.some(ev => ev.type === 'toxicAir' && ev.until === 60), 'the EVA warning fires at mission start');
+  run(g, () => ({ 0: {} }), 8.2);
+  assert.equal(p.hp, 2, 'unmasked: 0.5 hp per 4s lands the first 1-hp tick by 8s');
+  // the marked chest stocks a mask; wearing it is permanent immunity
+  p.x = g.chests[0].x - TILE;
+  p.y = g.chests[0].y;
+  step(g, { 0: {} }, 1 / 30);
+  step(g, { 0: { act: true } }, 1 / 30);
+  assert.deepEqual(p.item, { kind: 'mask', count: 1 }, 'marked chests stock masks');
+  step(g, { 0: { item: true } }, 1 / 30);
+  assert.equal(p.mask, true, 'the mask is worn for good');
+  assert.equal(p.item, null, 'the slot frees up');
+  assert.ok(g.events.some(ev => ev.type === 'maskOn'), 'maskOn event fired');
+  assert.ok(snapshot(g, false).players[0].mask, 'snapshot flags the masked seat');
+  const hpAfter = p.hp;
+  run(g, () => ({ 0: {} }), 10);
+  assert.equal(p.hp, hpAfter, 'masked operatives never bleed');
+  // the stall stocks a sixth offer on toxic-air levels: the mask
+  assert.equal(g.shopOffers.length, 6, 'toxic-air levels extend the stall');
+  assert.equal(g.shopOffers[5].what, 'mask');
+  assert.equal(snapshot(g, false).shopOffers.length, 6, 'extended offers ship in the snapshot');
+  g.shards = 10;
+  p.mask = false; // fresh lungs so the stall will sell
+  p.shopIdx = 5;
+  p.x = g.shops[0].x;
+  p.y = g.shops[0].y;
+  step(g, { 0: { act: true } }, 1 / 30); // engage the stall (press consumed)
+  step(g, { 0: { act: true, fire: true } }, 1 / 30); // fire edge buys
+  assert.deepEqual(p.item, { kind: 'mask', count: 1 }, 'the stall sells masks');
+  assert.equal(g.shards, 0, 'the mask offer costs 10');
+  // past the deadline the air clears, masked or not
+  g.elapsed = 100;
+  const hp2 = p.hp;
+  run(g, () => ({ 0: {} }), 9);
+  assert.equal(p.hp, hp2, 'past the deadline the air is clean');
+}
+
+// --- comm masts: the build kind behind 'repair the comm tower' missions ---
+function testCommRepairQuest() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const level = bigEmptyLevel([
+    [2, '#P' + '.'.repeat(37) + '#'],
+    [5, put(put('#' + '.'.repeat(38) + '#', 5, 'N'), 9, 'B')],
+    [15, put('#' + '.'.repeat(38) + '#', 30, 'g')],
+  ]);
+  level.npcs = [{ id: 'eva', name: 'EVA', lines: ['Raise the mast before dusk.'] }];
+  level.builds = [{ kind: 'comm', cost: 6 }];
+  level.quests = [{ id: 'fixcomm', main: true, title: 'Repair the comm tower', giver: 'eva', kind: 'build', target: 'comm', count: 1 }];
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  g.graceT = 1e9;
+  const p = g.players[0];
+  p.invuln = 1e9;
+  const b = g.builds[0];
+  assert.equal(b.maxHp, 25, 'the comm mast carries 25 hp');
+  assert.equal(b.built, false, 'it ships broken (an open repair site)');
+  p.x = g.npcs[0].x - TILE;
+  p.y = g.npcs[0].y;
+  step(g, { 0: {} }, 1 / 30);
+  step(g, { 0: { act: true } }, 1 / 30);
+  const q = g.quests[0];
+  assert.equal(q.state, 'active', 'talking the giver opens the repair');
+  g.shards = 10;
+  p.x = b.x - TILE;
+  p.y = b.y;
+  run(g, () => ({ 0: { act: true } }), 5);
+  assert.equal(b.built, true, 'the mast rebuilds under the act-hold');
+  assert.equal(q.progress, 1, "build quests count 'comm' masts");
+  p.x = g.npcs[0].x - TILE;
+  p.y = g.npcs[0].y;
+  step(g, { 0: {} }, 1 / 30);
+  step(g, { 0: { act: true } }, 1 / 30);
+  assert.equal(q.state, 'done', 'the repair settles at the giver');
+}
+
+// --- ambience/weather/new-mode keys ship only where they belong ---
+function testAmbienceWeatherSnapshotPassthrough() {
+  const def = bastionDef();
+  def.ambience = 'swamp';
+  def.weather = 'rain';
+  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const s = snapshot(g, false);
+  assert.equal(s.ambience, 'swamp', 'def.ambience rides every snapshot');
+  assert.equal(s.weather, 'rain', 'def.weather rides every snapshot');
+  const g2 = createGame(levels[0], [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const s2 = snapshot(g2, false);
+  assert.equal(s2.ambience, undefined, 'classics ship no ambience key');
+  assert.equal(s2.weather, undefined, 'classics ship no weather key');
+  assert.equal(s2.cores, undefined, 'classics ship no cores key');
+  assert.equal(s2.ship, undefined, 'classics ship no ship key');
+  assert.equal(s2.shopOffers, undefined, 'classics ship no shopOffers key');
+  assert.equal(s2.toxicAir, undefined, 'classics ship no toxicAir key');
+}
+
+// --- stronghold difficulty knobs: wavesPerNight and waveMult ---
+function testWavesPerNightAndWaveMult() {
+  const def = bastionDef({ nights: 1, dayLen: 2, nightLen: 30, bloodMoons: [], wavesPerNight: 2, waveMult: 2 });
+  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  g.players[0].invuln = 1e9;
+  g.core.hp = 100000;
+  g.core.maxHp = 100000;
+  run(g, () => ({ 0: {} }), 2.2);
+  assert.equal(g.enemies.length, 10, 'waveMult 2 doubles the dusk wave (ceil(6 x 0.8 x 2))');
+  assert.equal(g.events.filter(ev => ev.type === 'wave').length, 1, 'one wave at dusk');
+  run(g, () => ({ 0: {} }), 15);
+  assert.equal(g.events.filter(ev => ev.type === 'wave').length, 2, 'the second wave pours in mid-night');
+  assert.ok(g.enemies.length >= 18, 'the night fields both waves');
+}
+
+// --- finale bosses: def.bastion.bossNights marches exactly one boss at the
+// head of the listed night's first wave; blood-moon double edges and second
+// waves never duplicate it; unlisted nights stay boss-free ---
+function testBossNightsMarchTheBoss() {
+  const def = bastionDef({ nights: 2, dayLen: 2, nightLen: 10, bloodMoons: [2], wavesPerNight: 2, bossNights: [2] });
+  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  g.players[0].invuln = 1e9;
+  g.core.hp = 100000;
+  g.core.maxHp = 100000;
+  run(g, () => ({ 0: {} }), 2.2); // dusk 1: an unlisted night
+  assert.equal(g.enemies.filter(e => e.kind === 'boss').length, 0, 'night 1 is not a boss night');
+  run(g, () => ({ 0: {} }), 10 + 2 + 0.5); // through dawn, day 2, dusk 2
+  const bosses = g.enemies.filter(e => e.kind === 'boss');
+  assert.equal(bosses.length, 1, 'boss night 2 fields exactly ONE boss (blood-moon double edge never doubles it)');
+  assert.ok(bosses[0].targetCore, 'the wave boss marches on the core');
+  run(g, () => ({ 0: {} }), 6); // the night''s second wave pours in
+  assert.equal(g.events.filter(ev => ev.type === 'wave').length >= 4, true, 'both edges and the second wave landed');
+  assert.equal(g.enemies.filter(e => e.kind === 'boss').length, 1, 'second waves never re-march the boss');
+  // a PACKED field (global 90 cap pinned) still fields the scheduled boss —
+  // the one-slot exception — while the rest of the wave stays capped
+  const def2 = bastionDef({ nights: 1, dayLen: 2, nightLen: 10, bloodMoons: [], bossNights: [1] });
+  const g2 = createGame(def2, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  g2.players[0].invuln = 1e9;
+  g2.core.hp = 100000;
+  g2.core.maxHp = 100000;
+  while (g2.enemies.length < 90) {
+    const e = { ...g2.enemies[0], id: g2.nextEnemyId++, x: TILE * 2, y: TILE * 2 };
+    g2.enemies.push(e);
+  }
+  run(g2, () => ({ 0: {} }), 2.2);
+  assert.equal(g2.enemies.filter(e => e.kind === 'boss').length, 1, 'the cap never swallows a scheduled boss');
+  assert.equal(g2.enemies.length, 91, 'only the boss breaches the ceiling — the rest of the wave stays capped');
+}
+
+// --- determinism: identical beacon-variant runs, identical streams ---
+function testDeterministicBeaconsRun() {
+  const runOnce = () => {
+    const def = beaconsDef({ nights: 2, dayLen: 4, nightLen: 8, bloodMoons: [] });
+    const party = startingRoster.slice(0, 2).map((id, i) => ({ pid: i, name: id, charId: id }));
+    const g = createGame(def, party, charMap, startingRoster);
+    const dt = 1 / 30;
+    const h = [];
+    for (let i = 0; i < 900 && g.status === 'play'; i++) {
+      const inputs = {};
+      for (const p of g.players) {
+        inputs[p.pid] = {
+          right: (i % 40) < 20, down: (i % 60) < 25, fire: (i % 6) < 2,
+          act: (i % 50) < 8,
+        };
+      }
+      step(g, inputs, dt);
+      if (i % 10 === 0) h.push(JSON.stringify(snapshot(g, false)));
+    }
+    return h.join('\n');
+  };
+  assert.equal(runOnce(), runOnce(), 'identical beacon runs produce identical snapshot streams');
+}
+
+testStrongholdDefIntegrity();
+testWallsAndPrebuilt();
+testShootYourWayOut();
+testBeaconSiegeDarkRelightAndLoss();
+testBeaconFinalDawnWin();
+testAnchorcraftEarlyExtraction();
+testStrongholdHpMult();
+testSandSlowsEveryone();
+testIceDriftAndPace();
+testLavaSearsAndPathsAround();
+testVoidBlocksAll();
+testWeatherFogSnowRain();
+testPatrolsGroupAlertAndSpotters();
+testToxicAirAndMasks();
+testCommRepairQuest();
+testAmbienceWeatherSnapshotPassthrough();
+testWavesPerNightAndWaveMult();
+testBossNightsMarchTheBoss();
+testDeterministicBeaconsRun();
 testRespawnPickFlow();
 testEnemyPathsAroundBuiltPylon();
 testStructureRepairUpgradeDismantle();
