@@ -1,0 +1,488 @@
+{
+  "name": "The Drift Sea",
+  "story": true,
+  "chapter": 9,
+  "title": "Chapter IX — The Drift Sea",
+  "expedition": true,
+  "objective": "Cross the unsettled Drift — raise the drowned wave-logs, light the harbor voices, and settle a corridor over the deep",
+  "time": 900,
+  "captiveChars": [],
+  "npcs": [
+    {
+      "id": "noor-avesh",
+      "name": "Chartwright Noor Avesh",
+      "lines": [
+        "Noor Avesh, chartwright. Mind the maps — out here they redraw themselves while your back is turned.",
+        "Past this pier, nothing has ever happened once and for all. That is the Drift. Sail accordingly.",
+        "Three survey buoys went down with their wave-logs. Take the skiff, raise the logs, and my chart becomes a promise instead of a guess.",
+        "Four harbor voices light the crossing corridor — inside the window, mind. The sea forgets slower than the Array field. But it forgets.",
+        "The deep Drift takes no hull and no causeway. A settled corridor or nothing — two pads, one agreed state.",
+        "When the corridor settles you won’t feel the crossing. You’ll simply already be across. That is the only way over the deep."
+      ],
+      "gift": {
+        "shards": 8
+      }
+    },
+    {
+      "id": "joss-maru",
+      "name": "Joss Maru, Tidewarden",
+      "lines": [
+        "Tide’s out. Tide’s always out here. What comes in instead, we ring the bell for.",
+        "Driftwaves don’t break on a schedule — they break on a grudge. When the bell rings, be behind something.",
+        "The shoals hold. The sheen between them doesn’t. Old Tarn’s law travels: walk the causeway, not the sheen.",
+        "Husks come up the channels glowing wrong — drift made flesh. Thin them on the water or meet them on your pier.",
+        "Take these, salvage pay. Out here the LYTH remembers who carried it better than the sea remembers the ship."
+      ],
+      "gift": {
+        "shards": 6
+      }
+    }
+  ],
+  "builds": [
+    {
+      "kind": "beacon",
+      "cost": 10
+    },
+    {
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    }
+  ],
+  "chests": [
+    {
+      "loot": "cracker",
+      "amount": 2
+    },
+    {
+      "loot": "medkit",
+      "amount": 1
+    },
+    {
+      "loot": "toxin",
+      "amount": 1
+    },
+    {
+      "loot": "token",
+      "amount": 1
+    },
+    {
+      "loot": "shards",
+      "amount": 8
+    },
+    {
+      "loot": "shards",
+      "amount": 7
+    },
+    {
+      "loot": "shield",
+      "amount": 1
+    },
+    {
+      "loot": "shards",
+      "amount": 10
+    }
+  ],
+  "vehicles": [
+    {
+      "kind": "skiff"
+    },
+    {
+      "kind": "skiff"
+    },
+    {
+      "kind": "skiff"
+    }
+  ],
+  "pickups": [
+    {
+      "kind": "stormgun"
+    },
+    {
+      "kind": "flamer"
+    }
+  ],
+  "qitems": [
+    {
+      "id": "qi-log-north",
+      "kind": "wavelog"
+    },
+    {
+      "id": "qi-log-east",
+      "kind": "wavelog"
+    },
+    {
+      "id": "qi-log-south",
+      "kind": "wavelog"
+    }
+  ],
+  "switches": [
+    {
+      "id": "voice-north",
+      "group": 0
+    },
+    {
+      "id": "voice-chart",
+      "group": 0
+    },
+    {
+      "id": "voice-dock",
+      "group": 0
+    },
+    {
+      "id": "voice-corridor",
+      "group": 0
+    },
+    {
+      "id": "voice-gate",
+      "group": 0
+    },
+    {
+      "id": "voice-south",
+      "group": 0
+    }
+  ],
+  "switchGroups": [
+    {
+      "group": 0,
+      "need": 4,
+      "of": 6,
+      "window": 100,
+      "reward": {
+        "openDoor": "corridor-gate"
+      }
+    }
+  ],
+  "glyphs": [
+    {
+      "symbol": 1,
+      "group": 0
+    },
+    {
+      "symbol": 2,
+      "group": 0
+    },
+    {
+      "symbol": 7,
+      "group": 1
+    },
+    {
+      "symbol": 3,
+      "group": 0
+    },
+    {
+      "symbol": 0,
+      "group": 0
+    }
+  ],
+  "glyphGroups": [
+    {
+      "group": 0,
+      "order": [
+        1,
+        2,
+        3,
+        0
+      ],
+      "reward": {
+        "openDoor": "pad-gate"
+      }
+    }
+  ],
+  "doors": [
+    {
+      "id": "corridor-gate",
+      "x": 63,
+      "y": 33,
+      "w": 1,
+      "h": 2
+    },
+    {
+      "id": "pad-gate",
+      "x": 72,
+      "y": 33,
+      "w": 1,
+      "h": 2
+    }
+  ],
+  "teleports": [
+    {
+      "id": "tun-east-a",
+      "twin": "tun-east-b"
+    },
+    {
+      "id": "tun-north-a",
+      "twin": "tun-north-b"
+    },
+    {
+      "id": "tun-north-b",
+      "twin": "tun-north-a"
+    },
+    {
+      "id": "tun-east-b",
+      "twin": "tun-east-a"
+    },
+    {
+      "id": "corridor-in",
+      "twin": "corridor-out"
+    },
+    {
+      "id": "corridor-out",
+      "twin": "corridor-in"
+    },
+    {
+      "id": "tun-south-b",
+      "twin": "tun-south-a"
+    },
+    {
+      "id": "tun-south-a",
+      "twin": "tun-south-b"
+    }
+  ],
+  "quests": [
+    {
+      "id": "landfall",
+      "main": true,
+      "title": "Landfall at Last Light Pier",
+      "giver": "noor-avesh",
+      "kind": "reach",
+      "target": {
+        "x": 17,
+        "y": 23
+      },
+      "count": 1,
+      "hint": "Reach the chart-house on the final checkpoint shoal — the last place anything is final."
+    },
+    {
+      "id": "wave-logs",
+      "main": true,
+      "title": "Raise the Wave-Logs",
+      "giver": "noor-avesh",
+      "kind": "fetch",
+      "item": "wavelog",
+      "count": 3,
+      "reward": {
+        "shards": 10
+      },
+      "hint": "Three survey buoys went down with their wave-logs. Take the skiff — raise the logs and the chart becomes a promise."
+    },
+    {
+      "id": "pier-beacon",
+      "main": true,
+      "title": "Light the Pier Beacon",
+      "giver": "joss-maru",
+      "kind": "build",
+      "target": "beacon",
+      "count": 1,
+      "reward": {
+        "shards": 6
+      },
+      "hint": "Raise a beacon at the pier so the harbor field has a heartbeat to count against."
+    },
+    {
+      "id": "harbor-voices",
+      "main": true,
+      "title": "The Harbor Voices",
+      "giver": "noor-avesh",
+      "kind": "switch",
+      "target": "0",
+      "count": 1,
+      "reward": {
+        "shards": 8
+      },
+      "hint": "Four of six harbor voices inside the window — the sea forgets slower than the Array field, but it forgets."
+    },
+    {
+      "id": "tide-rite",
+      "main": true,
+      "title": "The Tide Rite",
+      "giver": "noor-avesh",
+      "kind": "glyph",
+      "target": "0",
+      "count": 1,
+      "reward": {
+        "shards": 8
+      },
+      "hint": "Speak the crossing rite in order at the corridor mouth — it begins with the breath the field takes together. The Pilot’s Plaque order holds at sea."
+    },
+    {
+      "id": "cross-the-deep",
+      "main": true,
+      "title": "Cross the Deep",
+      "giver": "noor-avesh",
+      "kind": "reach",
+      "target": {
+        "x": 89,
+        "y": 33
+      },
+      "count": 1,
+      "hint": "Stand the outer pad at the top of the wave; the field includes you, and you are simply already across."
+    },
+    {
+      "id": "channel-husks",
+      "title": "Thin the Channel Husks",
+      "giver": "joss-maru",
+      "kind": "kill",
+      "target": "z",
+      "count": 12,
+      "reward": {
+        "shards": 10
+      },
+      "hint": "Husks come up the channels glowing wrong — drift made flesh. Thin them on the water or meet them on your pier."
+    },
+    {
+      "id": "phantom-fleet",
+      "title": "Break the Phantom Fleet",
+      "giver": "noor-avesh",
+      "kind": "kill",
+      "target": "q",
+      "count": 4,
+      "reward": {
+        "shards": 12
+      },
+      "hint": "Phantom fleets patrol the sheen in faces that were never theirs. Out here nothing is final — make them final."
+    }
+  ],
+  "intro": [
+    {
+      "title": "Chapter IX — The Drift Sea",
+      "lines": [
+        "Act III. Past the last checkpoint, the map stops promising.",
+        "The Drift: every wave that never settled, wide as a sea.",
+        "Nothing out there is final. Bring finality with you."
+      ],
+      "art": "crossing"
+    },
+    {
+      "title": "Last Light Pier",
+      "lines": [
+        "The Anchorcraft holds at the last checkpoint — the deep Drift binds to nothing.",
+        "Skiffs from here. Channel to channel, shoal to shoal.",
+        "Keep the signal alive."
+      ],
+      "art": "anchorcraft"
+    }
+  ],
+  "outro": [
+    {
+      "title": "Across the Unsettled",
+      "lines": [
+        "The corridor settles: two pads, one agreed state — and the deep is simply crossed.",
+        "Behind the crew, the wave-buoys burn in a line. The first true road on the sea.",
+        "Mid-Drift, an island of black glass glows. Names were burned there once."
+      ],
+      "art": "dawn"
+    }
+  ],
+  "modifiers": {
+    "waves": [
+      {
+        "at": 240,
+        "letters": "zzzss",
+        "edge": "s"
+      },
+      {
+        "at": 360,
+        "letters": "zzs",
+        "edge": "s"
+      },
+      {
+        "at": 480,
+        "letters": "zzffu",
+        "edge": "e"
+      },
+      {
+        "at": 600,
+        "letters": "zzs",
+        "edge": "s"
+      },
+      {
+        "at": 720,
+        "letters": "zzzzsff",
+        "edge": "s"
+      },
+      {
+        "at": 960,
+        "letters": "zzuuff",
+        "edge": "e"
+      }
+    ]
+  },
+  "tiles": [
+    "################################################################################################",
+    "#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#%%%%%%%%%%%%%%%%%%%%%%%%~~~~~~~~~~~%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#%%%%%%%%%%%%%%%%%%%%%%%%~~~~~~~~~~~%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#%%%%%%%%%%%%%%%%%%%%%%%%~~~~~~~~~~~=,.,,,,,,,..,,,,=~~~~~%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#%%%%%%%%%%%%%%%%%%%%%%%%~~~~~~~~~~~Y,,.,T.,,.,z,O...~~~~~%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#%%%%%%%%%%%%%%%%%%%%%%%%~~~~=====~~.#.,,Tf.#,...TT,=~~~~~%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#%%%%%%%%%%%%%%%%%%%%%%%%~~~~=a===~~=.,.,..##A,.,,,.=~====%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#%%%%%%%%%%%%%%%%%%%%%%%%~~~~==I==~~..,z.,,,#,,,,,,.=~=q==%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#%%%%%%%%%%%%%%%%%%%%%%%%~~~~=Y=z=~~.T.,,,,.,,.,,z.,=~==I=%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#%%%%%%%%%%%%%%%%%%%%%%%%~~~~=====~~=....#,....,,,,.=~Y==z%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#%%%%%%%%%%%%%%%%%%%%%%%%~~~~~~~~~~~=..,q..Q...,#,...~====%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#%%%%%%%%%%%%%%%%%%%%%%%%~~~~~~~~~~~=.,...,,,,.,#..,=~~~~~%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#%%%%%%%%%%%%%%%%%%%%%%%%~~~~~~~~~~~.,a..,.,..,,,.,Y=~~~~~%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#%,,,.,,,.,,,,...,,,,,.,.~~~~~~~~~~~.,,.,.,,z...,,##=~~~~~%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#%,,,,.,,,,,,,,,,,,,,,.,=~~~~~~~~~%%.,,..,,,.,q.,,...~~~~~%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#%...,,,,,,,,,,,,.,,,O,,.~~~~~~~~~%%.,,,,.,.,,,,C.,,.~~~~~%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#%.,,,,.,,.,,,,,,,,,,,,,.~~~~~~~~~%%,,O,,z..,,,.,,u,=~~~~~%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#%.,Y,,,.,,,,#########.,=~~~~~~~~~%%,,.,,...,n,,,.,,.~~~~~%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#%,..,,,,,.,,#:::::::#,,=~~~~~~~~~%%,..,.,,,.,,,,,,.=~~~~~%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#%.,..,,,.,,,#:::::::#,,.~~~~~~Y=~%%,,,.,.,,..,..,,..~~~~~%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#%,,,,.,..,T.#:::N:::#,,=~~~~~~==~%%%%%%%%%%%%%%%%%%%~~~~~%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#%,,..,#.,,T,#:::::::#,.=~~~~~~~~~%%%%%%%%%%%%%%%%%%%~~~~~=_____.__._..___._.%%%%%%%%%%%%%%%%%%#",
+    "#%,,,,,,#,,,,#::::::C#,,.~~~~~~~~~%%%%%%%%%%%%%%%%%%%~~~~~._____..zY_.__s_.__%%%%%%%%%%%%%%%%%%#",
+    "#%,,,,.,.,,.,####,####.,.~~~~~~~~~%%%%%%%%%%%%%%%%%%%~~~~~=.q.__._._.__._zv_.%%%%%%%%%%%%%%%%%%#",
+    "#%,,.,,,,,,,,Q,.,.,,,,,,=~~~~~~~~~%%%%%%%%%%%%%%%%%%%~~~~~=__O___..___._.___.%%%%%%%%%%%%%%%%%%#",
+    "#%,..,,,,,,,,,.,,.,,,,.,=~~~~~~~~~%%%%%%%%%%%%%%%%%%%~~~~~=__._#############_%%%%%%%::::::::%%%#",
+    "#%,,,,,,,,,,.,#,,.,,,,,,.~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~=._._#::::::::#::#_%%%%%%%::::::::%%%#",
+    "#%,..,.,#,,..,..,,,,,,,,.~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~=_z_.#::::::::#::#.%%%%%%%:Y::z:::%%%#",
+    "#%,,,.,,#.,,,,,,,.,.,Q,,=~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~=.__.#::J::J::#::#_%%%%%%%:::::J::%%%#",
+    "#%,,,P,P.*,,,,,,,,,,.,,,=~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~=._._#::::::::#::#_%%%%%%%::::::::%%%#",
+    "#%,;;;;;;;;;;;;;;;;;;;;;;B;;;V~~~~~~~~~~~~~~~~~~~~~~~~~~~~.s_.__:::::::::::#_%%%%%%%::O:::::%%%#",
+    "#%.;;P;P;;;;;;;;;;;;;;;;;;;;;V~~~~%%%%%%%%%%%%%%%%%%%%%%%%_.Q__.:::::::C::O#_%%%%%%%::::::::%%%#",
+    "#%.;;;;;;;;;;;;;;;;;;;;;;~~~~~~~~~%%%%%%%%%%%%%%%%%%%%%%%%..___#::::::::#::#_%%%%%%%:::v::::%%%#",
+    "#%..,.,,,,,S,,,,,.,,,N*,=~~~~~~~~~%%%%%%%%%%%%%%%%%%%%%%%%..___#::::::::#::#_%%%%%%%:z:::C::%%%#",
+    "#%,,.,,,,,,,,,,,,,,,,,,,.~~~~~~~~~%%%%%%%%%%%%%%%%%%%%%%%%..___#::J::J::#::#_%%%%%%%::::::::%%%#",
+    "#%,,######,,,,,,,,,.,,,,=~~~~~~~~~%%%%%%%%%%%%%%%%%%%%%%%%.z___#::::::::#::#.%%%%%%%::::::::%%%#",
+    "#%,,#::::#,,,,,,,,,,,,,,=~~~~~~~~~%%%%%%%%%%%%%%%%%%%%%%%%_____#::::::::#::#_%%%%%%%%%%%%%%%%%%#",
+    "#%,.#:C::#,,,,,.,..,,,,Y=~~~~~~~~~%%%%%%%%%%%%%%%%%%%%%%%%_.._.#############_%%%%%%%%%%%%%%%%%%#",
+    "#%,,#::::#,,,.,,.,,,,..,=~~~~~~~~~%%%%%%%%%%%%%%%%%%%%%%%%________._._____.__%%%%%%%%%%%%%%%%%%#",
+    "#%,,#::::#,,..,,,,#,,,,,=~~~~C=~~~=........,,..,,,..,%%%%%___.f._x___.___._._%%%%%%%%%%%%%%%%%%#",
+    "#%,.##,###.,,.,,,,,,,,,,=~~~~==~~~=n.,.,..,,,..,,,...%%%%%__________..___..__%%%%%%%%%%%%%%%%%%#",
+    "#%,,,,,,,,.,,,,,,,,,,,,#=~~~~~~~~~..O,,.,..,z.,..,Y.,%%%%%.#_.__z.____.q.____%%%%%%%%%%%%%%%%%%#",
+    "#%,.,.,,,Y,,.,.Q,,,.,,,,.~~~~~~~~~=.,#..,,,,,..,,.,.,%%%%%_##._____.f..____B_%%%%%%%%%%%%%%%%%%#",
+    "#%.,,,,,,,.,,,,,,.,...,,.~~~~~~~~~=##....,..,.,.,z.,,%%%%%_Y_._.___._.z______%%%%%%%%%%%%%%%%%%#",
+    "#%,,.,,,,.,,,,,.,,,,,.,,=~~~~~~~~~V,,,..,,Q.,,,..,,T.%%%%%.__...___n.________=________=_=__=_=_#",
+    "#%,,,.,,,,,,,,,,O,.,.,,,.~~~~~~~~~=.,,.,,,,,,,.q,.,T,%%%%%.__._.__.______._.=___=_=___z====_===#",
+    "#%.,,,,,,,,.,,.B,,,,.,,,=~~~~~~~~~=,,,T,,,,.,,.,,,,,.%%%%%___.._.....____._._____==_m___u===_=_#",
+    "#%,,.,,,,,,,,.,,,,,,,====~~~~~~~~~=,z,T,,,..#,.,C.,,,%%%%%.___.___._._____..=_=_z=_=__==_=z=_=_#",
+    "#%%%%%%%%%==B,===,B,=~~~~~~~~~~~~~...,,,.,#s..,,,.,.,%%%%%%%%%%%%%%%%%%%%%%%=_==__u_===_=______#",
+    "#%%%%%%%%%,=,,,=,==,.~~~~~~~~~~~~~.,.,.,g,,,.,,.,,,..%%%%%%%%%%%%%%%%%%%%%%%_=_=_=__=_=___=___=#",
+    "#%%%%%%%%%=g===z===,=~~~~~=====~~~=.,,,..,,,..,,T.,.,%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#%%%%%%%%%,==,=,=,,,=~~~~~Cv===~~~=.....,.,.,,,,T,,,.%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#%%%%%%%%%=,,z=,===,.~~~~~==I==~~~=,,...,,..A.,,..g,.%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#%%%%%%%%%=,==,,=,=g=~~~~~===q=~~~=...z,..,.,,.,.,,,,%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#%%%%%%%%%,,==,=,z===~~~~~=====~~~=,,.,,,Y..,..,...T.%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#%%%%%%%%%%%,,w,,,=~~~~~~~~~~~~~~~=....,..,,.,....,,,%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#%%%%%%%%%%%z,==,,=~~~~~~~~~~~~~~~%%%%%%.,,.....,%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#%%%%%%%%%%%,,=,,,z~~~~~~~~~~~~~~~%%%%%%.,z,.u,,.%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#%%%%%%%%%%%==,,w,.~~~~~~~~~~~~~~~%%%%%%....,,z..%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#%%%%%%%%%%%,,,=,==~~~~~~~~~~~~~~~%%%%%%,,,...,,.%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "################################################################################################"
+  ]
+}

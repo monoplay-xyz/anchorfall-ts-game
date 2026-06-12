@@ -17,17 +17,21 @@ npm run build-static   # serverless dist/ build for Batocera (docs/BATOCERA.md)
 
 ## Game modes
 
-45 levels across five categories (`levels/<category>/`), all served by
+48 levels across five categories (`levels/<category>/`), all served by
 `/api/levels` and all playable solo or couch co-op:
 
 - **Classic Campaign** — the 10 original arcade levels: one screen, one-hit
   operatives, a countdown clock, rescue the captives, reach the exit.
-- **Story: Anchorfall Crossing** — eight chapters with intro/outro cutscenes,
-  a persistent roster, and one save slot: *The Long Crossing*, *Lythium
-  Basin*, *Broken Quorum*, *Forkfall*, *Cluster Siege*, *Final Settlement*,
-  *The Anchorcraft*, and *The Prover Array*. Rescued operatives carry across
-  chapters; save beacons checkpoint runs mid-chapter. Story missions are
-  untimed — the clock counts up.
+- **Story: Anchorfall Crossing** — eleven chapters with intro/outro
+  cutscenes, a persistent roster, and one save slot. Acts I–II: *The Long
+  Crossing*, *Lythium Basin*, *Broken Quorum*, *Forkfall*, *Cluster Siege*,
+  *Final Settlement*, *The Anchorcraft*, *The Prover Array*. Act III crosses
+  the unsettled Drift to the Entropy's source: *The Drift Sea* (a void-sea
+  archipelago of skiff channels and teleport wave-tunnels), *The Burned
+  Names* (a necropolis of glyph rites under ashstorm weather), and *Genesis
+  Drift* (the first Anchor ever settled — a three-act, multi-boss finale).
+  Rescued operatives carry across chapters; save beacons checkpoint runs
+  mid-chapter. Story missions are untimed — the clock counts up.
 - **Stronghold** — a 25-level siege-survival campaign (`sh01`–`sh25`).
   Day/night cycles with blood-moon nights, LYTH-shard economy, build sites
   (walls, barricades, farms, and Gun / Prism / Tesla / Toxin turrets), and a
@@ -36,11 +40,18 @@ npm run build-static   # serverless dist/ build for Batocera (docs/BATOCERA.md)
   starters (Scout, Soldier, Grenadier, Medic) toward all 17.
 - **Versus — couch** (2–4 players, one screen, no AI enemies):
   **Capture the Flag** (two teams, per-team shard pools, first to the cap
-  limit) and **Battle Royale** (free-for-all on a shrinking zone — couch BR
-  always splits the screen so opponents never share a camera).
+  limit; a tied clock goes to sudden death, and overtime escalates — every
+  20s both teams' respawns stretch +1s up to +5, dropped flags return twice
+  as fast past the minute, and the HUD pins **OVERTIME +n**) and **Battle
+  Royale** (free-for-all on a shrinking zone — couch BR always splits the
+  screen so opponents never share a camera).
 - **Online** — host Classic, Story, Stronghold, CTF, or Battle Royale rooms,
   or join with a 4-letter code. Up to 4 couch seats per machine, 8 players
-  per room. Each machine splitscreens only its own local seats.
+  per room. Each machine splitscreens only its own local seats. Rooms
+  survive a host disconnect (leadership migrates to the oldest remaining
+  connection; a room only closes when empty), and a dropped player's seats
+  are held for 120s — rejoining with the same name and room code mid-level
+  reclaims them through the respawn-pick flow.
 
 ## Couch co-op (local multiplayer)
 
@@ -113,6 +124,16 @@ the alarm — and they pathfind (A*) around walls and water instead of hugging
 the nearest wall. Small classic maps keep the original everyone-attacks
 arcade behavior.
 
+Online, big maps are internet-ready: the server serializes snapshots per
+connection, trimming the bulk swarms (enemies, shots, drops, ground patches,
+crackers) to a 26-tile interest area around that connection's seats — while
+players, flags, builds, cores, and every other gameplay-critical entity
+always ship in full. A compact global enemy array rides every 3rd tick so
+the minimap keeps working beyond the interest radius, and a connection
+falling behind (>256KB buffered) skips state ticks until it catches up —
+mission-critical messages (level start/end, lobby, cutscenes) are never
+skipped. Local sessions keep full snapshots.
+
 Mark a level with `"expedition": true` to get a menu shortcut to it.
 
 ## Audio
@@ -144,5 +165,27 @@ longer looked up.)
 
 Kills are worth `100 × combo` (combo chains within 2s, up to ×9), `+250` per
 extraction, `+500` per rescue.
+
+## Rankings
+
+Every level has a leaderboard (main menu → **Rankings**): top 50 runs per
+board, ranked by score with completion time breaking ties, with a
+score/fastest sort toggle and your latest run highlighted. Boards are keyed
+`<category>/<filename-stem>` (e.g. `story/ch01`, `stronghold/sh17`) and
+persist server-side in `saves/rankings.json` (atomic writes).
+
+- **Online rooms** record every level clear automatically, server-side —
+  the party's names, score, and elapsed time. CTF records the winning
+  team at `captures × 1000` points with the match length as the time;
+  Battle Royale records the champion's kills the same way.
+- **Local sessions** served by a server POST their clears to
+  `/api/rankings` (validated, clamped, rate-limited 10/min per IP, marked
+  `online:false`).
+- **Static builds** (no server) keep personal bests in `localStorage`; the
+  Rankings page shows those, labelled as local bests.
+
+A run that places top 50 toasts `RUN RECORDED — #rank`. REST surface:
+`GET /api/rankings` (boards with entries), `GET /api/rankings/<cat>/<stem>`
+(one board), `POST /api/rankings` (local-run submission).
 
 Level and character modding work exactly as in v1 — see `../holdout/README.md`.

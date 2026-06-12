@@ -1,0 +1,563 @@
+{
+  "name": "The Burned Names",
+  "story": true,
+  "chapter": 10,
+  "title": "Chapter X — The Burned Names",
+  "expedition": true,
+  "objective": "Cross the island of the exiles — forge the Seal, strike the rite, toll seven of ten mourning bells, and take the heading to Genesis",
+  "time": 900,
+  "weather": "ashstorm",
+  "ambience": "ash",
+  "captiveChars": [],
+  "npcs": [
+    {
+      "id": "sere-kallow",
+      "name": "Sere Kallow, Archivist of the Struck Ledger",
+      "lines": [
+        "Sere Kallow. I keep the Struck Ledger — every burned name, every second signature, every reason.",
+        "We burn the name and keep the lesson. Erase both, and the Fall happens twice.",
+        "Seven hundred names struck since Genesis. Not one was forced. Every equivocation is a choice made twice.",
+        "The rite at the bell tower goes name, bond, burn — each rune once and only once. The mark that cannot be unsaid comes last. It always comes last.",
+        "Seven of ten mourning bells inside the window. A true count, even over the dead. Especially over the dead.",
+        "The vault answers a LythiumSeal and nothing else. Hask’s law holds even here: it never names the innocent — it only fails the forged."
+      ],
+      "gift": {
+        "shards": 8
+      }
+    },
+    {
+      "id": "the-penitent",
+      "name": "The Penitent (Name Burned)",
+      "lines": [
+        "No name. Don’t ask. Mine is in the ledger with a line through it, and the line is the truest thing I ever signed.",
+        "I signed twice the night of the Fall. Once for the chain, once for the whisper. The whisper paid better — for an hour.",
+        "One hundred percent. That is what burning costs. Not most of you. All of you, and no road back by bonding again. The ledger is right, and I hate that it is right.",
+        "The Entropy pays in second chances. If you are ever holding two of anything that should be one — drop both and run.",
+        "The Phantoms wear us. Every stolen face out there is a name from the Struck Ledger. Walk the Seal close and give a dead man his line back.",
+        "Take my shards. Spent men shouldn’t hold money. It remembers being carried by someone else."
+      ],
+      "gift": {
+        "shards": 10
+      }
+    }
+  ],
+  "builds": [
+    {
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "beacon",
+      "cost": 10
+    }
+  ],
+  "chests": [
+    {
+      "loot": "cracker",
+      "amount": 2
+    },
+    {
+      "loot": "cracker",
+      "amount": 2
+    },
+    {
+      "loot": "token",
+      "amount": 1
+    },
+    {
+      "loot": "token",
+      "amount": 1
+    },
+    {
+      "loot": "shards",
+      "amount": 9
+    },
+    {
+      "loot": "medkit",
+      "amount": 1
+    },
+    {
+      "loot": "shards",
+      "amount": 8
+    },
+    {
+      "loot": "shield",
+      "amount": 1
+    },
+    {
+      "loot": "shards",
+      "amount": 7
+    },
+    {
+      "loot": "shards",
+      "amount": 12
+    }
+  ],
+  "vehicles": [
+    {
+      "kind": "skiff"
+    },
+    {
+      "kind": "skiff"
+    }
+  ],
+  "pickups": [
+    {
+      "kind": "railcannon"
+    },
+    {
+      "kind": "stormgun"
+    }
+  ],
+  "qitems": [
+    {
+      "id": "frag-east",
+      "kind": "fragment"
+    },
+    {
+      "id": "frag-west",
+      "kind": "fragment"
+    },
+    {
+      "id": "frag-keeper",
+      "kind": "fragment"
+    }
+  ],
+  "switches": [
+    {
+      "id": "bell-1",
+      "group": 0
+    },
+    {
+      "id": "bell-2",
+      "group": 0
+    },
+    {
+      "id": "bell-3",
+      "group": 0
+    },
+    {
+      "id": "bell-4",
+      "group": 0
+    },
+    {
+      "id": "bell-5",
+      "group": 0
+    },
+    {
+      "id": "bell-6",
+      "group": 0
+    },
+    {
+      "id": "bell-7",
+      "group": 0
+    },
+    {
+      "id": "bell-8",
+      "group": 0
+    },
+    {
+      "id": "bell-9",
+      "group": 0
+    },
+    {
+      "id": "bell-10",
+      "group": 0
+    }
+  ],
+  "switchGroups": [
+    {
+      "group": 0,
+      "need": 7,
+      "of": 10,
+      "window": 120,
+      "reward": {
+        "openDoor": "vault-gate"
+      }
+    }
+  ],
+  "glyphs": [
+    {
+      "id": "rite-name",
+      "symbol": 2,
+      "group": 0
+    },
+    {
+      "id": "rite-bond",
+      "symbol": 3,
+      "group": 0
+    },
+    {
+      "id": "rite-burn",
+      "symbol": 5,
+      "group": 0
+    },
+    {
+      "id": "keeper-anchor",
+      "symbol": 0,
+      "group": 1
+    },
+    {
+      "id": "row-quorum",
+      "symbol": 6,
+      "group": 2
+    },
+    {
+      "id": "keeper-burn",
+      "symbol": 5,
+      "group": 1
+    },
+    {
+      "id": "row-burn",
+      "symbol": 5,
+      "group": 2
+    }
+  ],
+  "glyphGroups": [
+    {
+      "group": 0,
+      "order": [
+        2,
+        3,
+        5
+      ],
+      "reward": {
+        "openDoor": "reliquary"
+      }
+    },
+    {
+      "group": 1,
+      "order": [
+        0,
+        5
+      ],
+      "reward": {
+        "openDoor": "tomb-west"
+      }
+    },
+    {
+      "group": 2,
+      "order": [
+        6,
+        5
+      ],
+      "reward": {
+        "openDoor": "tomb-east"
+      }
+    }
+  ],
+  "doors": [
+    {
+      "id": "vault-gate",
+      "x": 22,
+      "y": 19,
+      "w": 2,
+      "h": 1
+    },
+    {
+      "id": "vault",
+      "x": 25,
+      "y": 11,
+      "w": 1,
+      "h": 2,
+      "sealLock": true
+    },
+    {
+      "id": "reliquary",
+      "x": 53,
+      "y": 28,
+      "w": 2,
+      "h": 1
+    },
+    {
+      "id": "tomb-west",
+      "x": 12,
+      "y": 49,
+      "w": 1,
+      "h": 2
+    },
+    {
+      "id": "tomb-east",
+      "x": 77,
+      "y": 52,
+      "w": 1,
+      "h": 2
+    }
+  ],
+  "quests": [
+    {
+      "id": "q-registry",
+      "main": true,
+      "title": "The Ash Registry",
+      "giver": "sere-kallow",
+      "kind": "reach",
+      "target": {
+        "x": 46,
+        "y": 41
+      },
+      "count": 1,
+      "reward": {
+        "shards": 6
+      },
+      "hint": "Make landfall and reach the registry hall where the Struck Ledger is kept."
+    },
+    {
+      "id": "q-fragments",
+      "main": true,
+      "title": "Fragments, Not Promises",
+      "giver": "sere-kallow",
+      "kind": "fetch",
+      "item": "fragment",
+      "count": 2,
+      "reward": {
+        "shards": 10
+      },
+      "hint": "Two proof fragments from the phantom nests, for the Ledger. A third sleeps with the keepers in the west tomb — the anvil will want one of its own."
+    },
+    {
+      "id": "q-seal",
+      "main": true,
+      "title": "The Combining",
+      "giver": "the-penitent",
+      "kind": "craft",
+      "target": "lythseal",
+      "count": 1,
+      "reward": {
+        "shards": 8
+      },
+      "hint": "A proof fragment and twenty shards at the registry’s cold anvil. The anvil cannot interpolate promises."
+    },
+    {
+      "id": "q-faces",
+      "main": true,
+      "title": "Give Back the Faces",
+      "giver": "the-penitent",
+      "kind": "kill",
+      "target": "q",
+      "count": 10,
+      "reward": {
+        "shards": 12
+      },
+      "hint": "Ten Phantoms wear burned names near the necropolis. Walk the Seal close and the stolen faces boil off — it never names the innocent, it only fails the forged."
+    },
+    {
+      "id": "q-rite",
+      "main": true,
+      "title": "The Rite of Striking",
+      "giver": "sere-kallow",
+      "kind": "glyph",
+      "target": "0",
+      "count": 1,
+      "reward": {
+        "shards": 8
+      },
+      "hint": "At the bell tower: name, bond, burn — each rune once and only once. The mark that cannot be unsaid comes last. It always comes last."
+    },
+    {
+      "id": "q-bells",
+      "main": true,
+      "title": "The Mourning Bells",
+      "giver": "sere-kallow",
+      "kind": "switch",
+      "target": "0",
+      "count": 1,
+      "reward": {
+        "shards": 10
+      },
+      "hint": "Toll seven of ten bells inside the window. A true count, even over the dead. Especially over the dead. The toll opens the vault approach."
+    },
+    {
+      "id": "q-vault",
+      "main": true,
+      "title": "The Vault of Names",
+      "giver": "sere-kallow",
+      "kind": "reach",
+      "target": {
+        "x": 19,
+        "y": 12
+      },
+      "count": 1,
+      "reward": {
+        "shards": 8
+      },
+      "hint": "The vault answers a LythiumSeal and nothing else. Inside: the heading to Genesis, where the first word was signed."
+    },
+    {
+      "id": "q-quay",
+      "main": true,
+      "title": "Skiff Out",
+      "giver": "sere-kallow",
+      "kind": "reach",
+      "target": {
+        "x": 71,
+        "y": 2
+      },
+      "count": 1,
+      "hint": "The heading is yours. Reach the far quay and skiff out for Genesis."
+    },
+    {
+      "id": "q-keepers",
+      "title": "Lay the Keepers to Rest",
+      "giver": "the-penitent",
+      "kind": "glyph",
+      "target": "1",
+      "count": 1,
+      "reward": {
+        "shards": 6
+      },
+      "hint": "Anchor, then burn, at the keeper tomb in the west rows. Burned, not forgotten — that is the whole mercy."
+    },
+    {
+      "id": "q-eastrow",
+      "title": "Still the East Row",
+      "giver": "sere-kallow",
+      "kind": "glyph",
+      "target": "2",
+      "count": 1,
+      "reward": {
+        "shards": 6
+      },
+      "hint": "Quorum, then burn, over the east tombs. A true count holds even here."
+    }
+  ],
+  "intro": [
+    {
+      "title": "Chapter X — The Burned Names",
+      "lines": [
+        "An island of black glass, where the chain keeps its exiles.",
+        "They signed twice the night of the Fall. The Entropy paid them in second chances.",
+        "Bonds burned. Names struck. Faces — stolen since."
+      ],
+      "art": "entropy"
+    },
+    {
+      "title": "The Struck Ledger",
+      "lines": [
+        "One key is a confession. Two signatures are a sentence.",
+        "The Seal never names the innocent. It only fails the forged.",
+        "Toll a true count over the dead."
+      ],
+      "art": "quorum"
+    }
+  ],
+  "outro": [
+    {
+      "title": "Names at Rest",
+      "lines": [
+        "The last stolen face boils off, and the ash lies still.",
+        "The Struck Ledger closes. Burned, not forgotten — that is the whole mercy.",
+        "The vault gives up one heading: Genesis. Where the first word was signed."
+      ],
+      "art": "dawn"
+    }
+  ],
+  "modifiers": {
+    "waves": [
+      {
+        "at": 300,
+        "letters": "zzqqs",
+        "edge": "n"
+      },
+      {
+        "at": 600,
+        "letters": "qqffq",
+        "edge": "w"
+      },
+      {
+        "at": 840,
+        "letters": "qzqz",
+        "edge": "e"
+      },
+      {
+        "at": 960,
+        "letters": "qqzz",
+        "edge": "e"
+      },
+      {
+        "at": 975,
+        "letters": "zzqq",
+        "edge": "s"
+      }
+    ]
+  },
+  "tiles": [
+    "##########################################################################################",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~,,,,,,,,,,,,,,~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~V,,,,,,,q,,,,,~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~,,,,,v,,,,v,,,~~~~~~~~~~~#",
+    "#_____;_;__;__;;_;;___;__;;;____;___,,,,,,,;,,;;,,;;,,,,,,,,,;;;,,,,,,,,,,,,,,;;;;;;;_;__#",
+    "#_;________;__;_________;_________;;,,,;,,,,;;,;,,,,;;,,;;;,;;_;__;_;;;;;;__;;_;;;;;_;;_;#",
+    "#_______;_#########################_,,,,;;;;,,;,,,,;;,,,,,,,;;__;;;_;;;;;;__;;;;;_;_;;;;;#",
+    "#_____;__;#___;;__;;_;___;;_;__;;;#;,,,,;;,;,Y,,,,,;,,,,;,;;,;;;;;_;_;__;_;;;_;;__;;;;;;;#",
+    "#____;____#__#############__;_;C__#_,,,,,,,,;,,;;,,,,,;,,,Y;,;;_;;;__;;;;;;;;__;;;C;;__;;#",
+    "#____Y__;_#__#______;_;_;#___x_;__#_,;;,,;,;,,,,,;,;;;,,,;,,;;;;_;;;____;;_;__;;___;;;;;;#",
+    "#_;_;__;;_#__#__;;q_;;___#_______;#_,;;,,;;,,,;,,;,,,,,,,,;;;_;;__;_;;_;;__;_;;;;_;;___;;#",
+    "#_;__;____#__#__;__;_;____;_;__;__#_,,,;,;,,;,,;,,,,,;,;,,;;,;;;_;;_;;;;;;;;;;;_;;;;_;;__#",
+    "#;_;___;__#__#__C;___b_;__;_q___;_#;,Y;,,;,###,;;,v;,,,;;,;;,;;_;;_;_;;;;;;;;;;;_;;;;;;;;#",
+    "#;;_______#__#________;;_#;__;____#;,,,,,,;###,;;;,,,,,,;,,,,;;;;;;_;;_;;;_;_;;;_;;__;_;;#",
+    "#;____;;__#_;#;___q;_____#________#_;,,##,,,##,,,,,,,,;;;,,,,;v;_;;;__;;____;;;;__;;;;;;;#",
+    "#___;_____#__#___;__;____#_______;#_,,;;#,;;;;,;,,,,Q,,,,,,;,;;_;;;__;;;;;;;;;;;;;;;;;;;;#",
+    "#_______;_#__#############___x_;_;#;,;,,,;,,,,;,,,,,,;,,,,;,,;_;;;;;;;;___;;;;;;;_;;;_;;_#",
+    "#_____;__;#__;_q______;;__;_;;;;_;#_;,,,,;,,,,;,,,,#,,,,;,,,,;_;;_;x;_;;;;;;_;_;;;;;;_;;;#",
+    "#___;_____#__;______;;__;______;;_#_;;;,;,,,;;,,,,,#,,,x,,,,,_##;;;##;;;##_;_##;_;##;_Y;_#",
+    "#;;______;############__###########;;,,,,,,;,,,,;,,,,,,,,,,,,__;;_;;;;;;;;___;_;;;_;;;;;;#",
+    "#;___;__;__;__;__________;_;___;_;__,,,,Q;;;;,q,;,;;,,,,,;,;,__;Q;;_;_;;_;;;;;;_;;f___;;_#",
+    "#__;___Y_;____________b__;_;_;;__;;;,,,,;,,,,,;;;###########;;;;;;;;;;_;;f_;;;__;_;;__;_;#",
+    "#__;_______________;_____;B________;;,,,;,,,,,,,;#;,,,,;,,;#,;;##;z;##__;##;;;##;;;##_;;;#",
+    "#____##;__##___##;;;##__;____;##___;;;,,,,,,,;,,;#,,,,;,,,;#;;_;_;;;;q;_;;;;_;;;_;___;__;#",
+    "#___________;_;;;;_;_;__;;_____;___;,;,,,,,,,,,,;#,,,;A,;;,#,;_;__;;;;;I;_;_;_q;;;__;;;;;#",
+    "#_;_;_;______;______________________,;;;,;,;;,,;,#,;C,,;C,,#;_;;_;;f_;___q_;;;;;;;;_;;_;;#",
+    "#___;_;___z____;;___;___f_______Q___,,;,,;,,z,,,,#;;,;;,,;,#q_##_;;##;;;##;;;##;;;##s;_;;#",
+    "#;_;##___##___##___##___##;__##_____;,;,;,;,,,,,;#,;;;,;,,,#,;;_;;;_;;;;;_;;;_;_;_;;_;;;_#",
+    "#______s__;_;__;__;;f___;____;;_____,,;,,,;,,,;,;####,,#####;_;;;;;;_;;_;_;___z__;;_;_;__#",
+    "#_;;_;_____;__;q__;__;;_____________;;,,;,,,;,,,,,,,,;,;,,,,,;s;;_;;;;;Q;;;;;;_;_;_;;;;;_#",
+    "#_;_________;;___I______;___________,B,,,,f,;,;s,,,,;,,,,;,,;;_##;__##;;;##;;;##;;_##;Y;;#",
+    "#_;_;##;;_##;;_#_;_q##;__##;;;##;;__,,,,,,,;;,;,,,;J,;J,,J,;B;;;_;_;;;;;;;;;f__;;___;;;;;#",
+    "#_;_______;__;f__________________;_;;,,,,,,;,;,,,,,,,,,,,,,;,;__;;;;_;_;q_;;;;;;;;;;;_;;_#",
+    "#__;__________;__;;_;_;;;___;_______;,z;,,,;;;,;;,,,,,,,f,,,,;_;;___;_;;_;_;;;;;;_;;;__;;#",
+    "#_;___;;___;;________;z_;_____;;;__;;,,,,,,,;,,B,,,;;,;;,,,;,;##z;;##;;;##__;##;q;##;;_;_#",
+    "#_;_##_;;##;;_##__;##_;_##__;_#_;;_;,;,,,,,,,,,,z;q,,,,,,,;,,__;;;;;;;;;;;;;;;;;;;;;;__;;#",
+    "#_____;_z;_______;__________Q;__;;__;,,,,,,;,,,,;;;;;,;,;,z;,;;;;;;;_;f;_;;;_;;;_;_;;;;;;#",
+    "#_____;;___;_______;________________,,,,,;,,,;,,,;;,,,,;,,,,,;;_;;;;;;;;;__;_;_;_;__;;;_;#",
+    "#__;___;;_____;___f_;____;__________;,,######,;,######;,,,;,,__##_q_##;;;##_z;##;;_##_;;_#",
+    "#____##___##___##_;_##_;;##;;;##____,,,#;,,,,,,;;,,,,#;;;,,;,;;;;;;___;;;;_;_;;__;__;;;;;#",
+    "#__Y____;____;;;____;;___;__;___;__;,,;#,;,,,,,,,,;;;#,,,,;,,;;;;;_;;;;;_;_;_;;;;;_;;;_;;#",
+    "#_;;________;____;__;____;_____;____,,,#,,,,,,;,,;,,,#,,,,,;;_;;;_;;_Q;;;;;;;;_;;z;;;__;;#",
+    "#____;;_;____;___;;_u_;__;z;________u,,#,,Z,;;,,;N*;;#,,,,,,,;##;;;#;;;;##_;_##;;;##;;;;;#",
+    "#___##___##_;_##___##_;;##___##_____,,,#;,;,,,,,,,,,;#,,,,,;,__;__;;;;;;_;;_;;;_;____;__;#",
+    "#;__;;______z__;______;_________;_;_;;,#,,;,,,,,,;C;,#,;B;,;,;u_;;;;;;;_;;x_;;;_;;;;;;_;;#",
+    "#___;_;;_____;_;_____;;;____________,,,#;,;,;,,;;,,,,#,,;,,,,__;_;;;;_;_;;;;;;u;_;;;;_;;;#",
+    "#____;____;_;;;;_______;____;______;;,,###############,,;;,,;_;##__;##;;_##_;;##;_;##_Y;;#",
+    "#___;_#######___;__f___;__;___;;_Q__,;,,;,,;,,,;,;,,;,,,;,,;,;;;;;;;;;;;;;;_;;;_;;;;;_;_;#",
+    "#__;__#_C;_;#_;_;____;_;______;_____,,,,,,,;;,;;;,,;,;,;,,,;,_;;;;;;_;;;_;__;__;;_;_;;_;;#",
+    "#__;_;#________J______;__;____;__#;_,,,;,,,;,,;,;;,,,,#,,;Q,,___;;_;;_;_;;__;########;_;;#",
+    "#;;___#__I;______;__;___;___;;_##_;_,,,,,;,,,,,,,,,;,,;,,;;,,_;;__;_;;f;;____#;_;;;;#;;_;#",
+    "#__;;_#_____#_;__q;;__;____;__###;;_;;,,,,,,Q,##;,,,,,,,,,,,,;_;;_;;;;;;__J;;#;;;;;;#_;;;#",
+    "#___;_#_____#;_J____;_z;_;__________;,,;,,,,;,,;,,;,,,;,;,;,,__;_;;;_;;;q__;;;;_C;;;#;_;;#",
+    "#_____#######_________;______;_____;,;,,,,,;;,,,;,,,;;;,;,,,;_;_;;___;;_;_;;;;__;_;;#;;_;#",
+    "#_;;_;__;;_;_;______;______;____;___,;,,;,,,,,;,,,,;,,;,,;,,,;_;__;;;__;;;J;;#_;;A__#;__;#",
+    "#_;____;;;_________;;_;____;;__;___;,Y;;,;,,,,;;,;,;;,,,,,;,,_;_;;;Y;_;_;;;;_#;_;;;_#___;#",
+    "#____...__.._____....__.._f.._....____.....__________..__#_.._.___.....__z__.########____#",
+    "#__..__.__...Y._..z____.Y....__...____.......___...__..Y.#._.__._._..._.____.__._..__....#",
+    "#.....__..._..__....._._z..._____......__________..__....#_._..._...._.._._...____._.....#",
+    "#__.___._.._.z..__.__...___...z._._.__._____.._________._____._..__.______...__.___._..._#",
+    "#__._____.__....._____._...._______.._.._.__.__.....__._..._.__._.__.._.___._.____._._._.#",
+    "#~~~~~~~~~~~~~~,C,,,,,,N*,,,~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~,,,P,P,,,,,,V~~~~~~~~~~~~~~~~,,C,,~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~,,,P,P,,,,,,,~~~~~~~~~~~~~~~~,,,,,~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~,,,,,,,,,,,,,~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "##########################################################################################"
+  ]
+}

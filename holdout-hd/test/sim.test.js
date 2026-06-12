@@ -2,7 +2,7 @@ import assert from 'assert/strict';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { applyResults, charsById, createGame, parseLevel, questProgress, restoreGame, serializeGame, snapshot, step, TILE } from '../shared/game.js';
+import { applyResults, charsById, createGame, parseLevel, questProgress, restoreGame, revivePlayer, serializeGame, snapshot, step, TILE } from '../shared/game.js';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const characters = JSON.parse(fs.readFileSync(path.join(root, 'shared/characters.json'), 'utf8'));
@@ -6067,11 +6067,129 @@ function testNextBloodMoonCountdownFlag() {
   assert.equal(s.cycle.nextBloodMoon, true, 'the day before a blood moon flags the countdown');
 }
 
+// --- revivePlayer: a held-out seat re-enters via the existing respawn-pick
+// flow (server mid-level rejoin); no free operatives leaves it out ---
+function testRevivePlayerRejoinFlow() {
+  // 12x9 arcade map; the lone grunt is sealed in a pocket so it can neither
+  // interfere nor die (an empty field would auto-clear the mission)
+  const tiles = [
+    '############',
+    '#..........#',
+    '#PP........#',
+    '#..........#',
+    '#..........#',
+    '#........###',
+    '#........#g#',
+    '#........###',
+    '############',
+  ];
+  const def = { name: 'Revive Test', time: 300, captiveChars: [], tiles };
+  const party = [0, 1].map(i => ({ pid: i, name: 'P' + i, charId: startingRoster[i] }));
+  const g = createGame(def, party, charMap, [startingRoster[0], startingRoster[1]]);
+  const [p0, p1] = g.players;
+  assert.equal(revivePlayer(g, 0), false, 'an active seat refuses revival');
+  assert.equal(revivePlayer(g, 7), false, 'an unknown pid refuses');
+  // down p0 away from p1 (the captive body must not be auto-rescued)
+  p0.x = 5 * TILE + TILE / 2; p0.y = 4 * TILE + TILE / 2;
+  p0.invuln = 0;
+  enemyShotAt(g, p0);
+  run(g, () => ({ 0: {}, 1: {} }), 2.6); // down -> 2s timer -> no free chars
+  assert.equal(p0.state, 'out', 'no free operatives: the seat parks out');
+  assert.equal(g.status, 'play', 'a teammate still standing keeps the level live');
+  assert.equal(revivePlayer(g, 0), false, 'no free operatives: revival refused');
+  assert.equal(p0.state, 'out', 'the refused seat stays out');
+  // a freed operative makes the rejoin land in the pick flow
+  g.roster.push(startingRoster[2]);
+  assert.equal(revivePlayer(g, 0), true, 'free operative: revival accepted');
+  assert.equal(p0.state, 'pick', 'revival re-enters the existing pick flow');
+  assert.equal(p0.pickIdx, 0, 'pick cursor starts at the first choice');
+  assert.deepEqual(p0.pickPrev, { left: true, right: true, fire: true },
+    'all-held pickPrev: a held button cannot instantly confirm');
+  assert.equal(revivePlayer(g, 0), false, 'a seat mid-pick refuses a second revival');
+  const sp = snapshot(g, false).players[0];
+  assert.deepEqual(sp.pick, { idx: 0, choices: [startingRoster[2]] },
+    'snapshot ships the rejoiner pick choices');
+  // held fire never confirms; release-then-press deploys the operative
+  step(g, { 0: { fire: true }, 1: {} }, 1 / 30);
+  assert.equal(p0.state, 'pick', 'held fire does not confirm');
+  step(g, { 0: {}, 1: {} }, 1 / 30);
+  step(g, { 0: { fire: true }, 1: {} }, 1 / 30);
+  assert.equal(p0.state, 'active', 'released-then-pressed fire confirms');
+  assert.equal(p0.charId, startingRoster[2], 'the freed operative deploys');
+  assert.ok(g.events.some(ev => ev.type === 'spawn'), 'spawn event fired');
+  // determinism: the same calls on a restored twin produce the same answers
+  const g2 = restoreGame(serializeGame(g), charMap);
+  assert.equal(revivePlayer(g2, 0), false, 'restored twin agrees: active seat refuses');
+}
+
+// --- ctf overtime escalation: respawn +1s per 20s of sudden death (cap +5),
+// drop timer halves at +60s, snapshot ships the HUD level, 180s cap holds ---
+function testCtfOvertimeEscalation() {
+  const party = [0, 1].map(i => ({ pid: i, name: 'P' + i, charId: startingRoster[i] }));
+  const g = createGame(ctfDef(), party, charMap, startingRoster);
+  const [p0, p1] = g.players;
+  const [f0, f1] = g.flags;
+  for (const p of g.players) p.invuln = 0;
+  const resetFlag = f => { f.carrier = null; f.atBase = true; f.x = f.homeX; f.y = f.homeY; f.dropT = 0; };
+  // regulation: no overtime key, standard 5s respawn and 8s drop timer
+  assert.ok(!('overtime' in snapshot(g, false)), 'regulation snapshots never carry overtime');
+  p0.x = f1.homeX; p0.y = f1.homeY;
+  step(g, { 0: {}, 1: {} }, 1 / 30);
+  assert.equal(f1.carrier, 0, 'p0 grabbed the enemy flag');
+  pvpShotAt(g, p0, 1, 1, 9);
+  step(g, { 0: {}, 1: {} }, 1 / 30);
+  assert.equal(p0.state, 'down', 'carrier downed');
+  assert.ok(Math.abs(p0.respawn - 5) < 0.05, 'regulation ctf respawn stays 5s');
+  assert.ok(Math.abs(f1.dropT - 8) < 0.1, 'regulation drop timer stays 8s');
+  resetFlag(f1);
+  // tie at the horn -> sudden death opens at OVERTIME +0
+  g.caps = [1, 1];
+  g.timeLeft = 0.05;
+  run(g, () => ({}), 0.2);
+  assert.equal(g.suddenDeath, true, 'sudden death armed');
+  assert.equal(snapshot(g, false).overtime, 0, 'the horn opens at OVERTIME +0');
+  // +45s in: level 2 — respawns stretch, the drop timer still runs full
+  g.suddenT = 45;
+  p0.state = 'active'; p0.hp = p0.maxHp; p0.shield = 0; p0.invuln = 0; p0.respawn = 0;
+  p0.x = f1.homeX; p0.y = f1.homeY;
+  step(g, { 0: {}, 1: {} }, 1 / 30);
+  assert.equal(f1.carrier, 0, 'overtime grab taken');
+  assert.equal(snapshot(g, false).overtime, 2, '45s of overtime reads +2');
+  pvpShotAt(g, p0, 1, 1, 9);
+  step(g, { 0: {}, 1: {} }, 1 / 30);
+  assert.equal(p0.state, 'down', 'overtime carrier downed');
+  assert.ok(Math.abs(p0.respawn - 7) < 0.05, '+2 overtime adds 2s to the respawn');
+  assert.ok(Math.abs(f1.dropT - 8) < 0.1, 'before +60s the drop timer stays full');
+  resetFlag(f1);
+  // +130s in: capped at +5, and dropped flags tick home in half the time
+  g.suddenT = 130;
+  assert.equal(snapshot(g, false).overtime, 5, 'escalation caps at +5');
+  p1.invuln = 0;
+  p1.x = f0.homeX; p1.y = f0.homeY;
+  step(g, { 0: {}, 1: {} }, 1 / 30);
+  assert.equal(f0.carrier, 1, 'p1 grabbed the enemy flag');
+  pvpShotAt(g, p1, 0, 0, 9);
+  step(g, { 0: {}, 1: {} }, 1 / 30);
+  assert.equal(p1.state, 'down', 'deep-overtime carrier downed');
+  assert.ok(Math.abs(p1.respawn - 10) < 0.05, 'capped overtime respawn is 10s');
+  assert.ok(Math.abs(f0.dropT - 4) < 0.1, 'past +60s dropped flags return in half the time');
+  // a save/restore round-trip keeps the escalation level
+  const g2 = restoreGame(serializeGame(g), charMap);
+  assert.equal(snapshot(g2, false).overtime, 5, 'a restored match keeps its overtime level');
+  // the 180s grab-count cap stays the final backstop (grabs ran 2-1 here)
+  g.suddenT = 179.9;
+  run(g, () => ({}), 0.3);
+  assert.equal(g.status, 'cleared', 'the 180s cap still ends overtime');
+  assert.equal(g.winner, 0, 'more grabs still takes the capped match');
+}
+
 testEnemyShotsBlockedByStructures();
 testCoreGnawNeedsWaveOrSealedTarget();
 testShipBoardingEdgeWalkAwayAndLaunch();
 testCornerPinnedMarcherReachesCore();
 testPathBudgetThrottleAndDormancy();
 testNextBloodMoonCountdownFlag();
+testRevivePlayerRejoinFlow();
+testCtfOvertimeEscalation();
 
 console.log('sim tests passed');

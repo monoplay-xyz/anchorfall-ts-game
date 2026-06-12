@@ -10,7 +10,13 @@ import { playEvent, playUi, setupAudioToggle, setMusicVolume, setVoiceVolume, se
 
 const characters = await (await fetch('/shared/characters.json')).json();
 const charMap = charsById(characters);
-const levels = await (await fetch('/api/levels')).json();
+// build-static.js rewrites the quoted /api/levels literal below to a relative
+// ./levels.json — that rewrite doubles as the static-build marker: no server
+// means no online play and no shared rankings (personal bests live in
+// localStorage instead; see the rankings section).
+const LEVELS_URL = '/api/levels';
+const IS_STATIC = !LEVELS_URL.startsWith('/api');
+const levels = await (await fetch(LEVELS_URL)).json();
 // Levels are organized by category subdirectory (classic/story/stronghold/
 // ctf/br) and each def carries its subdir as def.category. Mode lists derive
 // from the category; the old per-def flags stay as fallbacks so a stale
@@ -211,8 +217,10 @@ function hideBanner() {
   $('banner').hidden = true;
   $('spectateTag').hidden = true;
   $('countdown').hidden = true;
+  $('otChip').hidden = true;
   $('ctrlOverlay').hidden = true;
   cdSig = null;
+  otSig = null;
   ctrlSig = null;
 }
 // ---------- loot toast (small popup over the field; chest pickups) ----------
@@ -821,12 +829,18 @@ function updateHUD(snap) {
     card.querySelector('.st').textContent = label;
     card.querySelector('.bar i').style.width = pct + '%';
   }
-  const sleeping = snap.enemies.filter(e => e.awake === false).length;
+  // AOI tolerance: online snapshots may filter far-away enemies to the area
+  // around this connection's seats — never assume the full list rides every
+  // tick. The compact mini array (global, tile-rounded, every 3rd tick — the
+  // net session keeps the latest attached) carries the true hostile count.
+  const enemies = snap.enemies ?? [];
+  const sleeping = enemies.filter(e => e.awake === false).length;
+  const hostiles = snap.mini ? Math.max(snap.mini.length, enemies.length) : enemies.length;
   // followers (combat hires/dogs) ship only on maps with hire posts; the
   // squad cap is 5 (2 per player) so the count reads against the pool
   const followers = snap.followers?.length ?? 0;
   $('squadStatusBody').textContent =
-    `Hostiles: ${snap.enemies.length}${sleeping ? ` (${sleeping} unaware)` : ''} · Rescued: ${snap.rescued.length}`
+    `Hostiles: ${hostiles}${sleeping ? ` (${sleeping} unaware)` : ''} · Rescued: ${snap.rescued.length}`
     + (followers ? ` · Followers: ${followers}/5` : '');
 
   const focus = session?.focusPids() ?? new Set();
@@ -877,11 +891,26 @@ function updateHUD(snap) {
   updateObjectives(snap);
   updateModePanels(snap);
   updateCountdown(snap);
+  updateOvertime(snap);
   updateControlsOverlay(snap, me);
   // the renderer owns the fog-of-war exploration ledger and painting; the
   // client only decides per-mode WHETHER fog applies this frame
   renderMod.setFogEnabled?.(fogActive());
-  renderMinimap(mmCtx, snap, session?.focusPids() ?? new Set());
+  renderMinimap(mmCtx, miniSnap(snap), session?.focusPids() ?? new Set());
+}
+
+// AOI tolerance for the minimap: when the server ships the compact mini
+// array (global enemy positions as tile-rounded [x,y] pairs, every 3rd tick)
+// the minimap draws those instead of the AOI-filtered enemy list, so red
+// dots keep working beyond the interest radius. Everything else rides the
+// snap untouched — players/objectives/flags are always shipped in full, and
+// local sessions never carry a mini field (full snapshots, no change).
+function miniSnap(snap) {
+  if (!snap.mini) return snap;
+  return {
+    ...snap,
+    enemies: snap.mini.map(m => ({ x: ((m?.[0] ?? 0) + 0.5) * TILE, y: ((m?.[1] ?? 0) + 0.5) * TILE })),
+  };
 }
 
 // ---------- fog of war (mode gate; render.js owns the exploration ledger) ----------
@@ -1028,6 +1057,23 @@ function updateCountdown(snap) {
   el.hidden = !text;
   el.textContent = text;
   el.classList.toggle('blood', blood);
+}
+
+// ---------- CTF overtime chip ("OVERTIME +n") ----------
+// After sudden death begins the sim escalates pressure every 20s and exposes
+// the escalation level on the snapshot; the chip pins while it's live. Every
+// read is optional — classic/older snapshots never carry the field, so the
+// chip simply never shows there.
+let otSig = null;
+function updateOvertime(snap) {
+  const ot = snap.status === 'play'
+    ? Math.max(0, Math.floor(Number(snap.overtime ?? snap.otLevel ?? 0) || 0))
+    : 0;
+  if (ot === otSig) return;
+  otSig = ot;
+  const el = $('otChip');
+  el.hidden = !ot;
+  if (ot) el.textContent = `OVERTIME +${ot}`;
 }
 
 // ---------- controls overlay (corner panel; Settings toggle, default ON) ----
@@ -1502,11 +1548,15 @@ class LocalSession {
     const res = applyResults(this.roster, this.game);
     const cleared = this.game.status === 'cleared';
     const score = Math.round(this.game.score);
+    const timeS = this.game.elapsed ?? 0; // rankings clock — captured before the game drops
     const lvl = this.levels[this.levelIdx];
     this.game = null;
     this.paused = false;
     for (const p of this.players) { p.charId = null; p.cursor = 0; p.bot = null; }
     if (cleared) {
+      // rankings: one board entry per cleared level (server POST, or static-
+      // build local bests). submitRun no-ops on demo runs and keyless defs.
+      submitRun(lvl, this.players.map(p => p.name), this.players.length, score, timeS);
       this.roster = res.roster;
       if (this.story) {
         this.levelIdx++;
@@ -1575,16 +1625,25 @@ class LocalSession {
     const g = this.game;
     const winner = g?.winner;
     const caps = g?.caps;
+    const lvl = this.levels[this.levelIdx];
+    const timeS = g?.elapsed ?? 0; // match length — the versus board clock
     this.game = null;
     this.paused = false;
     let body;
     if (this.mode === 'ctf' && winner != null) {
-      const names = this.players.filter(p => p.pid % 2 === winner).map(p => p.name).join(', ');
-      body = `${TEAM_NAME[winner] ?? 'A team'} takes the match${names ? ` — ${names}` : ''}`
+      const winners = this.players.filter(p => p.pid % 2 === winner).map(p => p.name);
+      body = `${TEAM_NAME[winner] ?? 'A team'} takes the match${winners.length ? ` — ${winners.join(', ')}` : ''}`
         + (caps ? `\nCaptures: ${caps[0] ?? 0} — ${caps[1] ?? 0}` : '');
+      // CTF board contract: the winning team's run — score = captures x1000,
+      // timeS = match length, players = match size
+      submitRun(lvl, winners, this.players.length, (caps?.[winner] ?? 0) * 1000, timeS);
     } else if (this.mode === 'br' && winner != null) {
       const name = this.players.find(p => p.pid === winner)?.name ?? 'P' + (winner + 1);
       body = `${name} is the last operative standing.`;
+      // BR board contract: the last operative standing — score = their kills
+      // (per-player kill ledger), timeS = match length, players = match size
+      const kills = g?.players?.find(p => p.pid === winner)?.kills ?? 0;
+      submitRun(lvl, [name], this.players.length, kills, timeS);
     } else {
       body = 'The match is over.';
     }
@@ -1617,6 +1676,8 @@ class NetSession {
     this.myPick = null;
     this.snap = null;
     this.grid = null;
+    this.mini = null;     // latest AOI minimap array (server ships every 3rd tick)
+    this.joinCode = mode === 'join' ? code : null; // rejoin offer before the first lobby lands
     this.lobbyData = null;
     this.cutscene = null;
     this.seats = new Map();        // device -> pid (insertion order = seat order)
@@ -1646,8 +1707,29 @@ class NetSession {
     this.ws.onmessage = e => this.onMsg(JSON.parse(e.data));
     this.ws.onclose = () => {
       clearInterval(this.inputTimer);
-      if (session === this) {
-        session = null;
+      if (session !== this) return;
+      session = null;
+      // Mid-level drop: the server holds this connection's seats (matched by
+      // name, case-insensitive) for 120s — offer a one-press rejoin. On
+      // success the room re-binds the held seats, replays a full levelStart
+      // snapshot and the players re-enter via the respawn-pick flow.
+      const roomCode = this.lobbyData?.room || this.joinCode || '';
+      if (roomCode && this.snap?.status === 'play') {
+        const heldUntil = Date.now() + 120000;
+        showMsg('Disconnected',
+          `Lost connection mid-level.\nYour seats are held for 2 minutes — rejoin room ${roomCode} to retake them.`,
+          `Rejoin ${roomCode}`, () => {
+            if (session) return; // a second blind FIRE while connecting
+            if (Date.now() > heldUntil) {
+              show('menu');
+              refreshContinue();
+              showToast('REJOIN WINDOW EXPIRED — SEATS RELEASED', 3000, true);
+              return;
+            }
+            session = new NetSession('join', roomCode);
+          },
+          'Main Menu', () => { show('menu'); refreshContinue(); });
+      } else {
         showMsg('Disconnected', 'Lost connection to the server.', 'Main Menu', () => { show('menu'); refreshContinue(); });
       }
     };
@@ -1710,7 +1792,35 @@ class NetSession {
     return { up: c.up, down: c.down, left: c.left, right: c.right, fire, special: c.special, act: c.act, item: c.item };
   }
   onMsg(m) {
-    if (m.t === 'joined') this.myPid = m.you;
+    if (m.t === 'joined') {
+      this.myPid = m.you;
+      // mid-level rejoin: the server re-binds this connection's held seats
+      // and lists their pids (or {tag,pid} pairs). Tagged seats re-bind to
+      // their device instantly; bare pids queue up and each FIRE press from
+      // an unbound device retakes the next one (join order = seat order,
+      // exactly like the lobby claim flow). Until anything binds, the legacy
+      // merged-input path keeps the primary playable.
+      if (m.rejoined && Array.isArray(m.seats)) {
+        const pids = [];
+        for (const s of m.seats) {
+          if (s && typeof s === 'object') {
+            if (s.tag != null && s.pid != null && !this.seats.has(s.tag)) {
+              this.seats.set(s.tag, s.pid);
+              this.cursors[s.tag] = 0;
+            } else if (Number.isFinite(s.pid)) pids.push(s.pid);
+          } else if (Number.isFinite(s)) pids.push(s);
+        }
+        const bound = new Set(this.seats.values());
+        this.rebindQueue = pids.filter(p => !bound.has(p));
+        if (this.rebindQueue.length > (this.rebindQueue.includes(this.myPid) ? 1 : 0)) {
+          showToast('SEATS HELD — EACH PAD: PRESS FIRE TO RETAKE YOURS', 3200, true);
+        }
+      }
+    }
+    else if (m.t === 'hostMigrated') {
+      // leader connection dropped; the server promoted a new room leader
+      showToast(`HOST MIGRATED — ${String(m.name || 'PLAYER').toUpperCase()} LEADS`, 3200, true);
+    }
     else if (m.t === 'localAdded') {
       this.pendingSeats.delete(m.tag);
       if (m.tag != null && m.pid != null && !this.seats.has(m.tag)) {
@@ -1719,6 +1829,13 @@ class NetSession {
       }
     }
     else if (m.t === 'lobby') {
+      // host migration also reads straight off the lobby broadcast (belt and
+      // braces with the explicit message): the crown moved to another pid
+      const prevHost = this.lobbyData?.players?.find(p => p.isHost);
+      const newHost = m.players.find(p => p.isHost);
+      if (prevHost && newHost && newHost.pid !== prevHost.pid) {
+        showToast(`HOST MIGRATED — ${String(newHost.name || 'PLAYER').toUpperCase()} LEADS`, 3200, true);
+      }
       this.lobbyData = m;
       // a seat whose pid the server no longer lists is dead — unbind it
       for (const [dev, pid] of [...this.seats]) {
@@ -1743,12 +1860,26 @@ class NetSession {
       if (this.cutscene) endSlides(this); // the host moved on — drop our slides
       // Full snapshot rides along once; later 'state' ticks omit the grid.
       if (m.s?.grid) this.grid = m.s.grid;
+      this.mini = m.s?.mini ?? null; // the AOI minimap ledger resets per level
+      // mid-level rejoin: levelStart can land before any lobby broadcast —
+      // synthesize just enough lobby state for the HUD/mode gates until the
+      // real one arrives at levelEnd
+      if (!this.lobbyData) {
+        this.lobbyData = {
+          t: 'lobby', room: this.joinCode || '', mode: m.mode ?? m.s?.mode ?? null,
+          levelIdx: m.levelIdx ?? 0, totalLevels: 0, roster: [], players: [],
+        };
+      }
       this.snap = m.s || null;
       hideAll();
     }
     else if (m.t === 'state') {
       if (!m.s.grid) m.s.grid = this.grid;
       else this.grid = m.s.grid;
+      // AOI: the compact global minimap array ships every 3rd tick — keep the
+      // latest and re-attach it so every consumer sees a current full picture
+      if (m.s.mini) this.mini = m.s.mini;
+      else if (this.mini) m.s.mini = this.mini;
       const prev = this.snap;
       this.snap = m.s;
       for (const ev of m.s.events) handleEvent(ev);
@@ -1756,6 +1887,13 @@ class NetSession {
     }
     else if (m.t === 'levelEnd') {
       this.myPick = null;
+      // online rooms auto-record rankings server-side; the recorded rank may
+      // ride back on levelEnd — deferred a beat so the results dialog's
+      // hideToast can't wipe it before it shows
+      if (Number.isFinite(m.rank) && m.rank >= 1 && m.rank <= 50) {
+        const label = String(this.lobbyData?.levelName ?? '').toUpperCase();
+        setTimeout(() => showToast(`RUN RECORDED — #${m.rank}${label ? ' ' + label : ''}`, 3200, true), 60);
+      }
       const vm = this.versusMode();
       if (vm) {
         // pvp: rosters never change and levelIdx stays put (rematch = same map)
@@ -1886,6 +2024,16 @@ class NetSession {
       // first FIRE binds that device to the primary pid
       this.seats.set(dev, this.myPid);
       this.cursors[dev] = 0;
+      if (this.rebindQueue) this.rebindQueue = this.rebindQueue.filter(p => p !== this.myPid);
+      this.renderLobby();
+      return;
+    }
+    if (this.rebindQueue?.length) {
+      // held couch seats from a mid-level rejoin claim before any addLocal —
+      // the room already owns those pids, so no new seat is requested
+      const pid = this.rebindQueue.shift();
+      this.seats.set(dev, pid);
+      this.cursors[dev] = 0;
       this.renderLobby();
       return;
     }
@@ -1950,7 +2098,19 @@ class NetSession {
       }
       return;
     }
-    if (!$('lobby').hidden) this.lobbyTick(polled, dt);
+    if (!$('lobby').hidden) return this.lobbyTick(polled, dt);
+    // mid-level rejoin: held seats re-bind as each unbound device presses
+    // FIRE (join order = seat order); the press doubles as the seat's first
+    // shot/pick input, which is fine for a squad re-entering the field
+    if (this.rebindQueue?.length && this.snap?.status === 'play') {
+      for (const [dev, st] of Object.entries(polled)) {
+        if (!st.fireJust || this.seats.has(dev)) continue;
+        const pid = this.rebindQueue.shift();
+        this.seats.set(dev, pid);
+        this.cursors[dev] = 0;
+        if (!this.rebindQueue.length) break;
+      }
+    }
   }
   close() {
     clearInterval(this.inputTimer);
@@ -2019,11 +2179,286 @@ function shRecordClear(def) {
   return toasts;
 }
 
+// ---------- rankings (boards keyed "<category>/<filename-stem>") ----------
+// Server builds: GET /api/rankings lists boards {levels:[{key,name,count}]},
+// GET /api/rankings/<category>/<stem> returns {entries:[...]}, and POST
+// /api/rankings records a LOCAL session's clear (online rooms are recorded
+// server-side; the server clamps, rate-limits and stamps online:false).
+// Static builds (IS_STATIC) have no server: personal bests live in
+// localStorage and the page reads those instead, labelled as local bests.
+const BESTS_KEY = 'holdout-hd.bests';     // static: { [levelKey]: [entry...] }
+const LASTRUN_KEY = 'holdout-hd.lastrun'; // { key, score, timeS, date } — board highlight
+const RANK_CATS = ['story', 'stronghold', 'classic', 'ctf', 'br'];
+const RANK_CAT_LABEL = { story: 'STORY', stronghold: 'STRONGHOLD', classic: 'CLASSIC', ctf: 'VERSUS — CTF', br: 'VERSUS — ROYALE' };
+const pad2 = n => String(n).padStart(2, '0');
+const rankSlug = s => String(s ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'level';
+let rankIndex = null; // latest GET /api/rankings payload (server builds only)
+
+// levelKey for a def. story/stronghold/classic stems reconstruct exactly from
+// def fields (chXX / shXX / levelXX match the level filenames); a def.file or
+// def.key stem, if the server ever ships one on /api/levels, always wins.
+// ctf/br defs carry no stem: prefer a served board in that category whose
+// name matches (online matches are recorded under the true filename stem),
+// else fall back to a name slug. Legacy expedition defs have no board.
+function levelKeyOf(def) {
+  if (!def) return null;
+  const cat = def.category ?? (def.chapter || def.story ? 'story'
+    : def.mode === 'bastion' ? 'stronghold'
+      : def.mode === 'ctf' ? 'ctf'
+        : def.mode === 'br' ? 'br'
+          : def.expedition ? null : 'classic');
+  if (!cat) return null;
+  const own = def.file ?? def.key;
+  if (own) return String(own).includes('/') ? String(own) : cat + '/' + own;
+  const stem = cat === 'story' ? 'ch' + pad2(def.chapter ?? storyLevels.indexOf(def) + 1)
+    : cat === 'stronghold' ? 'sh' + pad2(def.stronghold?.level ?? bastionLevels.indexOf(def) + 1)
+      : cat === 'classic' ? 'level' + pad2(campaign.indexOf(def) + 1)
+        : null;
+  if (stem) return cat + '/' + stem;
+  // the two locked versus maps ship under filename stems their defs can't
+  // reconstruct — pinned so local couch matches land on the same boards as
+  // the server's online auto-records from day one
+  const pin = RANK_STEM_PIN[cat + '/' + def.name];
+  if (pin) return cat + '/' + pin;
+  const inCat = (rankIndex?.levels ?? []).filter(l => typeof l.key === 'string' && l.key.startsWith(cat + '/'));
+  const hit = inCat.find(l => l.name === def.name) ?? (inCat.length === 1 ? inCat[0] : null);
+  return hit ? hit.key : cat + '/' + rankSlug(def.name);
+}
+const RANK_STEM_PIN = { 'ctf/Twin Relays': 'level21-ctf', 'br/The Shattering': 'level22-br' };
+// key -> def, for display names of boards the server hasn't listed (yet)
+const rankKeyDef = new Map();
+for (const d of levels) {
+  const k = levelKeyOf(d);
+  if (k && !rankKeyDef.has(k)) rankKeyDef.set(k, d);
+}
+function rankNameOf(key) {
+  const def = rankKeyDef.get(key);
+  return def ? String(def.stronghold?.name ?? def.title ?? def.name ?? key) : (key.split('/')[1] ?? key);
+}
+
+function loadBests() {
+  try {
+    const b = JSON.parse(localStorage.getItem(BESTS_KEY));
+    if (b && typeof b === 'object' && !Array.isArray(b)) return b;
+  } catch {}
+  return {};
+}
+function loadLastRun() {
+  try { return JSON.parse(localStorage.getItem(LASTRUN_KEY)) || null; } catch { return null; }
+}
+const RANK_ORDER = {
+  score: (a, b) => (b.score - a.score) || (a.timeS - b.timeS), // the server's board order
+  fastest: (a, b) => (a.timeS - b.timeS) || (b.score - a.score),
+};
+async function refreshRankIndex() {
+  if (IS_STATIC) return null;
+  try {
+    const res = await fetch('/api/rankings');
+    if (res.ok) rankIndex = await res.json();
+  } catch {} // older server / offline: the page degrades to saves-only rows
+  return rankIndex;
+}
+// warm the index early (server builds): versus key matching + first picker paint
+if (!IS_STATIC) refreshRankIndex();
+
+// One local clear -> one board entry. Toasts RUN RECORDED — #rank when the
+// run places top 50 (the toast is deferred a beat: the results dialog that
+// opens in the same tick clears the toast queue as every screen change does).
+async function submitRun(def, names, players, score, timeS) {
+  if (demoMode) return;
+  // unpinned versus maps resolve their key against the served board index —
+  // make sure it's loaded before deriving (no-op for static/known stems)
+  const cat = def?.category ?? def?.mode;
+  if (!IS_STATIC && (cat === 'ctf' || cat === 'br') && !rankIndex) await refreshRankIndex();
+  const key = levelKeyOf(def);
+  if (!key) return;
+  const label = String(def.stronghold?.name ?? def.name ?? key).toUpperCase();
+  const entry = {
+    names: names.slice(0, 8).map(n => String(n).slice(0, 12)),
+    players: Math.max(1, Math.min(8, Math.round(players) || 1)),
+    score: Math.max(0, Math.round(score) || 0),
+    timeS: Math.max(0, Math.round((Number(timeS) || 0) * 10) / 10),
+    date: new Date().toISOString(),
+    online: false,
+  };
+  try { localStorage.setItem(LASTRUN_KEY, JSON.stringify({ key, score: entry.score, timeS: entry.timeS, date: entry.date })); } catch {}
+  if (IS_STATIC) {
+    const bests = loadBests();
+    const list = [...(Array.isArray(bests[key]) ? bests[key] : []), entry]
+      .sort(RANK_ORDER.score).slice(0, 50);
+    bests[key] = list;
+    try { localStorage.setItem(BESTS_KEY, JSON.stringify(bests)); } catch {}
+    const rank = list.indexOf(entry) + 1;
+    if (rank >= 1) setTimeout(() => showToast(`RUN RECORDED — #${rank} ${label}`, 3200, true), 60);
+    return;
+  }
+  try {
+    const res = await fetch('/api/rankings', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ key, names: entry.names, players: entry.players, score: entry.score, timeS: entry.timeS }),
+    });
+    if (!res.ok) return; // rate-limited / rejected — never breaks a clear
+    const out = await res.json().catch(() => null);
+    const rank = Number(out?.rank);
+    if (Number.isFinite(rank) && rank >= 1 && rank <= 50) {
+      showToast(`RUN RECORDED — #${rank} ${label}`, 3200, true);
+    }
+  } catch {} // network hiccup: the run is simply not recorded
+}
+
+// boards worth listing even with no entries yet: where the current saves are
+function saveLevelKeys() {
+  const keys = new Set();
+  const add = def => { const k = levelKeyOf(def); if (k) keys.add(k); };
+  try {
+    const s = JSON.parse(localStorage.getItem(SAVE_KEY));
+    if (s && campaign.length) add(campaign[Math.max(0, Math.min(s.levelIdx ?? 0, campaign.length - 1))]);
+  } catch {}
+  try {
+    const s = JSON.parse(localStorage.getItem(STORY_KEY));
+    if (s && storyLevels.length) add(storyLevels[Math.max(0, Math.min((s.chapter ?? 1) - 1, storyLevels.length - 1))]);
+  } catch {}
+  const sh = loadShSave();
+  bastionLevels.forEach((lvl, i) => { if ((lvl.stronghold?.level ?? i + 1) <= sh.unlocked) add(lvl); });
+  return keys;
+}
+
+// ---------- rankings UI (pageRank picker -> pageRankBoard) ----------
+let rankBoardKey = null, rankBoardName = '', rankSort = 'score', rankEntries = null;
+async function renderRankPicker() {
+  const host = $('rankGroups');
+  const note = $('rankNote');
+  note.hidden = !IS_STATIC;
+  note.textContent = IS_STATIC
+    ? 'Static build — these are this machine’s local bests, not shared online rankings.'
+    : ' ';
+  host.innerHTML = '<div class="rgrp">LOADING…</div>';
+  let boards;
+  if (IS_STATIC) {
+    boards = Object.entries(loadBests())
+      .filter(([, list]) => Array.isArray(list))
+      .map(([key, list]) => ({ key, name: rankNameOf(key), count: list.length }));
+  } else {
+    await refreshRankIndex();
+    boards = (rankIndex?.levels ?? []).filter(l => l && typeof l.key === 'string')
+      .map(l => ({ key: l.key, name: String(l.name || rankNameOf(l.key)), count: Math.max(0, Math.round(l.count) || 0) }));
+  }
+  if (menuPageId !== 'pageRank') return; // the page changed while fetching
+  // the current saves' levels join the list so the boards you're playing
+  // toward are reachable before anyone records a run on them
+  const have = new Set(boards.map(b => b.key));
+  for (const key of saveLevelKeys()) {
+    if (!have.has(key)) boards.push({ key, name: rankNameOf(key), count: 0 });
+  }
+  host.innerHTML = '';
+  const catOf = key => RANK_CATS.find(c => key.startsWith(c + '/')) ?? 'other';
+  for (const cat of [...RANK_CATS, 'other']) {
+    const group = boards.filter(b => catOf(b.key) === cat)
+      .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+    if (!group.length) continue;
+    const h = document.createElement('div');
+    h.className = 'rgrp';
+    h.textContent = RANK_CAT_LABEL[cat] ?? cat.toUpperCase();
+    host.appendChild(h);
+    for (const b of group) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'rlev';
+      const nm = document.createElement('span');
+      nm.textContent = b.name;
+      const ct = document.createElement('b');
+      ct.textContent = b.count ? `${b.count} ${b.count === 1 ? 'RUN' : 'RUNS'}` : '—';
+      btn.append(nm, ct);
+      btn.onclick = e => {
+        e.currentTarget.blur();
+        playUi('select');
+        rankBoardKey = b.key;
+        rankBoardName = b.name;
+        rankEntries = null;
+        showMenuPage('pageRankBoard');
+      };
+      host.appendChild(btn);
+    }
+  }
+  if (!boards.length) {
+    host.innerHTML = '<div class="rgrp">NO RECORDED RUNS YET — CLEAR A LEVEL TO OPEN ITS BOARD</div>';
+  }
+}
+async function renderRankBoard() {
+  if (!rankBoardKey) return showMenuPage('pageRank');
+  $('rankBoardTitle').textContent = rankBoardName || 'Rankings';
+  $('rankBoardSub').textContent =
+    (RANK_CAT_LABEL[rankBoardKey.split('/')[0]] ?? rankBoardKey.split('/')[0].toUpperCase())
+    + (IS_STATIC ? ' · LOCAL BESTS' : ' · TOP 50');
+  $('btnRankSort').textContent = `Sort: ${rankSort === 'score' ? 'Score' : 'Fastest'}`;
+  const host = $('rankTable');
+  if (!rankEntries) {
+    host.innerHTML = '<div class="rgrp">LOADING…</div>';
+    if (IS_STATIC) {
+      rankEntries = (loadBests()[rankBoardKey] ?? []).slice();
+    } else {
+      try {
+        const res = await fetch('/api/rankings/' + rankBoardKey);
+        rankEntries = res.ok ? ((await res.json())?.entries ?? []) : [];
+      } catch { rankEntries = []; }
+    }
+    if (menuPageId !== 'pageRankBoard') return; // backed out while fetching
+  }
+  const rows = rankEntries.filter(e => e && typeof e === 'object')
+    .slice().sort(RANK_ORDER[rankSort] ?? RANK_ORDER.score).slice(0, 50);
+  host.innerHTML = '';
+  if (!rows.length) {
+    host.innerHTML = '<div class="rgrp">NO RUNS RECORDED ON THIS BOARD YET</div>';
+    return;
+  }
+  const head = document.createElement('div');
+  head.className = 'rrowt head';
+  for (const c of ['#', 'NAMES', 'PL', 'SCORE', 'TIME', 'DATE']) {
+    const s = document.createElement('span');
+    s.textContent = c;
+    head.appendChild(s);
+  }
+  host.appendChild(head);
+  // your latest run: an exact lastRun match wins; otherwise the newest entry
+  // carrying your name (covers online clears the server recorded for you)
+  const lastRun = loadLastRun();
+  const myName = ($('nameInput').value.trim() || 'P1').toLowerCase();
+  let mine = lastRun && lastRun.key === rankBoardKey
+    ? rows.find(e => e.score === lastRun.score && e.timeS === lastRun.timeS)
+    : null;
+  mine ??= rows.filter(e => (e.names ?? []).some(n => String(n).toLowerCase() === myName))
+    .sort((a, b) => String(b.date ?? '').localeCompare(String(a.date ?? '')))[0] ?? null;
+  const fmtT = s => {
+    const t = Math.max(0, Number(s) || 0);
+    return `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
+  };
+  rows.forEach((e, i) => {
+    const row = document.createElement('div');
+    row.className = 'rrowt' + (e === mine ? ' mine' : '');
+    const cells = [
+      '#' + (i + 1),
+      (Array.isArray(e.names) ? e.names : []).map(n => String(n)).join(', ') || '—',
+      String(e.players ?? (Array.isArray(e.names) ? e.names.length : 1)),
+      (Number(e.score) || 0).toLocaleString(),
+      fmtT(e.timeS),
+      String(e.date ?? '').slice(0, 10) || '—',
+    ];
+    for (const c of cells) {
+      const s = document.createElement('span');
+      s.textContent = c;
+      row.appendChild(s);
+    }
+    host.appendChild(row);
+  });
+}
+
 // ---------- menu pages (MAIN / SINGLEPLAYER / VERSUS / ONLINE / SETTINGS /
 // REMAP / STRONGHOLD SELECT) — DOM screens inside #menu, pad-navigable ----
 const MENU_PARENT = {
   pageSingle: 'pageMain', pageVersus: 'pageMain', pageOnline: 'pageMain',
   pageSettings: 'pageMain', pageRemap: 'pageSettings', pageSh: 'pageSingle',
+  pageRank: 'pageMain', pageRankBoard: 'pageRank',
 };
 let menuPageId = 'pageMain';
 let shPurpose = 'local'; // why the level select is open: 'local' | 'host'
@@ -2034,6 +2469,8 @@ function showMenuPage(id) {
   setNavFocus(null); // navTick re-picks a default focus on the new page
   if (id === 'pageSh') renderShGrid();
   if (id === 'pageRemap') renderRemap();
+  if (id === 'pageRank') renderRankPicker();      // async: fills in when fetched
+  if (id === 'pageRankBoard') renderRankBoard();  // async: fills in when fetched
 }
 // pageSh opens from Singleplayer (shPurpose 'local') AND from Online's Host
 // Stronghold ('host') — Back must return to whichever page opened it, so the
@@ -2248,8 +2685,16 @@ refreshContinue();
 $('btnSingle').onclick = e => { e.currentTarget.blur(); showMenuPage('pageSingle'); };
 $('btnVersus').onclick = e => { e.currentTarget.blur(); showMenuPage('pageVersus'); };
 $('btnOnline').onclick = e => { e.currentTarget.blur(); showMenuPage('pageOnline'); };
+$('btnRankings').onclick = e => { e.currentTarget.blur(); showMenuPage('pageRank'); };
 $('btnSettings').onclick = e => { e.currentTarget.blur(); showMenuPage('pageSettings'); };
 $('btnRemap').onclick = e => { e.currentTarget.blur(); showMenuPage('pageRemap'); };
+// rankings board: toggle score-order <-> fastest-order (entries are cached,
+// so the toggle re-sorts without refetching)
+$('btnRankSort').onclick = e => {
+  e.currentTarget.blur();
+  rankSort = rankSort === 'score' ? 'fastest' : 'score';
+  renderRankBoard();
+};
 for (const b of document.querySelectorAll('#menu .mback')) {
   b.onclick = e => {
     e.currentTarget.blur();

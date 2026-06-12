@@ -1331,9 +1331,24 @@ function enemyWeapon(kind) {
   return { kind: 'arrow', damage: 1, projSpeed: 5.5, range: 8, cooldown: 0, count: 1 };
 }
 
+// --- ctf overtime escalation -------------------------------------------------
+// Sudden death must converge: every 20s of overtime adds +1s to the CTF
+// respawn delay (cap +5), and from +60s on, dropped flags tick home in HALF
+// the time — pressure compounds until one side converts. The 180s grab-count
+// cap in stepFlags stays the final backstop. Both knobs read g.suddenT
+// directly (plain serialized state), so save/restore keeps the escalation
+// byte-exact and the whole thing stays deterministic.
+function ctfOvertimeLevel(g) {
+  return g.suddenDeath ? Math.min(5, Math.floor(g.suddenT / 20)) : 0;
+}
+function ctfFlagDropT(g) {
+  return g.suddenDeath && g.suddenT >= 60 ? FLAG_DROP_T / 2 : FLAG_DROP_T;
+}
+
 // Drop any carried flag on the spot. One code path for every drop that isn't
 // a return: carrier going down, and climbing onto a mount (a CTF flag never
-// rides a stag). The flag lies for FLAG_DROP_T, then ticks home as usual.
+// rides a stag). The flag lies for FLAG_DROP_T (halved deep into overtime),
+// then ticks home as usual.
 function dropFlags(g, p) {
   for (const f of g.flags) {
     if (f.carrier === p.pid) {
@@ -1341,7 +1356,7 @@ function dropFlags(g, p) {
       f.atBase = false;
       f.x = p.x;
       f.y = p.y;
-      f.dropT = FLAG_DROP_T;
+      f.dropT = ctfFlagDropT(g);
       g.events.push({ type: 'flagDrop', team: f.team, pid: p.pid, x: f.x, y: f.y });
     }
   }
@@ -1389,10 +1404,12 @@ function downPlayer(g, p) {
     return;
   }
   // CTF: respawn at the team flag stand keeping the same operative; rosters
-  // are never consumed in pvp.
+  // are never consumed in pvp. Overtime escalation stretches the delay by
+  // +1s per 20s of sudden death (cap +5) — already-counting timers keep the
+  // delay they were assigned at down time.
   if (g.mode === 'ctf') {
     p.state = 'down';
-    p.respawn = CTF_RESPAWN;
+    p.respawn = CTF_RESPAWN + ctfOvertimeLevel(g);
     p.dashT = 0;
     p.stimT = 0;
     g.events.push({ type: 'down', x: p.x, y: p.y });
@@ -1454,6 +1471,24 @@ function freeChars(g) {
   for (const c of g.captives) used.add(c.charId);
   for (const id of g.rescued) used.add(id);
   return g.roster.filter(id => !used.has(id));
+}
+
+// Mid-level rejoin (server reservation flow): a held-out seat re-enters
+// through the EXISTING respawn-pick flow — state 'out' becomes 'pick' when
+// free roster operatives exist, else the seat stays out (the caller may try
+// again after a rescue frees somebody). Deterministic: no RNG, no clock —
+// just a state flip the next step() resolves exactly like a post-down pick.
+// pickPrev starts all-held so a button held through the rejoin can't
+// instantly confirm (mirrors the down flow). PvP refuses outright: BR
+// eliminations are final by design and CTF never parks a seat out.
+export function revivePlayer(g, pid) {
+  if (g.status !== 'play' || g.mode === 'ctf' || g.mode === 'br') return false;
+  const p = g.players.find(q => q.pid === pid);
+  if (!p || p.state !== 'out' || !freeChars(g).length) return false;
+  p.state = 'pick';
+  p.pickIdx = 0;
+  p.pickPrev = { left: true, right: true, fire: true };
+  return true;
 }
 
 function extractPlayer(g, p) {
@@ -3252,7 +3287,7 @@ function stepFlags(g, dt) {
       const p = g.players.find(q => q.pid === f.carrier);
       if (!p || p.state !== 'active') { // safety net: downPlayer drops normally
         f.carrier = null;
-        f.dropT = FLAG_DROP_T;
+        f.dropT = ctfFlagDropT(g);
         f.atBase = false;
       } else {
         f.x = p.x;
@@ -4901,6 +4936,10 @@ export function snapshot(g, full = true) {
     ...(g.hires.length ? { hires: g.hires.map(h => ({ x: h.x, y: h.y, cost: h.cost, job: h.job, hired: h.hired, name: h.name })) } : {}),
     ...(g.flags.length ? { flags: g.flags.map(f => ({ team: f.team, x: f.x, y: f.y, homeX: f.homeX, homeY: f.homeY, carrier: f.carrier, atBase: f.atBase, dropT: f.dropT })) } : {}),
     ...(g.caps ? { caps: g.caps.slice() } : {}),
+    // ctf overtime: present from the sudden-death horn on (and only then —
+    // regulation/classic snapshots never gain the key) so the HUD can read
+    // "OVERTIME +n": n is the escalation level, 0 at the horn, capped at 5.
+    ...(g.suddenDeath ? { overtime: ctfOvertimeLevel(g) } : {}),
     ...(g.zone ? { zone: { x: g.zone.x, y: g.zone.y, r: g.zone.r, targetR: g.zone.targetR, shrinkT: g.zone.shrinkT } } : {}),
     ...(g.winner !== undefined ? { winner: g.winner } : {}),
     players: g.players.map(p => ({
