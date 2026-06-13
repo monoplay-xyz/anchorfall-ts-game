@@ -6673,6 +6673,272 @@ function test32PlayerCtfSmoke() {
   console.log(`  32-player ctf wire: avg ${avg} bytes/tick, peak ${maxBytes}, levelStart ${full} (${ticks} ticks)`);
 }
 
+// --- public-deploy hardening: drive the REAL server over real sockets ---------
+// Two spawns of server.js on spare ports. PUBLIC instance (PUBLIC_DEPLOY=1,
+// HOLDOUT_SMOKE=1 to prove the hook is dead, SAVES_DIR=tmp, ROOM_CAP=4,
+// LOBBY_TTL_MS=1500): boot log says PUBLIC; lobby omits lan; host re-entry is
+// refused (orphaned-room leak); the global room cap refuses the 5th room;
+// debugClear is inert; prototype-key charIds never reach a roster; names are
+// sanitized at the trust boundary; rankings.json lands under SAVES_DIR with
+// sanitized names, a lower score ceiling, and de-dup; the per-IP ws cap (keyed
+// on X-Forwarded-For — the trust-proxy path) refuses the 9th socket; message
+// floods and garbage frames (null/binary) are dropped without disconnect; an
+// oversized frame kills only its own socket; idle lobbies are reaped and their
+// members freed. COUCH instance (no env flags beyond HOLDOUT_SMOKE/SAVES_DIR):
+// no PUBLIC log, and the host-sent debugClear smoke hook still works.
+async function testServerPublicHardening() {
+  const { spawn } = await import('child_process');
+  const osMod = await import('os');
+  const WebSocket = (await import('ws')).default;
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const basePort = 4300 + (process.pid % 500);
+
+  function startSrv(port, env) {
+    const proc = spawn(process.execPath, [path.join(root, 'server.js')], {
+      // explicit blanks so a dev's shell env can't leak flags into the run
+      env: { ...process.env, PORT: String(port), PUBLIC_DEPLOY: '', HOLDOUT_SMOKE: '', SAVES_DIR: '', ROOM_CAP: '', LOBBY_TTL_MS: '', ...env },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let log = '';
+    proc.stdout.on('data', d => { log += d; });
+    proc.stderr.on('data', d => { log += d; });
+    const ready = (async () => {
+      for (let i = 0; i < 240; i++) {
+        if (log.includes('running at')) return;
+        if (proc.exitCode !== null) throw new Error('server exited early:\n' + log);
+        await sleep(25);
+      }
+      throw new Error('server boot timeout:\n' + log);
+    })();
+    return { proc, ready, getLog: () => log };
+  }
+
+  // ws client with an inbox: expect(type) resolves the next message of that
+  // type; none(type, ms) asserts none arrives in the window
+  function open(port, xff) {
+    const w = new WebSocket(`ws://127.0.0.1:${port}`, xff ? { headers: { 'x-forwarded-for': xff } } : undefined);
+    const queue = [];
+    const waiters = [];
+    w.on('message', raw => {
+      let m; try { m = JSON.parse(raw); } catch { return; }
+      const i = waiters.findIndex(x => x.type === m.t);
+      if (i !== -1) waiters.splice(i, 1)[0].res(m);
+      else queue.push(m);
+    });
+    w.expect = (type, ms = 4000) => {
+      const i = queue.findIndex(m => m.t === type);
+      if (i !== -1) return Promise.resolve(queue.splice(i, 1)[0]);
+      return new Promise((res, rej) => {
+        const wt = { type, res: null };
+        const t = setTimeout(() => {
+          const j = waiters.indexOf(wt);
+          if (j !== -1) waiters.splice(j, 1);
+          rej(new Error(`timeout waiting for '${type}' (queued: ${queue.map(m => m.t).join(',') || 'nothing'})`));
+        }, ms);
+        wt.res = m => { clearTimeout(t); res(m); };
+        waiters.push(wt);
+      });
+    };
+    w.none = async (type, ms) => {
+      await sleep(ms);
+      assert.ok(!queue.some(m => m.t === type), `no '${type}' expected, got one`);
+    };
+    w.sendj = obj => w.send(JSON.stringify(obj));
+    w.opened = new Promise((res, rej) => { w.on('open', () => res(w)); w.on('error', rej); });
+    w.closed = new Promise(res => w.on('close', code => res(code)));
+    return w;
+  }
+
+  const tmpA = fs.mkdtempSync(path.join(osMod.tmpdir(), 'anchorfall-pub-'));
+  const tmpB = fs.mkdtempSync(path.join(osMod.tmpdir(), 'anchorfall-lan-'));
+  const pub = startSrv(basePort, { PUBLIC_DEPLOY: '1', HOLDOUT_SMOKE: '1', SAVES_DIR: tmpA, ROOM_CAP: '4', LOBBY_TTL_MS: '1500' });
+  const couch = startSrv(basePort + 1, { HOLDOUT_SMOKE: '1', SAVES_DIR: tmpB });
+  const api = (port, p) => `http://127.0.0.1:${port}${p}`;
+  const sockets = [];
+  const track = w => { sockets.push(w); return w; };
+  try {
+    await pub.ready;
+    await couch.ready;
+    assert.ok(pub.getLog().includes('PUBLIC'), 'public boot log announces PUBLIC mode');
+    assert.ok(!couch.getLog().includes('PUBLIC'), 'couch boot log says nothing about PUBLIC');
+
+    // --- global room cap (ROOM_CAP=4): 5th host refused with a friendly error
+    const hosts = await Promise.all([1, 2, 3, 4, 5].map(n => track(open(basePort, `10.0.0.${n}`)).opened));
+    for (const [i, h] of hosts.entries()) {
+      h.sendj({ t: 'host', name: 'Cap' + i, mode: 'classic' });
+      if (i < 4) await h.expect('joined');
+    }
+    const capErr = await hosts[4].expect('error');
+    assert.ok(/room limit/i.test(capErr.error), `5th room refused (${capErr.error})`);
+    for (const h of hosts) h.close();
+    await Promise.all(hosts.map(h => h.closed));
+    await sleep(100); // server processes the closes; rooms freed
+
+    // --- host re-entry guard + lan omitted + name sanitation + rejoin token
+    const R = await track(open(basePort, '10.0.1.1')).opened;
+    R.sendj({ t: 'host', name: '  Grief ‮er name that overflows  ', mode: 'ctf', public: true });
+    const rJoined = await R.expect('joined');
+    assert.ok(typeof rJoined.token === 'string' && rJoined.token.length >= 8, 'joined carries a rejoin token');
+    const rLobby = await R.expect('lobby');
+    assert.ok(!('lan' in rLobby), 'PUBLIC lobby omits the lan field');
+    assert.equal(rLobby.players[0].name, 'Grief er nam', 'name stripped of control/bidi chars, collapsed, 12-capped');
+    const tReap = Date.now(); // R idles from here; the reaper should free it
+    R.sendj({ t: 'host', name: 'Again', mode: 'classic' });
+    const reErr = await R.expect('error');
+    assert.ok(/already in a room/i.test(reErr.error), 'second host on a seated connection is refused');
+    const listed = await (await fetch(api(basePort, '/api/rooms'))).json();
+    assert.equal(listed.length, 1, 'no orphan room was minted by the re-host attempt');
+
+    // --- debugClear is DEAD under PUBLIC even with HOLDOUT_SMOKE=1
+    const E = await track(open(basePort, '10.0.1.2')).opened;
+    E.sendj({ t: 'host', name: 'Smoke', mode: 'classic' });
+    await E.expect('joined');
+    const eLobby = await E.expect('lobby');
+    E.sendj({ t: 'select', charId: eLobby.roster[0] });
+    await E.expect('lobby');
+    E.sendj({ t: 'start' });
+    await E.expect('levelStart');
+    E.sendj({ t: 'debugClear' });
+    await E.none('levelEnd', 600);
+    E.close();
+
+    // --- prototype-key charId injection via the bastion roster
+    const F = await track(open(basePort, '10.0.1.3')).opened;
+    F.sendj({ t: 'host', name: 'Proto', mode: 'bastion', roster: ['__proto__', 'constructor', 'toString', 'hasOwnProperty'] });
+    await F.expect('joined');
+    const fLobby = await F.expect('lobby');
+    for (const bad of ['__proto__', 'constructor', 'toString', 'hasOwnProperty']) {
+      assert.ok(!fLobby.roster.includes(bad), `prototype key '${bad}' filtered from the roster`);
+    }
+    F.sendj({ t: 'select', charId: 'constructor' });
+    const fLobby2 = await F.expect('lobby');
+    assert.equal(fLobby2.players[0].charId, null, 'prototype-key select is refused');
+    F.sendj({ t: 'start' }); // no party — must be a no-op, never a crash
+    await sleep(150);
+    assert.equal((await fetch(api(basePort, '/api/levels'))).status, 200, 'server alive after injection attempt');
+    F.close();
+
+    // --- SAVES_DIR + rankings POST hygiene (sanitized names, ceiling, de-dup)
+    const defs = await (await fetch(api(basePort, '/api/levels'))).json();
+    const key = defs.find(d => d.category === 'classic').key;
+    const post = body => fetch(api(basePort, '/api/rankings'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const r1 = await (await post({ key, names: ['Evil ‮Nam e'], score: 1234, timeS: 56.7 })).json();
+    assert.equal(r1.rank, 1, 'local run lands on the fresh board');
+    assert.ok(fs.existsSync(path.join(tmpA, 'rankings.json')), 'rankings.json written under SAVES_DIR');
+    const board = await (await fetch(api(basePort, `/api/rankings/${key}`))).json();
+    assert.equal(board.entries[0].names[0], 'Evil Nam e', 'REST names pass the same sanitizer');
+    const r2 = await (await post({ key, names: ['Evil ‮Nam e'], score: 1234, timeS: 56.7 })).json();
+    assert.equal(r2.rank, null, 'identical resubmission is de-duplicated');
+    assert.equal((await post({ key, names: ['Forge'], score: 2e7, timeS: 10 })).status, 400, 'absurd score refused');
+
+    // --- per-IP ws cap keyed on X-Forwarded-For: 9th socket refused, other IP fine
+    const batch = await Promise.all(Array.from({ length: 8 }, () => track(open(basePort, '203.0.113.9')).opened));
+    const ninth = track(open(basePort, '203.0.113.9'));
+    await ninth.opened;
+    const nineErr = await ninth.expect('error');
+    assert.ok(/too many connections/i.test(nineErr.error), '9th socket from one IP refused');
+    assert.equal(await ninth.closed, 1013, '9th socket closed with 1013 (try again later)');
+    const other = await track(open(basePort, '203.0.113.10')).opened;
+    other.sendj({ t: 'join', room: 'ZZZZ' });
+    const otherErr = await other.expect('error');
+    assert.ok(/room not found/i.test(otherErr.error), 'a different forwarded IP is still served');
+    for (const b of batch) b.close();
+    other.close();
+
+    // --- garbage frames are ignored; flood is dropped without disconnect
+    const G = await track(open(basePort, '10.0.1.4')).opened;
+    // garbage first, while the token bucket is full, so each one really hits
+    // the parse path: JSON `null` would crash the old `m.t` access outright
+    G.send('null'); G.send('123'); G.send('[1,2]'); G.send('"str"'); G.send(Buffer.from([1, 2, 3]));
+    for (let i = 0; i < 500; i++) G.sendj({ t: 'zzz', i });
+    await sleep(300);
+    assert.equal(G.readyState, WebSocket.OPEN, 'flooding socket stays connected (messages dropped, not killed)');
+    await sleep(1300); // token bucket refills
+    G.sendj({ t: 'join', room: 'ZZZZ' });
+    const gErr = await G.expect('error');
+    assert.ok(/room not found|join attempts/i.test(gErr.error), 'socket is serviced again after the flood');
+    G.close();
+
+    // --- oversized frame: that socket dies (1009), the process does not
+    const H = await track(open(basePort, '10.0.1.5')).opened;
+    H.send('x'.repeat(64 * 1024));
+    assert.equal(await H.closed, 1009, 'oversized frame closes only the offending socket');
+    assert.equal((await fetch(api(basePort, '/api/levels'))).status, 200, 'server alive after oversized frame');
+
+    // --- mid-level rejoin holds: PUBLIC binds them to token-or-IP, so an
+    // observed name alone can no longer hijack a dropped player's seats
+    const E2 = await track(open(basePort, '10.0.2.1')).opened;
+    E2.sendj({ t: 'host', name: 'Holder', mode: 'classic' });
+    const e2Joined = await E2.expect('joined');
+    const e2Lobby = await E2.expect('lobby');
+    E2.sendj({ t: 'select', charId: e2Lobby.roster[0] });
+    await E2.expect('lobby');
+    E2.sendj({ t: 'start' });
+    await E2.expect('levelStart');
+    E2.terminate(); // mid-level drop banks a 120s hold
+    await sleep(150);
+    const hijacker = await track(open(basePort, '10.0.2.99')).opened;
+    hijacker.sendj({ t: 'join', room: e2Lobby.room, name: 'Holder' });
+    const hjErr = await hijacker.expect('error');
+    assert.ok(/in progress/i.test(hjErr.error), 'name-only rejoin from a stranger IP is refused on PUBLIC');
+    hijacker.close();
+    const victim = await track(open(basePort, '10.0.2.50')).opened;
+    victim.sendj({ t: 'join', room: e2Lobby.room, name: 'holder', token: e2Joined.token });
+    const vJoined = await victim.expect('joined');
+    assert.equal(vJoined.rejoined, true, 'the real player rejoins with their token (even from a new IP)');
+    victim.close();
+
+    // --- idle lobby reaper (LOBBY_TTL_MS=1500): R's parked lobby is closed
+    await sleep(Math.max(0, tReap + 4000 - Date.now()));
+    const reapErr = await R.expect('error');
+    assert.ok(/idle/i.test(reapErr.error), `idle lobby got a closed notice (${reapErr.error})`);
+    R.sendj({ t: 'host', name: 'Fresh', mode: 'classic' });
+    await R.expect('joined'); // me.room was freed — hosting works again
+    assert.equal((await (await fetch(api(basePort, '/api/rooms'))).json()).length, 0, 'reaped lobby left the room browser');
+    R.close();
+
+    // --- couch instance: no flags = old behavior, smoke hook alive for the host
+    const C = await track(open(basePort + 1)).opened;
+    C.sendj({ t: 'host', name: 'Couch', mode: 'classic' });
+    await C.expect('joined');
+    const cLobby = await C.expect('lobby');
+    C.sendj({ t: 'select', charId: cLobby.roster[0] });
+    await C.expect('lobby');
+    C.sendj({ t: 'start' });
+    await C.expect('levelStart');
+    C.sendj({ t: 'debugClear' });
+    const cEnd = await C.expect('levelEnd');
+    assert.equal(cEnd.status, 'cleared', 'couch smoke hook still force-clears for the host');
+    assert.ok(fs.existsSync(path.join(tmpB, 'rankings.json')), 'online clear persisted rankings under SAVES_DIR (couch too)');
+    C.close();
+
+    // --- couch rejoin stays name-keyed (old clients send no token)
+    const C2 = await track(open(basePort + 1)).opened;
+    C2.sendj({ t: 'host', name: 'Rejoiner', mode: 'classic' });
+    await C2.expect('joined');
+    const c2Lobby = await C2.expect('lobby');
+    C2.sendj({ t: 'select', charId: c2Lobby.roster[0] });
+    await C2.expect('lobby');
+    C2.sendj({ t: 'start' });
+    await C2.expect('levelStart');
+    C2.terminate();
+    await sleep(150);
+    const C3 = await track(open(basePort + 1)).opened;
+    C3.sendj({ t: 'join', room: c2Lobby.room, name: 'rejoiner' });
+    const c3Joined = await C3.expect('joined');
+    assert.equal(c3Joined.rejoined, true, 'LAN rejoin by name alone still works (no token required)');
+    C3.close();
+
+    console.log('  public-deploy hardening: boot/caps/sanitizer/reaper/flood all hold');
+  } finally {
+    for (const w of sockets) { try { w.terminate(); } catch { /* already closed */ } }
+    pub.proc.kill();
+    couch.proc.kill();
+    fs.rmSync(tmpA, { recursive: true, force: true });
+    fs.rmSync(tmpB, { recursive: true, force: true });
+  }
+}
+
 testEnemyShotsBlockedByStructures();
 testCoreGnawNeedsWaveOrSealedTarget();
 testShipBoardingEdgeWalkAwayAndLaunch();
@@ -6692,5 +6958,6 @@ testAddPlayerMidGame();
 testAddPlayerMidGameCaps();
 testBr16SeatsDeployUnstuck();
 test32PlayerCtfSmoke();
+await testServerPublicHardening();
 
 console.log('sim tests passed');
