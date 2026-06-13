@@ -45,6 +45,7 @@ const mmCtx = $('minimap').getContext('2d');
 const SAVE_KEY = 'holdout-hd.save';
 const STORY_KEY = 'holdout-hd.story'; // { chapter: next 1-based chapter, roster }
 const BEACON_KEY = 'holdout-hd.beacon'; // { chapter: 1-based, data: serializeGame(g) } — local story only
+const SUSPEND_KEY = 'holdout-hd.suspend'; // Save & Quit bookmark — see loadSuspend()
 const PCOLORS = ['#4fc3f7', '#ffb74d', '#f06292', '#aed581'];
 // CTF team identity (badge color sets) + display names.
 const TEAMC = ['#5ea7ff', '#ff7a6a'];
@@ -81,6 +82,21 @@ function loadBeacon(chapter) {
   } catch { return null; }
 }
 function clearBeacon() { localStorage.removeItem(BEACON_KEY); }
+
+// ---------- suspended-game bookmark (Save & Quit -> main-menu Resume Game) ----------
+// One slot: { mode: 'classic'|'story'|'bastion', levelIdx, story, name, at,
+// data: serializeGame(g), seats: [{pid, device}] }. Written ONLY by Save &
+// Quit; cleared ONLY by a resume (successful or corrupt) — starting any new
+// game never touches it. seats is additive metadata: it hands each player
+// back the physical device they were holding when the run was suspended.
+function loadSuspend() {
+  try {
+    const s = JSON.parse(localStorage.getItem(SUSPEND_KEY));
+    return s && s.data && typeof s.levelIdx === 'number'
+      && ['classic', 'story', 'bastion'].includes(s.mode) ? s : null;
+  } catch { return null; }
+}
+function clearSuspend() { localStorage.removeItem(SUSPEND_KEY); }
 
 let session = null;
 setupAudioToggle($('btnAudio'));
@@ -189,10 +205,12 @@ function pollDevices() {
   return out;
 }
 
-// Online play: one player per machine, so any device drives them.
-function mergedInput() {
+// Online play: one player per machine, so any device drives them. `exclude`
+// drops devices the leave dialog has captured for menu navigation.
+function mergedInput(exclude) {
   const o = { up: false, down: false, left: false, right: false, fire: false, special: false, act: false, item: false };
   for (const id of DEVICES) {
+    if (exclude?.has(id)) continue;
     const c = readDevice(id);
     if (!c) continue;
     o.up ||= c.up; o.down ||= c.down; o.left ||= c.left; o.right ||= c.right;
@@ -364,12 +382,14 @@ function show(id) {
   hideDialogue();
   hideBanner();
   hideToast();
+  closePauseUi(); // any full-screen change tears the pause/leave dialog down
   for (const s of ['menu', 'lobby', 'msg']) $(s).hidden = s !== id;
   // back on the menu with the room browser still the current page: resume its
   // 5s auto-refresh (it reaps itself whenever the page is not actually open)
   if (id === 'menu' && menuPageId === 'pageBrowse') startBrowse();
 }
 function hideAll() {
+  closePauseUi();
   for (const s of ['menu', 'lobby', 'msg']) $(s).hidden = true;
 }
 function showMsg(title, body, btnLabel, onOk, altLabel, onAlt) {
@@ -402,7 +422,7 @@ function resultText(res) {
 let navScreen = null, navEl = null, navDev = null;
 
 function visibleScreen() {
-  for (const s of ['msg', 'lobby', 'menu']) if (!$(s).hidden) return s;
+  for (const s of ['pause', 'msg', 'lobby', 'menu']) if (!$(s).hidden) return s;
   return null;
 }
 function navButtons(screenId) {
@@ -425,6 +445,7 @@ function navTick(polled) {
   const screen = visibleScreen();
   if (screen !== navScreen) { navScreen = screen; navDev = null; setNavFocus(null); }
   if (!screen) return;
+  if (screen === 'pause') return; // pauseUiTick owns the pause/leave dialog
   const btns = navButtons(screen);
   if (!btns.length) { setNavFocus(null); return; }
   if (navEl && !btns.includes(navEl)) setNavFocus(null); // focused button hid or disabled
@@ -434,7 +455,7 @@ function navTick(polled) {
   // instead of wiping it with a fresh start.
   if (!navEl && screen !== 'lobby') {
     setNavFocus(
-      btns.find(b => b.id === 'btnStoryContinue' || b.id === 'btnContinue')
+      btns.find(b => b.id === 'btnResumeGame' || b.id === 'btnStoryContinue' || b.id === 'btnContinue')
       || btns.find(b => !b.classList.contains('ghost'))
       || btns[0]
     );
@@ -501,6 +522,77 @@ function navTick(polled) {
       st.startJust = false;
       navEl.click();
       return;
+    }
+  }
+}
+
+// ---------- pause / leave dialog (Esc-Start during play) ----------
+// A dedicated overlay, NOT showMsg: on this screen START/B must always mean
+// "back to the game" (never "click whatever happens to be focused"), and an
+// online leave dialog must capture only the devices actually navigating it so
+// the other couch seats on this connection keep playing. UP/DOWN (or
+// LEFT/RIGHT) move the focus ring, FIRE activates, START/B backs out; the
+// mouse clicks buttons directly as everywhere else.
+let pauseUi = null; // { onBack, onClose, devs } — devs null = every device navs (local pause)
+function openPauseUi({ title, body, hint, items, onBack, onClose, devs = null }) {
+  closePauseUi();
+  $('pauseTitle').textContent = title;
+  $('pauseBody').textContent = body;
+  $('pauseHint').textContent = hint || '';
+  const host = $('pauseBtns');
+  host.innerHTML = '';
+  for (const it of items) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    if (it.ghost) b.className = 'ghost';
+    b.textContent = it.label;
+    b.onclick = e => { e.currentTarget.blur(); it.onPick(); };
+    host.appendChild(b);
+  }
+  pauseUi = { onBack, onClose, devs };
+  $('pause').hidden = false;
+  setNavFocus(host.querySelector('button'));
+}
+// Closes from ANY exit (a pick, START/B, or another screen taking over via
+// show()/hideAll()) — onClose is the owner's cleanup (unpause / release the
+// captured devices), so a force-close can never wedge a session.
+function closePauseUi() {
+  if (!pauseUi) return;
+  const ui = pauseUi;
+  pauseUi = null;
+  $('pause').hidden = true;
+  ui.onClose?.();
+}
+// Runs each frame between navTick and session.tick; consumes (zeroes) every
+// edge it handles so the session never double-acts on the same press.
+function pauseUiTick(polled) {
+  if (!pauseUi) return;
+  const btns = [...$('pauseBtns').querySelectorAll('button')]
+    .filter(b => !b.disabled && b.offsetParent !== null);
+  if (!btns.length) return;
+  if (!navEl || !btns.includes(navEl)) setNavFocus(btns[0]);
+  for (const [dev, st] of Object.entries(polled)) {
+    if (pauseUi.devs && !pauseUi.devs.has(dev)) {
+      // online: this device's seat keeps playing — its own START press pulls
+      // it into the open dialog instead of stacking a second one
+      if (st.startJust) { st.startJust = false; pauseUi.devs.add(dev); }
+      continue;
+    }
+    if (st.startJust || st.specialJust) { // Esc/Start again, or pad B: back out
+      st.startJust = st.specialJust = false;
+      pauseUi.onBack();
+      return;
+    }
+    if (st.upJust || st.downJust || st.leftJust || st.rightJust) {
+      const d = st.downJust || st.rightJust ? 1 : -1;
+      const idx = btns.indexOf(navEl);
+      st.upJust = st.downJust = st.leftJust = st.rightJust = false;
+      setNavFocus(btns[mod(idx + d, btns.length)]);
+    }
+    if (st.fireJust) {
+      st.fireJust = false;
+      (btns.includes(navEl) ? navEl : btns[0]).click();
+      return; // the dialog likely changed — re-evaluate next frame
     }
   }
 }
@@ -1483,9 +1575,67 @@ class LocalSession {
   cutsceneTick(polled, dt) { slidesTick(this, polled, dt); }
   togglePause() {
     if (!this.game || this.game.status !== 'play') return;
-    this.paused = !this.paused;
-    if (this.paused) showMsg('Paused', 'The frontier waits.', 'Resume', () => this.togglePause());
-    else hideAll();
+    if (this.paused) {
+      this.paused = false; // belt and braces if the dialog already fell
+      closePauseUi();
+      return;
+    }
+    this.paused = true;
+    const items = [{ label: 'Resume', onPick: () => closePauseUi() }];
+    if (this.canSaveQuit()) items.push({ label: 'Save & Quit', ghost: true, onPick: () => this.saveQuit() });
+    items.push({ label: 'Quit to Menu', ghost: true, onPick: () => this.leave() });
+    openPauseUi({
+      title: 'Paused',
+      body: 'The frontier waits.',
+      hint: 'UP/DOWN picks · FIRE confirms · START / ESC / B resumes',
+      items,
+      onBack: () => closePauseUi(),
+      onClose: () => {
+        this.paused = false;
+        // a button still held from the dismissing press must not fire into
+        // the sim's first resumed frames (the cutscene-dismissal squelch)
+        this.fireSquelch = new Set(DEVICES.filter(d => prevDev[d]?.fire));
+      },
+    });
+  }
+  // Save & Quit is offered on non-versus LOCAL runs (classic/story/bastion —
+  // each twin-test-proven to round-trip through serializeGame); couch versus
+  // matches, legacy expeditions and the attract demo never see the button.
+  suspendMode() {
+    if (this.mode || this.expedition || demoMode) return null;
+    return this.story ? 'story' : this.bastion ? 'bastion' : 'classic';
+  }
+  canSaveQuit() {
+    return !!this.suspendMode() && typeof gameMod.serializeGame === 'function';
+  }
+  suspendName() {
+    const lvl = this.levels[this.levelIdx];
+    if (this.story) return lvl?.title || `Chapter ${this.levelIdx + 1} — ${lvl?.name ?? ''}`;
+    if (this.bastion) {
+      return `Stronghold ${String(lvl?.stronghold?.level ?? this.levelIdx + 1).padStart(2, '0')} — ${lvl?.stronghold?.name ?? lvl?.name ?? ''}`;
+    }
+    return `Mission ${this.levelIdx + 1} — ${lvl?.name ?? ''}`;
+  }
+  saveQuit() {
+    if (!this.game || !this.canSaveQuit()) return;
+    try {
+      localStorage.setItem(SUSPEND_KEY, JSON.stringify({
+        mode: this.suspendMode(),
+        levelIdx: this.levelIdx,
+        story: !!this.story,
+        data: gameMod.serializeGame(this.game),
+        name: this.suspendName(),
+        at: Date.now(),
+        // additive: each seat's physical device, so the resumed run hands
+        // every player back the controller they were actually holding
+        seats: this.players.map(p => ({ pid: p.pid, device: p.device })),
+      }));
+    } catch {
+      // storage quota — stay paused rather than quit and silently lose the run
+      showToast('SAVE FAILED — STORAGE FULL, RUN NOT SUSPENDED', 3200, true);
+      return;
+    }
+    this.leave();
   }
   tick(polled, dt) {
     if (this.cutscene) return this.cutsceneTick(polled, dt);
@@ -1640,9 +1790,20 @@ class LocalSession {
         // save now (before any cutscene/dialog) so quitting can't lose the clear;
         // demo/attract runs never touch the player's story save or its beacon
         if (!demoMode) {
-          clearBeacon(); // the chapter is cleared — its mid-run checkpoint is spent
+          // the cleared chapter's mid-run checkpoint is spent — but a beacon
+          // belonging to ANOTHER chapter (this run was a resumed Save & Quit
+          // bookmark of an older chapter) is not ours to spend
+          if (loadBeacon(this.levelIdx)) clearBeacon();
           if (this.levelIdx >= this.levels.length) localStorage.removeItem(STORY_KEY);
-          else localStorage.setItem(STORY_KEY, JSON.stringify({ chapter: this.levelIdx + 1, roster: this.roster }));
+          else {
+            // never regress: clearing a resumed OLDER chapter while a further
+            // story save exists must not pull that save backwards
+            let cur = null;
+            try { cur = JSON.parse(localStorage.getItem(STORY_KEY)); } catch {}
+            if (!((cur?.chapter ?? 0) > this.levelIdx + 1)) {
+              localStorage.setItem(STORY_KEY, JSON.stringify({ chapter: this.levelIdx + 1, roster: this.roster }));
+            }
+          }
         }
         this.startCutscene(lvl.outro, () => {
           if (this.levelIdx >= this.levels.length) return this.victory();
@@ -1678,7 +1839,13 @@ class LocalSession {
         return;
       }
       this.levelIdx++;
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ levelIdx: this.levelIdx, roster: this.roster }));
+      // never regress the campaign bookmark: clearing a RESUMED older run
+      // while a further classic save exists must not pull that save backwards
+      let curSave = null;
+      try { curSave = JSON.parse(localStorage.getItem(SAVE_KEY)); } catch {}
+      if (!((curSave?.levelIdx ?? -1) > this.levelIdx)) {
+        localStorage.setItem(SAVE_KEY, JSON.stringify({ levelIdx: this.levelIdx, roster: this.roster }));
+      }
       showMsg('Mission Cleared', (resultText(res) || 'Nicely done.') + `\nScore: ${score.toLocaleString()}`, 'Continue', () => this.lobby());
     } else {
       // story runs are untimed, so a story fail can only be a squad wipe
@@ -1761,6 +1928,7 @@ class NetSession {
     this.hostToastPid = null; // last host pid already toasted (migration dedupe)
     this.cutscene = null;
     this.seats = new Map();        // device -> pid (insertion order = seat order)
+    this.menuDevs = null;          // devices captured by the open leave dialog
     this.pendingSeats = new Map(); // device -> request time, awaiting localAdded
     this.cursors = {};             // device -> roster pick cursor
     this.missingT = {};            // device -> seconds a bound pad has been gone
@@ -1825,8 +1993,9 @@ class NetSession {
         for (const [dev, pid] of this.seats) inputs[pid] = this.deviceInput(dev);
         this.ws.send(JSON.stringify({ t: 'input', inputs }));
       } else {
-        // mouse-only machine: any device drives the primary (legacy form)
-        const o = mergedInput();
+        // mouse-only machine: any device drives the primary (legacy form);
+        // devices navigating the leave dialog are excluded while it is up
+        const o = mergedInput(this.menuDevs);
         if (this.fireSquelch?.size) {
           for (const dev of [...this.fireSquelch]) if (!readDevice(dev)?.fire) this.fireSquelch.delete(dev);
           if (this.fireSquelch.size) o.fire = false;
@@ -1867,6 +2036,9 @@ class NetSession {
   // navTick: a bound device's dpad drives its pick cursor, not the focus ring
   deviceOf(dev) { return this.seats.has(dev) ? dev : null; }
   deviceInput(dev) {
+    // a device captured by the open leave dialog navigates the menu, not the
+    // match — its seat stands idle while the rest of the couch keeps playing
+    if (this.menuDevs?.has(dev)) return {};
     const c = readDevice(dev);
     if (!c) return {};
     let fire = c.fire;
@@ -2225,6 +2397,17 @@ class NetSession {
       return;
     }
     if (!$('lobby').hidden) return this.lobbyTick(polled, dt);
+    // Esc/Start during an active match opens the leave dialog (lobby phases
+    // keep their Leave button; pauseUiTick owns every input while it is up)
+    if (!pauseUi) {
+      for (const [dev, st] of Object.entries(polled)) {
+        if (st.startJust) {
+          st.startJust = false;
+          this.openLeaveDialog(dev);
+          break;
+        }
+      }
+    }
     // mid-level rejoin: held seats re-bind as each unbound device presses
     // FIRE (join order = seat order); the press doubles as the seat's first
     // shot/pick input, which is fine for a squad re-entering the field
@@ -2237,6 +2420,28 @@ class NetSession {
         if (!this.rebindQueue.length) break;
       }
     }
+  }
+  // Esc/Start during an active online match: the match keeps running server-
+  // side, so this is a LEAVE dialog, not a pause. Only the opening device
+  // (plus any other device that presses START while it is up) is captured for
+  // menu navigation — the other couch seats on this connection keep playing.
+  openLeaveDialog(dev) {
+    if (pauseUi || !this.snap || this.snap.status !== 'play') return;
+    this.menuDevs = new Set([dev]);
+    const room = this.lobbyData?.room || this.joinCode || '';
+    openPauseUi({
+      title: 'Leave match?',
+      body: 'The match keeps running on the server while this is open — your operative stands down until you choose.\n'
+        + `After leaving, your seats are held for about 2 minutes: rejoin from the Online page with the same name and room code${room ? ` ${room}` : ''} to retake them.`,
+      hint: 'UP/DOWN picks · FIRE confirms · START / ESC / B keeps playing',
+      items: [
+        { label: 'Keep Playing', onPick: () => closePauseUi() },
+        { label: 'Leave Match', ghost: true, onPick: () => this.leave() },
+      ],
+      onBack: () => closePauseUi(),
+      onClose: () => { this.menuDevs = null; },
+      devs: this.menuDevs,
+    });
   }
   close() {
     clearInterval(this.inputTimer);
@@ -2890,6 +3095,9 @@ function remapPadTick() {
 
 // ---------- menu wiring ----------
 function refreshContinue() {
+  // Save & Quit bookmark: Resume Game shows only while the slot parses and
+  // the sim can actually restore it (older shared/game.js = no offer)
+  $('btnResumeGame').hidden = !(loadSuspend() && typeof gameMod.restoreGame === 'function');
   $('btnContinue').hidden = !localStorage.getItem(SAVE_KEY);
   $('btnStory').hidden = !storyLevels.length;
   $('btnStoryContinue').hidden = !storyLevels.length || !localStorage.getItem(STORY_KEY);
@@ -3053,6 +3261,73 @@ for (const k of Object.keys(VOL_DEF)) {
 }
 $('nameInput').value = localStorage.getItem('holdout.name') || '';
 $('nameInput').onchange = () => localStorage.setItem('holdout.name', $('nameInput').value);
+
+// ---------- Resume Game (the Save & Quit bookmark, main menu) ----------
+// Mirrors the beacon-restore construction: a LocalSession is built around the
+// restored game with the mode-correct level list and levelIdx, the squad
+// panels and mission readout are rebuilt, and play resumes next frame (fog,
+// minimap, quest HUD and camera all re-derive from the restored snapshots,
+// exactly like a beacon resume). The slot is one-shot: it clears on a
+// successful resume, and a corrupt slot clears with a toast like a corrupt
+// beacon. Starting any NEW game never touches it.
+function resumeSuspended() {
+  if (session) return;
+  const s = loadSuspend();
+  if (!s || typeof gameMod.restoreGame !== 'function') {
+    refreshContinue();
+    return;
+  }
+  let g = null;
+  try { g = gameMod.restoreGame(s.data, charMap); } catch {}
+  // the beacon resume's liveness bar: a steppable mid-run game or nothing
+  const valid = !!g && g.status === 'play'
+    && Array.isArray(g.players) && g.players.length > 0
+    && typeof g.w === 'number' && Number.isFinite(g.w) && g.w > 0
+    && typeof g.h === 'number' && Number.isFinite(g.h) && g.h > 0
+    && Array.isArray(g.grid) && g.grid.length === g.h
+    && g.grid.every(row => typeof row === 'string' && row.length === g.w);
+  if (!valid) {
+    clearSuspend();
+    refreshContinue();
+    showToast('SAVED GAME CORRUPT — BOOKMARK DISCARDED', 3200, true);
+    return;
+  }
+  const opts = s.mode === 'story' ? { story: true }
+    : s.mode === 'bastion' ? { mode: 'bastion', levelIdx: s.levelIdx } : {};
+  const sess = new LocalSession(null, opts);
+  sess.levelIdx = Math.max(0, Math.min(s.levelIdx, Math.max(0, sess.levels.length - 1)));
+  // the run's own roster rides inside the serialized game (createGame keeps
+  // it on g.roster); the constructor's mode default covers older data
+  if (Array.isArray(g.roster) && g.roster.length) {
+    sess.roster = g.roster.filter(id => charMap[id]);
+  }
+  const seats = Array.isArray(s.seats) ? s.seats : [];
+  sess.players = g.players.map((p, i) => ({
+    pid: p.pid,
+    name: p.name,
+    // hand each seat back its original device; older slots without the seat
+    // map fall back to join order (kb1, kb2, then pads)
+    device: seats.find(q => q && q.pid === p.pid)?.device ?? DEVICES[i] ?? 'kb1',
+    charId: p.charId ?? null,
+    cursor: 0,
+    missingT: 0,
+  }));
+  sess.inLobby = false;
+  sess.game = g;
+  sess.snap = null;
+  sess.paused = false;
+  clearSuspend(); // one-shot bookmark — resumed means spent
+  session = sess;
+  playUi('select');
+  buildSquadPanels(sess.roster);
+  updateMissionPanel();
+  hideAll();
+  refreshContinue(); // the Resume button hides for the next menu visit
+}
+$('btnResumeGame').onclick = e => {
+  e.currentTarget.blur();
+  resumeSuspended();
+};
 
 $('btnSolo').onclick = e => {
   e.currentTarget.blur();
@@ -3225,6 +3500,7 @@ function frame(now) {
   const polled = pollDevices();
   remapPadTick();  // a pad rebind capture polls raw buttons each frame
   navTick(polled); // first: consumes the button edges it handles
+  pauseUiTick(polled); // then the pause/leave dialog, when one is up
   if (session) {
     session.tick?.(polled, dt);
     const cs = session.cutscene;

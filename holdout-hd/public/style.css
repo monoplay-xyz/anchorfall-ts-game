@@ -204,6 +204,12 @@ button.ghost { background: rgba(255,255,255,.1); color: #c2cde0; }
 .card .cstats { color: #76829c; font-size: 10px; line-height: 1.5; margin-top: 3px; }
 #msgBody { color: #aebad0; line-height: 1.7; max-width: 440px; white-space: pre-line; }
 
+/* --- pause / leave dialog (Esc-Start during play; client-managed) ---
+   same .screen overlay language as #msg; buttons stack like the main menu */
+#pauseBody { color: #aebad0; line-height: 1.7; max-width: 460px; white-space: pre-line; }
+#pauseBtns { display: flex; flex-direction: column; gap: 11px; align-items: center; }
+#pause .help { margin-top: 6px; letter-spacing: 1px; }
+
 /* --- dialogue box (NPC talk lines, client-managed) --- */
 #dialogueBox {
   position: fixed;
