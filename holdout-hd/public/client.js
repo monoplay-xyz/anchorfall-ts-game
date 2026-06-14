@@ -1526,7 +1526,11 @@ class LocalSession {
         : this.expedition ? 0 : (save?.levelIdx ?? 0);
     // stronghold lobbies draw from the stronghold roster (starters + every
     // operative unlocked by beaten levels); other modes are untouched
-    this.roster = save?.roster ?? (this.bastion ? strongholdRoster() : startingRoster.slice());
+    this.roster = save?.roster ?? (this.bastion ? strongholdRoster() : this.mode ? startingRoster.slice() : coopRoster());
+    // co-op (classic/story/stronghold): always surface earned operators, even
+    // when resuming a save whose stored roster predates the unlock. Versus is
+    // left exactly as it was.
+    if (!this.mode) this.roster = [...new Set([...this.roster, ...profileUnlocked().filter(id => !startingRoster.includes(id))])];
     // Daily: a one-map list of the seeded def, so the lobby/HUD/start() all read it.
     if (this.daily) { this.levels = [this.daily.def]; this.levelIdx = 0; }
     if (this.tutorial && opts.tutorialDef) { this.levels = [opts.tutorialDef]; this.levelIdx = 0; }
@@ -1931,6 +1935,8 @@ class LocalSession {
       return;
     }
     if (cleared) {
+      // milestone progress: a cleared co-op mission counts toward operator unlocks
+      if (!demoMode) recordProgress({ missionCleared: true });
       // rankings: one board entry per cleared level (server POST, or static-
       // build local bests). submitRun no-ops on demo runs and keyless defs.
       submitRun(lvl, this.players.map(p => p.name), this.players.length, score, timeS);
@@ -2008,6 +2014,8 @@ class LocalSession {
         const ekey = this.daily ? 'daily/' + this.daily.dateStr : (base ? 'endless/' + base.split('/')[1] : null);
         if (ekey) submitRun(lvl, this.players.map(p => p.name), this.players.length, nights * 100000 + Math.min(99999, score), timeS, { key: ekey });
       }
+      // milestone progress: best endless run + (for dailies) the day completed
+      if (!demoMode) recordProgress({ endlessNights: nights, dailyDate: this.daily ? this.daily.dateStr : undefined });
       playUi('victory');
       const dailyBack = () => { session = null; show('menu'); showMenuPage('pageMain'); refreshContinue(); };
       showMsg(this.daily ? `Daily Over — ${this.daily.label}` : 'Endless Over',
@@ -2651,9 +2659,56 @@ function loadShSave() {
 }
 function shUnlockOf(def, n) { return def?.stronghold?.unlock ?? SH_UNLOCKS[n] ?? null; }
 // Stronghold lobby roster: 4 starters + every operative the save has earned.
+// --- Operator milestones: new operators earned by playing the loop ----------
+// Endless nights survived, Daily Challenge completions, and missions cleared
+// unlock new operators. Tracked in a local profile; an unlock toasts and the
+// operator joins the co-op roster everywhere.
+const PROFILE_KEY = 'holdout-hd.profile';
+function loadProfile() {
+  try {
+    const p = JSON.parse(localStorage.getItem(PROFILE_KEY));
+    if (p && typeof p === 'object') return {
+      bestEndlessNights: Math.max(0, Math.floor(p.bestEndlessNights) || 0),
+      missionsCleared: Math.max(0, Math.floor(p.missionsCleared) || 0),
+      dailyDates: Array.isArray(p.dailyDates) ? p.dailyDates.slice(0, 400) : [],
+      unlocked: Array.isArray(p.unlocked) ? p.unlocked.filter(id => charMap[id]) : [],
+    };
+  } catch {}
+  return { bestEndlessNights: 0, missionsCleared: 0, dailyDates: [], unlocked: [] };
+}
+function saveProfile(p) { try { localStorage.setItem(PROFILE_KEY, JSON.stringify(p)); } catch {} }
+const OPERATOR_UNLOCKS = [
+  { id: 'ranger',   need: 8,  how: 'Survive 8 nights in one Endless run', val: p => p.bestEndlessNights },
+  { id: 'sentinel', need: 3,  how: 'Complete Daily Challenges on 3 days', val: p => p.dailyDates.length },
+  { id: 'tempest',  need: 12, how: 'Clear 12 missions (any mode)',        val: p => p.missionsCleared },
+];
+function profileUnlocked() { return loadProfile().unlocked.filter(id => charMap[id]); }
+// Apply a finished run's progress; toast any operator it just earned.
+function recordProgress(up) {
+  const p = loadProfile();
+  if (up.endlessNights != null) p.bestEndlessNights = Math.max(p.bestEndlessNights, up.endlessNights);
+  if (up.dailyDate && !p.dailyDates.includes(up.dailyDate)) p.dailyDates.push(up.dailyDate);
+  if (up.missionCleared) p.missionsCleared += 1;
+  const newly = [];
+  for (const u of OPERATOR_UNLOCKS) {
+    if (!p.unlocked.includes(u.id) && u.val(p) >= u.need) { p.unlocked.push(u.id); newly.push(u); }
+  }
+  saveProfile(p);
+  if (newly.length) playUi('victory');
+  newly.forEach((u, i) => {
+    const ch = charMap[u.id];
+    setTimeout(() => showToast('★ NEW OPERATOR — ' + (ch?.name ?? u.id).toUpperCase(), 4600, true), 140 + i * 1800);
+  });
+  return newly;
+}
+// co-op roster base = starters + any milestone-earned operators
+function coopRoster() {
+  return [...startingRoster, ...profileUnlocked().filter(id => !startingRoster.includes(id))];
+}
 function strongholdRoster() {
   const s = loadShSave();
-  return [...startingRoster, ...s.chars.filter(id => charMap[id] && !startingRoster.includes(id))];
+  const earned = [...s.chars, ...profileUnlocked()].filter(id => charMap[id] && !startingRoster.includes(id));
+  return [...startingRoster, ...new Set(earned)];
 }
 // Records a cleared level; returns 'UNLOCKED — …' toast lines for the caller.
 function shRecordClear(def) {

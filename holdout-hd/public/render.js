@@ -674,6 +674,10 @@ const PORTRAIT_CAST = {
   helix:     { fem: true, skin: 2, hair: 'buns2', hairCol: '#4A3A5C', expr: 'curious', prop: 'ear' },
   atlas:     { fem: false, skin: 5, hair: 'curls', hairCol: '#1E1812', expr: 'gentle', prop: 'visor' },
   seal:      { fem: true, skin: 3, hair: 'wet', hairCol: '#202E33', expr: 'serene', prop: 'ear' },
+  // milestone-unlocked operators (earned via Endless / Daily / mission play)
+  ranger:    { fem: true, skin: 2, hair: 'pony', hairCol: '#3B5A2E', expr: 'focus', prop: 'visor' },
+  sentinel:  { fem: false, skin: 4, hair: 'crop', hairCol: '#2A3340', expr: 'stern', prop: 'visor', beard: 'chin' },
+  tempest:   { fem: true, skin: 1, hair: 'asym', hairCol: '#C9A227', expr: 'spark', prop: 'ear' },
 };
 
 // Hair back layers (drawn behind the head) for the long styles.

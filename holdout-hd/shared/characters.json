@@ -169,5 +169,38 @@
     "evolution": "multi",
     "weapon": { "name": "Harpoon", "kind": "harpoon", "damage": 2, "projSpeed": 11, "range": 6, "cooldown": 0.55, "count": 1, "spreadDeg": 0, "overWalls": false, "pierce": 2 },
     "special": { "name": "Riptide", "kind": "weapon", "damage": 2, "projSpeed": 7, "range": 3, "cooldown": 6, "count": 8, "spreadDeg": 360, "overWalls": false, "pierce": 0, "aoeRadius": 0, "curve": 0 }
+  },
+  {
+    "id": "ranger",
+    "name": "Ranger",
+    "color": "#7cb342",
+    "speed": 4.3,
+    "starting": false,
+    "milestone": true,
+    "evolution": "multi",
+    "weapon": { "name": "Recurve Darts", "kind": "needle", "damage": 1, "projSpeed": 13, "range": 7.5, "cooldown": 0.3, "count": 1, "spreadDeg": 0, "overWalls": false },
+    "special": { "name": "Slip Dash", "kind": "dash", "cooldown": 4 }
+  },
+  {
+    "id": "sentinel",
+    "name": "Sentinel",
+    "color": "#5c8fb3",
+    "speed": 2.7,
+    "starting": false,
+    "milestone": true,
+    "evolution": "shock",
+    "weapon": { "name": "Bulwark Rivets", "kind": "rivet", "damage": 2, "projSpeed": 9, "range": 5.5, "cooldown": 0.65, "count": 1, "spreadDeg": 0, "overWalls": false },
+    "special": { "name": "Aegis Pulse", "kind": "stim", "cooldown": 8 }
+  },
+  {
+    "id": "tempest",
+    "name": "Tempest",
+    "color": "#ffb300",
+    "speed": 3.1,
+    "starting": false,
+    "milestone": true,
+    "evolution": "shock",
+    "weapon": { "name": "Arc Coil", "kind": "spark", "damage": 1, "projSpeed": 11, "range": 6.5, "cooldown": 0.4, "count": 1, "spreadDeg": 0, "overWalls": false },
+    "special": { "name": "Storm Nova", "kind": "weapon", "damage": 2, "projSpeed": 12, "range": 6, "cooldown": 4, "count": 8, "spreadDeg": 360, "overWalls": false, "pierce": 0, "aoeRadius": 0, "curve": 0 }
   }
 ]

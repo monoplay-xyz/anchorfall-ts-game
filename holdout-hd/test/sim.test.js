@@ -90,7 +90,9 @@ function testLevelsParse() {
     }
   }
   for (const ch of characters) {
-    if (!ch.starting) assert.ok(captiveIds.has(ch.id), `${ch.id} is obtainable as a captive`);
+    // milestone operators are earned through play (Endless/Daily/missions), not
+    // rescued — every other non-starter must be obtainable as a captive.
+    if (!ch.starting && !ch.milestone) assert.ok(captiveIds.has(ch.id), `${ch.id} is obtainable as a captive`);
   }
 }
 
