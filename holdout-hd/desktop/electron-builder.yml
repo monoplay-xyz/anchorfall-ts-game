@@ -83,3 +83,10 @@ linux:
 
 # clean, predictable artifact names
 artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+
+# Where `--publish` sends builds (the desktop package.json has no repository
+# field and electron-builder can't infer it from the monorepo's .git/config).
+publish:
+  provider: github
+  owner: monoplay-xyz
+  repo: holdout

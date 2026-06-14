@@ -25,8 +25,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: macos-14,       plat: mac,   arch: arm64 }
-          - { os: macos-13,       plat: mac,   arch: x64 }
+          # one Apple-Silicon runner builds BOTH mac arches (arm64 natively, x64
+          # cross-built) — GitHub no longer offers reliable Intel (macos-13)
+          # runners, so we don't depend on them.
+          - { os: macos-14,       plat: mac,   arch: both }
           - { os: windows-latest, plat: win,   arch: x64 }
           - { os: ubuntu-latest,  plat: linux, arch: x64 }
     runs-on: ${{ matrix.os }}
@@ -52,11 +54,29 @@ jobs:
 
       # Bundle this runner's Node binary (correct OS + arch) into runtime/ so the
       # SDL controller sidecar has a real Node to run under inside the app.
+      # (macOS does this per-arch inside its build step.)
       - name: Stage bundled Node runtime
+        if: matrix.plat != 'mac'
         working-directory: holdout-hd/desktop
         run: node scripts/prepare-runtime.js
 
-      # ---------------- macOS ----------------
+      # @kmamal/sdl ships its SDL shared lib as a SONAME symlink
+      # (libSDL2-2.0.so.0 -> .so). electron-builder's packer fails to recreate it
+      # (ensureSymlink ENOENT), so replace it with a real copy. (macOS does this
+      # per-arch inside its build step.)
+      - name: De-symlink SDL shared libs
+        if: matrix.plat == 'linux'
+        working-directory: holdout-hd/desktop
+        shell: bash
+        run: |
+          d=node_modules/@kmamal/sdl/dist
+          find "$d" -maxdepth 1 -name 'libSDL2*.so*' -type l | while read -r l; do
+            real=$(readlink -f "$l")
+            if [ -f "$real" ]; then rm "$l"; cp "$real" "$l"; echo "de-symlinked $(basename "$l")"; fi
+          done
+          ls -la "$d"
+
+      # ---------------- macOS (arm64 + x64 on one Apple-Silicon runner) ----------
       - name: Build macOS
         if: matrix.plat == 'mac'
         working-directory: holdout-hd/desktop
@@ -68,17 +88,46 @@ jobs:
           APPLE_API_KEY_ID: ${{ secrets.APPSTORE_CONNECT_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPSTORE_CONNECT_ISSUER_ID }}
           ASC_KEY_B64: ${{ secrets.APPSTORE_CONNECT_KEY_BASE64 }}
+          NODE_RUNTIME_VERSION: v20.18.1   # bundled-sidecar Node, per-arch download
         run: |
           PUB=$([ "$IS_TAG" = "true" ] && echo always || echo never)
+          HOST=$(node -p process.arch)
           if [ -n "$CSC_LINK" ]; then
             echo "$ASC_KEY_B64" | base64 --decode > "$RUNNER_TEMP/asc.p8"
             export APPLE_API_KEY="$RUNNER_TEMP/asc.p8"
-            npx electron-builder --mac --${{ matrix.arch }} --publish "$PUB"
-          else
-            echo "::warning::No Apple cert secret — building UNSIGNED macOS"
-            npx electron-builder --mac --${{ matrix.arch }} \
-              -c.mac.notarize=false -c.mac.identity=null --publish "$PUB"
           fi
+          for ARCH in arm64 x64; do
+            echo "::group::prep macOS $ARCH"
+            # SDL prebuild for this arch — CROSS_COMPILE_ARCH controls both the
+            # sdl.node addon and the libSDL2 dylib that @kmamal/sdl downloads.
+            rm -rf node_modules/@kmamal/sdl
+            CROSS_COMPILE_ARCH=$ARCH npm install --no-audit --no-fund
+            # bundled Node for this arch (copy host's, or download the other arch)
+            mkdir -p runtime
+            if [ "$ARCH" = "$HOST" ]; then
+              node scripts/prepare-runtime.js
+            else
+              NV=$NODE_RUNTIME_VERSION
+              curl -fsSL "https://nodejs.org/dist/$NV/node-$NV-darwin-$ARCH.tar.gz" | tar -xz -C "$RUNNER_TEMP"
+              cp "$RUNNER_TEMP/node-$NV-darwin-$ARCH/bin/node" runtime/node && chmod +x runtime/node
+              echo "staged downloaded darwin-$ARCH node"
+            fi
+            # de-symlink the SDL dylib (electron-builder can't pack symlinks)
+            d=node_modules/@kmamal/sdl/dist
+            find "$d" -maxdepth 1 -name 'libSDL2*.dylib' -type l | while read -r l; do
+              real=$(readlink -f "$l"); [ -f "$real" ] && { rm "$l"; cp "$real" "$l"; }
+            done
+            echo "::endgroup::"
+            echo "::group::build macOS $ARCH"
+            if [ -n "$CSC_LINK" ]; then
+              npx electron-builder --mac --$ARCH --publish "$PUB"
+            else
+              echo "::warning::No Apple cert secret — building UNSIGNED macOS $ARCH"
+              npx electron-builder --mac --$ARCH \
+                -c.mac.notarize=false -c.mac.identity=null --publish "$PUB"
+            fi
+            echo "::endgroup::"
+          done
 
       # ---------------- Windows ----------------
       - name: Build Windows (unsigned)
@@ -88,7 +137,10 @@ jobs:
 
       - name: Sign Windows (Azure Trusted Signing)
         if: matrix.plat == 'win' && env.HAS_AZURE == 'true'
-        uses: azure/trusted-signing-action@v0.5.1
+        # NOTE: this action was renamed from azure/trusted-signing-action.
+        # GitHub resolves every referenced action at job-setup time (even
+        # if:-gated ones), so a stale path fails ALL jobs before they start.
+        uses: Azure/artifact-signing-action@v2
         with:
           azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -106,7 +158,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
-        run: gh release upload "${{ github.ref_name }}" dist/*.exe --clobber
+        run: |
+          # the mac/linux jobs create the release via --publish; create it here
+          # too if this job wins the race, then upload the signed installer.
+          gh release view "${{ github.ref_name }}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+            || gh release create "${{ github.ref_name }}" --repo "$GITHUB_REPOSITORY" \
+                 --title "${{ github.ref_name }}" --notes "Automated desktop release"
+          gh release upload "${{ github.ref_name }}" dist/*.exe --clobber --repo "$GITHUB_REPOSITORY"
 
       # ---------------- Linux ----------------
       - name: Build Linux
