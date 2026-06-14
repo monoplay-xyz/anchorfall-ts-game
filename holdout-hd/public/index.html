@@ -87,6 +87,17 @@
 
     /* ---- stronghold level select (25 cards, pad-navigable grid) ---- */
     #shGrid { display: grid; grid-template-columns: repeat(5, 158px); gap: 8px; max-height: 56vh; overflow-y: auto; padding: 4px; }
+    /* operator gallery */
+    #opGrid { display: grid; grid-template-columns: repeat(2, minmax(230px, 1fr)); gap: 8px; max-height: 60vh; overflow-y: auto; padding: 4px; width: 100%; max-width: 740px; }
+    .opcard { display: flex; gap: 10px; align-items: center; padding: 7px 10px; background: rgba(14,18,28,.7); border: 1px solid var(--panel-edge); border-radius: 5px; text-align: left; }
+    .opcard canvas { width: 48px; height: 48px; border-radius: 4px; flex: 0 0 auto; }
+    .opcard.locked { opacity: .6; }
+    .opcard.locked canvas { filter: grayscale(1) brightness(.7); }
+    .opmeta { min-width: 0; }
+    .opname { font-weight: 800; letter-spacing: 1px; font-size: 14px; }
+    .opwpn { font-size: 11px; color: #8fa0bc; margin-top: 1px; }
+    .opstat { font-size: 11px; color: #c9b06a; margin-top: 2px; }
+    .opstat.on { color: #5fd2b4; }
     button.shcard { width: 158px; padding: 7px 9px 8px; text-align: left; background: rgba(255,255,255,.05); color: #cfd8e8; clip-path: none; border: 1px solid rgba(54,160,138,.3); border-radius: 5px; display: flex; flex-direction: column; gap: 3px; font-weight: 500; letter-spacing: 0; font-size: 11px; }
     button.shcard .shtop { display: flex; justify-content: space-between; align-items: baseline; }
     button.shcard .shno { color: var(--relay); font-weight: 800; font-size: 12px; }
@@ -185,6 +196,8 @@
           <!-- seeded daily siege — same map+twist worldwide, shared daily board -->
           <button id="btnDaily">Daily Challenge</button>
           <button id="btnRankings">Rankings</button>
+          <!-- operator gallery + milestone unlock progress -->
+          <button id="btnOperators">Operators</button>
           <button id="btnSettings">Settings</button>
           <!-- interactive coached first mission for new players -->
           <button id="btnTutorial" class="ghost">How to Play</button>
@@ -314,6 +327,14 @@
           <p class="tag">top runs &mdash; points first, completion time breaks ties</p>
           <div id="rankGroups"></div>
           <p class="help" id="rankNote" hidden>&nbsp;</p>
+          <button class="ghost mback" data-back="pageMain">Back</button>
+        </div>
+
+        <!-- OPERATOR GALLERY + milestone unlock progress -->
+        <div class="mpage" id="pageOperators" hidden>
+          <h2>Operators</h2>
+          <p class="tag">earn new operators by playing — Endless, Daily &amp; missions</p>
+          <div id="opGrid"></div>
           <button class="ghost mback" data-back="pageMain">Back</button>
         </div>
 

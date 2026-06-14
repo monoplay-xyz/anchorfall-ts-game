@@ -2710,6 +2710,41 @@ function strongholdRoster() {
   const earned = [...s.chars, ...profileUnlocked()].filter(id => charMap[id] && !startingRoster.includes(id));
   return [...startingRoster, ...new Set(earned)];
 }
+// Operator gallery status: starter / earned / locked-with-progress.
+function operatorStatus(ch) {
+  if (ch.starting) return { txt: 'STARTER', on: true };
+  if (ch.milestone) {
+    const p = loadProfile();
+    if (p.unlocked.includes(ch.id)) return { txt: 'EARNED ✓', on: true };
+    const u = OPERATOR_UNLOCKS.find(x => x.id === ch.id);
+    return u ? { txt: `${u.how} · ${Math.min(u.val(p), u.need)}/${u.need}`, on: false } : { txt: 'Locked', on: false };
+  }
+  // captive / stronghold-rescued operators
+  return loadShSave().chars.includes(ch.id)
+    ? { txt: 'UNLOCKED ✓', on: true }
+    : { txt: 'Rescue or unlock in the Stronghold campaign', on: false };
+}
+function renderOperators() {
+  const grid = $('opGrid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  const tier = ch => ch.starting ? 0 : ch.milestone ? 2 : 1; // starters · rescues · milestones
+  [...characters].sort((a, b) => tier(a) - tier(b)).forEach(ch => {
+    const st = operatorStatus(ch);
+    const card = document.createElement('div');
+    card.className = 'opcard' + (st.on ? '' : ' locked');
+    const pc = document.createElement('canvas');
+    drawPortrait(pc, ch, 56);
+    card.appendChild(pc);
+    const meta = document.createElement('div');
+    meta.className = 'opmeta';
+    meta.innerHTML = `<div class="opname" style="color:${ch.color}">${ch.name.toUpperCase()}</div>`
+      + `<div class="opwpn">${ch.weapon.name} · SPD ${ch.speed} · DMG ${ch.weapon.damage}</div>`
+      + `<div class="opstat ${st.on ? 'on' : ''}">${st.txt}</div>`;
+    card.appendChild(meta);
+    grid.appendChild(card);
+  });
+}
 // Records a cleared level; returns 'UNLOCKED — …' toast lines for the caller.
 function shRecordClear(def) {
   const n = def?.stronghold?.level ?? (bastionLevels.indexOf(def) + 1);
@@ -3120,6 +3155,7 @@ const MENU_PARENT = {
   pageSingle: 'pageMain', pageVersus: 'pageMain', pageOnline: 'pageMain',
   pageSettings: 'pageMain', pageRemap: 'pageSettings', pageSh: 'pageSingle',
   pageRank: 'pageMain', pageRankBoard: 'pageRank', pageBrowse: 'pageOnline',
+  pageOperators: 'pageMain',
 };
 let menuPageId = 'pageMain';
 let shPurpose = 'local'; // why the level select is open: 'local' | 'host'
@@ -3136,6 +3172,7 @@ function showMenuPage(id) {
   if (id === 'pageRankBoard') renderRankBoard();  // async: fills in when fetched
   if (id === 'pageBrowse') startBrowse();         // 5s auto-refresh while open
   else stopBrowse();
+  if (id === 'pageOperators') renderOperators();
 }
 // pageSh opens from Singleplayer (shPurpose 'local') AND from Online's Host
 // Stronghold ('host') — Back must return to whichever page opened it, so the
@@ -3484,6 +3521,7 @@ for (const id of ['btnCtfMap', 'btnCtfMapV']) $(id).onclick = e => {
 };
 ctfMapSync();
 $('btnRankings').onclick = e => { e.currentTarget.blur(); showMenuPage('pageRank'); };
+$('btnOperators').onclick = e => { e.currentTarget.blur(); showMenuPage('pageOperators'); };
 $('btnSettings').onclick = e => { e.currentTarget.blur(); showMenuPage('pageSettings'); };
 // native desktop (Electron) shell: a real Quit-to-Desktop button on the main menu
 if (window.anchorfallDesktop?.isDesktop) {
