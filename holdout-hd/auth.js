@@ -56,7 +56,12 @@ function parseCookies(req) {
   const out = {};
   for (const part of String(req.headers.cookie || '').split(';')) {
     const i = part.indexOf('=');
-    if (i > 0) out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
+    if (i > 0) {
+      // a malformed value (e.g. "sid=hello%") makes decodeURIComponent throw —
+      // never let a crafted Cookie header bubble an exception up a route
+      try { out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim()); }
+      catch { /* skip malformed cookie */ }
+    }
   }
   return out;
 }
@@ -66,7 +71,8 @@ function setSession(res, token) {
     `sid=${token}; HttpOnly; Path=/; Max-Age=${Math.floor(TOKEN_TTL_MS / 1000)}; SameSite=Lax${secure ? '; Secure' : ''}`);
 }
 function clearSession(res) {
-  res.setHeader('Set-Cookie', 'sid=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax');
+  const secure = process.env.NODE_ENV === 'production' || process.env.PUBLIC_DEPLOY === '1';
+  res.setHeader('Set-Cookie', `sid=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax${secure ? '; Secure' : ''}`);
 }
 
 // The authenticated identity for a request, or null. { uid, name }

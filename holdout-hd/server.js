@@ -12,6 +12,10 @@ import * as sim from './shared/game.js';
 import { initDb } from './db.js';
 import { mountAuth } from './auth.js';
 
+// Defense in depth: a rejected promise in an async route (Express 4 doesn't
+// catch these) must never take the whole co-op server down. Log and survive.
+process.on('unhandledRejection', (err) => console.error('unhandledRejection:', err?.message || err));
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3001;
 const TICK = 1 / 30;
