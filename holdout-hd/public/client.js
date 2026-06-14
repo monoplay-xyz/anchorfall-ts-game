@@ -2094,8 +2094,10 @@ class LocalSession {
 // classic mouse flow (legacy single-input form, primary pid).
 class NetSession {
   constructor(mode, code, hostMode = 'classic', hostLevelIdx = null, opts = {}) {
-    const hostEndless = hostMode === 'bastion' && !!opts.endless;
+    const hostDaily = hostMode === 'bastion' && !!opts.daily;
+    const hostEndless = hostMode === 'bastion' && (!!opts.endless || hostDaily);
     this.endless = hostEndless;
+    this.daily = hostDaily;
     this.myPid = null;
     this.myPick = null;
     this.snap = null;
@@ -2133,6 +2135,8 @@ class NetSession {
         // Endless Siege rides the host message (additive — an older server
         // ignores it and the room plays as the fixed-night campaign)
         if (hostEndless) msg.endless = true;
+        // Daily online: the server resolves today's map+twist from its own date.
+        if (hostDaily) msg.daily = true;
         this.ws.send(JSON.stringify(msg));
       } else {
         this.ws.send(JSON.stringify({ t: 'join', room: code, name: this.name }));
@@ -3394,6 +3398,7 @@ function refreshContinue() {
   // versus/stronghold buttons only exist once their mode maps ship
   $('btnBastion').hidden = !bastionLevels.length;
   $('btnHostBastion').hidden = !bastionLevels.length;
+  $('btnHostDaily').hidden = !bastionLevels.length;
   $('btnCtf').hidden = !ctfLevels.length;
   $('btnHostCtf').hidden = !ctfLevels.length;
   $('btnBr').hidden = !brLevels.length;
@@ -3864,6 +3869,12 @@ $('btnHostBastion').onclick = e => {
   // with {t:'host', mode:'bastion', levelIdx} — see startStronghold()
   shPurpose = 'host';
   showMenuPage('pageSh');
+};
+$('btnHostDaily').onclick = e => {
+  e.currentTarget.blur();
+  if (!bastionLevels.length || session) return;
+  // no level select — the server resolves today's daily map+twist itself
+  session = new NetSession('host', $('joinCode').value.trim().toUpperCase(), 'bastion', 0, { daily: true });
 };
 $('btnHostCtf').onclick = e => {
   e.currentTarget.blur();

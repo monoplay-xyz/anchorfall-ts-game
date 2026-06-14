@@ -5,7 +5,7 @@ import os from 'os';
 import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
-import { createGame, step, snapshot, applyResults, charsById, TILE } from './shared/game.js';
+import { createGame, step, snapshot, applyResults, charsById, dailyChallenge, TILE } from './shared/game.js';
 // namespace import: wave-6 sim exports (revivePlayer) are probed with typeof
 // so the server keeps working while they land
 import * as sim from './shared/game.js';
@@ -152,7 +152,8 @@ function recordOnlineRun(room, def, g) {
     const nights = g.cycle?.nightNo || 0;
     if (nights < 1) return null;
     const runScore = Math.round(g.score || 0);
-    const key = endlessKeyOf(def.key);
+    // daily rooms land on the shared daily/<date> board; free Endless on the map's own board
+    const key = room.daily ? `daily/${room.dailyDate}` : endlessKeyOf(def.key);
     return { key, rank: recordRanking(key, { names: capNames(g.players.map(p => p.name)), players: g.players.length, score: nights * 100000 + Math.min(99999, runScore), nights, runScore, timeS: round1(g.elapsed), ...stamp }) };
   }
   if (g.status !== 'cleared') return null;
@@ -223,7 +224,8 @@ app.get('/api/rooms', (req, res) => {
     const def = list[room.levelIdx];
     out.push({
       code: room.code, mode: room.mode,
-      levelName: def?.name || null, levelTitle: def?.title,
+      levelName: room.daily ? `Daily Challenge` : (def?.name || null), levelTitle: def?.title,
+      endless: room.endless || undefined, daily: room.daily || undefined,
       players: room.players.size, cap: roomCap(room),
       phase: room.phase, joinableNow: true,
     });
@@ -437,12 +439,23 @@ function lobbyState(room) {
   assignTeams(room);
   const list = roomLevels(room);
   const def = list[room.levelIdx];
+  // daily online: resolve today's map + twist for the lobby label
+  let dailyMap = null, dailyLabel = null;
+  if (room.daily) {
+    const spec = dailyChallenge(room.dailyDate, bastionLevels.length);
+    const m = bastionLevels[spec.mapIdx];
+    dailyMap = m?.stronghold?.name || m?.name || null;
+    dailyLabel = spec.label;
+  }
   return {
     t: 'lobby',
     room: room.code,
     mode: room.mode,
+    endless: room.endless || undefined,
+    daily: room.daily || undefined,
+    dailyLabel: dailyLabel || undefined,
     levelIdx: room.levelIdx,
-    levelName: def?.name || null,
+    levelName: room.daily ? `Daily — ${dailyMap} · ${dailyLabel}` : (def?.name || null),
     levelTitle: def?.title || undefined,
     totalLevels: list.length,
     roster: room.roster,
@@ -619,9 +632,17 @@ function startLevel(room) {
   for (const p of room.players.values()) p.input = {};
   // Endless Siege: a stronghold room flagged endless plays the same map with no
   // night cap. Clone the def (never mutate the shared catalog) and flip the flag.
-  const baseDef = roomLevels(room)[room.levelIdx];
+  let baseDef = roomLevels(room)[room.levelIdx];
+  // Daily online: the server resolves today's map + twist from its own date so
+  // every host worldwide runs the same siege (matches the client's local daily).
+  let dailyMods = null;
+  if (room.daily) {
+    const spec = dailyChallenge(room.dailyDate, bastionLevels.length);
+    baseDef = bastionLevels[spec.mapIdx] || baseDef;
+    dailyMods = spec.mods;
+  }
   const gameDef = room.endless && baseDef.mode === 'bastion'
-    ? { ...baseDef, bastion: { ...(baseDef.bastion || {}), endless: true } }
+    ? { ...baseDef, bastion: { ...(baseDef.bastion || {}), endless: true, ...(dailyMods || {}) } }
     : baseDef;
   room.game = createGame(gameDef, party, charMap, room.roster);
   room.phase = 'play';
@@ -754,8 +775,13 @@ wss.on('connection', (ws, req) => {
       // and co-op private — co-op behavior is exactly the pre-browser world.
       const pub = m.public != null ? !!m.public : (mode === 'ctf' || mode === 'br');
       // Endless Siege: only meaningful for stronghold (bastion) rooms; ignored otherwise.
-      const endless = mode === 'bastion' && !!m.endless;
-      const r = { code, mode, public: pub, endless, hostPid: me.pid, players: new Map([[me.pid, me]]), levelIdx, roster, game: null, timer: null, phase: 'lobby', holds: [], tick: 0, lastActivity: Date.now() };
+      // Daily Challenge online: a bastion room flagged daily. The SERVER picks the
+      // map+twist from its own UTC date (never trusts the client), and it plays as
+      // an endless siege onto the shared daily/<date> board.
+      const daily = mode === 'bastion' && !!m.daily;
+      const endless = mode === 'bastion' && (!!m.endless || daily);
+      const dailyDate = daily ? new Date().toISOString().slice(0, 10) : null;
+      const r = { code, mode, public: pub, endless, daily, dailyDate, hostPid: me.pid, players: new Map([[me.pid, me]]), levelIdx, roster, game: null, timer: null, phase: 'lobby', holds: [], tick: 0, lastActivity: Date.now() };
       rooms.set(code, r);
       me.room = r;
       sendTo(me, { t: 'joined', you: me.pid, token: myToken });
