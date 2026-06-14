@@ -62,7 +62,8 @@ function testLevelsParse() {
   const captiveIds = new Set();
   for (const [idx, level] of levels.entries()) {
     const w = level.tiles[0].length;
-    const pvp = level.mode === 'ctf' || level.mode === 'br';
+    // ctf/br/siege field no tile-enemies (siege spawns minions at runtime)
+    const pvp = level.mode === 'ctf' || level.mode === 'br' || level.mode === 'siege';
     assert.ok(level.tiles.every(r => r.length === w), `level ${idx + 1} rows have equal width`);
     assert.ok(level.tiles.some(r => r.includes('P')), `level ${idx + 1} has a spawn`);
     if (!pvp) assert.ok(level.tiles.some(r => /[garsmnwbzfqvxu]/.test(r)), `level ${idx + 1} has enemies`);

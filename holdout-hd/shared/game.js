@@ -154,6 +154,25 @@ const FARM_REPLANT_T = 10; // seconds for a hired farmer to replant a trample
 const XP_THRESH = [12, 34, 70];
 const XP_DIV = 25; // xp per kill = enemy base score / 25
 const SQUAD_ASSIST_R = 8; // tiles: other seats this close to the killer earn floor(xp/2)
+
+// --- Anchor Siege (MOBA lane-push) ------------------------------------------
+// Minions are a SEPARATE faction (g.siege.minions) with their own cheap step
+// functions; towers are g.siegeTowers (not the mountable g.towers); cores are
+// g.cores tagged with a team. All gated on g.siege so other modes are untouched.
+const SIEGE_CORE_HP = 60;
+const SIEGE_TOWER_HP = [24, 32, 42];    // by tower level 1..3
+const SIEGE_TOWER_DMG = [2, 3, 4];
+const SIEGE_TOWER_RANGE = [6, 6.5, 7];  // tiles
+const SIEGE_TOWER_PERIOD = 0.8;         // seconds between tower shots
+const SIEGE_TOWER_REWARD = 8;           // shards to the team that destroys a tower
+const MINION_HP = 4;
+const MINION_SPEED = 2.0;               // tiles/sec along the lane
+const MINION_R = TILE * 0.32;
+const MINION_SCORE = 10;                // -> 0.4 xp on kill, 1 team shard
+const MINION_CORE_DPS = 0.5;            // hp/s a minion gnaws an enemy core
+const MINION_TOWER_DPS = 0.5;           // hp/s a minion gnaws an enemy tower
+const SIEGE_TOWER_R = TILE * 0.55;      // collision radius for player shots
+const SIEGE_CORE_R = TILE * 0.9;
 const TURRET_TYPES = ['gun', 'prism', 'tesla', 'toxin'];
 const TYPE_SELECT_T = 8; // seconds before an unattended carousel confirms 'gun'
 const PRISM_DMG = [2, 3, 4]; // beam damage by turret level
@@ -449,7 +468,8 @@ export function parseLevel(def) {
         chests.push({ x: px, y: py, opened: false, loot: ld.loot, amount: ld.amount });
         grid[y][x] = '.';
       } else if (c === 'K') {
-        cores.push({ x: px, y: py, hp: 30, maxHp: 30 });
+        const chp = (def.siege && def.siege.coreHp) || 30; // siege cores are tougher; beacons stay 30
+        cores.push({ x: px, y: py, hp: chp, maxHp: chp });
         grid[y][x] = '.';
       } else if (c === 'V') {
         const vd = (def.vehicles || [])[vehicles.length] || {};
@@ -536,8 +556,9 @@ export function createGame(def, party, charMap, roster) {
   const lvl = parseLevel(def);
   const mods = def.modifiers || {};
   const pvp = def.mode === 'ctf' || def.mode === 'br';
-  // PvP modes field no AI enemies at all, whatever the grid says.
-  if (pvp) lvl.enemies = [];
+  const siege = def.mode === 'siege'; // MOBA lane-push: minions are the only mobs
+  // PvP/siege modes field no AI enemies at all, whatever the grid says.
+  if (pvp || siege) lvl.enemies = [];
   // Arcade maps (the classic single-screen levels) keep the original behavior
   // exactly: every enemy awake, straight-line steering, fire on range without
   // sight checks, global spawn caps, respawn at the level spawn point.
@@ -594,27 +615,52 @@ export function createGame(def, party, charMap, roster) {
   }
   // PvP team assignment. CTF: party entries may carry a team (online lobbies);
   // otherwise seats alternate 0/1. BR: every operative for themselves.
-  if (def.mode === 'ctf') {
+  if (def.mode === 'ctf' || siege) {
     for (let i = 0; i < players.length; i++) players[i].team = party[i].team ?? (i % 2);
   } else if (def.mode === 'br') {
     for (const p of players) p.team = p.pid;
   }
   // pvp scoreboard: per-player kills (BR simultaneous-wipe ties go to the
   // player with more kills, then the lower pid)
-  if (pvp) for (const p of players) p.kills = 0;
+  if (pvp || siege) for (const p of players) p.kills = 0;
   const bastion = def.mode === 'bastion' ? { ...BASTION_DEFAULTS, ...(def.bastion || {}) } : null;
   // Untimed story (user mandate: no countdown in story modes): story levels
   // and bastion maps never decrement timeLeft, never fail on the clock and
   // never cue lowTime — g.elapsed keeps driving waves/gate.after/day-night.
   // def.timed:true opts a future level back into a countdown. CTF and BR keep
   // their match timers; classic levels keep their arcade countdowns.
-  const untimed = !pvp && !def.timed && (!!def.story || def.mode === 'bastion' || !!def.untimed);
+  const untimed = !pvp && !def.timed && (!!def.story || def.mode === 'bastion' || siege || !!def.untimed);
   // First 'E' tile center, used by the gateOpen event.
   let exitX = lvl.w * TILE / 2, exitY = lvl.h * TILE / 2;
   outer: for (let y = 0; y < lvl.h; y++) {
     for (let x = 0; x < lvl.w; x++) {
       if (lvl.grid[y][x] === 'E') { exitX = (x + 0.5) * TILE; exitY = (y + 0.5) * TILE; break outer; }
     }
+  }
+  // --- Anchor Siege setup: two team cores, lane waypoints, pre-placed towers ---
+  let siegeCores = null, siegeState = null, siegeTowers = null;
+  if (siege) {
+    // exactly two 'K' cores; team by position — the core LOWER on the map
+    // (larger y) is team 0 (bottom-left base), the other is team 1.
+    const cs = lvl.cores.slice(0, 2).sort((a, b) => b.y - a.y);
+    const chp = (def.siege && def.siege.coreHp) || SIEGE_CORE_HP;
+    siegeCores = cs.map((c, i) => ({ x: c.x, y: c.y, hp: chp, maxHp: chp, lit: true, team: i }));
+    const toPx = ([tx, ty]) => ({ x: (tx + 0.5) * TILE, y: (ty + 0.5) * TILE });
+    const lanes = ((def.siege && def.siege.lanes) || []).map(l => ({ waypoints: (l.waypoints || []).map(toPx) }));
+    siegeState = {
+      minions: [], nextMinionId: 9000, spawnT: [3, 3], waveNo: [0, 0],
+      interval: (def.siege && def.siege.minionInterval) || 20,
+      cap: (def.siege && def.siege.minionCap) || 12,
+      waveBase: (def.siege && def.siege.waveBase) || 3,
+      wavePerMin: (def.siege && def.siege.wavePerMin) || 1,
+      lanes,
+      lanesRev: lanes.map(l => ({ waypoints: l.waypoints.slice().reverse() })),
+    };
+    siegeTowers = (def.towers || []).map((t, i) => {
+      const lvlv = Math.max(1, Math.min(3, t.level || 1));
+      return { id: i, x: (t.x + 0.5) * TILE, y: (t.y + 0.5) * TILE, team: t.team, lane: t.lane || 0,
+        level: lvlv, hp: SIEGE_TOWER_HP[lvlv - 1], maxHp: SIEGE_TOWER_HP[lvlv - 1], cool: 0, destroyed: false };
+    });
   }
   const g = {
     name: def.name || 'Untitled',
@@ -642,11 +688,17 @@ export function createGame(def, party, charMap, roster) {
     shops: lvl.shops,
     hires: lvl.hires,
     flags: lvl.flags,
-    core: beaconVariant ? null : lvl.core,
-    // beacon-defense: four lit monoliths; dark at 0 hp, relightable by day
-    cores: beaconVariant
-      ? lvl.cores.slice(0, 4).map(c => ({ x: c.x, y: c.y, hp: c.hp, maxHp: c.maxHp, lit: true, relightT: 0 }))
-      : null,
+    core: (siege || beaconVariant) ? null : lvl.core,
+    // beacon-defense: four lit monoliths; dark at 0 hp, relightable by day.
+    // siege: two team-tagged cores (the only win/lose objective).
+    cores: siege ? siegeCores
+      : beaconVariant
+        ? lvl.cores.slice(0, 4).map(c => ({ x: c.x, y: c.y, hp: c.hp, maxHp: c.maxHp, lit: true, relightT: 0 }))
+        : null,
+    // Anchor Siege state (minions + lanes) and the pre-placed lane towers.
+    siege: siegeState,
+    siegeTowers: siegeTowers,
+    deathCountByTeam: siege ? [0, 0] : null,
     ship: null, // the landed Anchorcraft (early-extraction reward), if any
     hpMult,
     // alive world: weather/ambience pass through to snapshots for render/audio
@@ -706,7 +758,7 @@ export function createGame(def, party, charMap, roster) {
     caps: def.mode === 'ctf' ? [0, 0] : null,
     // CTF per-team shard pools; null everywhere else (g.shards rules there —
     // BR keeps the single shared pool by design).
-    teamShards: def.mode === 'ctf' ? [0, 0] : null,
+    teamShards: (def.mode === 'ctf' || siege) ? [0, 0] : null,
     // CTF sudden-death bookkeeping: flag pickups per team across the match,
     // and which team grabbed first inside sudden death (the 180s cap rules).
     grabs: def.mode === 'ctf' ? [0, 0] : null,
@@ -752,7 +804,10 @@ export function createGame(def, party, charMap, roster) {
   // row-major 'P' spawn list — at 16v16 the old spawns[i % n] + i*10px drift
   // walked late seats into walls AND could land explicit-team parties at the
   // wrong base. Respawn and mid-match joins use the same rings.
-  if (g.mode === 'ctf' && g.flags.length) {
+  if (g.siege) {
+    // siege deploys each operative on a ring around their team's core
+    for (const p of g.players) { const s = siegeSpawnSpot(g, p); p.x = s.x; p.y = s.y; }
+  } else if (g.mode === 'ctf' && g.flags.length) {
     for (const p of g.players) {
       const s = ctfStandSpot(g, p);
       p.x = s.x;
@@ -1311,6 +1366,123 @@ function ctfStandSpot(g, p) {
   return open[k % open.length];
 }
 
+// --- Anchor Siege: spawn ring, minion waves, lane march, tower fire ---------
+function siegeFoe(team) { return team === 0 ? 1 : 0; }
+// a team's core is only attackable once ALL of that team's towers have fallen
+function siegeCoreOpen(g, team) { return !g.siegeTowers.some(t => !t.destroyed && t.team === team); }
+function siegeSpawnSpot(g, p) {
+  const core = (g.cores || []).find(c => c.team === p.team) || (g.cores || [])[0];
+  if (!core) { const s = g.spawns[0] || { x: TILE * 2, y: TILE * 2 }; return { x: s.x, y: s.y }; }
+  let k = 0;
+  for (const q of g.players) { if (q.pid === p.pid) break; if (q.team === p.team) k++; }
+  const open = [];
+  for (const [n, r] of CTF_RINGS) {
+    for (let i = 0; i < n; i++) {
+      const a = -Math.PI / 2 + (2 * Math.PI * i) / n;
+      const x = core.x + Math.cos(a) * r * TILE, y = core.y + Math.sin(a) * r * TILE;
+      if (x > TILE && y > TILE && x < (g.w - 1) * TILE && y < (g.h - 1) * TILE && !collides(g, x, y, PLAYER_R)) open.push({ x, y });
+    }
+  }
+  return open.length ? open[k % open.length] : { x: core.x, y: core.y };
+}
+function spawnSiegeWave(g, team) {
+  const S = g.siege;
+  if (!S.lanes.length) return;
+  const laneI = S.waveNo[team] % S.lanes.length;
+  const wps = (team === 0 ? S.lanes[laneI] : S.lanesRev[laneI]).waypoints;
+  if (!wps.length) { S.waveNo[team]++; return; }
+  const live = S.minions.reduce((n, m) => n + (m.team === team ? 1 : 0), 0);
+  const want = S.waveBase + Math.min(6, Math.floor(g.elapsed / 60) * S.wavePerMin);
+  const count = Math.max(0, Math.min(S.cap - live, want));
+  const start = wps[0];
+  for (let i = 0; i < count; i++) {
+    S.minions.push({ id: S.nextMinionId++, team, laneI,
+      x: start.x + ((i % 3) - 1) * TILE * 0.45, y: start.y + (Math.floor(i / 3) - 1) * TILE * 0.45,
+      hp: MINION_HP, maxHp: MINION_HP, pathIdx: 1, score: MINION_SCORE });
+  }
+  S.waveNo[team]++;
+  g.events.push({ type: 'siegeWave', team, count, x: start.x, y: start.y });
+}
+function stepSiegeWaves(g, dt) {
+  const S = g.siege; if (!S) return;
+  for (let team = 0; team < 2; team++) {
+    S.spawnT[team] -= dt;
+    if (S.spawnT[team] <= 0) { spawnSiegeWave(g, team); S.spawnT[team] = S.interval; }
+  }
+}
+function stepSiegeMinions(g, dt) {
+  const S = g.siege; if (!S) return;
+  for (let i = S.minions.length - 1; i >= 0; i--) {
+    const m = S.minions[i];
+    const lane = m.team === 0 ? S.lanes[m.laneI] : S.lanesRev[m.laneI];
+    const wps = lane ? lane.waypoints : null;
+    if (wps && wps.length) {
+      const wp = wps[Math.min(m.pathIdx, wps.length - 1)];
+      const dx = wp.x - m.x, dy = wp.y - m.y;
+      if (Math.hypot(dx, dy) < TILE * 0.5 && m.pathIdx < wps.length - 1) m.pathIdx++;
+      const [nx, ny] = norm(dx, dy);
+      m.x += nx * MINION_SPEED * TILE * dt;
+      m.y += ny * MINION_SPEED * TILE * dt;
+    }
+    const foe = siegeFoe(m.team);
+    for (const t of g.siegeTowers) { // gnaw an enemy tower in reach
+      if (t.destroyed || t.team !== foe) continue;
+      if (dist2(m, t) < (TILE * 0.8) ** 2) { t.hp -= MINION_TOWER_DPS * dt; if (t.hp <= 0) siegeTowerDown(g, t, null); break; }
+    }
+    if (siegeCoreOpen(g, foe)) for (const c of g.cores) { // gnaw the enemy core once its towers are down
+      if (c.team !== foe || c.hp <= 0) continue;
+      if (dist2(m, c) < SIEGE_CORE_R ** 2) c.hp = Math.max(0, c.hp - MINION_CORE_DPS * dt);
+    }
+  }
+}
+function stepSiegeTowers(g, dt) {
+  if (!g.siege) return;
+  for (const t of g.siegeTowers) {
+    if (t.destroyed) continue;
+    t.cool -= dt;
+    if (t.cool > 0) continue;
+    const foe = siegeFoe(t.team);
+    const R = SIEGE_TOWER_RANGE[t.level - 1] * TILE;
+    let tgt = null, best = R * R;
+    for (const m of g.siege.minions) {
+      if (m.team !== foe) continue;
+      const d = dist2(t, m);
+      if (d < best) { best = d; tgt = m; }
+    }
+    if (tgt) {
+      fireWeapon(g, { x: t.x, y: t.y, fx: 0, fy: -1, team: t.team },
+        { kind: 'turret', damage: SIEGE_TOWER_DMG[t.level - 1], projSpeed: 10, range: SIEGE_TOWER_RANGE[t.level - 1] + 0.5, count: 1 }, 'siege', tgt);
+      t.cool = SIEGE_TOWER_PERIOD;
+    }
+  }
+}
+function damageMinion(g, m, dmg, killerPid) {
+  m.hp -= dmg;
+  if (m.hp <= 0) killMinion(g, m, killerPid);
+  else g.events.push({ type: 'hit', x: m.x, y: m.y, kind: 'minion' });
+}
+function killMinion(g, m, killerPid) {
+  const i = g.siege.minions.indexOf(m);
+  if (i < 0) return;
+  g.siege.minions.splice(i, 1);
+  g.events.push({ type: 'die', x: m.x, y: m.y, kind: 'minion', team: m.team, points: 0 });
+  const killer = killerPid != null ? g.players.find(p => p.pid === killerPid) : null;
+  if (killer) { addShards(g, killer, 1); awardXp(g, killer.pid, m); killer.kills = (killer.kills || 0) + 1; g.kills++; }
+}
+function siegeTowerDown(g, t, killerPid) {
+  if (t.destroyed) return;
+  t.destroyed = true; t.hp = 0;
+  g.events.push({ type: 'towerDown', x: t.x, y: t.y, team: t.team });
+  const killer = killerPid != null ? g.players.find(p => p.pid === killerPid) : null;
+  if (killer) { addShards(g, killer, SIEGE_TOWER_REWARD); awardXp(g, killer.pid, { score: 50 }); }
+}
+function damageTower(g, t, dmg, killerPid) {
+  if (t.destroyed) return;
+  t.hp -= dmg;
+  if (t.hp <= 0) siegeTowerDown(g, t, killerPid);
+  else g.events.push({ type: 'buildHit', x: t.x, y: t.y });
+}
+
 function fireWeapon(g, shooter, weapon, who, target = null) {
   const [fx, fy] = target ? norm(target.x - shooter.x, target.y - shooter.y) : [shooter.fx, shooter.fy];
   const base = Math.atan2(fy, fx);
@@ -1535,6 +1707,17 @@ function downPlayer(g, p) {
   if (g.mode === 'ctf') {
     p.state = 'down';
     p.respawn = CTF_RESPAWN + ctfOvertimeLevel(g);
+    p.dashT = 0;
+    p.stimT = 0;
+    g.events.push({ type: 'down', x: p.x, y: p.y });
+    return;
+  }
+  // Siege: respawn at the team core after a delay that grows with the team's
+  // death count (4s rising to 12s). XP/level/maxHp persist (like CTF).
+  if (g.siege) {
+    g.deathCountByTeam[p.team]++;
+    p.state = 'down';
+    p.respawn = Math.min(12, 4 + Math.min(8, Math.ceil(g.deathCountByTeam[p.team] / 3)));
     p.dashT = 0;
     p.stimT = 0;
     g.events.push({ type: 'down', x: p.x, y: p.y });
@@ -3771,6 +3954,10 @@ export function step(g, inputs, dt) {
   stepWaves(g);
   stepCycle(g, dt); // bastion day/night clock (final dawn can clear here)
   if (g.status !== 'play') return;
+  // Anchor Siege: minion waves march the lanes, towers cover them (no-ops off-mode)
+  stepSiegeWaves(g, dt);
+  stepSiegeMinions(g, dt);
+  stepSiegeTowers(g, dt);
   maybeOpenGate(g); // time-locked gates open when `after` elapses at full quorum
 
   // Bastion missions are governed by the day/night clock, not the mission
@@ -3805,8 +3992,8 @@ export function step(g, inputs, dt) {
         // CTF: redeploy the same operative on the team stand's spawn ring
         // (the seat's deterministic slot). No pick screen, no roster
         // consumption — pvp never touches rosters.
-        if (g.mode === 'ctf') {
-          const s = ctfStandSpot(g, p);
+        if (g.mode === 'ctf' || g.siege) {
+          const s = g.siege ? siegeSpawnSpot(g, p) : ctfStandSpot(g, p);
           p.x = s.x;
           p.y = s.y;
           p.fx = 0; p.fy = -1; p.cool = 0;
@@ -5109,6 +5296,37 @@ export function step(g, inputs, dt) {
         }
       }
     }
+    // Anchor Siege: player shots hit enemy minions/towers/(exposed)core; tower
+    // ('siege') shots hit enemy minions only. Keyed on the shot's stamped team.
+    if (!dead && g.siege && s.team != null && (s.who === 'p' || s.who === 'siege')) {
+      for (const m of g.siege.minions) {
+        if (m.team === s.team || s.hits.includes('m' + m.id)) continue;
+        if (dist2(s, m) < (MINION_R + (s.radius || SHOT_R)) ** 2) {
+          s.hits.push('m' + m.id);
+          damageMinion(g, m, s.dmg, s.ownerPid);
+          if (s.pierce > 0) s.pierce--; else dead = true;
+          break;
+        }
+      }
+      if (!dead && s.who === 'p') {
+        for (const t of g.siegeTowers) {
+          if (t.destroyed || t.team === s.team) continue;
+          if (dist2(s, t) < (SIEGE_TOWER_R + (s.radius || SHOT_R)) ** 2) {
+            damageTower(g, t, s.dmg, s.ownerPid);
+            if (s.pierce > 0) s.pierce--; else dead = true;
+            break;
+          }
+        }
+        if (!dead) for (const c of g.cores) {
+          if (c.team === s.team || c.hp <= 0 || !siegeCoreOpen(g, c.team)) continue;
+          if (dist2(s, c) < (SIEGE_CORE_R + (s.radius || SHOT_R)) ** 2) {
+            c.hp = Math.max(0, c.hp - s.dmg);
+            g.events.push({ type: 'coreHit', x: c.x, y: c.y, team: c.team });
+            dead = true; break;
+          }
+        }
+      }
+    }
     if (dead) {
       if (s.aoeRadius) explode(g, s);
       g.shots.splice(i, 1);
@@ -5121,9 +5339,15 @@ export function step(g, inputs, dt) {
   if (g.followers.length) g.followers = g.followers.filter(f => !f.dead);
 
   // --- end conditions ---
+  // Anchor Siege: a team wins the moment the ENEMY core falls.
+  if (g.siege) {
+    for (const c of g.cores) {
+      if (c.hp <= 0) { g.events.push({ type: 'coreDown', x: c.x, y: c.y, team: c.team }); pvpWin(g, siegeFoe(c.team)); return; }
+    }
+  }
   // Beacon-defense: the mission is lost only when ALL FOUR monoliths are
   // dark at once (single dark beacons are recoverable by day).
-  if (g.cores && g.cores.every(c => !c.lit)) {
+  else if (g.cores && g.cores.every(c => !c.lit)) {
     g.status = 'failed';
     g.events.push({ type: 'allDark', x: g.w * TILE / 2, y: g.h * TILE / 2 });
     g.events.push({ type: 'fail', x: g.w * TILE / 2, y: g.h * TILE / 2 });
@@ -5286,7 +5510,14 @@ export function snapshot(g, full = true) {
     ...(g.core ? { core: { x: g.core.x, y: g.core.y, hp: g.core.hp, maxHp: g.core.maxHp } } : {}),
     // beacon-defense: the four monoliths with HUD-ready lit flags, plus the
     // landed Anchorcraft once the all-lit night feat earns it
-    ...(g.cores ? { cores: g.cores.map(c => ({ x: c.x, y: c.y, hp: c.hp, maxHp: c.maxHp, lit: c.lit })) } : {}),
+    ...(g.cores ? { cores: g.cores.map(c => ({ x: c.x, y: c.y, hp: c.hp, maxHp: c.maxHp, lit: c.lit, ...(c.team != null ? { team: c.team } : {}) })) } : {}),
+    // Anchor Siege: minions, lane towers, lane polylines, and core-open flags
+    ...(g.siege ? { siege: {
+      minions: g.siege.minions.map(m => ({ id: m.id, team: m.team, x: m.x, y: m.y, hp: m.hp, maxHp: m.maxHp })),
+      towers: g.siegeTowers.map(t => ({ x: t.x, y: t.y, team: t.team, hp: t.hp, maxHp: t.maxHp, level: t.level, destroyed: t.destroyed })),
+      lanes: g.siege.lanes.map(l => l.waypoints.map(w => [w.x, w.y])),
+      open: [siegeCoreOpen(g, 0), siegeCoreOpen(g, 1)],
+    } } : {}),
     ...(g.ship ? { ship: { x: g.ship.x, y: g.ship.y, landed: true } } : {}),
     // alive world: weather/ambience for the render FX and audio beds; the
     // toxic-air deadline (live flag included) for the EVA banner
