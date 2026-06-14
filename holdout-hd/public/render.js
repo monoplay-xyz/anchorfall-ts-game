@@ -3502,6 +3502,140 @@ function drawSiegeCoreBars(ctx, VW, cores, siege, t) {
   ctx.restore();
 }
 
+// Team allegiance ring drawn UNDER a siege operative so allies (blue, team 0)
+// vs enemies (red, team 1) read at a glance. The LOCAL player(s) get a brighter,
+// thicker double ring plus a "YOU" caret bobbing overhead. World space; the
+// call site already culls by inView and gates on snap.mode === 'siege'.
+function drawSiegeTeamRing(ctx, x, y, team, isMe, t) {
+  const col = siegeTeamCol(team);
+  ctx.save();
+  // flat ground disc + ring, a touch larger than the operative's focus ellipse
+  ctx.fillStyle = `rgba(${hexRgb(col)},${isMe ? 0.26 : 0.16})`;
+  ctx.beginPath();
+  ctx.ellipse(x, y + 9, isMe ? 19 : 16.5, isMe ? 9 : 8, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = col;
+  ctx.shadowColor = col;
+  if (isMe) {
+    // local operative: bright, pulsing, double-stroked
+    const pulse = 0.7 + 0.3 * Math.sin(t * 5);
+    ctx.globalAlpha = 0.55 + 0.4 * pulse;
+    ctx.lineWidth = 2.6;
+    ctx.shadowBlur = 12;
+    ctx.beginPath();
+    ctx.ellipse(x, y + 9, 19, 9, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = 0.4;
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.ellipse(x, y + 9, 22.5, 10.5, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    // a "YOU" caret bobbing above the head
+    const bob = Math.sin(t * 4) * 1.5;
+    ctx.globalAlpha = 0.92;
+    ctx.shadowBlur = 6;
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.moveTo(x, y - 30 + bob);
+    ctx.lineTo(x - 5, y - 37 + bob);
+    ctx.lineTo(x + 5, y - 37 + bob);
+    ctx.closePath();
+    ctx.fill();
+    ctx.font = 'bold 8px monospace';
+    ctx.textAlign = 'center';
+    ctx.shadowBlur = 3;
+    ctx.fillText('YOU', x, y - 40 + bob);
+  } else {
+    ctx.globalAlpha = 0.62;
+    ctx.lineWidth = 1.8;
+    ctx.shadowBlur = 5;
+    ctx.beginPath();
+    ctx.ellipse(x, y + 9, 16.5, 8, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// Screen-space objective marker for siege: for each local operative the ENEMY
+// core is the goal. Off-screen → an edge chevron in the enemy team color labeled
+// "ANCHOR" (pulsing brighter when that core is OPEN/vulnerable); on-screen → a
+// faint target reticle on the core itself. Gated on snap.mode === 'siege' at the
+// call site; drawn outside the camera transform alongside the other HUD markers.
+function drawSiegeEnemyAnchor(ctx, camera, cores, siege, localTeams, t) {
+  const open = siege?.open ?? [];
+  ctx.save();
+  for (const team of localTeams) {
+    const enemyTeam = (team | 0) % 2 === 0 ? 1 : 0;
+    const core = cores.find(c => ((c.team | 0) % 2) === enemyTeam);
+    if (!core || core.x == null) continue;
+    const col = siegeTeamCol(enemyTeam);
+    const vuln = !!open[enemyTeam];
+    const pulse = vuln ? 0.55 + 0.45 * Math.sin(t * 6) : 0;
+    const onScreen = camInView(camera, core.x, core.y, -10);
+    if (onScreen) {
+      // faint target reticle on the visible core
+      const [sx, sy] = camToScreen(camera, core.x, core.y);
+      const r = 26 + (vuln ? 3 * pulse : 0);
+      ctx.globalAlpha = (vuln ? 0.5 + 0.4 * pulse : 0.32);
+      ctx.strokeStyle = col;
+      ctx.shadowColor = col;
+      ctx.shadowBlur = vuln ? 10 : 4;
+      ctx.lineWidth = vuln ? 2 : 1.4;
+      ctx.beginPath();
+      ctx.arc(sx, sy, r, 0, Math.PI * 2);
+      ctx.stroke();
+      // four corner ticks
+      ctx.beginPath();
+      for (const a of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+        ctx.moveTo(sx + Math.cos(a) * (r - 5), sy + Math.sin(a) * (r - 5));
+        ctx.lineTo(sx + Math.cos(a) * (r + 5), sy + Math.sin(a) * (r + 5));
+      }
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.globalAlpha = 0.85;
+      ctx.fillStyle = col;
+      ctx.font = 'bold 9px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(vuln ? 'ANCHOR · OPEN' : 'ANCHOR', sx, sy - r - 6);
+    } else {
+      // edge chevron pointing at the off-screen enemy core
+      const VW = camera.vw, VH = camera.vh, M = 46;
+      let [sx, sy] = camToScreen(camera, core.x, core.y);
+      const cx = VW / 2, cy = VH / 2;
+      const dx = sx - cx, dy = sy - cy;
+      const fx = dx ? (dx > 0 ? (VW - M - cx) / dx : (M - cx) / dx) : Infinity;
+      const fy = dy ? (dy > 0 ? (VH - M - cy) / dy : (M - cy) / dy) : Infinity;
+      const f = Math.min(fx, fy);
+      sx = cx + dx * f; sy = cy + dy * f;
+      const a = Math.atan2(dy, dx);
+      ctx.save();
+      ctx.translate(sx, sy);
+      ctx.rotate(a);
+      ctx.fillStyle = col;
+      ctx.globalAlpha = vuln ? 0.8 + 0.2 * pulse : 0.85;
+      ctx.shadowColor = col;
+      ctx.shadowBlur = vuln ? 10 + 8 * pulse : 8;
+      const sc = vuln ? 1 + 0.18 * pulse : 1; // the open core's chevron breathes
+      // a double-chevron (>>) so it reads as "objective" not a teammate ping
+      ctx.beginPath();
+      ctx.moveTo(13 * sc, 0); ctx.lineTo(-2 * sc, -9 * sc); ctx.lineTo(-2 * sc, 9 * sc);
+      ctx.closePath(); ctx.fill();
+      ctx.globalAlpha *= 0.7;
+      ctx.beginPath();
+      ctx.moveTo(4 * sc, 0); ctx.lineTo(-11 * sc, -9 * sc); ctx.lineTo(-11 * sc, 9 * sc);
+      ctx.closePath(); ctx.fill();
+      ctx.rotate(-a);
+      ctx.globalAlpha = 0.95;
+      ctx.font = 'bold 10px monospace';
+      ctx.textAlign = 'center';
+      ctx.shadowBlur = 3;
+      ctx.fillText(vuln ? 'ANCHOR · OPEN' : 'ANCHOR', 0, dy > 0 ? -16 : 24);
+      ctx.restore();
+    }
+  }
+  ctx.restore();
+}
+
 // 'K' — the base core: a monolith heart of warm LYTH. Lose it, lose the night.
 function drawCore(ctx, core, t, lights) {
   const { x, y } = core;
@@ -7278,6 +7412,10 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
     if (swim) drawSwimWake(ctx, p, t);
     // a carried lythseal rings the bearer in checkpoint gold (under the body)
     if (p.hasSeal || p.lythseal || p.seal) drawSealAura(ctx, p.x, p.y + yOff, t, lights);
+    // siege: a team-colored ring UNDER the operative (blue team 0 / red team 1)
+    // so allies vs enemies read instantly; local seats get a brighter "YOU" ring
+    if (snap.mode === 'siege' && p.team != null)
+      drawSiegeTeamRing(ctx, p.x, p.y + yOff, p.team, focus.has(p.pid), t);
     // a picked-up field weapon overrides the character silhouette for FIRE
     drawSoldier(ctx, p.x, p.y + yOff, p.fx, p.fy, col, t, focus.has(p.pid), p.invuln,
       { key: 'p' + p.pid, dt, weapon: p.fieldWeapon?.kind ?? ch?.weapon?.kind, swim });
@@ -8018,6 +8156,14 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
   }
   if (ship?.landed && !inView(ship.x, ship.y, -20)) {
     drawEdgeArrow(ctx, ship.x, ship.y, PAL.lythGold, 'SHIP');
+  }
+
+  // siege: point each local seat at the ENEMY anchor (off-screen → edge chevron,
+  // on-screen → faint reticle), brighter when that core is OPEN/vulnerable
+  if (snap.mode === 'siege' && cores.length) {
+    const localTeams = new Set();
+    for (const p of snap.players) if (focus.has(p.pid) && p.team != null) localTeams.add((p.team | 0) % 2);
+    if (localTeams.size) drawSiegeEnemyAnchor(ctx, camera, cores, snap.siege, localTeams, t);
   }
 
   // --- respawn pick bars: fallen players choose their next operative

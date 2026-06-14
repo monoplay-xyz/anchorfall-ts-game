@@ -355,6 +355,11 @@ function showBanner(text, blood = false, dur = 3200) {
   clearTimeout(bannerTimer);
   bannerTimer = setTimeout(() => { el.hidden = true; }, dur);
 }
+// Anchor Siege match-start objective brief (non-blocking, ~5s).
+function showSiegeIntro() {
+  showBanner('DESTROY THE ENEMY ANCHOR', false, 5200);
+  showToast('Push a lane → break their towers → shatter their Anchor.  BLUE = your team · RED = enemy', 5200, true);
+}
 function hideBanner() {
   clearTimeout(bannerTimer);
   $('banner').hidden = true;
@@ -1713,6 +1718,7 @@ class LocalSession {
       this.snap = null;
       this.paused = false;
       hideAll();
+      if (this.mode === 'siege') setTimeout(showSiegeIntro, 250); // brief objective brief
     };
     // Story chapters and stronghold levels open on an intro cutscene (every
     // stronghold ships one slide: what is happening + what to do); the sim is
@@ -1870,8 +1876,10 @@ class LocalSession {
         if (own) steerTo(own.x, own.y);
         return inp;
       }
-      let tgt = null, best = 7 * TILE;
-      for (const t of snap.siege.towers || []) { if (t.destroyed || t.team !== foe) continue; const d = dst(t); if (d < best) { best = d; tgt = t; } }
+      // priority: a nearby enemy operative -> enemy tower -> enemy minion
+      let tgt = null, best = 5 * TILE;
+      for (const q of snap.players || []) { if (q.team !== foe || q.state !== 'active') continue; const d = dst(q); if (d < best) { best = d; tgt = q; } }
+      if (!tgt) { best = 7 * TILE; for (const t of snap.siege.towers || []) { if (t.destroyed || t.team !== foe) continue; const d = dst(t); if (d < best) { best = d; tgt = t; } } }
       if (!tgt) { best = 6 * TILE; for (const m of snap.siege.minions || []) { if (m.team !== foe) continue; const d = dst(m); if (d < best) { best = d; tgt = m; } } }
       if (tgt) { inp.fire = true; steerTo(tgt.x, tgt.y); return inp; }
       const fc = (snap.cores || []).find(c => c.team === foe);

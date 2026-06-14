@@ -1761,7 +1761,11 @@ function pvpHit(g, victim, dmg, attackerPid) {
   damagePlayer(g, victim, dmg);
   if (was === 'active' && victim.state !== 'active' && attackerPid !== undefined) {
     const att = g.players.find(q => q.pid === attackerPid);
-    if (att) att.kills = (att.kills || 0) + 1;
+    if (att) {
+      att.kills = (att.kills || 0) + 1;
+      // a siege takedown is worth shards + xp (and counts toward total kills)
+      if (g.siege) { addShards(g, att, 3); awardXp(g, att.pid, { score: 75 }); g.kills++; }
+    }
   }
 }
 
@@ -5197,9 +5201,9 @@ export function step(g, inputs, dt) {
           }
         }
       }
-      // pvp: player fire hits OTHER-team operatives (friendly fire is off;
+      // pvp/siege: player fire hits OTHER-team operatives (friendly fire is off;
       // shots sail through teammates and invulnerable targets)
-      if (!dead && (g.mode === 'ctf' || g.mode === 'br') && s.pid !== undefined) {
+      if (!dead && (g.mode === 'ctf' || g.mode === 'br' || g.siege) && s.pid !== undefined) {
         for (const q of g.players) {
           if (q.state !== 'active' || q.pid === s.pid || q.team === s.team || q.invuln > 0) continue;
           if (dist2(s, q) < (PLAYER_R + (s.radius || SHOT_R)) ** 2) {
