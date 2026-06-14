@@ -53,17 +53,29 @@ function createWindow() {
   win.loadURL(`http://127.0.0.1:${PORT}/`);
 }
 
-// --- Native controllers via the SDL sidecar (separate system-node process) ---
-// SDL crashes inside Electron (V8 ABI + macOS run-loop), so we run it as its
-// own process under system node and forward each frame's controller state to
-// the renderer. If node or SDL is unavailable, the renderer keeps the built-in
-// browser Gamepad API — controllers still work, just without SDL mappings.
+// --- Native controllers via the SDL sidecar (separate real-Node process) ---
+// SDL cannot run inside Electron at all on macOS: loading @kmamal/sdl in
+// Electron's binary SIGSEGVs (it touches Cocoa in Electron's already-initialized
+// runtime), and a utilityProcess doesn't help because it's the same Electron
+// binary. SDL only runs under a *real* Node. So we ship a standalone Node binary
+// inside the app (Resources/runtime/node) and run the sidecar with it — no
+// dependency on the user having Node installed. Each frame's controller state is
+// forwarded to the renderer. If the runtime or SDL is unavailable, the renderer
+// keeps the built-in browser Gamepad API — controllers still work, just without
+// SDL's richer mappings.
 let controllerProc = null;
 function nodeBinary() {
+  const exe = process.platform === 'win32' ? 'node.exe' : 'node';
+  // 1) the Node runtime we bundle in the app — works on machines without Node.
+  if (app.isPackaged) {
+    const bundled = path.join(process.resourcesPath, 'runtime', exe);
+    try { if (require('fs').existsSync(bundled)) return bundled; } catch {}
+  }
+  // 2) dev / fallback: a system Node.
   for (const p of ['/opt/homebrew/bin/node', '/usr/local/bin/node', '/usr/bin/node']) {
     try { if (require('fs').existsSync(p)) return p; } catch {}
   }
-  return 'node'; // last resort: PATH lookup
+  return exe; // last resort: PATH lookup
 }
 function startControllers() {
   try {

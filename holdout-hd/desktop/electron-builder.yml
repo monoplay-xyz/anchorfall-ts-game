@@ -2,13 +2,15 @@ appId: xyz.monoplay.anchorfall
 productName: MONOLYTHIUM Anchorfall
 copyright: © Monoplay / Monolythium
 
-# asar OFF: the SDL controller sidecar runs under *system* node, which cannot
-# read files inside an asar archive. With asar off, the sidecar + @kmamal/sdl
-# are real files on disk that the sidecar process can require.
+# asar OFF: the SDL controller sidecar runs under a bundled *real* Node (not
+# Electron — @kmamal/sdl SIGSEGVs inside Electron's binary). That Node cannot
+# read files inside an asar archive, and @kmamal/sdl ships a native sdl.node +
+# libSDL2 .dylib that dlopen can't load from inside asar either. With asar off
+# they're all real files on disk the sidecar can require.
 asar: false
 
 # Do NOT rebuild native modules against Electron's ABI: @kmamal/sdl is loaded by
-# the system-node sidecar, so it must keep its npm (system-node) prebuild.
+# the bundled-Node sidecar, so it must keep its npm (Node ABI) prebuild.
 npmRebuild: false
 
 directories:
@@ -41,6 +43,13 @@ extraResources:
     to: game/node_modules
     filter:
       - "**/*"
+  # Standalone Node runtime for the SDL controller sidecar (staged per-platform
+  # by scripts/prepare-runtime.js before the build). Lands at Resources/runtime/.
+  - from: runtime
+    to: runtime
+    filter:
+      - node
+      - node.exe
 
 mac:
   category: public.app-category.games

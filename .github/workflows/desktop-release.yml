@@ -50,6 +50,12 @@ jobs:
         working-directory: holdout-hd/desktop
         run: npm install --no-audit --no-fund
 
+      # Bundle this runner's Node binary (correct OS + arch) into runtime/ so the
+      # SDL controller sidecar has a real Node to run under inside the app.
+      - name: Stage bundled Node runtime
+        working-directory: holdout-hd/desktop
+        run: node scripts/prepare-runtime.js
+
       # ---------------- macOS ----------------
       - name: Build macOS
         if: matrix.plat == 'mac'
