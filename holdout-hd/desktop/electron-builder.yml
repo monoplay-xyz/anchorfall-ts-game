@@ -33,6 +33,8 @@ extraResources:
     to: game
     filter:
       - server.js
+      - auth.js
+      - db.js
       - package.json
       - public/**
       - shared/**

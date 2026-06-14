@@ -24,7 +24,14 @@ function startServer() {
   // needed when packaged) so online/LAN host+join work inside the app.
   server = spawn(process.execPath, [path.join(GAME_DIR, 'server.js')], {
     cwd: GAME_DIR,
-    env: { ...process.env, PORT: String(PORT), ELECTRON_RUN_AS_NODE: '1' },
+    env: {
+      ...process.env,
+      PORT: String(PORT),
+      ELECTRON_RUN_AS_NODE: '1',
+      // The packaged GAME_DIR (Resources/game) is read-only on signed macOS
+      // builds, so point the server's saves/accounts store at a writable dir.
+      SAVES_DIR: path.join(app.getPath('userData'), 'saves'),
+    },
     stdio: 'inherit',
   });
 }
