@@ -1,0 +1,12 @@
+{
+  "name": "anchorfall-desktop",
+  "version": "1.0.0",
+  "description": "MONOLYTHIUM — THE ANCHORFALL — native desktop shell (Electron) around the web game",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}

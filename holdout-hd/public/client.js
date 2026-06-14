@@ -3160,6 +3160,11 @@ for (const id of ['btnCtfMap', 'btnCtfMapV']) $(id).onclick = e => {
 ctfMapSync();
 $('btnRankings').onclick = e => { e.currentTarget.blur(); showMenuPage('pageRank'); };
 $('btnSettings').onclick = e => { e.currentTarget.blur(); showMenuPage('pageSettings'); };
+// native desktop (Electron) shell: a real Quit-to-Desktop button on the main menu
+if (window.anchorfallDesktop?.isDesktop) {
+  const q = $('btnQuitDesktop');
+  if (q) { q.hidden = false; q.onclick = e => { e.currentTarget.blur(); window.anchorfallDesktop.quit(); }; }
+}
 $('btnRemap').onclick = e => { e.currentTarget.blur(); showMenuPage('pageRemap'); };
 // rankings board: toggle score-order <-> fastest-order (entries are cached,
 // so the toggle re-sorts without refetching)
@@ -3213,9 +3218,10 @@ splitSync();
 // splitscreen button). Scales every camera's zoom bounds in render.js so the
 // world reads larger on couch TVs — single view and split views alike.
 const ZOOM_KEY = 'holdout-hd.zoom';
-const ZOOM_STEPS = [100, 115, 130, 150];
-let gameZoom = +(localStorage.getItem(ZOOM_KEY) || 100);
-if (!ZOOM_STEPS.includes(gameZoom)) gameZoom = 100;
+const ZOOM_STEPS = [25, 50, 75, 100, 150, 200];
+const ZOOM_DEFAULT = 150; // 150% reads best; new players start here
+let gameZoom = +(localStorage.getItem(ZOOM_KEY) || ZOOM_DEFAULT);
+if (!ZOOM_STEPS.includes(gameZoom)) gameZoom = ZOOM_DEFAULT;
 const zoomSync = () => {
   $('btnGameZoom').textContent = `Game zoom: ${gameZoom}%`;
   renderMod.setViewZoom?.(gameZoom / 100); // applied on boot + every change
