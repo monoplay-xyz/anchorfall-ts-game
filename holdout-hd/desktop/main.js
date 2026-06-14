@@ -11,7 +11,11 @@ const http = require('http');
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
 const PORT = 3199;
-const GAME_DIR = path.join(__dirname, '..'); // holdout-hd/
+// Dev: the game is the parent folder. Packaged: electron-builder copies the game
+// into Resources/game (see electron-builder.yml extraResources).
+const GAME_DIR = app.isPackaged
+  ? path.join(process.resourcesPath, 'game')
+  : path.join(__dirname, '..'); // holdout-hd/
 let server = null;
 let win = null;
 

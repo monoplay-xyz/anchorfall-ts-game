@@ -1,0 +1,126 @@
+name: Desktop Release
+
+# Build MONOLYTHIUM — THE ANCHORFALL desktop installers (Electron) for
+# macOS / Windows / Linux. On a version tag (vX.Y.Z) it signs + publishes to a
+# GitHub Release; on manual dispatch it uploads unsigned artifacts for testing.
+#
+# Signing is automatic IF the secrets exist (reusing the monolythium convention):
+#   macOS:   APPLE_CERTIFICATE_BASE64, APPLE_CERTIFICATE_PASSWORD, APPLE_TEAM_ID,
+#            APPSTORE_CONNECT_KEY_BASE64, APPSTORE_CONNECT_KEY_ID, APPSTORE_CONNECT_ISSUER_ID
+#   Windows: AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_CERT_PROFILE
+#            (+ optional vars AZURE_TRUSTED_SIGNING_ENDPOINT / _ACCOUNT_NAME)
+# If a platform's secrets are absent, that platform builds UNSIGNED (still runs).
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-14,       plat: mac,   arch: arm64 }
+          - { os: macos-13,       plat: mac,   arch: x64 }
+          - { os: windows-latest, plat: win,   arch: x64 }
+          - { os: ubuntu-latest,  plat: linux, arch: x64 }
+    runs-on: ${{ matrix.os }}
+    env:
+      IS_TAG: ${{ startsWith(github.ref, 'refs/tags/') }}
+      HAS_AZURE: ${{ secrets.AZURE_CLIENT_ID != '' }}
+      HAS_APPLE: ${{ secrets.APPLE_CERTIFICATE_BASE64 != '' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install game deps (express, ws)
+        working-directory: holdout-hd
+        run: npm install --omit=dev --no-audit --no-fund
+
+      - name: Install desktop deps
+        working-directory: holdout-hd/desktop
+        run: npm install --no-audit --no-fund
+
+      # ---------------- macOS ----------------
+      - name: Build macOS
+        if: matrix.plat == 'mac'
+        working-directory: holdout-hd/desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_KEY_ID: ${{ secrets.APPSTORE_CONNECT_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPSTORE_CONNECT_ISSUER_ID }}
+          ASC_KEY_B64: ${{ secrets.APPSTORE_CONNECT_KEY_BASE64 }}
+        run: |
+          PUB=$([ "$IS_TAG" = "true" ] && echo always || echo never)
+          if [ -n "$CSC_LINK" ]; then
+            echo "$ASC_KEY_B64" | base64 --decode > "$RUNNER_TEMP/asc.p8"
+            export APPLE_API_KEY="$RUNNER_TEMP/asc.p8"
+            npx electron-builder --mac --${{ matrix.arch }} --publish "$PUB"
+          else
+            echo "::warning::No Apple cert secret — building UNSIGNED macOS"
+            npx electron-builder --mac --${{ matrix.arch }} \
+              -c.mac.notarize=false -c.mac.identity=null --publish "$PUB"
+          fi
+
+      # ---------------- Windows ----------------
+      - name: Build Windows (unsigned)
+        if: matrix.plat == 'win'
+        working-directory: holdout-hd/desktop
+        run: npx electron-builder --win --publish never
+
+      - name: Sign Windows (Azure Trusted Signing)
+        if: matrix.plat == 'win' && env.HAS_AZURE == 'true'
+        uses: azure/trusted-signing-action@v0.5.1
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ vars.AZURE_TRUSTED_SIGNING_ENDPOINT || 'https://eus.codesigning.azure.net/' }}
+          trusted-signing-account-name: ${{ vars.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME || 'mono-labs' }}
+          certificate-profile-name: ${{ secrets.AZURE_CERT_PROFILE }}
+          files-folder: ${{ github.workspace }}/holdout-hd/desktop/dist
+          files-folder-filter: exe
+          files-folder-recurse: true
+
+      - name: Publish Windows to release
+        if: matrix.plat == 'win' && env.IS_TAG == 'true'
+        working-directory: holdout-hd/desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: gh release upload "${{ github.ref_name }}" dist/*.exe --clobber
+
+      # ---------------- Linux ----------------
+      - name: Build Linux
+        if: matrix.plat == 'linux'
+        working-directory: holdout-hd/desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PUB=$([ "$IS_TAG" = "true" ] && echo always || echo never)
+          npx electron-builder --linux --publish "$PUB"
+
+      # ---------------- manual (non-tag) artifacts ----------------
+      - name: Upload build artifacts
+        if: env.IS_TAG != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: anchorfall-${{ matrix.plat }}-${{ matrix.arch }}
+          path: |
+            holdout-hd/desktop/dist/*.dmg
+            holdout-hd/desktop/dist/*.zip
+            holdout-hd/desktop/dist/*.exe
+            holdout-hd/desktop/dist/*.AppImage
+          if-no-files-found: warn

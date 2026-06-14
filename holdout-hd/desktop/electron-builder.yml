@@ -1,0 +1,76 @@
+appId: xyz.monoplay.anchorfall
+productName: MONOLYTHIUM Anchorfall
+copyright: © Monoplay / Monolythium
+
+# asar OFF: the SDL controller sidecar runs under *system* node, which cannot
+# read files inside an asar archive. With asar off, the sidecar + @kmamal/sdl
+# are real files on disk that the sidecar process can require.
+asar: false
+
+# Do NOT rebuild native modules against Electron's ABI: @kmamal/sdl is loaded by
+# the system-node sidecar, so it must keep its npm (system-node) prebuild.
+npmRebuild: false
+
+directories:
+  buildResources: build
+  output: dist
+
+# Files of the Electron shell itself.
+files:
+  - main.js
+  - preload.js
+  - controller-sidecar.js
+  - assets/**
+  - node_modules/**
+  - package.json
+
+# The web game (server.js + public/shared/levels + its node_modules) is copied
+# into Resources/game; main.js points GAME_DIR there when packaged.
+extraResources:
+  - from: ..
+    to: game
+    filter:
+      - server.js
+      - package.json
+      - public/**
+      - shared/**
+      - levels/**
+  # node_modules must be its own entry — electron-builder strips node_modules
+  # from filtered extraResources globs otherwise.
+  - from: ../node_modules
+    to: game/node_modules
+    filter:
+      - "**/*"
+
+mac:
+  category: public.app-category.games
+  target:
+    - dmg
+    - zip
+  icon: assets/icon.icns
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  notarize: true            # via App Store Connect API key env (set in CI)
+
+win:
+  target:
+    - nsis
+  icon: build/icon.ico
+  # signing done post-build via Azure Trusted Signing in the workflow
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  artifactName: ${productName}-${version}-setup.${ext}
+
+linux:
+  target:
+    - AppImage
+  icon: assets/icon.png
+  category: Game
+
+# clean, predictable artifact names
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}

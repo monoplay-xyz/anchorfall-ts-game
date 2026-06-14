@@ -4,10 +4,16 @@
   "description": "MONOLYTHIUM — THE ANCHORFALL — native desktop shell (Electron) around the web game",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "dist": "electron-builder",
+    "dist:dir": "electron-builder --dir",
+    "dist:mac": "electron-builder --mac",
+    "dist:win": "electron-builder --win",
+    "dist:linux": "electron-builder --linux"
   },
   "devDependencies": {
-    "electron": "^33.0.0"
+    "electron": "^33.0.0",
+    "electron-builder": "^26.0.0"
   },
   "dependencies": {
     "@kmamal/sdl": "^0.11.13"
