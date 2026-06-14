@@ -1,2 +1,6 @@
 node_modules
 saves
+desktop
+test
+docs
+*.md
