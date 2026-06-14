@@ -603,6 +603,13 @@ function navTick(polled) {
       adjustVolume(navEl.dataset.vol, d);
       navDev = dev;
     }
+    // cycle settings (display mode / aspect / overscan): LEFT/RIGHT steps them
+    if (screen === 'menu' && navEl?.dataset?.cycle && (st.leftJust || st.rightJust)) {
+      const d = st.rightJust ? 1 : -1;
+      st.leftJust = st.rightJust = false;
+      ({ display: cycleDisplayMode, aspect: cycleAspect, overscan: cycleOverscan }[navEl.dataset.cycle])?.(d);
+      navDev = dev;
+    }
     const gridEl = screen === 'menu' ? navEl?.closest?.('.navgrid') : null;
     if (gridEl && (st.leftJust || st.rightJust)) {
       // 2D grid nav (stronghold level select): LEFT/RIGHT step one card
@@ -3868,6 +3875,30 @@ function cycleAspect(dir = 1) {
 }
 $('btnAspect').onclick = e => { e.currentTarget.blur(); cycleAspect(1); };
 aspectSync();
+
+// (c) TV overscan / screen fit — inset the whole #stage a few % per side via
+// the --ov CSS var, so the view never spills past a TV's cropped edge (common
+// on Batocera / older TVs). Re-fits the canvas resolution. Persisted.
+const OVERSCAN_KEY = 'holdout-hd.overscan';
+const OVERSCAN_STEPS = [0, 2, 3, 4, 5, 6, 8];
+const overscanLabel = v => v === 0 ? 'Full' : `Inset ${v}%`;
+let overscan = +(localStorage.getItem(OVERSCAN_KEY) || 0);
+if (!OVERSCAN_STEPS.includes(overscan)) overscan = 0;
+function applyOverscan() {
+  document.documentElement.style.setProperty('--ov', String(overscan));
+  fitStage(); // re-derive the canvas resolution from the new (smaller) box
+}
+const overscanSync = () => { $('btnOverscan').textContent = `Screen fit: ${overscanLabel(overscan)}`; };
+function cycleOverscan(dir = 1) {
+  const i = OVERSCAN_STEPS.indexOf(overscan);
+  overscan = OVERSCAN_STEPS[mod(i + dir, OVERSCAN_STEPS.length)];
+  try { localStorage.setItem(OVERSCAN_KEY, String(overscan)); } catch {}
+  overscanSync();
+  applyOverscan();
+}
+$('btnOverscan').onclick = e => { e.currentTarget.blur(); cycleOverscan(1); };
+overscanSync();
+applyOverscan();
 
 // ---------- Controller prompts: glyph style + per-player readout ----------
 // Button prompts: Auto / Keyboard / Xbox / PlayStation / Switch (persisted).

@@ -53,7 +53,10 @@
        window (set by fitStage in client.js) — no letterboxing, no distortion.
        Side panels keep their fixed width and stretch to full height. ---- */
     body { align-items: stretch; justify-content: stretch; }
-    #stage { width: 100vw; height: 100vh; }
+    /* --ov = TV-overscan inset (per side): vh top/bottom, vw left/right. The
+       page void shows through as a black safe-area border so nothing the TV
+       crops past the edge matters. box-sizing keeps #stage at 100vw/vh. */
+    #stage { width: 100vw; height: 100vh; box-sizing: border-box; background: #000; padding: calc(var(--ov, 0) * 1vh) calc(var(--ov, 0) * 1vw); }
     #center { flex: 1 1 auto; min-width: 0; }
     #game { width: 100%; height: 100%; }
 
@@ -289,6 +292,9 @@
                Both cycle on click/FIRE and respond to LEFT/RIGHT (data-cycle). -->
           <button id="btnDisplayMode" class="ghost" data-cycle="display" hidden>Display mode: Fullscreen</button>
           <button id="btnAspect" class="ghost" data-cycle="aspect">Aspect ratio: Auto (fill)</button>
+          <!-- TV overscan: inset the whole view a few % so nothing spills past
+               the screen edge (common on TVs / Batocera). LEFT/RIGHT adjusts. -->
+          <button id="btnOverscan" class="ghost" data-cycle="overscan">Screen fit: Full</button>
           <!-- Controller prompts: shows the active pad's glyph in the world prompts.
                Per-player readout below lists each connected controller. -->
           <button id="btnGlyphStyle" class="ghost" data-cycle="glyph">Button prompts: Auto</button>
