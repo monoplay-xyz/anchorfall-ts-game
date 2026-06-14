@@ -517,6 +517,10 @@ function show(id) {
   hideToast();
   closePauseUi(); // any full-screen change tears the pause/leave dialog down
   for (const s of ['menu', 'lobby', 'msg']) $(s).hidden = s !== id;
+  // fade the revealed screen in (the active menu page re-triggers its own
+  // staggered entrance via showMenuPage)
+  const sc = $(id);
+  if (sc && !sc.hidden) { sc.classList.remove('anim-in'); void sc.offsetWidth; sc.classList.add('anim-in'); }
   // back on the menu with the room browser still the current page: resume its
   // 5s auto-refresh (it reaps itself whenever the page is not actually open)
   if (id === 'menu' && menuPageId === 'pageBrowse') startBrowse();
@@ -737,7 +741,7 @@ function pauseUiTick(polled) {
   }
 }
 
-function renderLobby({ title, info, hint, players, roster, canStart, cursors = [], onCard, teamCols = false, allowDupes = false }) {
+function renderLobby({ title, info, hint, players, roster, canStart, cursors = [], onCard, onStep, teamCols = false, allowDupes = false }) {
   $('lobbyTitle').textContent = title;
   $('roomInfo').innerHTML = info;
   $('lobbyHint').textContent = hint || '';
@@ -769,73 +773,84 @@ function renderLobby({ title, info, hint, players, roster, canStart, cursors = [
   } else {
     for (const p of players) pl.appendChild(makeChip(p));
   }
+  // ---- character carousel: one focused operative, browse ◀/▶, live preview ----
   const grid = $('charGrid');
   grid.innerHTML = '';
-  // versus allows the same char on both teams, so a card can have SEVERAL
-  // owners — track them all (an object keyed by charId would drop all but
-  // the last) and stamp one badge per owner.
   const takenBy = {};
   for (const p of players) if (p.charId) (takenBy[p.charId] ??= []).push(p);
-  roster.forEach((id, idx) => {
-    const ch = charMap[id];
+  const myCur = cursors.find(c => c.me) || cursors[0];
+  const n = roster.length || 1;
+  const fidx = (((myCur ? myCur.idx : 0) % n) + n) % n;
+  const fid = roster[fidx];
+  const ch = charMap[fid];
+  window.__carouselId = fid; // frame() animates the ability preview off this
+  if (ch) {
     const card = document.createElement('div');
-    card.className = 'card';
-    const pc = document.createElement('canvas');
-    drawPortrait(pc, ch, 56);
-    card.appendChild(pc);
-    const meta = document.createElement('div');
-    meta.innerHTML = `<div class="cname" style="color:${ch.color}">${ch.name.toUpperCase()}</div>
-      <div class="cstats">${ch.weapon.name}<br>SPD ${ch.speed} · DMG ${ch.weapon.damage} · RNG ${ch.weapon.range}</div>`;
-    card.appendChild(meta);
-    const owners = takenBy[id] || [];
-    // the local/me owner wins the selected/claimed styling so your own pick
-    // always reads as yours even when the other team grabbed the same char
+    card.className = 'bigcard';
+    const owners = takenBy[fid] || [];
     const owner = owners.find(o => o.me) || owners.find(o => o.badge) || owners[0];
     let blocked = false;
     if (owner) {
       if (owner.me) card.classList.add('selected');
-      else if (owner.badge || allowDupes) {
-        // versus: duplicates are allowed EVERYWHERE, so another player's pick
-        // never blocks a card — it just reads as claimed alongside yours
-        card.classList.add('claimed');
-        card.style.borderColor = owner.color || '#3fd9c0';
-      } else {
-        card.classList.add('taken');
-        blocked = true;
-      }
-      // 32-player ctf: a popular pick can have MANY owners — fan at most 3
-      // badges, then one count badge for the rest, so cards never overflow
-      const shown = owners.slice(0, 3);
-      shown.forEach((o, i) => {
+      else if (owner.badge || allowDupes) { card.classList.add('claimed'); card.style.borderColor = owner.color || '#3fd9c0'; }
+      else { card.classList.add('taken'); blocked = true; }
+    }
+    const idxTag = document.createElement('div');
+    idxTag.className = 'cidx';
+    idxTag.textContent = `${fidx + 1} / ${n}`;
+    card.appendChild(idxTag);
+    if (owners.length) {
+      const ow = document.createElement('div');
+      ow.className = 'powner';
+      owners.slice(0, 4).forEach(o => {
         const b = document.createElement('div');
         b.className = 'pbadge';
         b.textContent = o.badge || '✓';
-        b.style.background = o.color || charMap[id].color;
-        if (i) b.style.right = (-6 + i * 26) + 'px'; // fan extra badges leftward
-        card.appendChild(b);
+        b.style.background = o.color || ch.color;
+        ow.appendChild(b);
       });
-      if (owners.length > 3) {
-        const b = document.createElement('div');
-        b.className = 'pbadge';
-        b.textContent = '+' + (owners.length - 3);
-        b.style.background = '#5E6B8C';
-        b.style.right = (-6 + 3 * 26) + 'px';
-        card.appendChild(b);
-      }
+      card.appendChild(ow);
     }
-    for (const cur of cursors) {
-      if (cur.idx === idx && !cur.picked) {
-        const b = document.createElement('div');
-        b.className = 'pbadge hoverb';
-        b.textContent = cur.badge;
-        b.style.background = cur.color;
-        card.appendChild(b);
-        card.style.outline = `2px dashed ${cur.color}`;
-      }
-    }
-    if (!blocked && onCard) card.onclick = () => onCard(id);
+    const pc = document.createElement('canvas');
+    drawPortrait(pc, ch, 104);
+    card.appendChild(pc);
+    const nm = document.createElement('div');
+    nm.className = 'cname';
+    nm.style.color = ch.color;
+    nm.textContent = ch.name.toUpperCase();
+    card.appendChild(nm);
+    const role = document.createElement('div');
+    role.className = 'crole';
+    role.textContent = ch.weapon.name;
+    card.appendChild(role);
+    const stats = document.createElement('div');
+    stats.className = 'cstats';
+    stats.innerHTML = `SPD <b>${ch.speed}</b> · DMG <b>${ch.weapon.damage}</b> · RNG <b>${ch.weapon.range}</b>`;
+    card.appendChild(stats);
+    if (!blocked && onCard) card.onclick = () => onCard(fid);
     grid.appendChild(card);
-  });
+    // behavior tags beside the live preview (the preview itself draws in frame())
+    const cap = $('abilityCaption');
+    if (cap) {
+      const tags = renderMod.weaponTags?.(ch.weapon) || [];
+      cap.innerHTML = `<span class="wname">${ch.weapon.name}</span>` + tags.map(t => `<span class="wtag">${t}</span>`).join('');
+    }
+  }
+  // roster dots: focused operative + any picked ones
+  const dots = $('carDots');
+  if (dots) {
+    dots.innerHTML = '';
+    roster.forEach((id, i) => {
+      const d = document.createElement('div');
+      d.className = 'cdot' + (i === fidx ? ' here' : '');
+      if (takenBy[id]) { d.classList.add('picked'); d.style.background = charMap[id].color; }
+      dots.appendChild(d);
+    });
+  }
+  // ◀ / ▶ buttons (mouse) step the primary seat's cursor through the session
+  const pv = $('carPrev'), nx = $('carNext');
+  if (pv) pv.onclick = () => onStep?.(-1);
+  if (nx) nx.onclick = () => onStep?.(1);
   $('btnStart').disabled = !canStart;
   show('lobby');
   buildSquadPanels(roster);
@@ -1490,11 +1505,23 @@ function startSlides(sess, slides, done, opts = {}) {
   playUi('cutscene');
   canvas.classList.add('cutscene');
   canvas.onclick = () => { sess.cutsceneClick = true; }; // mouse can advance too
-  sess.cutscene = { slides, idx: 0, t: 0, done, hold: !!opts.hold, holdHint: opts.holdHint || '', waiting: false, fired: false };
+  sess.cutscene = { slides, idx: 0, t: 0, done, hold: !!opts.hold, holdHint: opts.holdHint || '', waiting: false, fired: false, holdT: 0, holdThreshold: 3 };
 }
 function slidesTick(sess, polled, dt) {
   const cs = sess.cutscene;
   cs.t += dt;
+  // hold FIRE/START for holdThreshold seconds to SKIP the whole cutscene (a
+  // quick tap still advances one slide, below). Online host-paced intros only
+  // let the host skip, so the room stays in sync.
+  const mayHoldSkip = (sess.isHost?.() ?? true);
+  let holding = false;
+  for (const st of Object.values(polled)) if (st.fire || st.start) { holding = true; break; }
+  cs.holdT = (holding && mayHoldSkip) ? (cs.holdT || 0) + dt : 0;
+  if (cs.holdT >= cs.holdThreshold) {
+    cs.holdT = 0;
+    if (cs.hold) { cs.waiting = true; if (!cs.fired) { cs.fired = true; cs.done(); } return; }
+    endSlides(sess); cs.done(); return;
+  }
   let adv = cs.t >= 12 || sess.cutsceneClick; // idle couch still auto-advances
   sess.cutsceneClick = false;
   for (const st of Object.values(polled)) {
@@ -1628,8 +1655,13 @@ class LocalSession {
       })),
       roster: this.roster,
       canStart: this.canStart(),
-      cursors: this.players.map(p => ({ idx: p.cursor, color: colorOf(p), badge: 'P' + (p.pid + 1), picked: !!p.charId })),
+      cursors: this.players.map(p => ({ idx: p.cursor, color: colorOf(p), badge: 'P' + (p.pid + 1), picked: !!p.charId, me: p.pid === 0 })),
       onCard: id => this.clickChar(id),
+      onStep: dir => {
+        if (!this.players.length) this.join('kb1');
+        const p = this.players[0];
+        if (p && !p.charId) { p.cursor = mod(p.cursor + dir, this.roster.length); this.renderLobby(); }
+      },
       teamCols: ctf,
       allowDupes: !!this.mode, // versus char select allows duplicates everywhere
     });
@@ -1698,10 +1730,8 @@ class LocalSession {
       }
       const n = this.roster.length;
       if (!p.charId) {
-        if (st.leftJust) { p.cursor = mod(p.cursor - 1, n); moved = true; }
-        if (st.rightJust) { p.cursor = mod(p.cursor + 1, n); moved = true; }
-        if (st.upJust) { p.cursor = mod(p.cursor - 5, n); moved = true; }
-        if (st.downJust) { p.cursor = mod(p.cursor + 5, n); moved = true; }
+        if (st.leftJust || st.upJust) { p.cursor = mod(p.cursor - 1, n); moved = true; }
+        if (st.rightJust || st.downJust) { p.cursor = mod(p.cursor + 1, n); moved = true; }
       }
       if (st.fireJust) {
         // FIRE/A locks in your operator; once everyone's picked, FIRE/A DEPLOYS
@@ -2578,8 +2608,13 @@ class NetSession {
         color: PCOLORS[i],
         badge: 'P' + (i + 1),
         picked: !!this.pickOf(pid),
+        me: pid === this.myPid,
       })),
       onCard: id => this.pickChar(id),
+      onStep: dir => {
+        const e = [...this.seats.entries()].find(([, pid]) => pid === this.myPid);
+        if (e) { const dev = e[0]; this.cursors[dev] = mod((this.cursors[dev] ?? 0) + dir, m.roster.length); this.renderLobby(); }
+      },
       teamCols: ctf,
       allowDupes: !!vm, // versus char select allows duplicates everywhere
     });
@@ -2662,8 +2697,8 @@ class NetSession {
       if (!picked && n) {
         if (st.leftJust) { this.cursors[dev] = mod((this.cursors[dev] ?? 0) - 1, n); moved = true; }
         if (st.rightJust) { this.cursors[dev] = mod((this.cursors[dev] ?? 0) + 1, n); moved = true; }
-        if (st.upJust) { this.cursors[dev] = mod((this.cursors[dev] ?? 0) - 5, n); moved = true; }
-        if (st.downJust) { this.cursors[dev] = mod((this.cursors[dev] ?? 0) + 5, n); moved = true; }
+        if (st.upJust) { this.cursors[dev] = mod((this.cursors[dev] ?? 0) - 1, n); moved = true; }
+        if (st.downJust) { this.cursors[dev] = mod((this.cursors[dev] ?? 0) + 1, n); moved = true; }
       }
       if (st.fireJust) {
         // host: once everyone's picked, FIRE/A DEPLOYS (the Deploy button is live)
@@ -3305,6 +3340,9 @@ function showMenuPage(id) {
   if (id === 'pageBrowse') startBrowse();         // 5s auto-refresh while open
   else stopBrowse();
   if (id === 'pageOperators') renderOperators();
+  // re-trigger the entrance animation on the page that just became visible
+  const pg = $(id);
+  if (pg) { pg.classList.remove('anim-in'); void pg.offsetWidth; pg.classList.add('anim-in'); }
 }
 // pageSh opens from Singleplayer (shPurpose 'local') AND from Online's Host
 // Stronghold ('host') — Back must return to whichever page opened it, so the
@@ -4235,11 +4273,18 @@ function frame(now) {
   remapPadTick();  // a pad rebind capture polls raw buttons each frame
   navTick(polled); // first: consumes the button edges it handles
   pauseUiTick(polled); // then the pause/leave dialog, when one is up
+  // live ability preview beside the lobby carousel — runs whenever the lobby is
+  // open (the lobby keeps an active session, so this can't live in the menu-only
+  // branch below)
+  if (!$('lobby').hidden) {
+    const apc = $('abilityPreview');
+    if (apc) renderMod.drawAbilityPreview?.(apc.getContext('2d'), charMap[window.__carouselId], now / 1000);
+  }
   if (session) {
     session.tick?.(polled, dt);
     const cs = session.cutscene;
     if (cs) {
-      renderMod.drawCutscene?.(ctx, cs.slides[cs.idx], now / 1000, cs.t);
+      renderMod.drawCutscene?.(ctx, cs.slides[cs.idx], now / 1000, cs.t, cs.holdT || 0, cs.holdThreshold || 3);
       if (cs.waiting && cs.holdHint) {
         // online intro: our slides are done, the host hasn't moved on yet
         ctx.save();

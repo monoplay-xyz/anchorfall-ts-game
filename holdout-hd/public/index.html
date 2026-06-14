@@ -390,8 +390,17 @@
         <p id="roomInfo"></p>
         <p id="lobbyHint" class="help"></p>
         <div id="playerList"></div>
-        <h3>Choose your operatives</h3>
-        <div id="charGrid"></div>
+        <h3>Choose your operative</h3>
+        <div id="charSelect">
+          <button id="carPrev" class="carnav" aria-label="previous">‹</button>
+          <div id="charGrid"></div>
+          <div id="abilityWrap">
+            <canvas id="abilityPreview" width="200" height="200"></canvas>
+            <div id="abilityCaption">&nbsp;</div>
+          </div>
+          <button id="carNext" class="carnav" aria-label="next">›</button>
+        </div>
+        <div id="carDots"></div>
         <div class="btnrow">
           <button id="btnStart">Deploy</button>
           <button id="btnLeave" class="ghost">Leave</button>

@@ -9551,7 +9551,7 @@ const CUTSCENE_ART = {
 
 // Full-canvas story slide: art scene + title + typewriter lines + FIRE hint.
 // The client owns timing; slideElapsed is seconds since this slide appeared.
-export function drawCutscene(ctx, slide, t, slideElapsed) {
+export function drawCutscene(ctx, slide, t, slideElapsed, holdT = 0, holdThreshold = 3) {
   const W = ctx.canvas.width, H = ctx.canvas.height;
   ctx.save();
   ctx.textAlign = 'left';
@@ -9606,8 +9606,26 @@ export function drawCutscene(ctx, slide, t, slideElapsed) {
       ctx.fillRect(x0 + ctx.measureText(txt).width + 3, ly - ls * 0.8, Math.max(2, ls * 0.12), ls * 0.95);
     }
   }
-  // advance hint
-  if (slideElapsed > 1) {
+  // advance hint + hold-to-skip progress ring
+  if (holdT > 0.05) {
+    // FIRE/START is being held — fill a ring; at holdThreshold the whole
+    // cutscene is skipped (client side)
+    const prog = Math.min(1, holdT / holdThreshold);
+    const hx = W - Math.round(W * 0.07), hy = H - lb - Math.round(H * 0.032);
+    const r = Math.max(14, H * 0.028);
+    ctx.globalAlpha = 1;
+    ctx.lineWidth = Math.max(3, H * 0.005);
+    ctx.strokeStyle = 'rgba(111,216,242,0.18)';
+    ctx.beginPath(); ctx.arc(hx, hy, r, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = PAL.relay; ctx.shadowColor = PAL.relay; ctx.shadowBlur = 12;
+    ctx.beginPath(); ctx.arc(hx, hy, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * prog); ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = PAL.relay;
+    ctx.font = `bold ${Math.max(11, Math.round(H * 0.017))}px ui-monospace, Menlo, monospace`;
+    ctx.fillText('SKIPPING', hx - r - 10, hy);
+    ctx.textBaseline = 'alphabetic';
+  } else if (slideElapsed > 1) {
     const ha = Math.min(1, (slideElapsed - 1) / 0.4) * (0.55 + 0.35 * Math.sin(t * 3.4));
     ctx.globalAlpha = Math.max(0, ha);
     ctx.font = `bold ${Math.max(13, Math.round(H * 0.021))}px ui-monospace, Menlo, monospace`;
@@ -9615,7 +9633,7 @@ export function drawCutscene(ctx, slide, t, slideElapsed) {
     ctx.fillStyle = PAL.relay;
     ctx.shadowColor = PAL.relay;
     ctx.shadowBlur = 8;
-    ctx.fillText('▸ FIRE', W - Math.round(W * 0.045), H - lb - Math.round(H * 0.028));
+    ctx.fillText('▸ FIRE  ·  HOLD TO SKIP', W - Math.round(W * 0.045), H - lb - Math.round(H * 0.028));
     ctx.shadowBlur = 0;
   }
   ctx.globalAlpha = 1;
@@ -9664,4 +9682,120 @@ export function drawMenuBackdrop(ctx, t) {
   ctx.fillStyle = vg;
   ctx.fillRect(0, 0, W, H);
   ctx.restore();
+}
+
+// ---------- ability preview (lobby character carousel) ----------
+// A small, self-contained looping demo of a character's weapon — faithful to its
+// count / spread / curve / range / pierce / aoe / over-walls, WITHOUT touching the
+// sim. Driven from client's frame() loop each frame with t in seconds.
+const _ap = { id: null, shots: [], fx: [], cd: 0, last: 0 };
+export function drawAbilityPreview(ctx, char, t) {
+  const W = ctx.canvas.width, H = ctx.canvas.height;
+  ctx.clearRect(0, 0, W, H);
+  if (!char) return;
+  if (char.id !== _ap.id) { _ap.id = char.id; _ap.shots.length = 0; _ap.fx.length = 0; _ap.cd = 0.2; }
+  let dt = t - _ap.last; _ap.last = t;
+  if (!(dt > 0) || dt > 0.1) dt = 0.016;
+
+  const w = char.weapon || {};
+  const col = char.color || '#6FD8F2';
+  const sx = W * 0.16, sy = H * 0.5;
+  const scale = (W * 0.62) / Math.max(3, w.range || 6);
+  const speed = (w.projSpeed || 10) * scale;
+  const maxDist = (w.range || 6) * scale;
+  const overWalls = !!w.overWalls;
+  const aoe = (w.aoeRadius || 0) * scale;
+  const pierce = w.pierce === true ? 99 : (w.pierce || 0);
+  const count = Math.max(1, w.count || 1);
+  const spread = (w.spreadDeg || 0) * Math.PI / 180;
+  const curve = (w.curve || 0);
+
+  ctx.save();
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, 'rgba(16,20,30,0.92)'); bg.addColorStop(1, 'rgba(8,10,18,0.96)');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(54,160,138,0.16)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0, sy + H * 0.30); ctx.lineTo(W, sy + H * 0.30); ctx.stroke();
+
+  const targets = [];
+  if (spread >= Math.PI && count > 1) {
+    const n = Math.min(6, count);
+    for (let i = 0; i < n; i++) { const a = i / n * Math.PI * 2; targets.push([sx + Math.cos(a) * maxDist * 0.66, sy + Math.sin(a) * maxDist * 0.66]); }
+  } else {
+    targets.push([sx + maxDist * 0.82, sy]);
+    if (count > 1 && spread > 0.05) { targets.push([sx + maxDist * 0.82, sy - H * 0.17]); targets.push([sx + maxDist * 0.82, sy + H * 0.17]); }
+  }
+  for (const [tx, ty] of targets) {
+    ctx.strokeStyle = 'rgba(224,72,72,0.55)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(tx, ty, 9, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = 'rgba(224,72,72,0.10)'; ctx.fill();
+  }
+
+  if (overWalls) {
+    const wx = sx + maxDist * 0.42;
+    ctx.fillStyle = 'rgba(94,107,140,0.55)'; ctx.fillRect(wx - 6, sy + 4, 12, H * 0.24);
+    ctx.fillStyle = 'rgba(94,107,140,0.28)'; ctx.fillRect(wx - 6, sy, 12, 5);
+  }
+
+  _ap.cd -= dt;
+  if (_ap.cd <= 0) {
+    _ap.cd = Math.max(0.7, Math.min(2.2, (w.cooldown || 0.4) * 2.2));
+    for (let i = 0; i < count; i++) {
+      let a;
+      if (spread >= Math.PI * 1.9) a = i / count * Math.PI * 2;
+      else if (count > 1) a = -spread / 2 + spread * (i / (count - 1));
+      else a = 0;
+      _ap.shots.push({ x: sx, y: sy, a, dist: 0, pierce });
+    }
+  }
+
+  ctx.lineCap = 'round';
+  for (let i = _ap.shots.length - 1; i >= 0; i--) {
+    const s = _ap.shots[i];
+    s.a += curve * dt;
+    const vx = Math.cos(s.a) * speed, vy = Math.sin(s.a) * speed;
+    s.x += vx * dt; s.y += vy * dt;
+    const yArc = overWalls ? -Math.sin(Math.min(1, s.dist / maxDist) * Math.PI) * H * 0.20 : 0;
+    s.dist += speed * dt;
+    const px = s.x, py = s.y + yArc;
+    ctx.strokeStyle = col; ctx.globalAlpha = 0.45; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(px - vx * 0.02, py - vy * 0.02); ctx.lineTo(px, py); ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 8;
+    ctx.beginPath(); ctx.arc(px, py, 3.2, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
+    let hit = false;
+    for (const [tx, ty] of targets) { if (Math.hypot(px - tx, py - ty) < 11) { hit = true; break; } }
+    if (hit && s.pierce > 0) { s.pierce--; }
+    else if (hit || s.dist >= maxDist || px > W + 12 || py < -12 || py > H + 12) {
+      if (aoe > 0) _ap.fx.push({ x: px, y: py, r: 0, max: Math.min(aoe, W * 0.22), t: 0 });
+      _ap.shots.splice(i, 1);
+    }
+  }
+
+  for (let i = _ap.fx.length - 1; i >= 0; i--) {
+    const f = _ap.fx[i]; f.t += dt; f.r = f.max * Math.min(1, f.t / 0.35);
+    const al = Math.max(0, 1 - f.t / 0.45);
+    ctx.strokeStyle = `rgba(255,217,138,${al})`; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = `rgba(255,170,90,${al * 0.22})`; ctx.fill();
+    if (f.t > 0.45) _ap.fx.splice(i, 1);
+  }
+
+  ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 12;
+  ctx.beginPath(); ctx.arc(sx, sy, 8, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
+  ctx.fillStyle = '#0b121a'; ctx.beginPath(); ctx.arc(sx, sy, 3.5, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = 'rgba(54,160,138,0.4)'; ctx.lineWidth = 1; ctx.strokeRect(0.5, 0.5, W - 1, H - 1);
+  ctx.restore();
+}
+
+// human-readable behavior tags for a weapon (carousel caption)
+export function weaponTags(w) {
+  if (!w) return [];
+  const tags = [];
+  if (w.pierce === true || w.pierce > 0) tags.push('PIERCE');
+  if (w.aoeRadius > 0) tags.push('AoE');
+  if (w.curve) tags.push('CURVE');
+  if (w.overWalls) tags.push('OVER-WALLS');
+  if ((w.count || 1) > 1) tags.push(w.spreadDeg >= 180 ? 'RING' : (w.spreadDeg > 12 ? 'SPREAD' : 'MULTI'));
+  return tags;
 }
