@@ -88,7 +88,10 @@ jobs:
 
       - name: Sign Windows (Azure Trusted Signing)
         if: matrix.plat == 'win' && env.HAS_AZURE == 'true'
-        uses: azure/trusted-signing-action@v0.5.1
+        # NOTE: this action was renamed from azure/trusted-signing-action.
+        # GitHub resolves every referenced action at job-setup time (even
+        # if:-gated ones), so a stale path fails ALL jobs before they start.
+        uses: Azure/artifact-signing-action@v2
         with:
           azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
