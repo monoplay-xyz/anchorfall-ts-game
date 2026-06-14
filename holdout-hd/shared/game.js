@@ -3024,8 +3024,11 @@ function stepWaves(g) {
 // solo, 1.0x duo, 1.4x for a full couch. The global 90 cap still rules.
 // `mult` is the stronghold wave-size multiplier (def.bastion.waveMult,
 // 1.0..2.6 across the arc); 1 keeps the classic bastion sizes exactly.
-function bastionWaveLetters(n, players = 1, mult = 1) {
-  const base = Math.min(14, 4 + n * 2);
+function bastionWaveLetters(n, players = 1, mult = 1, endless = false) {
+  // Endless keeps the count climbing past the night-5 plateau (to a 30 base);
+  // the global 90-on-field cap still rules, so it never floods. Campaign defs
+  // (endless=false) keep the exact 14 cap — every stronghold plays unchanged.
+  const base = Math.min(endless ? 30 : 14, 4 + n * 2);
   const size = Math.max(1, Math.ceil(base * (0.6 + 0.2 * players) * mult));
   const cycle = n >= 3 ? 'zgwur' : n >= 2 ? 'zzwu' : 'zzw';
   const letters = [];
@@ -3058,7 +3061,8 @@ function applyMutation(e, mut) {
 // (def.bastion.wavesPerNight) so repeat waves don't clone their mutations.
 function spawnNightWave(g, off = 0) {
   const n = g.cycle.nightNo;
-  const letters = bastionWaveLetters(n, g.players.length, (g.bastion && g.bastion.waveMult) || 1);
+  const endless = !!(g.bastion && g.bastion.endless);
+  const letters = bastionWaveLetters(n, g.players.length, (g.bastion && g.bastion.waveMult) || 1, endless);
   const edges = g.cycle.bloodMoon
     ? [WAVE_EDGES[(n - 1) % 4], WAVE_EDGES[(n + 1) % 4]]
     : [WAVE_EDGES[(n - 1) % 4]];
@@ -3066,8 +3070,12 @@ function spawnNightWave(g, off = 0) {
   // Entropy boss at the head of each listed night's FIRST wave (first edge
   // only, so a blood-moon double edge never doubles the boss). Def-gated:
   // classic bastion defs never carry the field and play exactly as before.
-  let bossDue = off === 0 && Array.isArray(g.bastion.bossNights)
-    && g.bastion.bossNights.includes(n) ? 1 : 0;
+  // Boss cadence: the campaign's scheduled bossNights, OR — in endless — one
+  // Entropy boss every 5th night (the def carries no list), first edge only.
+  let bossDue = off === 0 && (
+    (Array.isArray(g.bastion.bossNights) && g.bastion.bossNights.includes(n))
+    || (endless && n >= 5 && n % 5 === 0)
+  ) ? 1 : 0;
   let mi = off; // mutation index runs across the whole night's spawns
   for (let ei = 0; ei < edges.length; ei++) {
     const edge = edges[ei];
@@ -3110,6 +3118,13 @@ function spawnNightWave(g, off = 0) {
         e.hp = Math.ceil(e.hp * 1.15);
         e.maxHp = Math.ceil(e.maxHp * 1.15);
       }
+      if (endless && n > 5) {
+        // endless has no finish line, so the threat must keep climbing past the
+        // campaign's night-5 ceiling: +4.5% hp per night beyond the fifth.
+        const k = 1 + 0.045 * (n - 5);
+        e.hp = Math.ceil(e.hp * k);
+        e.maxHp = Math.ceil(e.maxHp * k);
+      }
       g.enemies.push(e);
     }
     const cx = edge === 'w' ? TILE : edge === 'e' ? (g.w - 1) * TILE : g.w * TILE / 2;
@@ -3124,13 +3139,17 @@ function spawnNightWave(g, off = 0) {
 function stepCycle(g, dt) {
   const cy = g.cycle;
   if (!cy) return;
+  // Endless: no fixed night count — blood moons recur every 3rd night from the
+  // 3rd, and dawn never declares victory (the run ends only when the base falls).
+  const endless = !!(g.bastion && g.bastion.endless);
+  const isBloodNight = k => endless ? (k >= 3 && k % 3 === 0) : g.bastion.bloodMoons.includes(k);
   const evX = g.core ? g.core.x : g.w * TILE / 2;
   const evY = g.core ? g.core.y : g.h * TILE / 2;
   cy.t -= dt;
   if (cy.phase === 'day') {
     const nextNight = cy.nightNo + 1;
-    if (!cy.warned && cy.t <= BLOOD_WARN_LEAD && nextNight <= g.bastion.nights
-        && g.bastion.bloodMoons.includes(nextNight)) {
+    if (!cy.warned && cy.t <= BLOOD_WARN_LEAD && (endless || nextNight <= g.bastion.nights)
+        && isBloodNight(nextNight)) {
       cy.warned = true;
       g.events.push({ type: 'bloodWarn', nightNo: nextNight, x: evX, y: evY });
     }
@@ -3146,7 +3165,7 @@ function stepCycle(g, dt) {
       cy.phase = 'night';
       cy.nightNo = nextNight;
       cy.t = g.bastion.nightLen;
-      cy.bloodMoon = g.bastion.bloodMoons.includes(cy.nightNo);
+      cy.bloodMoon = isBloodNight(cy.nightNo);
       cy.warned = false;
       cy.dayE = 0;
       g.events.push({ type: 'dusk', nightNo: cy.nightNo, bloodMoon: cy.bloodMoon, x: evX, y: evY });
@@ -3164,7 +3183,7 @@ function stepCycle(g, dt) {
   }
   if (cy.t <= 0) {
     g.events.push({ type: 'dawn', nightNo: cy.nightNo, x: evX, y: evY });
-    if (cy.nightNo >= g.bastion.nights) {
+    if (!endless && cy.nightNo >= g.bastion.nights) {
       g.status = 'cleared';
       g.events.push({ type: 'clear', x: g.w * TILE / 2, y: g.h * TILE / 2, points: Math.round(g.score) });
       return;
@@ -5254,7 +5273,10 @@ export function snapshot(g, full = true) {
     // only appears when true, so classic-bastion snapshots stay byte-stable)
     // — the client's wave countdown reads it for the day-before red styling.
     ...(g.cycle ? { cycle: { phase: g.cycle.phase, nightNo: g.cycle.nightNo, t: g.cycle.t, bloodMoon: g.cycle.bloodMoon, nights: g.bastion.nights,
-      ...(g.cycle.phase === 'day' && g.bastion.bloodMoons.includes(g.cycle.nightNo + 1) ? { nextBloodMoon: true } : {}) } } : {}),
+      ...(g.bastion.endless ? { endless: true } : {}),
+      ...(g.cycle.phase === 'day' && (g.bastion.endless
+        ? ((g.cycle.nightNo + 1) >= 3 && (g.cycle.nightNo + 1) % 3 === 0)
+        : g.bastion.bloodMoons.includes(g.cycle.nightNo + 1)) ? { nextBloodMoon: true } : {}) } } : {}),
     ...(g.chests.length ? { chests: g.chests.map(c => ({ x: c.x, y: c.y, opened: c.opened, loot: c.loot })) } : {}),
     ...(g.crackers.length ? { crackers: g.crackers.map(c => ({ x: c.x, y: c.y, landed: c.landed, fuse: c.fuse })) } : {}),
     ...(g.vehicles.length ? { vehicles: g.vehicles.map(v => ({ id: v.id, x: v.x, y: v.y, kind: v.kind, rider: v.rider })) } : {}),

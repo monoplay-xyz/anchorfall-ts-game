@@ -99,6 +99,11 @@ let rankings = {};
 try { rankings = JSON.parse(fs.readFileSync(rankingsPath, 'utf8')) || {}; } catch { rankings = {}; }
 const levelKeys = new Set(levels.map(l => l.key));
 const levelByKey = new Map(levels.map(l => [l.key, l]));
+// Endless Siege boards: one per stronghold map, under their own 'endless/'
+// category so the key registry and the GET :cat/:stem route both accept them.
+// They map back to the stronghold def for display names.
+const endlessKeyOf = key => 'endless/' + String(key).split('/')[1];
+for (const l of bastionLevels) { const ek = endlessKeyOf(l.key); levelKeys.add(ek); levelByKey.set(ek, l); }
 const round1 = n => Math.round(n * 10) / 10;
 
 function saveRankings() {
@@ -135,8 +140,20 @@ const capNames = names => names.length <= 8 ? names : [...names.slice(0, 8), `+$
 // champion's kills; timeS = match length, so equal-kill champions rank by
 // the quicker victory.
 function recordOnlineRun(room, def, g) {
-  if (!def?.key || g.status !== 'cleared') return null;
+  if (!def?.key) return null;
   const stamp = { date: new Date().toISOString(), online: true };
+  // Endless Siege ends in defeat, never a clear — rank by nights survived (then
+  // in-run score) on a board namespaced off the map so it never mixes with the
+  // campaign's clear-time board. score = nights*1e5 + score, so nights dominate.
+  if (room.endless) {
+    if (g.status !== 'failed') return null;
+    const nights = g.cycle?.nightNo || 0;
+    if (nights < 1) return null;
+    const runScore = Math.round(g.score || 0);
+    const key = endlessKeyOf(def.key);
+    return { key, rank: recordRanking(key, { names: capNames(g.players.map(p => p.name)), players: g.players.length, score: nights * 100000 + Math.min(99999, runScore), nights, runScore, timeS: round1(g.elapsed), ...stamp }) };
+  }
+  if (g.status !== 'cleared') return null;
   if (room.mode === 'ctf') {
     if (g.winner !== 0 && g.winner !== 1) return null;
     const team = g.players.filter(p => p.team === g.winner);
@@ -215,15 +232,23 @@ app.get('/api/rooms', (req, res) => {
 // fetch one board, or submit a LOCAL run (sessions simmed in the browser but
 // served from this server). Online room clears are recorded server-side and
 // never POSTed.
-app.get('/api/rankings', (req, res) => res.json({
-  levels: levels.filter(l => rankings[l.key]?.length)
-    .map(l => ({ key: l.key, name: l.title || l.name, count: rankings[l.key].length })),
-}));
+const endlessName = def => `${def.stronghold?.name || def.title || def.name} — Endless`;
+app.get('/api/rankings', (req, res) => {
+  const out = levels.filter(l => rankings[l.key]?.length)
+    .map(l => ({ key: l.key, name: l.title || l.name, count: rankings[l.key].length }));
+  // Endless boards (their own category) list alongside the campaign boards.
+  for (const l of bastionLevels) {
+    const ek = endlessKeyOf(l.key);
+    if (rankings[ek]?.length) out.push({ key: ek, name: endlessName(l), count: rankings[ek].length });
+  }
+  res.json({ levels: out });
+});
 app.get('/api/rankings/:cat/:stem', (req, res) => {
   const key = `${req.params.cat}/${req.params.stem}`;
   if (!levelKeys.has(key)) return res.status(404).json({ error: 'unknown level' });
   const def = levelByKey.get(key);
-  res.json({ key, name: def.title || def.name, entries: rankings[key] || [] });
+  const name = req.params.cat === 'endless' ? endlessName(def) : (def.title || def.name);
+  res.json({ key, name, entries: rankings[key] || [] });
 });
 app.post('/api/rankings', express.json({ limit: '4kb' }), (req, res) => {
   const ip = req.ip || req.socket?.remoteAddress || '?';
@@ -572,7 +597,13 @@ function startLevel(room) {
   if (!party.length) return;
   if (room.mode === 'br' && party.length < 2) return; // BR is meaningless solo
   for (const p of room.players.values()) p.input = {};
-  room.game = createGame(roomLevels(room)[room.levelIdx], party, charMap, room.roster);
+  // Endless Siege: a stronghold room flagged endless plays the same map with no
+  // night cap. Clone the def (never mutate the shared catalog) and flip the flag.
+  const baseDef = roomLevels(room)[room.levelIdx];
+  const gameDef = room.endless && baseDef.mode === 'bastion'
+    ? { ...baseDef, bastion: { ...(baseDef.bastion || {}), endless: true } }
+    : baseDef;
+  room.game = createGame(gameDef, party, charMap, room.roster);
   room.phase = 'play';
   room.tick = 0;
   room.holds = []; // seat holds are per-level; a fresh level starts clean
@@ -702,7 +733,9 @@ wss.on('connection', (ws, req) => {
       // Visibility toggle; absent (old clients) defaults versus modes public
       // and co-op private — co-op behavior is exactly the pre-browser world.
       const pub = m.public != null ? !!m.public : (mode === 'ctf' || mode === 'br');
-      const r = { code, mode, public: pub, hostPid: me.pid, players: new Map([[me.pid, me]]), levelIdx, roster, game: null, timer: null, phase: 'lobby', holds: [], tick: 0, lastActivity: Date.now() };
+      // Endless Siege: only meaningful for stronghold (bastion) rooms; ignored otherwise.
+      const endless = mode === 'bastion' && !!m.endless;
+      const r = { code, mode, public: pub, endless, hostPid: me.pid, players: new Map([[me.pid, me]]), levelIdx, roster, game: null, timer: null, phase: 'lobby', holds: [], tick: 0, lastActivity: Date.now() };
       rooms.set(code, r);
       me.room = r;
       sendTo(me, { t: 'joined', you: me.pid, token: myToken });

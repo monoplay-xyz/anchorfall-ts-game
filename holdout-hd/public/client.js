@@ -991,9 +991,11 @@ function updateModePanels(snap) {
     const t = Math.max(0, cyc.t ?? 0);
     const clock = `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
     const night = cyc.phase === 'night';
+    // Endless drops the "/N" cap and flies an ∞ — the run has no final night.
+    const nightCount = cyc.endless ? ' ∞' : (cyc.nights ? '/' + cyc.nights : '');
     $('cyclePhase').textContent = night
-      ? `${cyc.bloodMoon ? 'BLOOD MOON' : 'NIGHT'} ${cyc.nightNo ?? 1}${cyc.nights ? '/' + cyc.nights : ''} — ${clock}`
-      : `DAY — DUSK IN ${clock}`;
+      ? `${cyc.bloodMoon ? 'BLOOD MOON' : 'NIGHT'} ${cyc.nightNo ?? 1}${nightCount} — ${clock}`
+      : `DAY${cyc.endless ? ' ∞' : ''} — DUSK IN ${clock}`;
     $('cyclePhase').style.color = night && cyc.bloodMoon ? '#ff7a6a' : '';
     const core = snap.core;
     $('coreWrap').hidden = !core;
@@ -1502,6 +1504,8 @@ class LocalSession {
     this.mode = opts.mode === 'ctf' || opts.mode === 'br' ? opts.mode : null;
     // bastion siege: expedition-style one-shot (no saves), solo+ couch fine
     this.bastion = opts.mode === 'bastion';
+    // Endless Siege: a bastion run with no night cap, escalating forever
+    this.endless = this.bastion && !!opts.endless;
     this.expedition = !this.story && !this.mode && !this.bastion && !!opts.expedition;
     this.levels = this.story ? storyLevels
       : this.mode ? (this.mode === 'ctf' ? ctfLevels : brLevels)
@@ -1655,7 +1659,12 @@ class LocalSession {
   start() {
     if (!this.inLobby || !this.canStart()) return;
     this.inLobby = false;
-    const lvl = this.levels[this.levelIdx];
+    let lvl = this.levels[this.levelIdx];
+    // Endless: clone the def (never mutate the shared catalog) and flip the
+    // bastion flag — the sim then escalates without end and never auto-clears.
+    if (this.endless && lvl.mode === 'bastion') {
+      lvl = { ...lvl, bastion: { ...(lvl.bastion || {}), endless: true } };
+    }
     const begin = () => {
       this.game = createGame(
         lvl,
@@ -1888,6 +1897,7 @@ class LocalSession {
     const score = Math.round(this.game.score);
     const timeS = this.game.elapsed ?? 0; // rankings clock — captured before the game drops
     const lvl = this.levels[this.levelIdx];
+    const endlessNights = this.endless ? (this.game.cycle?.nightNo || 0) : 0; // survival metric
     this.game = null;
     this.paused = false;
     for (const p of this.players) { p.charId = null; p.cursor = 0; p.bot = null; }
@@ -1958,6 +1968,21 @@ class LocalSession {
         localStorage.setItem(SAVE_KEY, JSON.stringify({ levelIdx: this.levelIdx, roster: this.roster }));
       }
       showMsg('Mission Cleared', (resultText(res) || 'Nicely done.') + `\nScore: ${score.toLocaleString()}`, 'Continue', () => this.lobby());
+    } else if (this.endless) {
+      // Endless Siege "loss" is the run's natural end — celebrate how far the
+      // squad got and record it on the map's endless board (nights survived,
+      // then in-run score; the combined number decodes back to Night N).
+      const nights = endlessNights;
+      if (nights >= 1 && !demoMode) {
+        const base = levelKeyOf(lvl);
+        const ekey = base ? 'endless/' + base.split('/')[1] : null;
+        if (ekey) submitRun(lvl, this.players.map(p => p.name), this.players.length, nights * 100000 + Math.min(99999, score), timeS, { key: ekey });
+      }
+      playUi('victory');
+      showMsg('Endless Over',
+        `You held ${lvl.stronghold?.name ?? lvl.name ?? 'the line'} through ${nights} night${nights === 1 ? '' : 's'}.\nScore: ${score.toLocaleString()}`,
+        'Play Again', () => this.lobby(),
+        'Level Select', () => { session = null; shPurpose = 'local'; show('menu'); showMenuPage('pageSh'); refreshContinue(); });
     } else {
       // story runs are untimed, so a story fail can only be a squad wipe
       const body = this.story
@@ -2028,7 +2053,9 @@ class LocalSession {
 // request extra pids with addLocal. A machine with no bound seat keeps the
 // classic mouse flow (legacy single-input form, primary pid).
 class NetSession {
-  constructor(mode, code, hostMode = 'classic', hostLevelIdx = null) {
+  constructor(mode, code, hostMode = 'classic', hostLevelIdx = null, opts = {}) {
+    const hostEndless = hostMode === 'bastion' && !!opts.endless;
+    this.endless = hostEndless;
     this.myPid = null;
     this.myPick = null;
     this.snap = null;
@@ -2063,6 +2090,9 @@ class NetSession {
         // stronghold: the host's earned roster rides along (the server
         // validates ids, dedupes and always keeps every starter)
         if (hostMode === 'bastion') msg.roster = strongholdRoster();
+        // Endless Siege rides the host message (additive — an older server
+        // ignores it and the room plays as the fixed-night campaign)
+        if (hostEndless) msg.endless = true;
         this.ws.send(JSON.stringify(msg));
       } else {
         this.ws.send(JSON.stringify({ t: 'join', room: code, name: this.name }));
@@ -2630,8 +2660,8 @@ function shRecordClear(def) {
 // localStorage and the page reads those instead, labelled as local bests.
 const BESTS_KEY = 'holdout-hd.bests';     // static: { [levelKey]: [entry...] }
 const LASTRUN_KEY = 'holdout-hd.lastrun'; // { key, score, timeS, date } — board highlight
-const RANK_CATS = ['story', 'stronghold', 'classic', 'ctf', 'br'];
-const RANK_CAT_LABEL = { story: 'STORY', stronghold: 'STRONGHOLD', classic: 'CLASSIC', ctf: 'VERSUS — CTF', br: 'VERSUS — ROYALE' };
+const RANK_CATS = ['story', 'stronghold', 'endless', 'classic', 'ctf', 'br'];
+const RANK_CAT_LABEL = { story: 'STORY', stronghold: 'STRONGHOLD', endless: 'ENDLESS SIEGE', classic: 'CLASSIC', ctf: 'VERSUS — CTF', br: 'VERSUS — ROYALE' };
 const pad2 = n => String(n).padStart(2, '0');
 const rankSlug = s => String(s ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'level';
 let rankIndex = null; // latest GET /api/rankings payload (server builds only)
@@ -2706,13 +2736,15 @@ if (!IS_STATIC) refreshRankIndex();
 // One local clear -> one board entry. Toasts RUN RECORDED — #rank when the
 // run places top 50 (the toast is deferred a beat: the results dialog that
 // opens in the same tick clears the toast queue as every screen change does).
-async function submitRun(def, names, players, score, timeS) {
+async function submitRun(def, names, players, score, timeS, opts = {}) {
   if (demoMode) return;
   // unpinned versus maps resolve their key against the served board index —
   // make sure it's loaded before deriving (no-op for static/known stems)
   const cat = def?.category ?? def?.mode;
   if (!IS_STATIC && (cat === 'ctf' || cat === 'br') && !rankIndex) await refreshRankIndex();
-  const key = levelKeyOf(def);
+  // opts.key forces the board (Endless Siege records onto its own endless/<stem>
+  // board rather than the map's campaign clear board).
+  const key = opts.key || levelKeyOf(def);
   if (!key) return;
   const label = String(def.stronghold?.name ?? def.name ?? key).toUpperCase();
   const entry = {
@@ -2854,9 +2886,12 @@ async function renderRankBoard() {
     host.innerHTML = '<div class="rgrp">NO RUNS RECORDED ON THIS BOARD YET</div>';
     return;
   }
+  // Endless boards rank by nights survived: the stored score is nights*1e5 +
+  // in-run score, so the SCORE column decodes back to "Night N".
+  const isEndless = String(rankBoardKey).startsWith('endless/');
   const head = document.createElement('div');
   head.className = 'rrowt head';
-  for (const c of ['#', 'NAMES', 'PL', 'SCORE', 'TIME', 'DATE']) {
+  for (const c of ['#', 'NAMES', 'PL', isEndless ? 'NIGHTS' : 'SCORE', 'TIME', 'DATE']) {
     const s = document.createElement('span');
     s.textContent = c;
     head.appendChild(s);
@@ -2896,7 +2931,7 @@ async function renderRankBoard() {
       '#' + (i + 1),
       nameTxt,
       String(e.players ?? (Array.isArray(e.names) ? e.names.length : 1)),
-      (Number(e.score) || 0).toLocaleString(),
+      isEndless ? 'Night ' + Math.floor((Number(e.score) || 0) / 100000) : (Number(e.score) || 0).toLocaleString(),
       fmtT(e.timeS),
       String(e.date ?? '').slice(0, 10) || '—',
     ];
@@ -3001,6 +3036,7 @@ const MENU_PARENT = {
 };
 let menuPageId = 'pageMain';
 let shPurpose = 'local'; // why the level select is open: 'local' | 'host'
+let shEndless = false; // Endless Siege toggle on the stronghold select screen
 function showMenuPage(id) {
   menuPageId = id;
   for (const el of document.querySelectorAll('#menu .mpage')) el.hidden = el.id !== id;
@@ -3035,6 +3071,23 @@ function renderShGrid() {
     ? 'pick a stronghold to host online — only your unlocked levels are offered'
     : 'beat a stronghold to unlock the next · new operatives join the roster';
   $('shBlurb').textContent = ' ';
+  // Endless Siege toggle: when on, picking any unlocked stronghold launches it
+  // as a never-ending escalating holdout (ranked by nights survived) instead of
+  // the fixed campaign. Reuses every stronghold map, lobby and roster.
+  const eb = $('btnShEndless');
+  if (eb) {
+    const paintEndless = () => {
+      eb.textContent = 'Mode: ' + (shEndless ? 'Endless Siege ∞' : 'Campaign');
+      eb.classList.toggle('on', shEndless);
+      $('shSub').textContent = shEndless
+        ? 'ENDLESS — hold any stronghold through escalating nights · ranked by nights survived'
+        : (shPurpose === 'host'
+          ? 'pick a stronghold to host online — only your unlocked levels are offered'
+          : 'beat a stronghold to unlock the next · new operatives join the roster');
+    };
+    paintEndless();
+    eb.onclick = e => { e.currentTarget.blur(); shEndless = !shEndless; playUi('select'); paintEndless(); };
+  }
   grid.innerHTML = '';
   bastionLevels.forEach((lvl, idx) => {
     const sh = lvl.stronghold ?? {};
@@ -3061,18 +3114,18 @@ function renderShGrid() {
     card.onclick = e => {
       e.currentTarget.blur();
       if (locked) return playUi('locked');
-      startStronghold(idx);
+      startStronghold(idx, shEndless);
     };
     grid.appendChild(card);
   });
 }
-function startStronghold(idx) {
+function startStronghold(idx, endless = false) {
   if (session) return;
   playUi('select');
   if (shPurpose === 'host') {
-    session = new NetSession('host', '', 'bastion', idx);
+    session = new NetSession('host', '', 'bastion', idx, { endless });
   } else {
-    session = new LocalSession(null, { mode: 'bastion', levelIdx: idx });
+    session = new LocalSession(null, { mode: 'bastion', levelIdx: idx, endless });
     session.lobby();
   }
 }
