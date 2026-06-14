@@ -38,12 +38,47 @@ function createWindow() {
     icon: path.join(__dirname, 'assets', 'monoplay-logo.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
+      // local trusted content only — contextIsolation off lets the preload
+      // override navigator.getGamepads() with the native SDL controller feed
+      contextIsolation: false,
+      sandbox: false,
       backgroundThrottling: false, // never throttle the game loop
     },
   });
   win.setMenuBarVisibility(false);
   win.loadURL(`http://127.0.0.1:${PORT}/`);
+}
+
+// --- Native controllers via the SDL sidecar (separate system-node process) ---
+// SDL crashes inside Electron (V8 ABI + macOS run-loop), so we run it as its
+// own process under system node and forward each frame's controller state to
+// the renderer. If node or SDL is unavailable, the renderer keeps the built-in
+// browser Gamepad API — controllers still work, just without SDL mappings.
+let controllerProc = null;
+function nodeBinary() {
+  for (const p of ['/opt/homebrew/bin/node', '/usr/local/bin/node', '/usr/bin/node']) {
+    try { if (require('fs').existsSync(p)) return p; } catch {}
+  }
+  return 'node'; // last resort: PATH lookup
+}
+function startControllers() {
+  try {
+    controllerProc = spawn(nodeBinary(), [path.join(__dirname, 'controller-sidecar.js')], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch (e) { console.error('controller sidecar spawn failed:', e.message); return; }
+  let buf = '';
+  controllerProc.stdout.on('data', (d) => {
+    buf += d.toString();
+    let nl;
+    while ((nl = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
+      if (line && win && !win.isDestroyed()) win.webContents.send('controllers:state', line);
+    }
+  });
+  controllerProc.stderr.on('data', (d) => console.error('[controllers]', d.toString().trim()));
+  controllerProc.on('error', (e) => console.error('controller sidecar error:', e.message));
+  controllerProc.on('exit', (code) => { if (code) console.error('controller sidecar exited', code); });
 }
 
 // --- Display-settings IPC (driven by the in-game Settings → Display menu) ---
@@ -72,7 +107,12 @@ app.whenReady().then(() => {
     try { app.dock.setIcon(path.join(__dirname, 'assets', 'monoplay-logo.png')); } catch {}
   }
   startServer();
+  startControllers();
   waitForPort(createWindow);
 });
-app.on('window-all-closed', () => { try { server && server.kill(); } catch {} app.quit(); });
-app.on('before-quit', () => { try { server && server.kill(); } catch {} });
+function cleanup() {
+  try { server && server.kill(); } catch {}
+  try { controllerProc && controllerProc.kill(); } catch {}
+}
+app.on('window-all-closed', () => { cleanup(); app.quit(); });
+app.on('before-quit', cleanup);

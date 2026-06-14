@@ -205,6 +205,114 @@ function pollDevices() {
   return out;
 }
 
+// ---------- controller type detection (adaptive prompt glyphs) ----------
+// The in-world prompts ('[hold E/X] BUILD ...') show a glyph that matches the
+// ACTIVE controller. The NATIVE (Electron) lane exposes typed pads via
+// window.anchorfallDesktop.controllers() -> [{ index, type, name, id }] where
+// type is keyboard|xbox|ps4|ps5|switch|generic; in the browser we fall back to
+// inferring the type from navigator.getGamepads()[].id strings. The render
+// glyph itself comes from render.js's glyphForType; here we only resolve TYPE
+// and track which device the player is actually using.
+
+// Infer a pad type from its W3C id string (browser fallback). Pure.
+function inferPadType(id) {
+  const s = String(id || '').toLowerCase();
+  // PlayStation: DualSense (ps5) vs DualShock (ps4) where distinguishable
+  if (/dualsense|ps5|playstation 5|sony.*0ce6|0ce6/.test(s)) return 'ps5';
+  if (/dualshock|ps4|playstation 4|playstation\(r\)4|sony.*09cc|09cc|05c4/.test(s)) return 'ps4';
+  if (/playstation|sony|wireless controller.*054c|054c/.test(s)) return 'ps4';
+  // Nintendo Switch / Pro Controller / Joy-Con
+  if (/switch|joy-?con|pro controller|nintendo|057e/.test(s)) return 'switch';
+  // Xbox / XInput
+  if (/xbox|xinput|x-?box|microsoft|045e/.test(s)) return 'xbox';
+  return 'generic';
+}
+
+// The native bridge's typed controller list, or a browser-inferred equivalent.
+// Shape: [{ index, type, name, id }]. Keyboards aren't in getGamepads(), so the
+// browser fallback synthesizes a keyboard entry for the per-player readout.
+function controllerList() {
+  const native = window.anchorfallDesktop?.controllers;
+  if (typeof native === 'function') {
+    try {
+      const list = native();
+      if (Array.isArray(list)) return list;
+    } catch {}
+  }
+  const out = [];
+  for (const gp of navigator.getGamepads?.() ?? []) {
+    if (!gp || !gp.connected) continue;
+    out.push({ index: gp.index, type: inferPadType(gp.id), name: gp.id, id: gp.id });
+  }
+  return out;
+}
+
+// Type for a specific pad index (native list first, else inference).
+function padTypeForIndex(i) {
+  for (const c of controllerList()) if (c.index === i) return c.type || 'generic';
+  const gp = navigator.getGamepads?.()[i];
+  return gp ? inferPadType(gp.id) : 'generic';
+}
+
+// Map a DEVICES id (kb1/kb2/gp0..gp3) to a controller type for prompts.
+function deviceType(id) {
+  if (id === 'kb1' || id === 'kb2') return 'keyboard';
+  if (id.startsWith('gp')) return padTypeForIndex(+id.slice(2));
+  return 'keyboard';
+}
+
+// A friendly per-player label for the Settings readout ('Xbox Wireless',
+// 'Keyboard'). Pads prefer the native/inferred name; keyboards read 'Keyboard'.
+function deviceReadout(id) {
+  if (id === 'kb1') return 'Keyboard (WASD)';
+  if (id === 'kb2') return 'Keyboard (Arrows)';
+  const i = +id.slice(2);
+  for (const c of controllerList()) if (c.index === i) return c.name || c.id || `Pad ${i + 1}`;
+  const gp = navigator.getGamepads?.()[i];
+  return gp ? (gp.id || `Pad ${i + 1}`) : 'Not connected';
+}
+
+// The most-recently-active device id (any input edge marks it). Drives the
+// prompt glyph in Auto mode. Seeded to kb1 so the very first prompt has a type.
+let activeDevId = 'kb1';
+function noteActiveDevice(polled) {
+  for (const [id, st] of Object.entries(polled)) {
+    if (st.fire || st.special || st.act || st.item || st.start
+      || st.up || st.down || st.left || st.right) { activeDevId = id; return; }
+  }
+}
+
+// Manual glyph-style override, persisted. 'auto' tracks the active device; the
+// rest force a fixed glyph regardless of what's plugged in.
+const GLYPH_KEY = 'holdout-hd.glyphstyle';
+const GLYPH_MODES = ['auto', 'keyboard', 'xbox', 'playstation', 'switch'];
+const GLYPH_LABEL = { auto: 'Auto', keyboard: 'Keyboard', xbox: 'Xbox', playstation: 'PlayStation', switch: 'Switch' };
+const GLYPH_OVERRIDE_TYPE = { keyboard: 'keyboard', xbox: 'xbox', playstation: 'ps5', switch: 'switch' };
+let glyphStyle = localStorage.getItem(GLYPH_KEY) || 'auto';
+if (!GLYPH_MODES.includes(glyphStyle)) glyphStyle = 'auto';
+
+// The keyboard ACT key label the prompts should show (remap-aware). KB1 is the
+// primary keyboard seat; the [E/X] prompts are authored against it.
+function actKeyLabel() {
+  return keyLabel((KB1.act ?? [])[0]) || 'E';
+}
+
+// Resolve the active controller type honoring the override, then push it (with
+// the live keyboard ACT key) into the renderer's prompt-glyph context. Called
+// each frame after noteActiveDevice — cheap, and render.js dedupes nothing so
+// we guard with a signature to avoid needless work.
+let glyphSig = null;
+function applyPromptGlyph() {
+  const type = glyphStyle === 'auto'
+    ? deviceType(activeDevId)
+    : GLYPH_OVERRIDE_TYPE[glyphStyle];
+  const kb = actKeyLabel();
+  const sig = type + '|' + kb;
+  if (sig === glyphSig) return;
+  glyphSig = sig;
+  renderMod.setPromptGlyphContext?.(type, kb);
+}
+
 // Online play: one player per machine, so any device drives them. `exclude`
 // drops devices the leave dialog has captured for menu navigation.
 function mergedInput(exclude) {
@@ -2896,6 +3004,7 @@ function showMenuPage(id) {
   cancelRemapListen();
   setNavFocus(null); // navTick re-picks a default focus on the new page
   if (id === 'pageSh') renderShGrid();
+  if (id === 'pageSettings') renderCtrlReadout?.(); // refresh the controller list (pads hot-plug)
   if (id === 'pageRemap') renderRemap();
   if (id === 'pageRank') renderRankPicker();      // async: fills in when fetched
   if (id === 'pageRankBoard') renderRankBoard();  // async: fills in when fetched
@@ -3233,6 +3342,113 @@ $('btnGameZoom').onclick = e => {
   zoomSync();
 };
 zoomSync();
+
+// ---------- Display: display mode (desktop) + aspect-ratio letterbox ----------
+// (a) Display mode — Fullscreen / Borderless / Windowed — only meaningful in the
+// native Electron shell, so the button hides in the browser. Cycles on
+// click/FIRE and LEFT/RIGHT (data-cycle), persisted, and calls the bridge.
+const DISPLAY_KEY = 'holdout-hd.displaymode';
+const DISPLAY_MODES = ['fullscreen', 'borderless', 'windowed'];
+const DISPLAY_LABEL = { fullscreen: 'Fullscreen', borderless: 'Borderless', windowed: 'Windowed' };
+const isDesktopShell = !!window.anchorfallDesktop?.isDesktop;
+let displayMode = localStorage.getItem(DISPLAY_KEY) || 'fullscreen';
+if (!DISPLAY_MODES.includes(displayMode)) displayMode = 'fullscreen';
+const displaySync = () => { $('btnDisplayMode').textContent = `Display mode: ${DISPLAY_LABEL[displayMode]}`; };
+function cycleDisplayMode(dir = 1) {
+  const i = DISPLAY_MODES.indexOf(displayMode);
+  displayMode = DISPLAY_MODES[mod(i + dir, DISPLAY_MODES.length)];
+  try { localStorage.setItem(DISPLAY_KEY, displayMode); } catch {}
+  displaySync();
+  window.anchorfallDesktop?.setDisplayMode?.(displayMode);
+}
+if (isDesktopShell) {
+  $('btnDisplayMode').hidden = false;
+  $('btnDisplayMode').onclick = e => { e.currentTarget.blur(); cycleDisplayMode(1); };
+  displaySync();
+  // push the persisted choice to the shell on boot so it matches the UI
+  window.anchorfallDesktop?.setDisplayMode?.(displayMode);
+}
+
+// (b) Aspect ratio — Auto (fill) / 16:9 / 16:10 / 4:3 / 21:9 — constrains the
+// #center canvas box to the chosen aspect, centered with black bars
+// (letterbox/pillarbox). fitStage already reads the canvas box, so the canvas
+// resolution follows. Works in browser AND desktop. Persisted.
+const ASPECT_KEY = 'holdout-hd.aspect';
+const ASPECT_MODES = ['auto', '16:9', '16:10', '4:3', '21:9'];
+const ASPECT_LABEL = { auto: 'Auto (fill)', '16:9': '16:9', '16:10': '16:10', '4:3': '4:3', '21:9': '21:9' };
+const ASPECT_RATIO = { '16:9': 16 / 9, '16:10': 16 / 10, '4:3': 4 / 3, '21:9': 21 / 9 };
+let aspectMode = localStorage.getItem(ASPECT_KEY) || 'auto';
+if (!ASPECT_MODES.includes(aspectMode)) aspectMode = 'auto';
+function applyAspect() {
+  const centerEl = document.getElementById('center');
+  const r = ASPECT_RATIO[aspectMode];
+  if (!r) {
+    // Auto: fill — the classic no-letterbox behavior.
+    canvas.style.aspectRatio = '';
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
+    canvas.style.margin = '';
+    if (centerEl) { centerEl.style.display = ''; centerEl.style.alignItems = ''; centerEl.style.justifyContent = ''; }
+  } else {
+    // Constrain the canvas to the aspect, centered in #center with black bars.
+    // max-width/height keep it inside the available box; aspect-ratio + the
+    // object-fit-free CSS box does the letterbox/pillarbox. #center's own
+    // background (the page void) shows as the bars.
+    if (centerEl) { centerEl.style.display = 'flex'; centerEl.style.alignItems = 'center'; centerEl.style.justifyContent = 'center'; }
+    canvas.style.aspectRatio = String(r);
+    canvas.style.width = 'auto';
+    canvas.style.height = 'auto';
+    canvas.style.maxWidth = '100%';
+    canvas.style.maxHeight = '100%';
+    canvas.style.margin = 'auto';
+  }
+  fitStage(); // re-derive the canvas logical resolution from the new box
+}
+const aspectSync = () => { $('btnAspect').textContent = `Aspect ratio: ${ASPECT_LABEL[aspectMode]}`; };
+function cycleAspect(dir = 1) {
+  const i = ASPECT_MODES.indexOf(aspectMode);
+  aspectMode = ASPECT_MODES[mod(i + dir, ASPECT_MODES.length)];
+  try { localStorage.setItem(ASPECT_KEY, aspectMode); } catch {}
+  aspectSync();
+  applyAspect();
+}
+$('btnAspect').onclick = e => { e.currentTarget.blur(); cycleAspect(1); };
+aspectSync();
+
+// ---------- Controller prompts: glyph style + per-player readout ----------
+// Button prompts: Auto / Keyboard / Xbox / PlayStation / Switch (persisted).
+// Auto tracks the active controller; the rest force the glyph. The world
+// prompts ('[hold E/X] BUILD') re-glyph live via applyPromptGlyph().
+const glyphStyleSync = () => { $('btnGlyphStyle').textContent = `Button prompts: ${GLYPH_LABEL[glyphStyle]}`; };
+function cycleGlyphStyle(dir = 1) {
+  const i = GLYPH_MODES.indexOf(glyphStyle);
+  glyphStyle = GLYPH_MODES[mod(i + dir, GLYPH_MODES.length)];
+  try { localStorage.setItem(GLYPH_KEY, glyphStyle); } catch {}
+  glyphStyleSync();
+  glyphSig = null;       // force a re-push next frame
+  applyPromptGlyph();    // and immediately, so an open settings demo updates
+}
+$('btnGlyphStyle').onclick = e => { e.currentTarget.blur(); cycleGlyphStyle(1); };
+glyphStyleSync();
+
+// Per-player controller readout, rebuilt whenever Settings opens (cheap; pads
+// hot-plug). Lists P1.. with each connected device's friendly name. Keyboards
+// always appear (couch seats); pads appear once connected.
+function renderCtrlReadout() {
+  const host = $('ctrlReadout');
+  if (!host) return;
+  const lines = [];
+  // keyboard seats first (always present in this couch model)
+  lines.push(['Keyboard 1', deviceReadout('kb1')]);
+  lines.push(['Keyboard 2', deviceReadout('kb2')]);
+  // then each connected pad, labeled by slot
+  for (const c of controllerList()) {
+    if (c.type === 'keyboard') continue; // native lane may include a kb entry
+    lines.push([`Pad ${(+c.index) + 1}`, `${c.name || c.id || 'Controller'} (${GLYPH_LABEL[({ xbox: 'xbox', ps4: 'playstation', ps5: 'playstation', switch: 'switch' })[c.type] || 'auto'] || 'Generic'})`]);
+  }
+  host.innerHTML = lines.map(([k, v]) => `<div><span class="crp">${k}:</span> ${v}</div>`).join('');
+}
+
 // volume rows: Music & ambience / Voice (EVA + dialogue) / Effects, persisted
 // 0-100 in steps of 10 (defaults 70/100/100). Pad/keys LEFT-RIGHT adjust the
 // focused row (see navTick); FIRE/click steps up and wraps past 100 to 0.
@@ -3504,6 +3720,8 @@ function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   const polled = pollDevices();
+  noteActiveDevice(polled); // track the live device for Auto prompt glyphs
+  applyPromptGlyph();        // push the active controller type to the renderer
   remapPadTick();  // a pad rebind capture polls raw buttons each frame
   navTick(polled); // first: consumes the button edges it handles
   pauseUiTick(polled); // then the pause/leave dialog, when one is up

@@ -5938,8 +5938,70 @@ function drawAnchor(ctx, cx, baseY, gate, t, lights) {
   ctx.restore();
 }
 
+// --- adaptive prompt glyphs --------------------------------------------------
+// Every in-world prompt is written as '[E/X] ...' / '[hold E/X] ...' where E is
+// the keyboard ACT key and X is the generic gamepad face button. The displayed
+// pair adapts to the ACTIVE controller: a keyboard shows only its key (E), an
+// Xbox pad shows X, a PlayStation pad shows the square glyph □, a Switch pad
+// shows Y, and anything generic falls back to X. client.js owns controller
+// detection + the manual Settings override and pushes the resolved glyphs here
+// via setPromptGlyphContext(); the substitution itself lives in one place
+// (rewritePromptGlyph, called from drawPrompt) so every prompt stays in sync.
+
+// type -> the gamepad face-button glyph for the game's ACT/interact button.
+// (ACT maps to pad button 2: Xbox 'X', PlayStation square, Switch 'Y'.) Pure
+// and side-effect-free so it can be unit-exercised from a node stub.
+export function glyphForType(type) {
+  switch (type) {
+    case 'xbox': return 'X';
+    case 'ps4':
+    case 'ps5': return '□'; // □ — the PlayStation square face button
+    case 'switch': return 'Y';
+    case 'keyboard': return null; // keyboard-only: no pad glyph in the prompt
+    default: return 'X'; // generic / unknown
+  }
+}
+
+// Active glyph context, set by client.js each time the active device or the
+// manual override changes. kb = the keyboard ACT key label ('E' by default,
+// remap-aware); pad = the gamepad glyph for the active pad type; isPad marks
+// that the ACTIVE controller is a pad (so the prompt shows only the pad glyph,
+// per "Xbox selected -> the prompt shows the Xbox button").
+let promptKbGlyph = 'E';
+let promptPadGlyph = 'X';
+let promptIsPad = false;
+let promptCtxSet = false; // false until client.js first pushes a context
+
+// type: 'keyboard'|'xbox'|'ps4'|'ps5'|'switch'|'generic'. kbLabel: the live
+// keyboard ACT key (defaults to 'E'). Computes both glyphs and stores them.
+export function setPromptGlyphContext(type, kbLabel) {
+  promptKbGlyph = (kbLabel == null || kbLabel === '') ? 'E' : String(kbLabel);
+  promptPadGlyph = glyphForType(type) ?? 'X';
+  promptIsPad = type != null && type !== 'keyboard';
+  promptCtxSet = true;
+}
+
+// Build the '[...]' button tag for the active controller: a single glyph that
+// matches the active device — keyboard shows its key (E), an Xbox pad shows X,
+// a PlayStation pad □, a Switch pad Y. Before client.js pushes any context
+// (boot, no controller detected yet) we keep the classic 'E/X' dual readout so
+// nothing regresses.
+export function promptButton() {
+  if (!promptCtxSet) return `${promptKbGlyph || 'E'}/${promptPadGlyph}`;
+  if (promptIsPad) return promptPadGlyph;
+  return promptKbGlyph || 'E';
+}
+
+// Swap the literal 'E/X' token any prompt string carries for the active pair.
+// Matches the exact 'E/X' the prompt sources are authored with so unrelated
+// glyphs in a label are never touched.
+function rewritePromptGlyph(text) {
+  return typeof text === 'string' ? text.replace(/E\/X/g, promptButton()) : text;
+}
+
 // World-space interaction prompt ('[E/X] TALK', '[hold E/X] BUILD ...').
 function drawPrompt(ctx, x, y, text, t) {
+  text = rewritePromptGlyph(text);
   ctx.save();
   ctx.font = 'bold 10px monospace';
   ctx.textAlign = 'center';
