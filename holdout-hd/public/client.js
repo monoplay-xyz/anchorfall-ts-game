@@ -464,6 +464,9 @@ function bannerFor(ev) {
 const EDGE_NAME = { n: 'NORTH', e: 'EAST', s: 'SOUTH', w: 'WEST' };
 // One funnel for sim events: FX + audio + banners + the DOM dialogue box.
 function handleEvent(ev) {
+  // tag a hit with whether it landed on one of THIS connection's seats, so the
+  // renderer only shakes/flashes the screen when it's your own operator hit.
+  if (ev.type === 'playerHit') ev.mine = (session?.focusPids?.() ?? new Set()).has(ev.pid);
   addEventFX(ev);
   playEvent(ev);
   if (ev.type === 'talk') showDialogue(ev);

@@ -19,6 +19,7 @@ const pendingLevelUps = []; // coordless 'levelUp' events resolved to player pos
 const houndMood = new Map(); // follower id -> {engaged,lastBark}: bark on engage edge
 let coreAlarmT = 0; // base-core alarm glow, armed by 'coreHit'/'coreDown'
 let shake = 0;
+let punch = 0; // camera zoom-kick on heavy impacts (render-only, networked-safe)
 let darkWorld = false; // set per-frame from snap.dark (story night missions)
 const tex = {};
 const imageCache = {};
@@ -1424,6 +1425,7 @@ export function addEventFX(ev) {
     burst(Math.round(8 * rk), PAL.ember, 150 * rk, 0.5);
     if (rk > 1.3) rings.push({ x: ev.x, y: ev.y, r0: 6, r1: ev.radius, life: 0.4, max: 0.4, color: PAL.lythAmber, w: 2.5 });
     shake = Math.max(shake, 8 * Math.min(1.4, rk));
+    if (rk > 1.6) punch = Math.max(punch, 0.5); // only the biggest blasts kick the camera
   }
   else if (ev.type === 'die') {
     // the Entropy unravels: violet static + one cyan eye-spark
@@ -1453,6 +1455,7 @@ export function addEventFX(ev) {
     ring(230, PAL.anchor, 1.0, 4); ring(150, PAL.relay, 0.7);
     burst(30, PAL.anchor, 270, 0.8);
     shake = Math.max(shake, 12);
+    punch = Math.max(punch, 0.9);
     popups.push({ screen: true, x: 0, y: 0, text: 'THE ANCHOR WAKES', life: 2.4, max: 2.4, color: PAL.anchor, size: 30 });
   }
   else if (ev.type === 'talk') ring(26, 'rgba(111,216,242,0.8)', 0.45, 2);
@@ -1477,8 +1480,15 @@ export function addEventFX(ev) {
   }
   // --- frontier survival / bastion / versus events ---
   else if (ev.type === 'playerHit') {
-    if (ev.x != null) { burst(8, PAL.red, 140, 0.4); ring(26, 'rgba(224,72,72,0.9)', 0.4, 2); }
-    shake = Math.max(shake, 5);
+    // Hit FX at the spot for everyone, but only jolt the camera when it's MY
+    // operator taking the hit — a teammate's hit shouldn't shake your screen.
+    if (ev.x != null) { burst(ev.mine ? 6 : 4, PAL.red, 120, 0.35); ring(22, 'rgba(224,72,72,0.85)', 0.35, 2); }
+    if (ev.mine) {
+      shake = Math.max(shake, 2.2);   // just a tiny bit
+      punch = Math.max(punch, 0.55);  // faint zoom-kick reads as "that hurt"
+      // a brief, gentle red bleed from the screen edges — the non-shaky hurt cue
+      for (const edge of ['n', 's', 'e', 'w']) edgePulses.push({ edge, life: 0.34, max: 0.34, rgb: '210,40,40', peak: 0.55 });
+    }
   }
   else if (ev.type === 'crackerOut') {
     if (ev.x != null) {
@@ -6492,6 +6502,7 @@ export function renderViews(ctx, snap, charMap, views, t, dt) {
 // viewport's culling. (Hoisted out of the old render() body verbatim.)
 function advanceFrameFx(snap, dt) {
   shake = Math.max(0, shake - dt * 18);
+  punch = Math.max(0, punch - dt * 1.1); // settle the zoom-kick back over ~0.4s
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
     p.x += p.vx * dt; p.y += p.vy * dt;
@@ -6612,7 +6623,9 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
   ctx.save();
   ctx.translate(VW / 2, VH / 2);
   if (shake > 0) ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
-  ctx.scale(z, z);
+  // zoom-kick: heavy hits punch the camera in a hair, then it eases back out.
+  const pz = z * (1 + Math.min(0.05, punch * 0.05));
+  ctx.scale(pz, pz);
   ctx.translate(-camera.x, -camera.y);
 
   // visible tile range (per-viewport camera culling)
@@ -7721,7 +7734,7 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
   // (blood moons reuse the pulse in crimson via ep.rgb) ---
   for (const ep of edgePulses) {
     const k = Math.max(0, ep.life / ep.max);
-    const a = Math.max(0, k * (0.26 + 0.16 * Math.sin(t * 9)));
+    const a = Math.max(0, k * (0.26 + 0.16 * Math.sin(t * 9))) * (ep.peak ?? 1);
     const th = Math.min(VW, VH) * 0.18;
     const rgb = ep.rgb ?? '142,79,209';
     let eg;

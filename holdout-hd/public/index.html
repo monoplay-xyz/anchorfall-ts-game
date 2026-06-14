@@ -58,6 +58,11 @@
     .mpage { display: flex; flex-direction: column; align-items: center; gap: 13px; width: 100%; min-height: 0; }
     .mpage[hidden] { display: none; }
 
+    /* ---- per-player controller readout (Settings) ---- */
+    .ctrlreadout { display: flex; flex-direction: column; gap: 3px; font: 11px/1.5 ui-monospace, Menlo, monospace; color: #8fa0bc; letter-spacing: .5px; }
+    .ctrlreadout:empty { display: none; }
+    .ctrlreadout .crp { color: var(--relay); font-weight: 700; }
+
     /* ---- wave countdown banner (dusk / zone shrink / sudden death) ---- */
     #countdown { position: absolute; top: 15%; left: 50%; transform: translateX(-50%); padding: 8px 28px; font-size: 26px; font-weight: 800; letter-spacing: 5px; color: var(--amber); background: rgba(8,10,18,.78); border: 1px solid var(--panel-edge); pointer-events: none; white-space: nowrap; animation: cdblink .8s steps(2, jump-none) infinite; }
     #countdown.blood { color: #ff7a6a; text-shadow: 0 0 18px rgba(255,60,40,.55); }
@@ -246,6 +251,14 @@
           <button id="btnCtrlHud" class="ghost">Controls overlay: On</button>
           <button id="btnSplitscreen" class="ghost">Splitscreen: Dynamic</button>
           <button id="btnGameZoom" class="ghost">Game zoom: 100%</button>
+          <!-- Display: desktop-only display mode + always-on aspect-ratio letterbox.
+               Both cycle on click/FIRE and respond to LEFT/RIGHT (data-cycle). -->
+          <button id="btnDisplayMode" class="ghost" data-cycle="display" hidden>Display mode: Fullscreen</button>
+          <button id="btnAspect" class="ghost" data-cycle="aspect">Aspect ratio: Auto (fill)</button>
+          <!-- Controller prompts: shows the active pad's glyph in the world prompts.
+               Per-player readout below lists each connected controller. -->
+          <button id="btnGlyphStyle" class="ghost" data-cycle="glyph">Button prompts: Auto</button>
+          <div id="ctrlReadout" class="ctrlreadout"></div>
           <!-- volume rows: click/FIRE steps +10% (wraps), pad/keys LEFT-RIGHT nudge ±10% -->
           <button id="btnVolMusic" class="ghost" data-vol="music">Music &amp; ambience: 70%</button>
           <button id="btnVolVoice" class="ghost" data-vol="voice">Voice (EVA + dialogue): 100%</button>
