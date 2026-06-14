@@ -678,6 +678,16 @@ const PORTRAIT_CAST = {
   ranger:    { fem: true, skin: 2, hair: 'pony', hairCol: '#3B5A2E', expr: 'focus', prop: 'visor' },
   sentinel:  { fem: false, skin: 4, hair: 'crop', hairCol: '#2A3340', expr: 'stern', prop: 'visor', beard: 'chin' },
   tempest:   { fem: true, skin: 1, hair: 'asym', hairCol: '#C9A227', expr: 'spark', prop: 'ear' },
+  vandal: { fem: false, skin: 3, hair: 'mohawk', hairCol: '#7A2218', expr: 'wild', prop: 'ear' },
+  rampart: { fem: true, skin: 5, hair: 'buzz', hairCol: '#1C1610', expr: 'stern', prop: 'visor' },
+  cinder: { fem: false, skin: 1, hair: 'spikes', hairCol: '#C75A1E', expr: 'smirk', prop: 'goggles' },
+  vesper: { fem: true, skin: 3, hair: 'pony', hairCol: '#2A3A4E', expr: 'calm', prop: 'visor' },
+  howitz: { fem: false, skin: 4, hair: 'flattop', hairCol: '#1E1812', expr: 'stern', prop: 'ear' },
+  quill: { fem: true, skin: 1, hair: 'asym', hairCol: '#3B5A3E', expr: 'focus', prop: 'goggles' },
+  frost: { fem: true, skin: 1, hair: 'bun', hairCol: '#cfd8ff', expr: 'calm', prop: 'visor' },
+  hymn: { fem: true, skin: 3, hair: 'pony', hairCol: '#7a4a2b', expr: 'warm', prop: 'ear' },
+  mirage: { fem: false, skin: 4, hair: 'spikes', hairCol: '#2b2b2b', expr: 'smirk', prop: 'goggles' },
+  wisp: { fem: true, skin: 1, hair: 'pixie', hairCol: '#5ce0a0', expr: 'spark', prop: 'visor' },
 };
 
 // Hair back layers (drawn behind the head) for the long styles.

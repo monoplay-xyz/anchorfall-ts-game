@@ -202,5 +202,115 @@
     "evolution": "shock",
     "weapon": { "name": "Arc Coil", "kind": "spark", "damage": 1, "projSpeed": 11, "range": 6.5, "cooldown": 0.4, "count": 1, "spreadDeg": 0, "overWalls": false },
     "special": { "name": "Storm Nova", "kind": "weapon", "damage": 2, "projSpeed": 12, "range": 6, "cooldown": 4, "count": 8, "spreadDeg": 360, "overWalls": false, "pierce": 0, "aoeRadius": 0, "curve": 0 }
+  },
+  {
+    "id": "vandal",
+    "name": "Vandal",
+    "color": "#ff5252",
+    "speed": 4,
+    "starting": false,
+    "milestone": true,
+    "evolution": "burn",
+    "weapon": { "name": "Riot Cleavers", "kind": "blade", "damage": 1, "projSpeed": 12, "range": 2.1, "cooldown": 0.2, "count": 4, "spreadDeg": 44, "overWalls": false },
+    "special": { "name": "Crash Lunge", "kind": "dash", "cooldown": 3.5 }
+  },
+  {
+    "id": "rampart",
+    "name": "Rampart",
+    "color": "#5d7a92",
+    "speed": 2.7,
+    "starting": false,
+    "milestone": true,
+    "evolution": "blast",
+    "weapon": { "name": "Breaker Slugs", "kind": "slug", "damage": 2, "projSpeed": 9, "range": 5, "cooldown": 0.62, "count": 3, "spreadDeg": 20, "overWalls": false },
+    "special": { "name": "Hold Fast", "kind": "stim", "cooldown": 7 }
+  },
+  {
+    "id": "cinder",
+    "name": "Cinder",
+    "color": "#ff9e3d",
+    "speed": 3.3,
+    "starting": false,
+    "milestone": true,
+    "evolution": "multi",
+    "weapon": { "name": "Twin Tracers", "kind": "twin", "damage": 1, "projSpeed": 12, "range": 5.2, "cooldown": 0.3, "count": 2, "spreadDeg": 12, "overWalls": false },
+    "special": { "name": "Scorch Burst", "kind": "weapon", "damage": 3, "projSpeed": 11, "range": 6, "cooldown": 4, "count": 3, "spreadDeg": 30, "overWalls": false, "pierce": 1, "aoeRadius": 0.6, "curve": 0 }
+  },
+  {
+    "id": "vesper",
+    "name": "Vesper",
+    "color": "#9ccef0",
+    "speed": 3.5,
+    "starting": false,
+    "milestone": true,
+    "evolution": "shock",
+    "weapon": { "name": "Sable Marksman", "kind": "rail", "damage": 2, "projSpeed": 13, "range": 10, "cooldown": 0.62, "count": 1, "spreadDeg": 0, "overWalls": false },
+    "special": { "name": "Slip Vault", "kind": "dash", "cooldown": 4 }
+  },
+  {
+    "id": "howitz",
+    "name": "Howitzer",
+    "color": "#c98a3a",
+    "speed": 2.1,
+    "starting": false,
+    "milestone": true,
+    "evolution": "blast",
+    "weapon": { "name": "Drumfire Mortar", "kind": "mortar", "damage": 3, "projSpeed": 6, "range": 9.5, "cooldown": 1, "count": 1, "spreadDeg": 0, "overWalls": true },
+    "special": { "name": "Carpet Barrage", "kind": "weapon", "damage": 2, "projSpeed": 7, "range": 7, "cooldown": 7, "count": 9, "spreadDeg": 70, "overWalls": false, "pierce": 0, "aoeRadius": 1.1, "curve": 0 }
+  },
+  {
+    "id": "quill",
+    "name": "Quillshot",
+    "color": "#86d6a8",
+    "speed": 3.9,
+    "starting": false,
+    "milestone": true,
+    "evolution": "multi",
+    "weapon": { "name": "Longreach Bow", "kind": "needle", "damage": 1, "projSpeed": 14, "range": 9, "cooldown": 0.34, "count": 2, "spreadDeg": 6, "overWalls": false },
+    "special": { "name": "Skewer Volley", "kind": "weapon", "damage": 3, "projSpeed": 14, "range": 7, "cooldown": 5, "count": 5, "spreadDeg": 22, "overWalls": false, "pierce": 4, "aoeRadius": 0, "curve": 0 }
+  },
+  {
+    "id": "frost",
+    "name": "Glacier",
+    "color": "#8c9eff",
+    "speed": 2.3,
+    "starting": false,
+    "milestone": true,
+    "evolution": "blast",
+    "weapon": { "name": "Rime Charges", "kind": "rivet", "damage": 2, "projSpeed": 6, "range": 6.5, "cooldown": 0.82, "count": 1, "spreadDeg": 0, "overWalls": true },
+    "special": { "name": "Glacier Ring", "kind": "weapon", "damage": 2, "projSpeed": 7, "range": 4, "cooldown": 6, "count": 10, "spreadDeg": 360, "overWalls": false, "pierce": 1, "aoeRadius": 1.1, "curve": 0 }
+  },
+  {
+    "id": "hymn",
+    "name": "Cantor",
+    "color": "#f8bbd0",
+    "speed": 3.5,
+    "starting": false,
+    "milestone": true,
+    "evolution": "multi",
+    "weapon": { "name": "Chord Spray", "kind": "helix", "damage": 1, "projSpeed": 11, "range": 6.4, "cooldown": 0.5, "count": 3, "spreadDeg": 16, "overWalls": false },
+    "special": { "name": "Rally Hymn", "kind": "stim", "cooldown": 6 }
+  },
+  {
+    "id": "mirage",
+    "name": "Mirage",
+    "color": "#e57373",
+    "speed": 4.5,
+    "starting": false,
+    "milestone": true,
+    "evolution": "shock",
+    "weapon": { "name": "Heat Discs", "kind": "disc", "damage": 1, "projSpeed": 9, "range": 6, "cooldown": 0.38, "count": 2, "spreadDeg": 12, "overWalls": false },
+    "special": { "name": "Shimmer Step", "kind": "dash", "cooldown": 3.5 }
+  },
+  {
+    "id": "wisp",
+    "name": "Wisp",
+    "color": "#a5f0c8",
+    "speed": 4,
+    "starting": false,
+    "milestone": true,
+    "evolution": "multi",
+    "weapon": { "name": "Drone Fan", "kind": "needle", "damage": 1, "projSpeed": 12, "range": 6.5, "cooldown": 0.36, "count": 3, "spreadDeg": 30, "overWalls": false },
+    "special": { "name": "Dronestorm", "kind": "weapon", "damage": 2, "projSpeed": 9, "range": 6, "cooldown": 6, "count": 10, "spreadDeg": 360, "overWalls": false, "pierce": 1, "aoeRadius": 0.4, "curve": 0 }
   }
 ]

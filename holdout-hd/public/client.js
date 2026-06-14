@@ -1914,6 +1914,9 @@ class LocalSession {
     const timeS = this.game.elapsed ?? 0; // rankings clock — captured before the game drops
     const lvl = this.levels[this.levelIdx];
     const endlessNights = this.endless ? (this.game.cycle?.nightNo || 0) : 0; // survival metric
+    const runKills = this.game.kills || 0;                      // milestone: total kills
+    const runRescues = (this.game.rescued || []).length;        // milestone: total rescues
+    const playedOps = this.players.map(p => p.charId).filter(Boolean); // milestone: distinct operators
     this.game = null;
     this.paused = false;
     for (const p of this.players) { p.charId = null; p.cursor = 0; p.bot = null; }
@@ -1935,8 +1938,8 @@ class LocalSession {
       return;
     }
     if (cleared) {
-      // milestone progress: a cleared co-op mission counts toward operator unlocks
-      if (!demoMode) recordProgress({ missionCleared: true });
+      // milestone progress: a cleared co-op mission + run stats toward unlocks
+      if (!demoMode) recordProgress({ gamePlayed: true, missionCleared: true, strongholdClear: this.bastion, kills: runKills, rescues: runRescues, score, operators: playedOps });
       // rankings: one board entry per cleared level (server POST, or static-
       // build local bests). submitRun no-ops on demo runs and keyless defs.
       submitRun(lvl, this.players.map(p => p.name), this.players.length, score, timeS);
@@ -2014,8 +2017,8 @@ class LocalSession {
         const ekey = this.daily ? 'daily/' + this.daily.dateStr : (base ? 'endless/' + base.split('/')[1] : null);
         if (ekey) submitRun(lvl, this.players.map(p => p.name), this.players.length, nights * 100000 + Math.min(99999, score), timeS, { key: ekey });
       }
-      // milestone progress: best endless run + (for dailies) the day completed
-      if (!demoMode) recordProgress({ endlessNights: nights, dailyDate: this.daily ? this.daily.dateStr : undefined });
+      // milestone progress: best/total endless nights + (for dailies) the day + run stats
+      if (!demoMode) recordProgress({ gamePlayed: true, endlessNights: nights, dailyDate: this.daily ? this.daily.dateStr : undefined, kills: runKills, rescues: runRescues, score, operators: playedOps });
       playUi('victory');
       const dailyBack = () => { session = null; show('menu'); showMenuPage('pageMain'); refreshContinue(); };
       showMsg(this.daily ? `Daily Over — ${this.daily.label}` : 'Endless Over',
@@ -2024,6 +2027,8 @@ class LocalSession {
         this.daily ? 'Main Menu' : 'Level Select',
         this.daily ? dailyBack : () => { session = null; shPurpose = 'local'; show('menu'); showMenuPage('pageSh'); refreshContinue(); });
     } else {
+      // a lost co-op run still accrues games played / kills / score / operators
+      if (!demoMode) recordProgress({ gamePlayed: true, kills: runKills, rescues: runRescues, score, operators: playedOps });
       // story runs are untimed, so a story fail can only be a squad wipe
       const body = this.story
         ? 'The whole squad went down.\nNo one is lost on a failed run — try again.'
@@ -2066,6 +2071,14 @@ class LocalSession {
       submitRun(lvl, [name], this.players.length, kills, timeS);
     } else {
       body = 'The match is over.';
+    }
+    // milestone progress: CTF/BR wins (when a local seat is on the winning side) + games/kills
+    if (!demoMode) {
+      const myPids = this.focusPids?.() ?? new Set();
+      const ctfWin = this.mode === 'ctf' && winner != null && [...myPids].some(pid => pid % 2 === winner);
+      const brWin = this.mode === 'br' && winner != null && myPids.has(winner);
+      const myKills = (g?.players || []).reduce((s, p) => s + (myPids.has(p.pid) ? (p.kills || 0) : 0), 0);
+      recordProgress({ gamePlayed: true, ctfWin, brWin, kills: myKills, operators: this.players.map(p => p.charId).filter(Boolean) });
     }
     for (const p of this.players) { p.charId = null; p.cursor = 0; p.bot = null; }
     playUi('victory');
@@ -2669,30 +2682,54 @@ function shUnlockOf(def, n) { return def?.stronghold?.unlock ?? SH_UNLOCKS[n] ??
 // operator joins the co-op roster everywhere.
 const PROFILE_KEY = 'holdout-hd.profile';
 function loadProfile() {
-  try {
-    const p = JSON.parse(localStorage.getItem(PROFILE_KEY));
-    if (p && typeof p === 'object') return {
-      bestEndlessNights: Math.max(0, Math.floor(p.bestEndlessNights) || 0),
-      missionsCleared: Math.max(0, Math.floor(p.missionsCleared) || 0),
-      dailyDates: Array.isArray(p.dailyDates) ? p.dailyDates.slice(0, 400) : [],
-      unlocked: Array.isArray(p.unlocked) ? p.unlocked.filter(id => charMap[id]) : [],
-    };
-  } catch {}
-  return { bestEndlessNights: 0, missionsCleared: 0, dailyDates: [], unlocked: [] };
+  let p = {};
+  try { const j = JSON.parse(localStorage.getItem(PROFILE_KEY)); if (j && typeof j === 'object') p = j; } catch {}
+  const intOf = k => Math.max(0, Math.floor(p[k]) || 0);
+  const out = {
+    bestEndlessNights: intOf('bestEndlessNights'), missionsCleared: intOf('missionsCleared'),
+    strongholdClears: intOf('strongholdClears'), totalKills: intOf('totalKills'),
+    totalRescues: intOf('totalRescues'), bestRunScore: intOf('bestRunScore'),
+    gamesPlayed: intOf('gamesPlayed'), endlessNightsTotal: intOf('endlessNightsTotal'),
+    ctfWins: intOf('ctfWins'), brWins: intOf('brWins'),
+    dailyDates: Array.isArray(p.dailyDates) ? p.dailyDates.slice(0, 400) : [],
+    operatorsPlayed: Array.isArray(p.operatorsPlayed) ? p.operatorsPlayed.filter(id => charMap[id]) : [],
+    unlocked: Array.isArray(p.unlocked) ? p.unlocked.filter(id => charMap[id]) : [],
+  };
+  out.distinctOperators = out.operatorsPlayed.length; // derived, for the wisp milestone
+  return out;
 }
 function saveProfile(p) { try { localStorage.setItem(PROFILE_KEY, JSON.stringify(p)); } catch {} }
 const OPERATOR_UNLOCKS = [
   { id: 'ranger',   need: 8,  how: 'Survive 8 nights in one Endless run', val: p => p.bestEndlessNights },
   { id: 'sentinel', need: 3,  how: 'Complete Daily Challenges on 3 days', val: p => p.dailyDates.length },
   { id: 'tempest',  need: 12, how: 'Clear 12 missions (any mode)',        val: p => p.missionsCleared },
+  { id: 'vandal', need: 1500, how: 'Rack up 1500 total kills.', val: p => p.totalKills },
+  { id: 'rampart', need: 8, how: 'Clear 8 strongholds.', val: p => p.strongholdClears },
+  { id: 'cinder', need: 18000, how: 'Score 18000 in a single run.', val: p => p.bestRunScore },
+  { id: 'vesper', need: 40, how: 'Play 40 games.', val: p => p.gamesPlayed },
+  { id: 'howitz', need: 60, how: 'Survive 60 endless nights total.', val: p => p.endlessNightsTotal },
+  { id: 'quill', need: 18, how: 'Clear 18 missions in any mode.', val: p => p.missionsCleared },
+  { id: 'frost', need: 8, how: 'Win 8 Capture the Flag matches.', val: p => p.ctfWins },
+  { id: 'hymn', need: 60, how: 'Rescue 60 captives across the campaign.', val: p => p.totalRescues },
+  { id: 'mirage', need: 8, how: 'Win 8 Battle Royale matches.', val: p => p.brWins },
+  { id: 'wisp', need: 14, how: 'Play 14 distinct operators.', val: p => p.distinctOperators },
 ];
 function profileUnlocked() { return loadProfile().unlocked.filter(id => charMap[id]); }
 // Apply a finished run's progress; toast any operator it just earned.
 function recordProgress(up) {
   const p = loadProfile();
-  if (up.endlessNights != null) p.bestEndlessNights = Math.max(p.bestEndlessNights, up.endlessNights);
+  if (up.endlessNights != null) { p.bestEndlessNights = Math.max(p.bestEndlessNights, up.endlessNights); p.endlessNightsTotal += Math.max(0, up.endlessNights | 0); }
   if (up.dailyDate && !p.dailyDates.includes(up.dailyDate)) p.dailyDates.push(up.dailyDate);
   if (up.missionCleared) p.missionsCleared += 1;
+  if (up.strongholdClear) p.strongholdClears += 1;
+  if (up.kills) p.totalKills += Math.max(0, up.kills | 0);
+  if (up.rescues) p.totalRescues += Math.max(0, up.rescues | 0);
+  if (up.score != null) p.bestRunScore = Math.max(p.bestRunScore, up.score | 0);
+  if (up.gamePlayed) p.gamesPlayed += 1;
+  if (up.ctfWin) p.ctfWins += 1;
+  if (up.brWin) p.brWins += 1;
+  if (Array.isArray(up.operators)) for (const id of up.operators) if (charMap[id] && !p.operatorsPlayed.includes(id)) p.operatorsPlayed.push(id);
+  p.distinctOperators = p.operatorsPlayed.length;
   const newly = [];
   for (const u of OPERATOR_UNLOCKS) {
     if (!p.unlocked.includes(u.id) && u.val(p) >= u.need) { p.unlocked.push(u.id); newly.push(u); }
