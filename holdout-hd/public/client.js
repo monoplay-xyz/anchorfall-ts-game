@@ -26,6 +26,7 @@ const expeditions = levels.filter(l => !l.category && l.expedition && !l.mode &&
 const ctfLevels = levels.filter(l => l.category === 'ctf' || (!l.category && l.mode === 'ctf'));
 const brLevels = levels.filter(l => l.category === 'br' || (!l.category && l.mode === 'br'));
 const siegeLevels = levels.filter(l => l.category === 'siege' || (!l.category && l.mode === 'siege'));
+const familyLevels = levels.filter(l => l.category === 'family' || (!l.category && l.family));
 // Stronghold campaign (sim/server mode 'bastion'): sh01..sh25 ordered by
 // their stronghold.level number, filename order as the fallback.
 const bastionLevels = levels
@@ -1068,7 +1069,8 @@ function charStatus(id, snap) {
 }
 
 function updateHUD(snap) {
-  $('hScore').textContent = (snap.score ?? 0).toLocaleString();
+  // Family Mode shows the shared lives heart instead of a score
+  $('hScore').textContent = snap.family ? `\u{1F49A} ${snap.familyLives ?? 0}` : (snap.score ?? 0).toLocaleString();
   // untimed maps (story/bastion) count UP from elapsed and never tint red;
   // classic arcade countdowns are untouched
   const tl = Math.max(0, (snap.untimed ? snap.elapsed : snap.timeLeft) ?? 0);
@@ -1523,11 +1525,14 @@ class LocalSession {
     // Tutorial: a coached classic run on a one-map list (opts.tutorialDef), no
     // saves/rankings — just teaches move/fire/rescue/extract.
     this.tutorial = !!opts.tutorial;
-    this.expedition = !this.story && !this.mode && !this.bastion && !!opts.expedition;
+    // Family Mode: gentle co-op on the bright family maps (no saves/rankings)
+    this.family = !this.mode && !this.bastion && !this.story && !!opts.family;
+    this.expedition = !this.story && !this.mode && !this.bastion && !this.family && !!opts.expedition;
     this.levels = this.story ? storyLevels
       : this.mode ? (this.mode === 'ctf' ? ctfLevels : this.mode === 'br' ? brLevels : siegeLevels)
         : this.bastion ? bastionLevels
-          : this.expedition ? expeditions : campaign;
+          : this.family ? familyLevels
+            : this.expedition ? expeditions : campaign;
     this.levelIdx = this.story
       ? Math.max(0, Math.min((save?.chapter ?? 1) - 1, this.levels.length - 1))
       : (this.bastion || this.mode)
@@ -1983,6 +1988,18 @@ class LocalSession {
       return;
     }
     if (cleared) {
+      // Family Mode: a gentle clear — no rankings/milestones, just a cheery
+      // "great job" and on to the next bright map (or the menu after the last).
+      if (this.family) {
+        playUi('victory');
+        this.levelIdx++;
+        if (this.levelIdx >= this.levels.length) {
+          showMsg('All Done — Great Job! 🌟', 'You finished every family adventure!\nCome back and play again any time.', 'Main Menu', () => this.leave());
+        } else {
+          showMsg('Yay! 🌸', (resultText(res) || 'Lovely exploring!') + '\nReady for the next adventure?', 'Next Adventure', () => this.lobby(), 'Main Menu', () => this.leave());
+        }
+        return;
+      }
       // milestone progress: a cleared co-op mission + run stats toward unlocks
       if (!demoMode) recordProgress({ gamePlayed: true, missionCleared: true, strongholdClear: this.bastion, kills: runKills, rescues: runRescues, score, operators: playedOps });
       // rankings: one board entry per cleared level (server POST, or static-
@@ -3486,6 +3503,7 @@ function refreshContinue() {
   $('btnHostCtf').hidden = !ctfLevels.length;
   $('btnBr').hidden = !brLevels.length;
   $('btnSiege').hidden = !siegeLevels.length;
+  $('btnFamily').hidden = !familyLevels.length;
   $('btnHostBr').hidden = !brLevels.length;
   // visibility toggles and the browser need a live server (static builds
   // have no online play at all); the couch map cycler works everywhere
@@ -4022,6 +4040,13 @@ $('btnSiege').onclick = e => {
   if (!siegeLevels.length || session) return;
   // solo deploys vs bots; couch teammates can FIRE-join the lobby before deploy
   session = new LocalSession(null, { mode: 'siege' });
+  session.lobby();
+};
+$('btnFamily').onclick = e => {
+  e.currentTarget.blur();
+  if (!familyLevels.length || session) return;
+  // gentle co-op: 1-4 players FIRE-join the lobby, then off to the bright maps
+  session = new LocalSession(null, { family: true });
   session.lobby();
 };
 $('btnHost').onclick = e => {

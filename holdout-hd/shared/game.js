@@ -73,6 +73,12 @@ const TURRET_WEAPON = { kind: 'turret', damage: 1, projSpeed: 10, range: 6, coun
 const PLAYER_MAX_HP = 3;
 const SHIELD_MAX = 2;
 const HIT_INVULN = 1; // seconds of grace after a survivable hit
+// --- Family Mode (gentle, child-friendly co-op) -----------------------------
+const FAMILY_PLAYER_HP = 5;     // tankier than the usual 3 hearts
+const FAMILY_HIT_INVULN = 1.6;  // long mercy window between hits
+const FAMILY_RESPAWN = 4;       // seconds to pop back after going down
+const FAMILY_ENEMY_SPEED = 0.7; // monsters amble instead of charging
+const FAMILY_BASE_LIVES = 6;    // + 3 per player; runs out only into endless respawns
 const CORE_R = 18; // px, base-core contact radius (gnawed like a structure)
 const CRACKER_RANGE = 4; // tiles, lob distance in the facing direction
 const CRACKER_FLIGHT = 0.5; // seconds airborne (overWalls arc)
@@ -576,6 +582,9 @@ export function createGame(def, party, charMap, roster) {
   // across the 25-level arc) raises every enemy's hp pool, spawn-time only.
   const hpMult = (def.stronghold && def.stronghold.hpMult) || 1;
   if (hpMult > 1) for (const e of lvl.enemies) scaleEnemyHp(hpMult, e);
+  // Family Mode: gentle monsters — they amble rather than charge (damage is
+  // softened in damagePlayer, and going down just respawns; see downPlayer).
+  if (def.family) for (const e of lvl.enemies) { e.speed = (e.speed || 1) * FAMILY_ENEMY_SPEED; if (e.aggro) e.aggro *= 0.8; }
   // Alive-world bindings, by home tile (row-major spawn position):
   // def.patrols [{at:[x,y], points:[[x,y],...]}] gives a sleeping enemy a
   // waypoint loop; def.groups [[[x,y],...], ...] stamps camp group ids.
@@ -604,8 +613,8 @@ export function createGame(def, party, charMap, roster) {
   // slot. Arcade (classic) players stay 1-hit and gain no fields at all.
   if (!arcade) {
     for (const p of players) {
-      p.hp = PLAYER_MAX_HP;
-      p.maxHp = PLAYER_MAX_HP;
+      p.hp = def.family ? FAMILY_PLAYER_HP : PLAYER_MAX_HP;
+      p.maxHp = p.hp;
       p.shield = 0;
       p.item = null;
       // on-the-spot leveling: per-mission seat xp, levels 1..4
@@ -629,7 +638,7 @@ export function createGame(def, party, charMap, roster) {
   // never cue lowTime — g.elapsed keeps driving waves/gate.after/day-night.
   // def.timed:true opts a future level back into a countdown. CTF and BR keep
   // their match timers; classic levels keep their arcade countdowns.
-  const untimed = !pvp && !def.timed && (!!def.story || def.mode === 'bastion' || siege || !!def.untimed);
+  const untimed = !pvp && !def.timed && (!!def.story || def.mode === 'bastion' || siege || !!def.family || !!def.untimed);
   // First 'E' tile center, used by the gateOpen event.
   let exitX = lvl.w * TILE / 2, exitY = lvl.h * TILE / 2;
   outer: for (let y = 0; y < lvl.h; y++) {
@@ -699,6 +708,9 @@ export function createGame(def, party, charMap, roster) {
     siege: siegeState,
     siegeTowers: siegeTowers,
     deathCountByTeam: siege ? [0, 0] : null,
+    // Family Mode: gentle co-op — generous shared lives, respawn-on-cooldown.
+    family: !!def.family,
+    familyLives: def.family ? FAMILY_BASE_LIVES + 3 * players.length : null,
     ship: null, // the landed Anchorcraft (early-extraction reward), if any
     hpMult,
     // alive world: weather/ambience pass through to snapshots for render/audio
@@ -1728,6 +1740,18 @@ function downPlayer(g, p) {
     g.events.push({ type: 'down', x: p.x, y: p.y });
     return;
   }
+  // Family Mode: gentle — you KEEP your operative and pop back at a spawn after
+  // a short cooldown; the shared life counter ticks down (floors at 0) so it
+  // never becomes a hard game-over. XP/level persist.
+  if (g.family) {
+    if (g.familyLives > 0) g.familyLives--;
+    p.state = 'down';
+    p.respawn = FAMILY_RESPAWN;
+    p.dashT = 0;
+    p.stimT = 0;
+    g.events.push({ type: 'down', x: p.x, y: p.y });
+    return;
+  }
   g.captives.push({ id: 'c' + g.nextCaptiveId++, charId: p.charId, x: p.x, y: p.y, owner: null, fromPlayer: true });
   for (const c of g.captives) if (c.owner === p.pid) c.owner = null;
   g.events.push({ type: 'down', x: p.x, y: p.y });
@@ -1744,12 +1768,13 @@ function downPlayer(g, p) {
 function damagePlayer(g, p, dmg = 1) {
   if (p.state !== 'active' || p.invuln > 0) return;
   if (g.arcade || p.maxHp === undefined) { downPlayer(g, p); return; }
+  if (g.family) dmg = 1; // toddler mode: every bump is a single gentle tick, never a burst
   for (let i = 0; i < dmg; i++) {
     if (p.shield > 0) p.shield--;
     else p.hp--;
   }
   if (p.hp <= 0) { downPlayer(g, p); return; }
-  p.invuln = Math.max(p.invuln, HIT_INVULN);
+  p.invuln = Math.max(p.invuln, g.family ? FAMILY_HIT_INVULN : HIT_INVULN);
   g.events.push({ type: 'playerHit', pid: p.pid, x: p.x, y: p.y, hp: p.hp, shield: p.shield });
 }
 
@@ -4001,12 +4026,14 @@ export function step(g, inputs, dt) {
         // CTF: redeploy the same operative on the team stand's spawn ring
         // (the seat's deterministic slot). No pick screen, no roster
         // consumption — pvp never touches rosters.
-        if (g.mode === 'ctf' || g.siege) {
-          const s = g.siege ? siegeSpawnSpot(g, p) : ctfStandSpot(g, p);
+        if (g.mode === 'ctf' || g.siege || g.family) {
+          const s = g.siege ? siegeSpawnSpot(g, p)
+            : g.family ? (g.spawns[p.pid % g.spawns.length] || g.spawns[0] || { x: TILE * 2, y: TILE * 2 })
+              : ctfStandSpot(g, p);
           p.x = s.x;
           p.y = s.y;
           p.fx = 0; p.fy = -1; p.cool = 0;
-          p.invuln = 2.5;
+          p.invuln = g.family ? 3 : 2.5;
           if (p.maxHp !== undefined) { p.hp = p.maxHp; p.shield = 0; }
           p.state = 'active';
           g.events.push({ type: 'spawn', x: p.x, y: p.y });
@@ -5527,6 +5554,8 @@ export function snapshot(g, full = true) {
       lanes: g.siege.lanes.map(l => l.waypoints.map(w => [w.x, w.y])),
       open: [siegeCoreOpen(g, 0), siegeCoreOpen(g, 1)],
     } } : {}),
+    // Family Mode: the bright/cheerful render + the shared-lives HUD read these
+    ...(g.family ? { family: true, familyLives: g.familyLives } : {}),
     ...(g.ship ? { ship: { x: g.ship.x, y: g.ship.y, landed: true } } : {}),
     // alive world: weather/ambience for the render FX and audio beds; the
     // toxic-air deadline (live flag included) for the EVA banner

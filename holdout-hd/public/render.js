@@ -21,6 +21,7 @@ let coreAlarmT = 0; // base-core alarm glow, armed by 'coreHit'/'coreDown'
 let shake = 0;
 let punch = 0; // camera zoom-kick on heavy impacts (render-only, networked-safe)
 let darkWorld = false; // set per-frame from snap.dark (story night missions)
+let familyMode = false; // set per-frame from snap.family: bright child-friendly storybook grade
 const tex = {};
 const imageCache = {};
 
@@ -49,6 +50,21 @@ const PAL = {
   blood: '#7A2230',
   teal: '#36A08A',
   dteal: '#174A4A',
+};
+
+// --- Family Mode palette: a sunny storybook day (only used when snap.family).
+// Soft sky-blue/warm sky fill, a gentle warm sun wash that lights the baked
+// grass/sand/water/tree textures brightly, and cheerful flower bloom colors.
+const FAM = {
+  sky: '#BFE3FF',          // soft daylight sky fill (replaces voidNight)
+  sunWash: '255,244,214',  // warm additive sunlight over the world
+  skyLift: '210,236,255',  // cool ambient skylight lift
+  vignette: '255,236,190', // very light warm sun vignette (not a dark one)
+  flowers: ['#FF9EC4', '#FFE08A', '#FFFFFF', '#C9A6F0'], // pink, yellow, white, lavender
+  flowerCore: '#FFD46A',   // golden bloom center
+  monPastel: '#FFE3F0',    // pastel tint mixed into family monsters
+  monBlush: '#FFC2DA',     // soft cheek/round-edge blush
+  monEye: '#3A4A6B',       // friendly dark-but-soft eye
 };
 
 // Anchor Siege (MOBA) team palette — team 0 = blue/cyan, team 1 = red/orange.
@@ -2153,6 +2169,80 @@ function drawEye(ctx, x, y, r, alpha = 1) {
   ctx.beginPath();
   ctx.arc(x, y, darkWorld ? r * 1.25 : r, 0, Math.PI * 2);
   ctx.fill();
+  ctx.restore();
+}
+
+// --- Family Mode monster softeners (visual only; gated by the caller) ---
+// A round pastel cushion drawn UNDER the normal monster art: it rounds the
+// spiky silhouette and washes the whole shape toward a cuddly pastel.
+function drawFamilyMonsterBase(ctx, e, t) {
+  const r = KIND_R[e.kind] || 13; // caller already applies the ~1.3x family scale
+  const bob = Math.sin(t * 2 + e.id * 1.3) * 1.2; // gentle idle breathing
+  ctx.save();
+  // soft outer glow halo
+  const hg = ctx.createRadialGradient(e.x, e.y + bob, r * 0.3, e.x, e.y + bob, r * 1.55);
+  hg.addColorStop(0, 'rgba(255,255,255,0.30)');
+  hg.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = hg;
+  ctx.beginPath();
+  ctx.arc(e.x, e.y + bob, r * 1.55, 0, Math.PI * 2);
+  ctx.fill();
+  // rounded pastel cushion body
+  ctx.fillStyle = FAM.monPastel;
+  ctx.beginPath();
+  ctx.ellipse(e.x, e.y + bob, r * 1.12, r * 1.18, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // soft blush belly
+  ctx.fillStyle = FAM.monBlush;
+  ctx.beginPath();
+  ctx.ellipse(e.x, e.y + bob + r * 0.35, r * 0.62, r * 0.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+// Big friendly eyes + a little smile drawn OVER the body, facing the enemy's
+// heading so the cuddly face leads its movement.
+function drawFamilyMonsterFace(ctx, e, t) {
+  const r = KIND_R[e.kind] || 13; // caller already applies the ~1.3x family scale
+  const bob = Math.sin(t * 2 + e.id * 1.3) * 1.2;
+  const fx = e.fx || 1, fy = e.fy || 0;
+  const fl = Math.hypot(fx, fy) || 1;
+  const dx = fx / fl, dy = fy / fl;
+  const cx = e.x + dx * r * 0.35;
+  const cy = e.y + bob + dy * r * 0.35 - r * 0.15;
+  // eye spacing perpendicular to heading
+  const px = -dy, py = dx;
+  const sp = r * 0.42, er = Math.max(2.4, r * 0.32);
+  const blink = (fract(t * 0.5 + e.id * 0.21) > 0.94) ? 0.18 : 1; // occasional blink
+  ctx.save();
+  for (const s of [-1, 1]) {
+    const ex = cx + px * sp * s, ey = cy + py * sp * s;
+    // white of the eye
+    ctx.fillStyle = '#FFFFFF';
+    ctx.beginPath();
+    ctx.ellipse(ex, ey, er, er * blink, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // big soft pupil looking forward
+    ctx.fillStyle = FAM.monEye;
+    ctx.beginPath();
+    ctx.ellipse(ex + dx * er * 0.35, ey + dy * er * 0.35, er * 0.55, er * 0.55 * blink, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // sparkle
+    if (blink > 0.5) {
+      ctx.fillStyle = 'rgba(255,255,255,0.95)';
+      ctx.beginPath();
+      ctx.arc(ex - er * 0.2, ey - er * 0.25, er * 0.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  // little smile below the eyes
+  ctx.strokeStyle = 'rgba(90,60,80,0.7)';
+  ctx.lineWidth = Math.max(1, r * 0.1);
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  const mx = cx + dx * r * 0.5, my = cy + dy * r * 0.5 + r * 0.55;
+  ctx.arc(mx, my, r * 0.28, 0.15 * Math.PI, 0.85 * Math.PI);
+  ctx.stroke();
   ctx.restore();
 }
 
@@ -6918,12 +7008,16 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
   const lights = []; // per-frame light pools (campfires, LYTH, pylons...)
   // night grade: story dark missions are full night; bastion maps breathe
   // through a smooth dusk/dawn tint driven by the cycle clock (last 6s).
+  familyMode = snap.family === true; // bright child-friendly storybook grade
   let nightK = snap.dark ? 1 : 0;
   if (cycle) {
     if (cycle.phase === 'night') nightK = Math.max(nightK, Math.min(1, (cycle.t ?? 0) / 6));
     else nightK = Math.max(nightK, 1 - Math.min(1, (cycle.t ?? 1e9) / 6));
   }
-  const bloodK = cycle?.bloodMoon && cycle.phase === 'night' ? nightK : 0;
+  let bloodK = cycle?.bloodMoon && cycle.phase === 'night' ? nightK : 0;
+  // Family mode forces a sunny day regardless of the cycle: no night, no
+  // blood moon, no dark grade — every gate below reads day.
+  if (familyMode) { nightK = 0; bloodK = 0; }
   darkWorld = nightK > 0.55; // full night = the existing dark treatment
 
   // viewport camera: sized to this cell, following this cell's seats
@@ -6934,7 +7028,8 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
   computeCamera(camera, snap, opts.camFocus, dt);
   const z = camera.z;
 
-  ctx.fillStyle = PAL.voidNight;
+  // Family mode trades the near-black void backdrop for a soft daylight sky.
+  ctx.fillStyle = familyMode ? FAM.sky : PAL.voidNight;
   ctx.fillRect(0, 0, VW, VH);
   ctx.save();
   ctx.translate(VW / 2, VH / 2);
@@ -7071,6 +7166,48 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
           ctx.ellipse(px + TILE / 2, py + TILE / 2, 14, 9, 0, 0, Math.PI * 2);
           ctx.fill();
           lights.push({ x: px + TILE / 2, y: py + TILE / 2, r: 40, rgb: '255,217,138', a: 0.06 });
+        }
+      }
+    }
+  }
+
+  // --- Family Mode: cheerful flowers scattered across grass tiles. World
+  // space, inside the camera transform, after terrain and under entities.
+  // Positions/colors derive from a hash of (x,y) so blooms never shimmer
+  // frame to frame. Same cull range as the terrain pass. ---
+  if (familyMode) {
+    for (let y = ty0; y <= ty1; y++) {
+      for (let x = tx0; x <= tx1; x++) {
+        const c = snap.grid[y][x];
+        if (c !== '.' && c !== ',') continue; // grass / forest floor only
+        // modest density: a few blooms per few tiles, deterministic per tile
+        const seed = x * 73856.093 + y * 19349.663;
+        const n = flick(seed) < 0.55 ? (flick(seed + 4.1) < 0.35 ? 2 : 1) : 0;
+        for (let i = 0; i < n; i++) {
+          const hx = flick(seed + i * 7.31 + 1.7);
+          const hy = flick(seed + i * 11.9 + 3.3);
+          const fx = x * TILE + 4 + hx * (TILE - 8);
+          const fy = y * TILE + 4 + hy * (TILE - 8);
+          const col = FAM.flowers[Math.floor(flick(seed + i * 5.7 + 9.2) * FAM.flowers.length) % FAM.flowers.length];
+          const petals = flick(seed + i * 3.3 + 2.2) < 0.5 ? 4 : 5;
+          const r = 1.9 + flick(seed + i * 2.1 + 6.6) * 1.0; // little blooms
+          const rot = flick(seed + i * 8.8 + 0.4) * Math.PI * 2;
+          // soft green stem dot under the bloom
+          ctx.fillStyle = 'rgba(96,168,86,0.55)';
+          ctx.fillRect(fx - 0.6, fy, 1.2, 2.6);
+          // petals
+          ctx.fillStyle = col;
+          for (let p = 0; p < petals; p++) {
+            const ang = rot + (p / petals) * Math.PI * 2;
+            ctx.beginPath();
+            ctx.ellipse(fx + Math.cos(ang) * r, fy + Math.sin(ang) * r, r * 0.78, r * 0.52, ang, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          // golden center
+          ctx.fillStyle = FAM.flowerCore;
+          ctx.beginPath();
+          ctx.arc(fx, fy, r * 0.55, 0, Math.PI * 2);
+          ctx.fill();
         }
       }
     }
@@ -7312,7 +7449,21 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
       ctx.scale(1.22, 1.22);
       ctx.translate(-e.x, -e.y);
     }
+    // Family Mode: cuddly monsters — soft pastel halo under a slightly
+    // LARGER (~1.3x), gentler-toned body. Visual only: scale is applied to
+    // the draw transform, never to e.x/e.y or any hitbox. ---
+    if (familyMode) {
+      // scale centered on the enemy center: e.x/e.y map to themselves so the
+      // cushion, body and face all stay registered while reading ~1.3x bigger
+      ctx.translate(e.x, e.y);
+      ctx.scale(1.3, 1.3);
+      ctx.translate(-e.x, -e.y);
+      drawFamilyMonsterBase(ctx, e, t); // soft pastel cushion UNDER the art
+      // pastel-soften the baked/vector silhouette so it reads friendly
+      ctx.filter = (e.returning ? 'saturate(0.4) brightness(0.9) ' : '') + 'saturate(0.7) brightness(1.18)';
+    }
     drawEnemy(ctx, e, t, dt);
+    if (familyMode) { ctx.filter = 'none'; drawFamilyMonsterFace(ctx, e, t); } // big cute eyes + smile on top
     ctx.restore();
     if (e.mutation) drawMutation(ctx, e, t, lights);
     if (e.hurt > 0) {
@@ -7424,11 +7575,14 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
     if ((p.shield ?? 0) > 0) drawShieldBubble(ctx, p.x, p.y + yOff, p.shield, t);
     // ctf: names read in team colors; everywhere else, anchor white
     ctx.fillStyle = flags.length && p.team != null
-      ? TEAM_COL[p.team % 2] : 'rgba(223,243,255,0.85)';
+      ? TEAM_COL[p.team % 2] : (familyMode ? '#FFFFFF' : 'rgba(223,243,255,0.85)');
     ctx.font = 'bold 10px monospace';
     ctx.textAlign = 'center';
     const label = p.name.toUpperCase();
+    // bright daylight washes light text out: give names a soft dark outline
+    if (familyMode) { ctx.save(); ctx.shadowColor = 'rgba(0,0,0,0.65)'; ctx.shadowBlur = 3; }
     ctx.fillText(label, p.x, p.y + yOff - 26);
+    if (familyMode) ctx.restore();
     // mission level pips beside the name (one gold diamond per level-up)
     if ((p.level ?? 1) > 1) {
       const nw = ctx.measureText(label).width;
@@ -8058,8 +8212,17 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
   // additive sun wash plus a cool skylight lift over the whole frame.
   // Night and blood moon keep their full grade untouched; the dusk/dawn
   // ramp (nightK) blends day out smoothly over the cycle's last 6s. ---
-  const dayK = cycle ? 1 - nightK : 0;
-  if (dayK > 0.01) {
+  // Family mode forces a sunny day wash regardless of any cycle clock.
+  const dayK = familyMode ? 1 : (cycle ? 1 - nightK : 0);
+  if (familyMode) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = `rgba(${FAM.sunWash},0.16)`; // bright warm sunlight
+    ctx.fillRect(0, 0, VW, VH);
+    ctx.fillStyle = `rgba(${FAM.skyLift},0.10)`; // cheerful sky lift
+    ctx.fillRect(0, 0, VW, VH);
+    ctx.restore();
+  } else if (dayK > 0.01) {
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     ctx.fillStyle = `rgba(255,209,130,${0.13 * dayK})`; // warm sun tone
@@ -8073,12 +8236,21 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
   drawWeather(ctx, VW, VH, snap.weather, t);
 
   // --- vignette (screen space, Void Night; deeper on dark missions, pulled
-  // far back under the bastion's daylight) ---
-  const vg = ctx.createRadialGradient(VW / 2, VH / 2, VH * (darkWorld ? 0.24 : 0.32 + 0.18 * dayK), VW / 2, VH / 2, VH * 0.85);
-  vg.addColorStop(0, 'rgba(11,10,20,0)');
-  vg.addColorStop(1, `rgba(11,10,20,${darkWorld ? 0.8 : 0.62 - 0.38 * dayK})`);
-  ctx.fillStyle = vg;
-  ctx.fillRect(0, 0, VW, VH);
+  // far back under the bastion's daylight). Family mode swaps the dark void
+  // vignette for a barely-there warm sun glow at the edges. ---
+  if (familyMode) {
+    const vg = ctx.createRadialGradient(VW / 2, VH / 2, VH * 0.55, VW / 2, VH / 2, VH * 0.95);
+    vg.addColorStop(0, `rgba(${FAM.vignette},0)`);
+    vg.addColorStop(1, `rgba(${FAM.vignette},0.10)`);
+    ctx.fillStyle = vg;
+    ctx.fillRect(0, 0, VW, VH);
+  } else {
+    const vg = ctx.createRadialGradient(VW / 2, VH / 2, VH * (darkWorld ? 0.24 : 0.32 + 0.18 * dayK), VW / 2, VH / 2, VH * 0.85);
+    vg.addColorStop(0, 'rgba(11,10,20,0)');
+    vg.addColorStop(1, `rgba(11,10,20,${darkWorld ? 0.8 : 0.62 - 0.38 * dayK})`);
+    ctx.fillStyle = vg;
+    ctx.fillRect(0, 0, VW, VH);
+  }
 
   // --- bastion sky: the moon climbs as night takes hold ---
   if (cycle && nightK > 0.15) drawMoonGlyph(ctx, VW, nightK, bloodK > 0, t);
