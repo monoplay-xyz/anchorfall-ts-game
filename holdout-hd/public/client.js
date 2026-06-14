@@ -225,9 +225,15 @@ function inferPadType(id) {
   if (/playstation|sony|wireless controller.*054c|054c/.test(s)) return 'ps4';
   // Nintendo Switch / Pro Controller / Joy-Con
   if (/switch|joy-?con|pro controller|nintendo|057e/.test(s)) return 'switch';
-  // Xbox / XInput
+  // Xbox / XInput (real Xbox pads report "xbox" in the name, so they match here
+  // before the generic "wireless controller" fallback below)
   if (/xbox|xinput|x-?box|microsoft|045e/.test(s)) return 'xbox';
+  // a bare "wireless controller" (no vendor) is almost always a Sony pad
+  if (/wireless controller/.test(s)) return 'ps4';
   return 'generic';
+  // NOTE: on some Linux/Batocera setups a PlayStation pad is wrapped as an
+  // XInput device with no Sony markers and reads as Xbox — set Settings ->
+  // "Button prompts: PlayStation" to override the glyphs in that case.
 }
 
 // The native bridge's typed controller list, or a browser-inferred equivalent.
@@ -1601,10 +1607,10 @@ class LocalSession {
           : this.mode === 'br' ? 'Battle Royale · last operative standing · 2-4 players'
             : this.bastion ? 'Siege survival · hold through every night · 1-4 players · clears unlock the next stronghold and new operatives'
               : this.expedition ? 'One huge map. No autosave — bring everyone home.' : 'Local campaign · progress autosaves',
-      hint: 'Press FIRE to join: gamepad (A) · keyboard WASD+Space · keyboard Arrows+Enter — up to 4 players. Move your cursor with LEFT/RIGHT, FIRE to lock in. '
-        + 'In the field — SPECIAL: F / RShift / B·RB · ACT: E / Slash / X · ITEM: Q / . / Y. '
+      hint: 'FIRE (A / Space / Enter) joins — up to 4 players. Move with the stick or D-pad, FIRE to lock in your operator. '
+        + 'Once everyone has picked, FIRE again — or START — to DEPLOY. SPECIAL (B / F / RShift) backs out to the menu. '
         + (ctf ? 'Blue seats are Team A, red seats Team B — odd joins vs even joins.'
-          : 'Hold ACT on a build site to construct — LYTH shards drop from fallen Entropy.'),
+          : 'Hold ACT (X / E) on a build site to construct — LYTH shards drop from fallen Entropy.'),
       players: this.players.map(p => ({
         name: p.name, charId: p.charId, isHost: p.pid === 0, me: false,
         badge: 'P' + (p.pid + 1), color: colorOf(p), team: this.teamOf(p),
@@ -1667,13 +1673,16 @@ class LocalSession {
       } else p.missingT = 0;
     }
     for (const [dev, st] of Object.entries(polled)) {
+      // SPECIAL / B (or Esc) anywhere in the lobby backs out to the menu
+      if (st.specialJust) { st.specialJust = false; return this.leave(); }
       const p = this.deviceOf(dev);
       if (!p) {
         if (st.fireJust) this.join(dev);
         continue;
       }
+      // START still deploys when everyone's ready; an un-picked seat START leaves
       if (st.startJust) {
-        if (p.pid === 0 && this.canStart()) return this.start();
+        if (this.canStart()) return this.start();
         if (!p.charId) { this.unjoin(p); continue; }
       }
       const n = this.roster.length;
@@ -1683,7 +1692,11 @@ class LocalSession {
         if (st.upJust) { p.cursor = mod(p.cursor - 5, n); moved = true; }
         if (st.downJust) { p.cursor = mod(p.cursor + 5, n); moved = true; }
       }
-      if (st.fireJust) this.pick(p, p.charId ?? this.roster[p.cursor]);
+      if (st.fireJust) {
+        // FIRE/A locks in your operator; once everyone's picked, FIRE/A DEPLOYS
+        if (p.charId && this.canStart()) return this.start();
+        this.pick(p, p.charId ?? this.roster[p.cursor]);
+      }
     }
     if (moved) this.renderLobby();
   }
@@ -2619,6 +2632,8 @@ class NetSession {
     }
     let moved = false;
     for (const [dev, st] of Object.entries(polled)) {
+      // SPECIAL / B (or Esc) leaves the room back to the menu
+      if (st.specialJust) { st.specialJust = false; return this.leave(); }
       const pid = this.seats.get(dev);
       if (pid == null) {
         if (st.fireJust) this.claimSeat(dev);
@@ -2640,7 +2655,9 @@ class NetSession {
         if (st.downJust) { this.cursors[dev] = mod((this.cursors[dev] ?? 0) + 5, n); moved = true; }
       }
       if (st.fireJust) {
-        // FIRE locks the cursor pick, or unlocks the current one (server toggles)
+        // host: once everyone's picked, FIRE/A DEPLOYS (the Deploy button is live)
+        if (pid === this.myPid && picked && !$('btnStart').disabled) { this.start(); continue; }
+        // otherwise FIRE locks the cursor pick, or unlocks the current one
         const id = picked ?? m.roster[this.cursors[dev] ?? 0];
         if (id) this.ws.send(JSON.stringify({ t: 'select', charId: id, pid }));
       }
