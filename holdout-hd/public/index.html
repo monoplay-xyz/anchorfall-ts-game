@@ -98,6 +98,10 @@
     .opwpn { font-size: 11px; color: #8fa0bc; margin-top: 1px; }
     .opstat { font-size: 11px; color: #c9b06a; margin-top: 2px; }
     .opstat.on { color: #5fd2b4; }
+    /* account forms */
+    .acctbox { display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: 340px; align-items: stretch; }
+    .acctinput { padding: 9px 12px; font: 14px ui-monospace, Menlo, monospace; background: rgba(8,12,22,.85); border: 1px solid var(--panel-edge); border-radius: 4px; color: #eaf6ff; }
+    .acctinput:focus { outline: none; border-color: var(--relay); }
     button.shcard { width: 158px; padding: 7px 9px 8px; text-align: left; background: rgba(255,255,255,.05); color: #cfd8e8; clip-path: none; border: 1px solid rgba(54,160,138,.3); border-radius: 5px; display: flex; flex-direction: column; gap: 3px; font-weight: 500; letter-spacing: 0; font-size: 11px; }
     button.shcard .shtop { display: flex; justify-content: space-between; align-items: baseline; }
     button.shcard .shno { color: var(--relay); font-weight: 800; font-size: 12px; }
@@ -198,6 +202,8 @@
           <button id="btnRankings">Rankings</button>
           <!-- operator gallery + milestone unlock progress -->
           <button id="btnOperators">Operators</button>
+          <!-- account: sync operators + progress across devices -->
+          <button id="btnAccount" hidden>Account</button>
           <button id="btnSettings">Settings</button>
           <!-- interactive coached first mission for new players -->
           <button id="btnTutorial" class="ghost">How to Play</button>
@@ -329,6 +335,25 @@
           <p class="tag">top runs &mdash; points first, completion time breaks ties</p>
           <div id="rankGroups"></div>
           <p class="help" id="rankNote" hidden>&nbsp;</p>
+          <button class="ghost mback" data-back="pageMain">Back</button>
+        </div>
+
+        <!-- ACCOUNT: register / sign in, cloud-sync operators + progress -->
+        <div class="mpage" id="pageAccount" hidden>
+          <h2>Account</h2>
+          <p class="tag">sign in to sync your operators &amp; progress across devices</p>
+          <div id="acctForms" class="acctbox">
+            <input id="acctName" class="acctinput" placeholder="username — 3-16: letters, numbers, _" autocomplete="username" maxlength="16">
+            <input id="acctPass" class="acctinput" type="password" placeholder="password — 8+ characters" autocomplete="current-password" maxlength="200">
+            <button id="btnRegister">Create Account</button>
+            <button id="btnLogin">Sign In</button>
+          </div>
+          <div id="acctSignedIn" class="acctbox" hidden>
+            <p id="acctWho"></p>
+            <button id="btnSyncNow" class="ghost">Sync Now</button>
+            <button id="btnLogout" class="ghost">Sign Out</button>
+          </div>
+          <p class="help" id="acctMsg">&nbsp;</p>
           <button class="ghost mback" data-back="pageMain">Back</button>
         </div>
 

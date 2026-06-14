@@ -2735,6 +2735,7 @@ function recordProgress(up) {
     if (!p.unlocked.includes(u.id) && u.val(p) >= u.need) { p.unlocked.push(u.id); newly.push(u); }
   }
   saveProfile(p);
+  pushCloudProfile(); // sync to the account if signed in (debounced, reads the saved profile)
   if (newly.length) playUi('victory');
   newly.forEach((u, i) => {
     const ch = charMap[u.id];
@@ -3196,7 +3197,7 @@ const MENU_PARENT = {
   pageSingle: 'pageMain', pageVersus: 'pageMain', pageOnline: 'pageMain',
   pageSettings: 'pageMain', pageRemap: 'pageSettings', pageSh: 'pageSingle',
   pageRank: 'pageMain', pageRankBoard: 'pageRank', pageBrowse: 'pageOnline',
-  pageOperators: 'pageMain',
+  pageOperators: 'pageMain', pageAccount: 'pageMain',
 };
 let menuPageId = 'pageMain';
 let shPurpose = 'local'; // why the level select is open: 'local' | 'host'
@@ -3564,6 +3565,82 @@ for (const id of ['btnCtfMap', 'btnCtfMapV']) $(id).onclick = e => {
 ctfMapSync();
 $('btnRankings').onclick = e => { e.currentTarget.blur(); showMenuPage('pageRank'); };
 $('btnOperators').onclick = e => { e.currentTarget.blur(); showMenuPage('pageOperators'); };
+
+// --- Account: register / sign in, cloud-sync the milestone profile -----------
+let authUser = null;
+function acctMsg(t, err) { const e = $('acctMsg'); if (e) { e.textContent = t || ' '; e.style.color = err ? '#ff7a6a' : '#5fd2b4'; } }
+function paintAccount() {
+  if (!$('pageAccount')) return;
+  $('acctForms').hidden = !!authUser;
+  $('acctSignedIn').hidden = !authUser;
+  if (authUser) $('acctWho').textContent = `Signed in as ${authUser.name}`;
+}
+// Merge two profiles: best of each stat, union of the id/date arrays — so logging
+// in on a new device keeps both local and cloud progress.
+function mergeProfiles(a, b) {
+  const out = { ...a };
+  for (const k of ['bestEndlessNights', 'missionsCleared', 'strongholdClears', 'totalKills', 'totalRescues', 'bestRunScore', 'gamesPlayed', 'endlessNightsTotal', 'ctfWins', 'brWins'])
+    out[k] = Math.max(a[k] || 0, b[k] || 0);
+  out.dailyDates = [...new Set([...(a.dailyDates || []), ...(b.dailyDates || [])])];
+  out.operatorsPlayed = [...new Set([...(a.operatorsPlayed || []), ...(b.operatorsPlayed || [])])].filter(id => charMap[id]);
+  out.unlocked = [...new Set([...(a.unlocked || []), ...(b.unlocked || [])])].filter(id => charMap[id]);
+  return out;
+}
+let cloudPushT = null;
+function pushCloudProfile() {
+  if (!authUser || IS_STATIC) return;
+  clearTimeout(cloudPushT);
+  cloudPushT = setTimeout(() => {
+    fetch('/api/profile', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ profile: loadProfile() }) }).catch(() => {});
+  }, 800);
+}
+async function pullCloudProfile() {
+  try {
+    const r = await fetch('/api/profile'); if (!r.ok) return; const j = await r.json();
+    if (j.profile && typeof j.profile === 'object') {
+      const merged = mergeProfiles(loadProfile(), j.profile);
+      saveProfile(merged);
+      clearTimeout(cloudPushT); // push the union straight back so the cloud has everything
+      fetch('/api/profile', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ profile: merged }) }).catch(() => {});
+      if (!$('menu').hidden) renderOperators(); // refresh the gallery if it's open
+    }
+  } catch {}
+}
+async function refreshAuth() {
+  const b = $('btnAccount');
+  if (IS_STATIC) { if (b) b.hidden = true; return; }
+  if (b) b.hidden = false;
+  try {
+    const r = await fetch('/api/auth/me'); const j = await r.json();
+    authUser = j.user || null;
+    if (authUser) { const ni = $('nameInput'); if (ni) ni.value = authUser.name; await pullCloudProfile(); }
+  } catch {}
+  paintAccount();
+}
+async function acctSubmit(path) {
+  const name = $('acctName').value.trim(), password = $('acctPass').value;
+  if (!name || !password) return acctMsg('enter a username and password', true);
+  acctMsg('…');
+  try {
+    const r = await fetch('/api/auth/' + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, password }) });
+    const j = await r.json();
+    if (!r.ok) return acctMsg(j.error || 'failed', true);
+    authUser = j.user; $('acctPass').value = '';
+    const ni = $('nameInput'); if (ni) ni.value = authUser.name;
+    if (path === 'register') { pushCloudProfile(); acctMsg('account created — your progress will sync'); }
+    else { await pullCloudProfile(); acctMsg('signed in — progress synced'); }
+    paintAccount();
+  } catch { acctMsg('network error', true); }
+}
+if ($('btnAccount')) {
+  $('btnAccount').onclick = e => { e.currentTarget.blur(); showMenuPage('pageAccount'); paintAccount(); acctMsg(''); };
+  $('btnRegister').onclick = e => { e.currentTarget.blur(); acctSubmit('register'); };
+  $('btnLogin').onclick = e => { e.currentTarget.blur(); acctSubmit('login'); };
+  $('btnSyncNow').onclick = e => { e.currentTarget.blur(); pullCloudProfile(); acctMsg('syncing…'); };
+  $('btnLogout').onclick = async e => { e.currentTarget.blur(); try { await fetch('/api/auth/logout', { method: 'POST' }); } catch {} authUser = null; paintAccount(); acctMsg('signed out'); };
+  $('acctPass').addEventListener('keydown', ev => { if (ev.key === 'Enter') acctSubmit('login'); });
+}
+refreshAuth();
 $('btnSettings').onclick = e => { e.currentTarget.blur(); showMenuPage('pageSettings'); };
 // native desktop (Electron) shell: a real Quit-to-Desktop button on the main menu
 if (window.anchorfallDesktop?.isDesktop) {

@@ -9,6 +9,8 @@ import { createGame, step, snapshot, applyResults, charsById, dailyChallenge, TI
 // namespace import: wave-6 sim exports (revivePlayer) are probed with typeof
 // so the server keeps working while they land
 import * as sim from './shared/game.js';
+import { initDb } from './db.js';
+import { mountAuth } from './auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3001;
@@ -202,6 +204,18 @@ const app = express();
 if (PUBLIC_DEPLOY) app.set('trust proxy', 1);
 app.use('/shared', express.static(path.join(__dirname, 'shared')));
 app.use(express.static(path.join(__dirname, 'public')));
+
+// --- accounts + cloud profiles (optional; anonymous play is unaffected) ------
+// Postgres when DATABASE_URL is set (Railway), else a local file store.
+await initDb(savesDir);
+const authLog = new Map();
+mountAuth(app, {
+  json: express.json({ limit: '20kb' }),
+  rateLimited: (ip) => rateLimited(authLog, ip, 12, 60000), // 12 register/login tries per minute per IP
+  cleanName,
+  maxProfileBytes: 16 * 1024,
+});
+
 app.get('/api/levels', (req, res) => res.json(levels));
 // Public room browser (wave 7): JOINABLE public rooms only — lobby-phase
 // rooms below cap, plus LIVE ctf rooms below cap (ctf accepts mid-match
