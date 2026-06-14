@@ -1414,6 +1414,20 @@ function stepSiegeMinions(g, dt) {
   const S = g.siege; if (!S) return;
   for (let i = S.minions.length - 1; i >= 0; i--) {
     const m = S.minions[i];
+    const foe = siegeFoe(m.team);
+    let gnawing = false;
+    // STOP and chew an enemy tower in reach (so a wave actually breaks a tower)
+    for (const t of g.siegeTowers) {
+      if (t.destroyed || t.team !== foe) continue;
+      if (dist2(m, t) < (TILE * 0.9) ** 2) { t.hp -= MINION_TOWER_DPS * dt; if (t.hp <= 0) siegeTowerDown(g, t, null); gnawing = true; break; }
+    }
+    // once that team's towers are down, the core is exposed — chew it
+    if (!gnawing && siegeCoreOpen(g, foe)) for (const c of g.cores) {
+      if (c.team !== foe || c.hp <= 0) continue;
+      if (dist2(m, c) < SIEGE_CORE_R ** 2) { c.hp = Math.max(0, c.hp - MINION_CORE_DPS * dt); gnawing = true; break; }
+    }
+    if (gnawing) continue; // hold position while chewing
+    // otherwise march along the lane toward the enemy core
     const lane = m.team === 0 ? S.lanes[m.laneI] : S.lanesRev[m.laneI];
     const wps = lane ? lane.waypoints : null;
     if (wps && wps.length) {
@@ -1423,15 +1437,6 @@ function stepSiegeMinions(g, dt) {
       const [nx, ny] = norm(dx, dy);
       m.x += nx * MINION_SPEED * TILE * dt;
       m.y += ny * MINION_SPEED * TILE * dt;
-    }
-    const foe = siegeFoe(m.team);
-    for (const t of g.siegeTowers) { // gnaw an enemy tower in reach
-      if (t.destroyed || t.team !== foe) continue;
-      if (dist2(m, t) < (TILE * 0.8) ** 2) { t.hp -= MINION_TOWER_DPS * dt; if (t.hp <= 0) siegeTowerDown(g, t, null); break; }
-    }
-    if (siegeCoreOpen(g, foe)) for (const c of g.cores) { // gnaw the enemy core once its towers are down
-      if (c.team !== foe || c.hp <= 0) continue;
-      if (dist2(m, c) < SIEGE_CORE_R ** 2) c.hp = Math.max(0, c.hp - MINION_CORE_DPS * dt);
     }
   }
 }

@@ -72,19 +72,21 @@ const storyLevels = levels.filter(l => l.category === 'story').sort((a, b) => (a
 const ctfLevels = levels.filter(l => l.category === 'ctf');
 const brLevels = levels.filter(l => l.category === 'br');
 const bastionLevels = levels.filter(l => l.category === 'stronghold');
+const siegeLevels = levels.filter(l => l.category === 'siege');
 const roomLevels = room => room.mode === 'story' ? storyLevels
   : room.mode === 'ctf' ? ctfLevels
   : room.mode === 'br' ? brLevels
   : room.mode === 'bastion' ? bastionLevels
+  : room.mode === 'siege' ? siegeLevels
   : classicLevels;
-const isPvp = room => room.mode === 'ctf' || room.mode === 'br';
-// pvp and bastion rooms are one-shots: never saved, never resumed, never
+const isPvp = room => room.mode === 'ctf' || room.mode === 'br' || room.mode === 'siege';
+// pvp/siege and bastion rooms are one-shots: never saved, never resumed, never
 // advanced — the lobby is the rematch on the same map
 const isOneShot = room => isPvp(room) || room.mode === 'bastion';
 // Per-mode room caps (wave 7): pvp fields outgrow the co-op party of 8.
 // Prefer the sim's table once it lands so server and sim can never disagree;
 // seats-per-connection stays 4 everywhere. CTF team cap = MODE_CAPS.ctf / 2.
-const MODE_CAPS = sim.MODE_CAPS || { classic: 8, story: 8, bastion: 8, ctf: 32, br: 16 };
+const MODE_CAPS = sim.MODE_CAPS || { classic: 8, story: 8, bastion: 8, ctf: 32, br: 16, siege: 10 };
 const roomCap = room => MODE_CAPS[room.mode] || 8;
 console.log(`Loaded ${levels.length} levels (${classicLevels.length} classic, ${storyLevels.length} story, ${bastionLevels.length} stronghold, ${ctfLevels.length} ctf, ${brLevels.length} br), ${characters.length} characters`);
 
@@ -149,6 +151,7 @@ const capNames = names => names.length <= 8 ? names : [...names.slice(0, 8), `+$
 // the quicker victory.
 function recordOnlineRun(room, def, g) {
   if (!def?.key) return null;
+  if (room.mode === 'siege') return null; // siege is a match, not a score board (v1)
   const stamp = { date: new Date().toISOString(), online: true };
   // Endless Siege ends in defeat, never a clear — rank by nights survived (then
   // in-run score) on a board namespaced off the map so it never mixes with the
@@ -448,7 +451,7 @@ function broadcastState(room) {
 // CTF teams alternate over join/seat order (Map insertion order — local seats on
 // one ws slot in where they were added); leavers cause a clean re-alternation.
 function assignTeams(room) {
-  if (room.mode !== 'ctf') return;
+  if (room.mode !== 'ctf' && room.mode !== 'siege') return;
   let i = 0;
   for (const p of room.players.values()) p.team = i++ % 2;
 }
@@ -751,7 +754,7 @@ wss.on('connection', (ws, req) => {
       if (rooms.size >= ROOM_CAP) return sendTo(me, { t: 'error', error: 'Server is at its room limit — try again in a few minutes' });
       me.name = cleanName(m.name);
       let code = makeCode();
-      let mode = ['story', 'ctf', 'br', 'bastion'].includes(m.mode) ? m.mode : 'classic';
+      let mode = ['story', 'ctf', 'br', 'bastion', 'siege'].includes(m.mode) ? m.mode : 'classic';
       let levelIdx = 0, roster = startingRoster.slice();
       // pvp/bastion rooms never save, so they never resume either (the client
       // reuses the join-code field for resume — don't let stray text morph a

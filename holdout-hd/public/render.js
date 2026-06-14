@@ -51,6 +51,12 @@ const PAL = {
   dteal: '#174A4A',
 };
 
+// Anchor Siege (MOBA) team palette — team 0 = blue/cyan, team 1 = red/orange.
+const SIEGE_TEAM = ['#4f91ff', '#ff6a5a'];
+const SIEGE_TEAM_DIM = ['#2a4e8c', '#8c3a32']; // muted body fill / shadow facet
+function siegeTeamCol(team) { return SIEGE_TEAM[(team | 0) % 2]; }
+function siegeTeamDim(team) { return SIEGE_TEAM_DIM[(team | 0) % 2]; }
+
 // deterministic RNG so baked textures are stable between loads
 function mulberry32(seed) {
   return function () {
@@ -3332,6 +3338,168 @@ function drawTower(ctx, tw, t, lights) {
   ctx.restore();
   lights.push({ x, y: y - 30, r: manned ? 52 : 30, rgb: '111,216,242', a: manned ? 0.1 : 0.06 });
   if (tw.maxHp && tw.hp != null && tw.hp < tw.maxHp) drawHpPips(ctx, x, y - 44, tw.hp / tw.maxHp);
+}
+
+// ===================== ANCHOR SIEGE (MOBA) WORLD PIECES =====================
+// Pure-additive draws, gated on snap.mode === 'siege' at the call site. World
+// space inside the camera transform; same inView() culling as everything else.
+
+// Faint, team-neutral dashed polylines so players can read the two lanes.
+// Drawn FIRST (under everything) — the call site sits right after terrain.
+function drawSiegeLanes(ctx, lanes, inView, t) {
+  if (!lanes || !lanes.length) return;
+  ctx.save();
+  ctx.lineWidth = 3;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.setLineDash([10, 12]);
+  ctx.lineDashOffset = -(t * 14) % 22; // a slow crawl toward the enemy core
+  ctx.strokeStyle = 'rgba(143,156,184,0.16)';
+  for (const lane of lanes) {
+    if (!lane || lane.length < 2) continue;
+    // cull whole lane if no waypoint is anywhere near the view
+    let any = false;
+    for (const wp of lane) { if (inView(wp[0], wp[1], 240)) { any = true; break; } }
+    if (!any) continue;
+    ctx.beginPath();
+    ctx.moveTo(lane[0][0], lane[0][1]);
+    for (let i = 1; i < lane.length; i++) ctx.lineTo(lane[i][0], lane[i][1]);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// A team-colored turret glyph (diamond tower) with a thin hp pip bar above it.
+// Destroyed towers read as grey rubble with no bar. Level 2/3 sit a touch bigger.
+function drawSiegeTower(ctx, tw, t, lights) {
+  const { x, y } = tw;
+  const lvl = Math.max(1, tw.level | 0 || 1);
+  const s = 0.6 * TILE * (1 + (Math.min(3, lvl) - 1) * 0.12); // ~0.6*TILE, +12%/lvl
+  const destroyed = !!tw.destroyed;
+  shadowBlob(ctx, x, y + s * 0.55, s * 0.7, s * 0.3);
+  if (destroyed) {
+    // rubble: a squat grey heap, no hp bar
+    ctx.save();
+    ctx.fillStyle = '#33363f';
+    ctx.beginPath();
+    ctx.moveTo(x - s * 0.6, y + s * 0.5);
+    ctx.lineTo(x - s * 0.25, y - s * 0.1);
+    ctx.lineTo(x + s * 0.15, y + s * 0.15);
+    ctx.lineTo(x + s * 0.55, y - s * 0.05);
+    ctx.lineTo(x + s * 0.6, y + s * 0.5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#23252c';
+    ctx.fillRect(x - s * 0.6, y + s * 0.4, s * 1.2, s * 0.14);
+    ctx.restore();
+    return;
+  }
+  const col = siegeTeamCol(tw.team);
+  const dim = siegeTeamDim(tw.team);
+  const frac = Math.max(0, Math.min(1, (tw.hp ?? 1) / (tw.maxHp || 1)));
+  const pulse = 0.5 + 0.5 * Math.sin(t * 3 + x * 0.03);
+  // base plinth
+  ctx.fillStyle = PAL.graphDark;
+  ctx.fillRect(x - s * 0.5, y + s * 0.35, s, s * 0.28);
+  // turret diamond body
+  ctx.save();
+  ctx.fillStyle = dim;
+  ctx.beginPath();
+  ctx.moveTo(x, y - s * 0.85); ctx.lineTo(x + s * 0.6, y);
+  ctx.lineTo(x, y + s * 0.45); ctx.lineTo(x - s * 0.6, y);
+  ctx.closePath();
+  ctx.fill();
+  // lit team-colored inner core
+  ctx.fillStyle = col;
+  ctx.shadowColor = col;
+  ctx.shadowBlur = 6 + 3 * pulse;
+  ctx.beginPath();
+  ctx.moveTo(x, y - s * 0.5); ctx.lineTo(x + s * 0.32, y);
+  ctx.lineTo(x, y + s * 0.22); ctx.lineTo(x - s * 0.32, y);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+  // level pips: a tiny stack of ticks at the tip for lvl 2/3
+  if (lvl > 1) {
+    ctx.fillStyle = PAL.lythGold;
+    for (let i = 0; i < Math.min(3, lvl); i++) ctx.fillRect(x - 3.5 + i * 3, y - s * 0.85 - 4, 1.8, 2.4);
+  }
+  // thin hp pip bar above it (hp / maxHp)
+  const bw = s * 1.1, bx = x - bw / 2, by = y - s * 0.85 - 9;
+  ctx.fillStyle = 'rgba(20,22,30,0.85)';
+  ctx.fillRect(bx - 1, by - 1, bw + 2, 4);
+  ctx.fillStyle = col;
+  ctx.fillRect(bx, by, bw * frac, 2);
+  lights.push({ x, y: y - 4, r: 34, rgb: hexRgb(col), a: 0.07 + 0.04 * pulse });
+}
+
+// Cheap team-colored minion dots (~0.3*TILE) with a tiny hp tick when hurt.
+function drawSiegeMinion(ctx, m, t) {
+  const r = 0.3 * TILE;
+  const col = siegeTeamCol(m.team);
+  shadowBlob(ctx, m.x, m.y + r * 0.5, r * 0.7, r * 0.3);
+  ctx.fillStyle = col;
+  ctx.beginPath();
+  ctx.moveTo(m.x, m.y - r); ctx.lineTo(m.x + r * 0.78, m.y);
+  ctx.lineTo(m.x, m.y + r); ctx.lineTo(m.x - r * 0.78, m.y);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.5)'; // small highlight
+  ctx.fillRect(m.x - 1, m.y - r * 0.5, 2, 2);
+  if (m.maxHp && m.hp != null && m.hp < m.maxHp) {
+    const frac = Math.max(0, Math.min(1, m.hp / m.maxHp));
+    const bw = r * 1.6, bx = m.x - bw / 2, by = m.y - r - 4;
+    ctx.fillStyle = 'rgba(20,22,30,0.8)';
+    ctx.fillRect(bx - 0.5, by - 0.5, bw + 1, 2.5);
+    ctx.fillStyle = col;
+    ctx.fillRect(bx, by, bw * frac, 1.5);
+  }
+}
+
+// '#rrggbb' -> 'r,g,b' for the lights pool (rgb strings, not hex).
+function hexRgb(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`;
+}
+
+// Prominent screen-space hp bars per team: team 0 top-left, team 1 top-right.
+// Pulses when that team's core is open (towers down → vulnerable). Screen space.
+function drawSiegeCoreBars(ctx, VW, cores, siege, t) {
+  const open = siege?.open ?? [];
+  ctx.save();
+  ctx.textBaseline = 'alphabetic';
+  for (const c of cores) {
+    const team = (c.team | 0) % 2;
+    const col = siegeTeamCol(team);
+    const frac = Math.max(0, Math.min(1, (c.hp ?? 0) / (c.maxHp || 1)));
+    const bw = 188, bh = 16;
+    const x = team === 0 ? 16 : VW - 16 - bw;
+    const y = 16;
+    const vuln = !!open[team];
+    const pulse = vuln ? 0.5 + 0.5 * Math.sin(t * 6) : 0;
+    // frame
+    ctx.fillStyle = 'rgba(13,14,24,0.9)';
+    ctx.fillRect(x - 2, y - 2, bw + 4, bh + 4);
+    ctx.strokeStyle = vuln ? `rgba(255,255,255,${0.45 + 0.45 * pulse})` : 'rgba(143,156,184,0.5)';
+    ctx.lineWidth = vuln ? 2 : 1;
+    ctx.strokeRect(x - 2, y - 2, bw + 4, bh + 4);
+    // depleted track + fill
+    ctx.fillStyle = 'rgba(30,32,40,0.95)';
+    ctx.fillRect(x, y, bw, bh);
+    ctx.fillStyle = col;
+    if (vuln) { ctx.shadowColor = col; ctx.shadowBlur = 8 + 6 * pulse; }
+    const fw = bw * frac;
+    ctx.fillRect(team === 0 ? x : x + bw - fw, y, fw, bh);
+    ctx.shadowBlur = 0;
+    // label
+    ctx.fillStyle = '#0B0A14';
+    ctx.font = 'bold 11px monospace';
+    ctx.textAlign = team === 0 ? 'left' : 'right';
+    const lx = team === 0 ? x + 5 : x + bw - 5;
+    const label = `${vuln ? 'OPEN  ' : ''}CORE ${Math.max(0, Math.round(c.hp ?? 0))}/${c.maxHp || 0}`;
+    ctx.fillText(label, lx, y + bh - 4);
+  }
+  ctx.restore();
 }
 
 // 'K' — the base core: a monolith heart of warm LYTH. Lose it, lose the night.
@@ -6774,6 +6942,9 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
     }
   }
 
+  // --- anchor siege lanes: faint dashed guides, drawn under everything ---
+  if (snap.mode === 'siege' && snap.siege) drawSiegeLanes(ctx, snap.siege.lanes, inView, t);
+
   // --- ground patches: lingering burn pools / toxin slicks on the floor ---
   for (const pa of patches) {
     if (inView(pa.x, pa.y, (pa.r || TILE) + 24)) drawPatch(ctx, pa, t, lights);
@@ -6900,6 +7071,36 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
       ctx.textAlign = 'center';
       ctx.fillText('DARK', c2.x, c2.y - 50);
       ctx.restore();
+    }
+  }
+  // --- anchor siege (MOBA): towers, minions, and a vulnerable-core pulse ---
+  if (snap.mode === 'siege' && snap.siege) {
+    const sg = snap.siege;
+    const open = sg.open ?? [];
+    // siege cores echo beacon monoliths (already drawn above via the cores
+    // loop) — overlay a team-colored ring, pulsed bright when now attackable
+    for (const c2 of cores) {
+      if (!inView(c2.x, c2.y, 120)) continue;
+      const team = (c2.team | 0) % 2;
+      const col = siegeTeamCol(team);
+      const vuln = !!open[team];
+      const pulse = vuln ? 0.5 + 0.5 * Math.sin(t * 6 + team) : 0;
+      ctx.save();
+      ctx.strokeStyle = col;
+      ctx.lineWidth = vuln ? 2 + 1.5 * pulse : 1.6;
+      ctx.globalAlpha = vuln ? 0.5 + 0.5 * pulse : 0.5;
+      if (vuln) { ctx.shadowColor = col; ctx.shadowBlur = 10 + 8 * pulse; }
+      ctx.beginPath();
+      ctx.arc(c2.x, c2.y + 4, vuln ? 26 + 4 * pulse : 24, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+      if (vuln) lights.push({ x: c2.x, y: c2.y - 16, r: 90, rgb: hexRgb(col), a: 0.1 + 0.08 * pulse });
+    }
+    for (const tw of (sg.towers ?? [])) {
+      if (inView(tw.x, tw.y, 90)) drawSiegeTower(ctx, tw, t, lights);
+    }
+    for (const m of (sg.minions ?? [])) {
+      if (inView(m.x, m.y, 60)) drawSiegeMinion(ctx, m, t);
     }
   }
   // early extraction: the landed Anchorcraft waits by the base once all four
@@ -7787,6 +7988,9 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
 
     // beacon pips: the four monoliths' state, always on screen
     if (cores.length > 1) drawBeaconPips(ctx, VW, cores, t);
+
+    // anchor siege: prominent per-team core hp bars (team 0 left, team 1 right)
+    if (snap.mode === 'siege' && snap.siege && cores.length) drawSiegeCoreBars(ctx, VW, cores, snap.siege, t);
   }
 
   // --- offscreen pointers: teammates, stranded captives, the Anchor ---
@@ -7927,6 +8131,7 @@ function drawGlobalScreenFx(ctx, snap, t, VW, VH) {
   drawCountdownBanner(ctx, VW, snap, t);
   const cores = snap.cores ?? [];
   if (cores.length > 1) drawBeaconPips(ctx, VW, cores, t);
+  if (snap.mode === 'siege' && snap.siege && cores.length) drawSiegeCoreBars(ctx, VW, cores, snap.siege, t);
   ctx.restore();
 }
 

@@ -25,6 +25,7 @@ const campaign = levels.filter(l => l.category ? l.category === 'classic' : !l.e
 const expeditions = levels.filter(l => !l.category && l.expedition && !l.mode && !l.story);
 const ctfLevels = levels.filter(l => l.category === 'ctf' || (!l.category && l.mode === 'ctf'));
 const brLevels = levels.filter(l => l.category === 'br' || (!l.category && l.mode === 'br'));
+const siegeLevels = levels.filter(l => l.category === 'siege' || (!l.category && l.mode === 'siege'));
 // Stronghold campaign (sim/server mode 'bastion'): sh01..sh25 ordered by
 // their stronghold.level number, filename order as the fallback.
 const bastionLevels = levels
@@ -447,9 +448,13 @@ function bannerFor(ev) {
     }
     case 'matchEnd': {
       if (ev.winner == null) return { text: 'MATCH OVER' };
-      const ctf = session?.versusMode?.() === 'ctf';
-      return { text: `${ctf ? (TEAM_NAME[ev.winner] ?? 'TEAM') : playerName(ev.winner)} WINS THE MATCH` };
+      const teamWin = session?.versusMode?.() === 'ctf' || session?.mode === 'siege';
+      return { text: `${teamWin ? (TEAM_NAME[ev.winner] ?? 'TEAM') : playerName(ev.winner)} WINS THE MATCH` };
     }
+    // Anchor Siege banners
+    case 'siegeWave': return null; // too frequent for a banner; FX/audio only
+    case 'towerDown': return { text: `${TEAM_NAME[ev.team] ?? 'A'} TOWER DOWN` };
+    case 'coreDown': return { text: `${TEAM_NAME[ev.team] ?? 'A'} ANCHOR SHATTERED`, blood: true };
     // stronghold beacon-defense variant + early-extraction ship (all optional)
     case 'beaconDown': return { text: 'A BEACON GOES DARK', blood: true };
     case 'beaconLit': return { text: 'BEACON RELIT' };
@@ -1502,7 +1507,7 @@ class LocalSession {
   constructor(save, opts = {}) {
     this.story = !!opts.story;
     // local versus ('ctf'|'br'): one-map match list, no autosave, no roster churn
-    this.mode = opts.mode === 'ctf' || opts.mode === 'br' ? opts.mode : null;
+    this.mode = ['ctf', 'br', 'siege'].includes(opts.mode) ? opts.mode : null;
     // bastion siege: expedition-style one-shot (no saves), solo+ couch fine
     this.bastion = opts.mode === 'bastion';
     // Endless Siege: a bastion run with no night cap, escalating forever
@@ -1515,7 +1520,7 @@ class LocalSession {
     this.tutorial = !!opts.tutorial;
     this.expedition = !this.story && !this.mode && !this.bastion && !!opts.expedition;
     this.levels = this.story ? storyLevels
-      : this.mode ? (this.mode === 'ctf' ? ctfLevels : brLevels)
+      : this.mode ? (this.mode === 'ctf' ? ctfLevels : this.mode === 'br' ? brLevels : siegeLevels)
         : this.bastion ? bastionLevels
           : this.expedition ? expeditions : campaign;
     this.levelIdx = this.story
@@ -1551,9 +1556,11 @@ class LocalSession {
   versusMode() { return this.mode; }
   bastionMode() { return this.bastion; }
   // seats alternate ctf teams by join order (P1/P3 vs P2/P4)
-  teamOf(p) { return this.mode === 'ctf' ? p.pid % 2 : this.mode === 'br' ? p.pid : null; }
+  teamOf(p) { return (this.mode === 'ctf' || this.mode === 'siege') ? p.pid % 2 : this.mode === 'br' ? p.pid : null; }
   canStart() {
-    return this.players.length >= (this.mode ? 2 : 1) && this.players.every(p => p.charId);
+    // siege is solo-playable: one human deploys and the field is padded with bots
+    const min = this.mode === 'siege' ? 1 : this.mode ? 2 : 1;
+    return this.players.length >= min && this.players.every(p => p.charId);
   }
 
   lobby() {
@@ -1672,6 +1679,17 @@ class LocalSession {
   }
   start() {
     if (!this.inLobby || !this.canStart()) return;
+    // Siege: pad an under-filled field with bot allies + enemies (target 3v3).
+    // teamOf alternates by pid, so the humans + even-pid bots face the odd-pid
+    // bots — every human gets allies AND opponents.
+    if (this.mode === 'siege' && this.players.length < 6) {
+      const pool = this.roster.filter(id => charMap[id]);
+      let pid = this.players.length ? Math.max(...this.players.map(p => p.pid)) + 1 : 0;
+      while (this.players.length < 6) {
+        this.players.push({ pid, name: 'BOT' + pid, device: 'bot' + pid, charId: pool[pid % pool.length] || this.roster[0], cursor: 0, missingT: 0 });
+        pid++;
+      }
+    }
     this.inLobby = false;
     let lvl = this.levels[this.levelIdx];
     // Endless: clone the def (never mutate the shared catalog) and flip the
@@ -1841,6 +1859,25 @@ class LocalSession {
       if (tx - me.x > 0.25 * TILE) inp.right = true; else if (me.x - tx > 0.25 * TILE) inp.left = true;
       if (ty - me.y > 0.25 * TILE) inp.down = true; else if (me.y - ty > 0.25 * TILE) inp.up = true;
     };
+
+    // Anchor Siege bot: shoot the nearest enemy tower, then minion, else advance
+    // on the enemy core; retreat to your own core when low.
+    if (snap.mode === 'siege' && snap.siege) {
+      const dst = o => Math.hypot(o.x - me.x, o.y - me.y);
+      const foe = me.team === 0 ? 1 : 0;
+      if ((me.hp ?? 9) <= 1) {
+        const own = (snap.cores || []).find(c => c.team === me.team);
+        if (own) steerTo(own.x, own.y);
+        return inp;
+      }
+      let tgt = null, best = 7 * TILE;
+      for (const t of snap.siege.towers || []) { if (t.destroyed || t.team !== foe) continue; const d = dst(t); if (d < best) { best = d; tgt = t; } }
+      if (!tgt) { best = 6 * TILE; for (const m of snap.siege.minions || []) { if (m.team !== foe) continue; const d = dst(m); if (d < best) { best = d; tgt = m; } } }
+      if (tgt) { inp.fire = true; steerTo(tgt.x, tgt.y); return inp; }
+      const fc = (snap.cores || []).find(c => c.team === foe);
+      if (fc) steerTo(fc.x, fc.y);
+      return inp;
+    }
 
     // hold ACT at an unbuilt build site (nudging to stay in range) or near an NPC
     const dist = o => Math.hypot(o.x - me.x, o.y - me.y);
@@ -3440,6 +3477,7 @@ function refreshContinue() {
   $('btnCtf').hidden = !ctfLevels.length;
   $('btnHostCtf').hidden = !ctfLevels.length;
   $('btnBr').hidden = !brLevels.length;
+  $('btnSiege').hidden = !siegeLevels.length;
   $('btnHostBr').hidden = !brLevels.length;
   // visibility toggles and the browser need a live server (static builds
   // have no online play at all); the couch map cycler works everywhere
@@ -3969,6 +4007,13 @@ $('btnBr').onclick = e => {
   e.currentTarget.blur();
   if (!brLevels.length || session) return;
   session = new LocalSession(null, { mode: 'br' });
+  session.lobby();
+};
+$('btnSiege').onclick = e => {
+  e.currentTarget.blur();
+  if (!siegeLevels.length || session) return;
+  // solo deploys vs bots; couch teammates can FIRE-join the lobby before deploy
+  session = new LocalSession(null, { mode: 'siege' });
   session.lobby();
 };
 $('btnHost').onclick = e => {
