@@ -6,7 +6,7 @@ import { render, renderMinimap, addEventFX, initTextures, drawPortrait, drawWeap
 // Namespace import so optional renderer features (cutscenes, menu backdrop) can
 // ship independently — accessed via renderMod.* with runtime existence checks.
 import * as renderMod from './render.js';
-import { playEvent, playUi, setupAudioToggle, setMusicVolume, setVoiceVolume, setSfxVolume } from './audio.js';
+import { playEvent, playUi, setupAudioToggle, setMusicVolume, setVoiceVolume, setSfxVolume, playMusicBox, stopMusicBox } from './audio.js';
 
 const characters = await (await fetch('/shared/characters.json')).json();
 const charMap = charsById(characters);
@@ -504,11 +504,32 @@ function handleEvent(ev) {
   if (ev.type === 'horn') showToast(`HORN BONUS +${ev.bonus ?? 0}◆`);
   if (ev.type === 'probe') showToast(`SCAVENGERS OFF THE ${EDGE_NAME[ev.edge] ?? '?'} EDGE`, 2600);
   if (ev.type === 'supplyDrop') supplyPings.push({ x: ev.x, y: ev.y });
+  // Alien Relic easter egg: shard scoop / deposit toasts, and the 4/4 banner
+  // that cues the level's looping track (loaded best-effort; silent if absent)
+  if (ev.type === 'mbPickup') showToast('ALIEN ARTIFACT RECOVERED');
+  if (ev.type === 'mbPlace') showToast(`SHARD PLACED — ${ev.assembled ?? 0}/${ev.of ?? 4}`);
+  if (ev.type === 'mbComplete') {
+    showBanner('THE RELIC AWAKENS', false, 4200);
+    const mb = session?.snap?.musicBox;
+    if (mb) playMusicBox(mb.mode, mb.stem);
+  }
   const b = bannerFor(ev);
   if (b) showBanner(b.text, b.blood);
 }
 // supply-drop map pings: live while the dropped cache still sits unopened
 const supplyPings = [];
+
+// Alien Relic: keep the level track in sync with the snapshot. playMusicBox is
+// idempotent (no-op while the same mode+stem is already looping), so a flat
+// per-frame call covers the awaken banner cue, online late-joins and save-resume
+// where the relic is already complete. Anything else stops the track. All
+// guarded in audio.js against missing mp3s — a console with no music assets
+// never crashes or spams.
+function syncMusicBox(snap) {
+  const mb = snap?.musicBox;
+  if (mb && mb.complete && snap.status === 'play') playMusicBox(mb.mode, mb.stem);
+  else stopMusicBox();
+}
 
 // ---------- screens ----------
 function show(id) {
@@ -952,6 +973,16 @@ function updateObjectives(snap) {
   } else {
     if (!host.hidden) resetObjectives();
     return;
+  }
+  // Alien Relic easter egg (story/stronghold): a standing secondary objective
+  // tracking shards returned to the ruin altar, "N/4", checked at 4/4.
+  const mb = snap.musicBox;
+  if (mb) {
+    rows.push({
+      id: 'musicBox', title: 'Awaken the Relic',
+      state: mb.complete ? 'done' : 'active',
+      progress: mb.assembled, count: 4,
+    });
   }
   const sig = rows.map(r => [r.id ?? '', r.state, r.progress ?? '', r.count ?? '', r.title].join(':')).join('|');
   if (sig === objSig) return;
@@ -1478,6 +1509,14 @@ function drawMapOverlay(ctx, snap, t) {
   if (snap.core) ring(snap.core.x, snap.core.y, 'rgba(255,217,138,0.9)');
   for (const c of snap.cores ?? []) ring(c.x, c.y, (c.hp ?? 0) > 0 ? 'rgba(255,217,138,0.9)' : 'rgba(224,72,72,0.9)');
   for (const q of snap.qitems ?? []) if (q.carrier == null && seen(q.x, q.y)) ring(q.x, q.y, 'rgba(111,216,242,0.9)');
+  // Alien Relic: ping the ruin altar (violet) and every still-loose shard.
+  // Carried + placed shards clear, matching the supply/qitem pattern.
+  if (snap.musicBox) {
+    ring(snap.musicBox.altar.x, snap.musicBox.altar.y, 'rgba(214,168,255,0.95)');
+    for (const f of snap.musicBox.fragments ?? []) {
+      if (!f.placed && f.carrier == null && seen(f.x, f.y)) ring(f.x, f.y, 'rgba(190,120,255,0.95)');
+    }
+  }
   if (snap.ship?.landed) ring(snap.ship.x, snap.ship.y, 'rgba(111,216,242,0.95)');
   // supply drops ping (objective-marker style) until their cache is opened;
   // entries whose chest is gone or looted fall out of the list
@@ -4295,6 +4334,7 @@ function frame(now) {
     session.tick?.(polled, dt);
     const cs = session.cutscene;
     if (cs) {
+      stopMusicBox(); // a level's relic music never bleeds into the next cutscene
       renderMod.drawCutscene?.(ctx, cs.slides[cs.idx], now / 1000, cs.t, cs.holdT || 0, cs.holdThreshold || 3);
       if (cs.waiting && cs.holdHint) {
         // online intro: our slides are done, the host hasn't moved on yet
@@ -4317,6 +4357,7 @@ function frame(now) {
         if (views) renderMod.renderViews(ctx, snap, charMap, views, now / 1000, dt);
         else render(ctx, snap, charMap, session.focusPids(), now / 1000, dt);
         updateHUD(snap);
+        syncMusicBox(snap);
         if (session.tutorial) tutorialTick(snap);
         // hold-MAP full-map overlay (pad SELECT / Tab / M) — play only;
         // lobbies, menus and dialogs ignore the map button entirely
@@ -4327,6 +4368,7 @@ function frame(now) {
       }
     }
   } else {
+    stopMusicBox(); // back at the menu: drop any relic music loop
     // cheap animated backdrop behind the DOM menu (optional renderer feature)
     renderMod.drawMenuBackdrop?.(ctx, now / 1000);
     if (tut) endTutorialCoach(); // session gone (quit mid-tutorial): clear the coach

@@ -851,7 +851,85 @@ export function createGame(def, party, charMap, roster) {
       }
     }
   }
+  // Music Box easter egg: story + stronghold only. Deterministic placement of
+  // four corner fragments and one base-side altar straight off the tilemap, so
+  // every client and the server agree without exchanging any extra setup.
+  setupMusicBox(g, def);
   return g;
+}
+
+// --- MUSIC BOX easter egg (story + stronghold only) -----------------------
+// Four collectible fragments seed at the four map corners (nearest open tile
+// scanning inward), and one ruin altar seeds a few tiles outside the spawn
+// cluster. Fragments carry exactly like quest items: a single carrier field,
+// scooped on touch, trailing the carrier, dropped where a downed carrier fell.
+// Walking the altar while carrying deposits one. Gated strictly on g.musicBox
+// .enabled — every other mode leaves g.musicBox disabled and untouched.
+const MUSICBOX_FRAGS = 4;
+const MUSICBOX_R = 12; // touch radius, captive-sized
+
+// Nearest open (walkable, non-lava, structure-free) tile to a map corner,
+// scanned inward along the corner diagonal then its neighbourhood. Returns
+// tile-center world coords, or the corner tile center as a last resort.
+function cornerOpenTile(g, cornerX, cornerY) {
+  // cornerX/cornerY are tile indices of the corner; stepX/stepY point inward.
+  const stepX = cornerX === 0 ? 1 : -1;
+  const stepY = cornerY === 0 ? 1 : -1;
+  const maxD = Math.max(g.w, g.h);
+  for (let d = 0; d < maxD; d++) {
+    // expanding diagonal band: tiles whose Chebyshev distance from the corner
+    // along the inward diagonal equals d, scanned in a fixed deterministic order
+    for (let a = 0; a <= d; a++) {
+      for (const [ix, iy] of [[d, a], [a, d]]) {
+        const tx = cornerX + stepX * ix;
+        const ty = cornerY + stepY * iy;
+        if (tx < 1 || ty < 1 || tx >= g.w - 1 || ty >= g.h - 1) continue;
+        const c = g.grid[ty][tx];
+        if (blocksMove(c) || c === '!') continue;
+        const x = (tx + 0.5) * TILE, y = (ty + 0.5) * TILE;
+        if (collides(g, x, y, MUSICBOX_R)) continue;
+        return { x, y };
+      }
+    }
+  }
+  return { x: (cornerX + 0.5) * TILE, y: (cornerY + 0.5) * TILE };
+}
+
+// Audio stem for this level: "<category>/<filename-stem>" if the server tagged
+// def.key, else rebuild it from the chapter / stronghold numbers. The client
+// turns mode + stem into music/<mode>-<stem>.mp3.
+function musicBoxStem(def) {
+  const mode = def.story ? 'story' : 'stronghold';
+  if (typeof def.key === 'string' && def.key.includes('/')) {
+    return { mode, stem: def.key.slice(def.key.lastIndexOf('/') + 1) };
+  }
+  if (mode === 'story') return { mode, stem: 'ch' + String(def.chapter ?? 1).padStart(2, '0') };
+  return { mode, stem: 'sh' + String(def.stronghold?.level ?? 1).padStart(2, '0') };
+}
+
+function setupMusicBox(g, def) {
+  const enabled = !!def.story || def.mode === 'bastion';
+  if (!enabled) { g.musicBox = { enabled: false }; return; }
+  const { mode, stem } = musicBoxStem(def);
+  // spawn cluster centroid (couch parties may have drifted off raw spawns)
+  let sx = 0, sy = 0;
+  const sp = g.spawns.length ? g.spawns : [{ x: g.w * TILE / 2, y: g.h * TILE / 2 }];
+  for (const s of sp) { sx += s.x; sy += s.y; }
+  sx /= sp.length; sy /= sp.length;
+  // altar: an open tile 3-5 tiles outside the spawn cluster (deterministic
+  // ring scan); fall back to the centroid if the whole band is blocked
+  const altarSpot = openTileNear(g, sx, sy, 3, 5, 7) || { x: sx, y: sy };
+  // four corners, nearest open tile scanning inward
+  const corners = [[0, 0], [g.w - 1, 0], [0, g.h - 1], [g.w - 1, g.h - 1]];
+  const fragments = corners.map(([cx, cy], i) => {
+    const spot = cornerOpenTile(g, cx, cy);
+    return { id: 'mb' + i, x: spot.x, y: spot.y, carrier: null, placed: false };
+  });
+  g.musicBox = {
+    enabled: true, mode, stem,
+    altar: { x: altarSpot.x, y: altarSpot.y },
+    fragments, assembled: 0, complete: false,
+  };
 }
 
 function spawnPlayer(pid, name, charId, x, y) {
@@ -2199,6 +2277,11 @@ function stepTeleports(g, dt) {
     }
     for (const it of g.qitems) {
       if (it.carrier === p.pid) { it.x = twin.x; it.y = twin.y; }
+    }
+    if (g.musicBox && g.musicBox.enabled) {
+      for (const f of g.musicBox.fragments) {
+        if (f.carrier === p.pid) { f.x = twin.x; f.y = twin.y; }
+      }
     }
     for (const f of g.followers) {
       if (f.dead || f.owner !== p.pid) continue;
@@ -4580,6 +4663,38 @@ export function step(g, inputs, dt) {
       }
     }
 
+    // Music Box: scoop a free fragment on touch (one per carrier), and deposit
+    // a carried fragment when the carrier reaches the altar. Same scoop/trail
+    // mechanic as captives + quest items, gated on the easter-egg flag so no
+    // other mode ever runs it.
+    if (g.musicBox && g.musicBox.enabled && !g.musicBox.complete) {
+      const mb = g.musicBox;
+      const carrying = mb.fragments.some(f => f.carrier === p.pid);
+      if (!carrying) {
+        for (const f of mb.fragments) {
+          if (!f.placed && f.carrier == null && dist2(p, f) < (PLAYER_R + MUSICBOX_R) ** 2) {
+            f.carrier = p.pid;
+            g.events.push({ type: 'mbPickup', x: f.x, y: f.y, id: f.id, pid: p.pid });
+            break; // at most one fragment per pickup tick
+          }
+        }
+      } else if (dist2(p, mb.altar) < (PLAYER_R + MUSICBOX_R + 8) ** 2) {
+        const f = mb.fragments.find(fr => fr.carrier === p.pid);
+        if (f) {
+          f.carrier = null;
+          f.placed = true;
+          f.x = mb.altar.x;
+          f.y = mb.altar.y;
+          mb.assembled++;
+          g.events.push({ type: 'mbPlace', x: mb.altar.x, y: mb.altar.y, assembled: mb.assembled, of: MUSICBOX_FRAGS });
+          if (mb.assembled >= MUSICBOX_FRAGS) {
+            mb.complete = true;
+            g.events.push({ type: 'mbComplete', x: mb.altar.x, y: mb.altar.y });
+          }
+        }
+      }
+    }
+
     // A dormant gate keeps its 'E' tiles inert — players just walk over them.
     if (tileAt(g, p.x, p.y) === 'E' && (!g.gate || g.gate.open)) extractPlayer(g, p);
 
@@ -5039,6 +5154,24 @@ export function step(g, inputs, dt) {
       const t = Math.min(1, ((d - gap) / d) * 8 * dt);
       it.x += (o.x - it.x) * t;
       it.y += (o.y - it.y) * t;
+    }
+  }
+
+  // --- music box fragments trail their carrier exactly like quest items; a
+  // carrier going down (or extracting) drops the fragment where they fell,
+  // free for anyone to recover. Placed (deposited) fragments never move. ---
+  if (g.musicBox && g.musicBox.enabled) {
+    for (const f of g.musicBox.fragments) {
+      if (f.carrier == null) continue;
+      const o = g.players.find(p => p.pid === f.carrier);
+      if (!o || o.state !== 'active') { f.carrier = null; continue; }
+      const d = Math.hypot(o.x - f.x, o.y - f.y);
+      const gap = PLAYER_R + MUSICBOX_R + 8;
+      if (d > gap) {
+        const t = Math.min(1, ((d - gap) / d) * 8 * dt);
+        f.x += (o.x - f.x) * t;
+        f.y += (o.y - f.y) * t;
+      }
     }
   }
 
@@ -5640,6 +5773,18 @@ export function snapshot(g, full = true) {
       ...(e.convertedT > 0 ? { convertedT: e.convertedT } : {}),
     })),
     captives: g.captives.map(c => ({ charId: c.charId, x: c.x, y: c.y, owner: c.owner, fromPlayer: c.fromPlayer })),
+    // Music Box easter egg: shipped only when enabled (story/stronghold), so
+    // every other mode's snapshot is byte-stable. The client reads mode+stem
+    // to load the level's track, fragments/altar to draw + ping, assembled +
+    // complete to drive the objective HUD and the celebratory banner.
+    ...(g.musicBox && g.musicBox.enabled ? {
+      musicBox: {
+        mode: g.musicBox.mode, stem: g.musicBox.stem,
+        altar: { x: g.musicBox.altar.x, y: g.musicBox.altar.y },
+        fragments: g.musicBox.fragments.map(f => ({ id: f.id, x: f.x, y: f.y, carrier: f.carrier, placed: f.placed })),
+        assembled: g.musicBox.assembled, complete: g.musicBox.complete,
+      },
+    } : {}),
     // ownerPid lets the renderer dress player shots in their seat's evolution
     shots: g.shots.map(s => ({ x: s.x, y: s.y, vx: s.vx, vy: s.vy, who: s.who, kind: s.kind, ...(s.ownerPid !== undefined ? { ownerPid: s.ownerPid } : {}) })),
     rescued: g.rescued,

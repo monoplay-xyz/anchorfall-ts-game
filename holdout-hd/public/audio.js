@@ -49,6 +49,66 @@ export function setSfxVolume(v) {
   if (sfxBus) sfxBus.gain.value = vols.sfx;
 }
 
+// ---- MUSIC BOX easter egg track --------------------------------------------
+// When the squad restores a level's music box (4/4), the client asks for that
+// level's track on loop at MUSIC volume. Files live at
+//   /assets/audio/music/<mode>-<stem>.mp3   (e.g. music/story-ch01.mp3)
+// with /assets/audio/music/musicbox-default.mp3 as the fallback. NONE of these
+// ship yet, and that is fine: loadFile() resolves a 404 to {state:'missing'}
+// silently (no throw, no console spam), so a couch with no music assets just
+// hears nothing. playMusicBox is idempotent — calling it every frame while the
+// same track already loops is a no-op — so the per-frame client sync, the 4/4
+// banner cue, online late-joins and save-resume all funnel through it safely.
+let musicBoxWant = null; // the id we're trying to play, retried while loading
+
+function tryStartMusicBox() {
+  if (!ctx || muted || !musicBoxWant || musicBoxBed) return;
+  // try the level-specific track, then the shared fallback; a still-loading
+  // head retries next call, a confirmed-missing head falls through to silence
+  const want = musicBoxWant;
+  let f = loadFile(want.rel);
+  if (f.state === 'missing') f = loadFile('music/musicbox-default.mp3');
+  if (f.state !== 'ready') return; // loading or both missing: stay silent
+  const src = ctx.createBufferSource();
+  src.buffer = f.buf;
+  src.loop = true;
+  const g = ctx.createGain();
+  const t0 = ctx.currentTime;
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(0.5, t0 + 2.5); // MUSIC bus scales this
+  src.connect(g);
+  g.connect(musicBus); // ride the MUSIC volume bus, gated by the audio toggle
+  src.start();
+  musicBoxBed = { id: want.id, src, g };
+}
+
+// Begin (or keep) the restored music box loop for a level. mode is
+// 'story'|'stronghold', stem is the level file stem (e.g. 'ch01','sh13').
+export function playMusicBox(mode, stem) {
+  if (typeof window === 'undefined') return; // headless (tests): no-op
+  const id = `${mode}-${stem}`;
+  if (musicBoxBed && musicBoxBed.id === id) return;   // already looping this one
+  if (musicBoxWant && musicBoxWant.id === id && !musicBoxBed) { tryStartMusicBox(); return; }
+  if (musicBoxBed) stopMusicBox(); // a different level's box: drop the old one
+  musicBoxWant = { id, rel: `music/${id}.mp3` };
+  ensureAudio(); // born on first gesture; harmless if the ctx already exists
+  tryStartMusicBox(); // plays now if the buffer's already cached, else retries
+}
+
+// Stop and clear the music box loop (level change, menu, completion reset).
+export function stopMusicBox() {
+  musicBoxWant = null;
+  if (!musicBoxBed) return;
+  const b = musicBoxBed;
+  musicBoxBed = null;
+  try {
+    const t0 = ctx.currentTime;
+    b.g.gain.cancelScheduledValues(t0);
+    b.g.gain.setTargetAtTime(0.0001, t0, 0.4);
+    b.src.stop(t0 + 1.2);
+  } catch { /* already stopped */ }
+}
+
 // ============================== ASSET LIBRARY ==============================
 // The Anchorfall audio pack lives at /assets/audio/<category>/... (463 opus .ogg
 // clips: ambient beds, sci-fi interaction cues, enemy combat vocals, Karen &
@@ -276,6 +336,7 @@ let musicGapUntil = 0;   // small silence between rotated tracks
 let bloodDrone = null;   // sustained dissonant pair while the moon is up
 let weatherBed = null;   // { kind, src, g } looping filtered-noise bed
 let storyBed = null;     // intro/ending one-shot bed (cutscenes, victory)
+let musicBoxBed = null;  // { id, src, g } the restored Music Box loop (easter egg)
 let texT = 0;            // texture scheduler clock
 let texRng = 1;          // tiny LCG for texture spacing (reseeded per mission)
 function texRand() { texRng = (texRng * 1664525 + 1013904223) >>> 0; return texRng / 4294967296; }

@@ -1472,6 +1472,15 @@ export function addEventFX(ev) {
   else if (ev.type === 'down') { burst(12, PAL.red, 150, 0.6); burst(6, '#ffffff', 130, 0.4); shake = Math.max(shake, 6); }
   else if (ev.type === 'pickup') { burst(10, '#5fd2b4', 100, 0.5); popups.push({ x: ev.x, y: ev.y - 20, text: 'RESCUE', life: 0.8, max: 0.8, color: '#5fd2b4' }); }
   else if (ev.type === 'extract') { burst(16, PAL.anchor, 170, 0.7); popups.push({ x: ev.x, y: ev.y - 22, text: `+${ev.points || 250}`, life: 0.9, max: 0.9, color: PAL.relay }); }
+  // music box: scoop sparkle, deposit chime burst, and the 4/4 fanfare
+  else if (ev.type === 'mbPickup') { burst(8, '#c178ff', 90, 0.5); popups.push({ x: ev.x, y: ev.y - 20, text: 'ARTIFACT', life: 0.8, max: 0.8, color: '#d6a8ff' }); }
+  else if (ev.type === 'mbPlace') { burst(14, '#c178ff', 130, 0.6); ring(38, 'rgba(198,140,255,0.8)', 0.6, 3); popups.push({ x: ev.x, y: ev.y - 22, text: `${ev.assembled ?? 0}/${ev.of ?? 4}`, life: 0.9, max: 0.9, color: '#d6a8ff' }); }
+  else if (ev.type === 'mbComplete') {
+    burst(28, '#c178ff', 200, 0.9); burst(12, '#eddbff', 130, 0.7);
+    ring(90, 'rgba(214,168,255,0.85)', 0.9, 3); ring(50, 'rgba(237,219,255,0.7)', 0.7, 2.5);
+    shake = Math.max(shake, 6);
+    popups.push({ screen: true, x: 0, y: 0, text: 'THE RELIC AWAKENS', life: 3.0, max: 3.0, color: '#d6a8ff', size: 28 });
+  }
   else if (ev.type === 'spawn') burst(10, PAL.relay, 120, 0.5);
   else if (ev.type === 'spawnEnemy') { burst(8, PAL.glitch, 110, 0.45); burst(3, PAL.eye, 60, 0.25); }
   else if (ev.type === 'alert') popups.push({ x: ev.x, y: ev.y - 26, text: '!', life: 0.6, max: 0.6, color: PAL.eye });
@@ -5003,6 +5012,106 @@ function drawForge(ctx, fo, t, lights) {
   lights.push({ x: x - 4, y: y - 3, r: 52, rgb: '240,169,60', a: 0.14 + j * 0.04 });
 }
 
+// MUSIC BOX easter egg art -------------------------------------------------
+// The ruin altar: a broken stone plinth. Each restored fragment seats a small
+// amethyst chip in its rim, so the plinth visibly fills as the squad delivers;
+// at 4/4 the whole altar glows and a soft note-glyph hovers over it.
+function drawMusicAltar(ctx, a, mb, t, lights) {
+  const { x, y } = a;
+  const done = !!mb.complete;
+  shadowBlob(ctx, x, y + 9, 16, 6);
+  // cracked stone base
+  ctx.fillStyle = '#2C2F3B';
+  ctx.beginPath(); ctx.ellipse(x, y + 4, 15, 7, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#3A3F4E';
+  ctx.fillRect(x - 11, y - 8, 22, 12);
+  ctx.fillStyle = '#474D60';
+  ctx.fillRect(x - 11, y - 9, 22, 2);
+  // a fracture line down the column
+  ctx.strokeStyle = '#21242F';
+  ctx.lineWidth = 1.4;
+  ctx.beginPath(); ctx.moveTo(x + 2, y - 8); ctx.lineTo(x - 1, y + 3); ctx.stroke();
+  // seated amethyst chips: one per restored fragment, around the top rim
+  const seated = mb.assembled ?? 0;
+  const pulse = 0.5 + 0.5 * Math.sin(t * 3);
+  for (let i = 0; i < 4; i++) {
+    const cx = x - 9 + i * 6;
+    if (i < seated) {
+      ctx.save();
+      ctx.shadowColor = '#c178ff';
+      ctx.shadowBlur = 6 + 3 * pulse;
+      ctx.fillStyle = `rgba(198,140,255,${0.8 + 0.2 * pulse})`;
+      ctx.beginPath();
+      ctx.moveTo(cx, y - 13); ctx.lineTo(cx + 2.4, y - 9); ctx.lineTo(cx, y - 5); ctx.lineTo(cx - 2.4, y - 9);
+      ctx.closePath(); ctx.fill();
+      ctx.restore();
+    } else {
+      // empty socket
+      ctx.fillStyle = '#23262F';
+      ctx.beginPath(); ctx.ellipse(cx, y - 9, 2.2, 1.6, 0, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  if (done) {
+    const og = ctx.createRadialGradient(x, y - 6, 0, x, y - 6, 34 + 6 * pulse);
+    og.addColorStop(0, `rgba(214,168,255,${0.28 + 0.12 * pulse})`);
+    og.addColorStop(1, 'rgba(214,168,255,0)');
+    ctx.fillStyle = og;
+    ctx.fillRect(x - 40, y - 46, 80, 80);
+    // a little note glyph lilting above
+    ctx.save();
+    ctx.fillStyle = `rgba(231,210,255,${0.7 + 0.3 * pulse})`;
+    ctx.font = 'bold 14px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('♫', x, y - 22 - 3 * pulse);
+    ctx.restore();
+    lights.push({ x, y: y - 6, r: 60, rgb: '198,140,255', a: 0.16 + 0.06 * pulse });
+  } else {
+    lights.push({ x, y: y - 6, r: 34, rgb: '120,90,150', a: 0.06 });
+  }
+}
+
+// A loose music-box fragment: a small floating amethyst shard with a soft
+// glow and a "▼ FRAGMENT" prompt, mirroring the captive RESCUE marker.
+function drawMusicFragment(ctx, f, t, lights, loose = true) {
+  const { x, y } = f;
+  const bob = Math.sin(t * 2.4 + (x + y) * 0.02) * 2.5;
+  const pulse = 0.5 + 0.5 * Math.sin(t * 4 + x * 0.05);
+  const fy = y + bob;
+  shadowBlob(ctx, x, y + 8, 8, 3);
+  // glow halo
+  const g = ctx.createRadialGradient(x, fy, 0, x, fy, 16 + 4 * pulse);
+  g.addColorStop(0, `rgba(198,140,255,${0.45 + 0.25 * pulse})`);
+  g.addColorStop(1, 'rgba(198,140,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(x - 22, fy - 22, 44, 44);
+  // the shard (a faceted diamond)
+  ctx.save();
+  ctx.shadowColor = '#c178ff';
+  ctx.shadowBlur = 8;
+  ctx.fillStyle = '#b07cf0';
+  ctx.beginPath();
+  ctx.moveTo(x, fy - 8); ctx.lineTo(x + 5, fy); ctx.lineTo(x, fy + 8); ctx.lineTo(x - 5, fy);
+  ctx.closePath(); ctx.fill();
+  // bright inner facet
+  ctx.fillStyle = `rgba(237,219,255,${0.7 + 0.3 * pulse})`;
+  ctx.beginPath();
+  ctx.moveTo(x, fy - 5); ctx.lineTo(x + 2.4, fy - 1); ctx.lineTo(x, fy + 3); ctx.lineTo(x - 2.4, fy - 1);
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+  // pickup prompt — only for fragments still loose on the ground
+  if (loose) {
+    ctx.save();
+    ctx.shadowColor = '#c178ff';
+    ctx.shadowBlur = 8;
+    ctx.fillStyle = `rgba(214,168,255,${0.6 + 0.4 * pulse})`;
+    ctx.font = 'bold 10px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('▼ ARTIFACT', x, fy - 18 - pulse * 2);
+    ctx.restore();
+  }
+  lights.push({ x, y: fy, r: 30, rgb: '198,140,255', a: 0.08 + 0.06 * pulse });
+}
+
 // Doors: closed bulkheads read as walls (they block movement, sight, shots).
 // Open ones slide their two panels apart along the door's long axis.
 function drawDoor(ctx, d, t, dt, lights) {
@@ -7391,6 +7500,19 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
     for (const c of crackers) if (inView(c.x, c.y, TILE * 9)) drawCrackerCharge(ctx, c, t, lights);
   }
 
+  // --- music box easter egg: the ruin altar + its glowing fragments ---
+  if (snap.musicBox) {
+    const mb = snap.musicBox;
+    if (inView(mb.altar.x, mb.altar.y, 60)) drawMusicAltar(ctx, mb.altar, mb, t, lights);
+    for (const f of mb.fragments ?? []) {
+      // placed fragments rest on the altar (drawn as part of it); carried ones
+      // trail their carrier; only loose-on-the-ground fragments draw here
+      if (f.placed) continue;
+      if (!inView(f.x, f.y, 60)) continue;
+      drawMusicFragment(ctx, f, t, lights, f.carrier == null);
+    }
+  }
+
   // --- downed captives (slumped, awaiting rescue) ---
   for (const c of snap.captives) {
     if (!inView(c.x, c.y)) continue;
@@ -8600,6 +8722,14 @@ export function renderMinimap(ctx, snap, focusPids) {
     ctx.stroke();
   }
   for (const c of snap.captives) if (!c.owner && seenAt(c.x, c.y)) dot(c.x, c.y, '#5fd2b4');
+  // music box: the altar (gold) and every still-loose fragment (amethyst);
+  // carried + placed fragments clear, matching the captive-ping precedent
+  if (snap.musicBox) {
+    if (seenAt(snap.musicBox.altar.x, snap.musicBox.altar.y)) dot(snap.musicBox.altar.x, snap.musicBox.altar.y, '#d6a8ff', 3);
+    for (const f of snap.musicBox.fragments ?? []) {
+      if (!f.placed && f.carrier == null && seenAt(f.x, f.y)) dot(f.x, f.y, '#be78ff', 2.5);
+    }
+  }
   for (const p of snap.players) if (p.state === 'active') dot(p.x, p.y, focus.has(p.pid) ? '#ffffff' : PAL.relay, 3);
   // camera viewport rectangle
   ctx.strokeStyle = 'rgba(191,208,232,0.5)';

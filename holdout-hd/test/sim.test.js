@@ -178,6 +178,128 @@ function testRescueAndPermanentLossRules() {
   assert.deepEqual(applyResults(['scout', 'soldier'], lossGame).roster, ['scout', 'soldier'], 'failed levels lose no one permanently');
 }
 
+// --- MUSIC BOX easter egg: story/stronghold only, deterministic placement,
+// captive-style carry + altar deposit, drop on down, snapshot wiring ---
+function testMusicBoxFeature() {
+  // a roomy story map: spawn middle-ish, open corners, no obstacles. A lone
+  // grunt keeps the field non-empty so the level can't auto-clear under us.
+  const W = 14, H = 10;
+  const tiles = ['#'.repeat(W)];
+  for (let y = 1; y < H - 1; y++) tiles.push('#' + '.'.repeat(W - 2) + '#');
+  tiles.push('#'.repeat(W));
+  // place a spawn near center, with a sleeping grunt a few tiles off it
+  tiles[Math.floor(H / 2)] = '#' + '.'.repeat(5) + 'P' + '.'.repeat(W - 8) + '#';
+  tiles[2] = '#' + '.'.repeat(9) + 'g' + '.'.repeat(W - 12) + '#';
+  const storyDef = { name: 'MB Story', story: true, chapter: 3, time: 600, tiles, captiveChars: [] };
+
+  const g = createGame(storyDef, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  assert.ok(g.musicBox && g.musicBox.enabled, 'story level enables the music box');
+  assert.equal(g.musicBox.fragments.length, 4, 'four fragments seed');
+  assert.ok(g.musicBox.altar && Number.isFinite(g.musicBox.altar.x), 'an altar seeds');
+  assert.equal(g.musicBox.mode, 'story', 'mode tag is story');
+  assert.equal(g.musicBox.stem, 'ch03', 'stem derives from chapter when no key');
+  assert.equal(g.musicBox.assembled, 0, 'nothing assembled at start');
+  assert.ok(g.musicBox.fragments.every(f => !f.placed && f.carrier == null), 'fragments start free');
+
+  // determinism: a second identical build places identically
+  const g2 = createGame(storyDef, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  assert.deepEqual(
+    g2.musicBox.fragments.map(f => [f.x, f.y]),
+    g.musicBox.fragments.map(f => [f.x, f.y]),
+    'fragment placement is deterministic across builds');
+  assert.deepEqual([g2.musicBox.altar.x, g2.musicBox.altar.y], [g.musicBox.altar.x, g.musicBox.altar.y], 'altar placement is deterministic');
+
+  // stem from def.key (server-tagged) wins over chapter
+  const keyed = createGame({ ...storyDef, key: 'story/ch07' }, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  assert.equal(keyed.musicBox.stem, 'ch07', 'stem comes from def.key when present');
+
+  // snapshot ships the musicBox block for story
+  const snap = snapshot(g);
+  assert.ok(snap.musicBox, 'snapshot carries musicBox for story');
+  assert.equal(snap.musicBox.fragments.length, 4, 'snapshot lists all fragments');
+  assert.equal(snap.musicBox.mode, 'story');
+  assert.equal(snap.musicBox.stem, 'ch03');
+
+  // pickup: teleport a player onto a fragment, step once -> carried. Keep the
+  // operative invulnerable so the lone grunt can't interrupt the scripted run.
+  const p = g.players[0];
+  p.invuln = 999;
+  g.graceT = 0;
+  const f0 = g.musicBox.fragments[0];
+  p.x = f0.x; p.y = f0.y;
+  step(g, { 0: {} }, 1 / 30);
+  assert.equal(g.musicBox.fragments[0].carrier, 0, 'walking onto a fragment carries it');
+  // only one fragment per carrier: stand on a second, it stays free
+  const f1 = g.musicBox.fragments[1];
+  p.x = f1.x; p.y = f1.y;
+  step(g, { 0: {} }, 1 / 30);
+  assert.equal(g.musicBox.fragments[1].carrier, null, 'a carrier cannot scoop a second fragment');
+
+  // deposit: walk the carrier to the altar -> assembled increments, consumed
+  p.x = g.musicBox.altar.x; p.y = g.musicBox.altar.y;
+  step(g, { 0: {} }, 1 / 30);
+  assert.equal(g.musicBox.assembled, 1, 'depositing at the altar increments assembled');
+  assert.ok(g.musicBox.fragments[0].placed, 'deposited fragment is marked placed');
+  assert.equal(g.musicBox.fragments[0].carrier, null, 'deposited fragment has no carrier');
+
+  // complete: carry + deposit the remaining three at the altar
+  for (const idx of [1, 2, 3]) {
+    const fr = g.musicBox.fragments[idx];
+    p.x = fr.x; p.y = fr.y;
+    step(g, { 0: {} }, 1 / 30); // scoop it
+    assert.equal(fr.carrier, 0, `fragment ${idx} picked up`);
+    p.x = g.musicBox.altar.x; p.y = g.musicBox.altar.y;
+    step(g, { 0: {} }, 1 / 30); // deposit it
+  }
+  assert.equal(g.musicBox.assembled, 4, 'all four assembled');
+  assert.ok(g.musicBox.complete, 'music box completes at 4/4');
+
+  // drop on down: a fresh run, carry a fragment, flip the carrier inactive ->
+  // the fragment frees right where the carrier fell, recoverable by anyone
+  const dg = createGame(storyDef, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  const dp = dg.players[0];
+  dp.invuln = 999; dg.graceT = 0;
+  const df = dg.musicBox.fragments[0];
+  dp.x = df.x; dp.y = df.y;
+  step(dg, { 0: {} }, 1 / 30);
+  assert.equal(dg.musicBox.fragments[0].carrier, 0, 'fragment carried before down');
+  const dropX = dg.musicBox.fragments[0].x;
+  dp.state = 'down'; // simulate a downed carrier
+  step(dg, { 0: {} }, 1 / 30);
+  assert.equal(dg.musicBox.fragments[0].carrier, null, 'a downed carrier drops the fragment, recoverable');
+  assert.ok(Math.abs(dg.musicBox.fragments[0].x - dropX) < TILE, 'fragment stays where the carrier fell');
+
+  // other modes never gain the feature
+  const classicDef = { name: 'Plain', time: 90, tiles, captiveChars: [] };
+  const cg = createGame(classicDef, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  assert.ok(cg.musicBox && cg.musicBox.enabled === false, 'classic levels leave the music box disabled');
+  assert.ok(!snapshot(cg).musicBox, 'classic snapshot never gains a musicBox key');
+
+  // stronghold (mode bastion) enables it with the stronghold tag + sh stem
+  const shDef = { name: 'MB Stronghold', mode: 'bastion', time: 600, tiles, captiveChars: [], stronghold: { level: 13, hpMult: 1 } };
+  const sg = createGame(shDef, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  assert.ok(sg.musicBox.enabled, 'stronghold (bastion) enables the music box');
+  assert.equal(sg.musicBox.mode, 'stronghold', 'stronghold mode tag');
+  assert.equal(sg.musicBox.stem, 'sh13', 'stronghold stem derives from level');
+}
+
+// --- every shipped story + stronghold level seeds a usable music box ---
+function testMusicBoxOnAllStoryAndStronghold() {
+  for (const level of levels.filter(l => l.category === 'story' || l.category === 'stronghold')) {
+    const g = createGame(level, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+    assert.ok(g.musicBox.enabled, `${level.category} ${level.name}: music box enabled`);
+    assert.equal(g.musicBox.fragments.length, 4, `${level.name}: four fragments`);
+    // every fragment + altar sits on a walkable, non-lava floor tile
+    const onFloor = (x, y) => {
+      const c = g.grid[Math.floor(y / TILE)][Math.floor(x / TILE)];
+      return c !== '#' && c !== 'T' && c !== '~' && c !== 'o' && c !== '%' && c !== '!';
+    };
+    for (const f of g.musicBox.fragments) assert.ok(onFloor(f.x, f.y), `${level.name}: fragment on walkable floor`);
+    assert.ok(onFloor(g.musicBox.altar.x, g.musicBox.altar.y), `${level.name}: altar on walkable floor`);
+    assert.ok(snapshot(g).musicBox, `${level.name}: snapshot ships musicBox`);
+  }
+}
+
 function testScriptedBotClearsLevelOne() {
   const party = startingRoster.map((id, i) => ({ pid: i, name: id, charId: id }));
   const g = createGame(levels[0], party, charMap, startingRoster);
@@ -1033,6 +1155,8 @@ testLevelsParse();
 testEveryCharacterCanKill();
 testNewEnemiesCanDownPlayer();
 testRescueAndPermanentLossRules();
+testMusicBoxFeature();
+testMusicBoxOnAllStoryAndStronghold();
 testScriptedBotClearsLevelOne();
 testAggroSleep();
 testSmallMapsStayArcade();
