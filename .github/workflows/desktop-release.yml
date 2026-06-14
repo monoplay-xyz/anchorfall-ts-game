@@ -56,6 +56,22 @@ jobs:
         working-directory: holdout-hd/desktop
         run: node scripts/prepare-runtime.js
 
+      # @kmamal/sdl ships its SDL shared lib as a SONAME symlink
+      # (libSDL2-2.0.so.0 -> .so on Linux, libSDL2-2.0.dylib -> .0.0.dylib on
+      # macOS). electron-builder's packer fails to recreate those (ensureSymlink
+      # ENOENT), so replace each symlink with a real copy of its target.
+      - name: De-symlink SDL shared libs
+        if: matrix.plat != 'win'
+        working-directory: holdout-hd/desktop
+        shell: bash
+        run: |
+          d=node_modules/@kmamal/sdl/dist
+          find "$d" -maxdepth 1 \( -name 'libSDL2*.so*' -o -name 'libSDL2*.dylib' \) -type l | while read -r l; do
+            real=$(readlink -f "$l")
+            if [ -f "$real" ]; then rm "$l"; cp "$real" "$l"; echo "de-symlinked $(basename "$l")"; fi
+          done
+          ls -la "$d"
+
       # ---------------- macOS ----------------
       - name: Build macOS
         if: matrix.plat == 'mac'
@@ -109,7 +125,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
-        run: gh release upload "${{ github.ref_name }}" dist/*.exe --clobber
+        run: |
+          # the mac/linux jobs create the release via --publish; create it here
+          # too if this job wins the race, then upload the signed installer.
+          gh release view "${{ github.ref_name }}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+            || gh release create "${{ github.ref_name }}" --repo "$GITHUB_REPOSITORY" \
+                 --title "${{ github.ref_name }}" --notes "Automated desktop release"
+          gh release upload "${{ github.ref_name }}" dist/*.exe --clobber --repo "$GITHUB_REPOSITORY"
 
       # ---------------- Linux ----------------
       - name: Build Linux
