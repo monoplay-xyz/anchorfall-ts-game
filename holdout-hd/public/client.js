@@ -42,6 +42,10 @@ const mod = (a, n) => ((a % n) + n) % n;
 
 const $ = id => document.getElementById(id);
 const canvas = $('game');
+// Declared early: fitStage() (used by the aspect/overscan settings applied at
+// init, well above) references stageEl — a late `const` here is a temporal
+// dead-zone crash that kills the whole frame loop before it starts.
+const stageEl = $('stage');
 const ctx = canvas.getContext('2d');
 const mmCtx = $('minimap').getContext('2d');
 const SAVE_KEY = 'holdout-hd.save';
@@ -4189,7 +4193,8 @@ if (demoMode) {
 // (~960x540 .. 2560x1440). The camera and all HUD/screen-space drawing read
 // the canvas dims dynamically, so on ultra-wide the field simply shows more
 // world (the cam clamps handle it). No distortion: one uniform scale factor.
-const stageEl = document.getElementById('stage');
+// stageEl is declared up top (next to `canvas`) to avoid a TDZ crash, since the
+// aspect/overscan settings above call fitStage() during init.
 function fitStage() {
   stageEl.style.transform = 'none'; // the old uniform-scale path is retired
   const r = canvas.getBoundingClientRect();
