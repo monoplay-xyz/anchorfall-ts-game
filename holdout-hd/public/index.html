@@ -20,6 +20,10 @@
     #banner { position: absolute; top: 9%; left: 50%; transform: translateX(-50%); padding: 9px 26px; font-weight: 800; letter-spacing: 4px; font-size: 19px; color: #eaf6ff; white-space: nowrap; background: rgba(8,10,18,.8); border: 1px solid var(--panel-edge); border-left: 3px solid var(--relay); pointer-events: none; text-transform: uppercase; }
     #banner.blood { border-left-color: #E04848; color: #ffb3a8; text-shadow: 0 0 18px rgba(255,60,40,.55); }
     #banner[hidden], #spectateTag[hidden] { display: none; }
+    /* tutorial coach: the current step's instruction, bottom-center */
+    #tutorialCoach { position: absolute; bottom: 17%; left: 50%; transform: translateX(-50%); max-width: 80%; padding: 10px 24px; font-weight: 800; letter-spacing: 1.2px; font-size: 16px; color: #d9f6ff; text-align: center; background: rgba(8,12,22,.86); border: 1px solid var(--panel-edge); border-bottom: 3px solid var(--relay); border-radius: 4px; pointer-events: none; box-shadow: 0 0 22px rgba(20,40,60,.5); }
+    #tutorialCoach.ok { border-bottom-color: #5fd2b4; color: #b9ffe6; }
+    #tutorialCoach[hidden] { display: none; }
     #spectateTag { position: absolute; bottom: 7%; left: 50%; transform: translateX(-50%); padding: 6px 18px; font-size: 12px; font-weight: 800; letter-spacing: 3px; color: #ffb3a8; background: rgba(8,10,18,.7); border: 1px solid rgba(224,72,72,.5); pointer-events: none; }
     #bastionInfo { margin-top: 6px; }
     #cyclePhase { font-size: 12px; letter-spacing: 1px; }
@@ -163,6 +167,7 @@
            the .screen overlays in DOM order, so open menus/dialogs paint over them -->
       <div id="banner" hidden></div>
       <div id="toast" hidden></div>
+      <div id="tutorialCoach" hidden></div>
       <div id="spectateTag" hidden>ELIMINATED &mdash; SPECTATING</div>
       <div id="countdown" hidden></div>
       <div id="otChip" hidden></div>
@@ -181,6 +186,8 @@
           <button id="btnDaily">Daily Challenge</button>
           <button id="btnRankings">Rankings</button>
           <button id="btnSettings">Settings</button>
+          <!-- interactive coached first mission for new players -->
+          <button id="btnTutorial" class="ghost">How to Play</button>
           <!-- Save & Quit bookmark — shown only while a suspended run parses -->
           <button id="btnResumeGame" hidden>Resume Game</button>
           <!-- native desktop (Electron) only: quit the app -->

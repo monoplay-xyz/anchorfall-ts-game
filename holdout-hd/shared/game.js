@@ -608,7 +608,7 @@ export function createGame(def, party, charMap, roster) {
   // never cue lowTime — g.elapsed keeps driving waves/gate.after/day-night.
   // def.timed:true opts a future level back into a countdown. CTF and BR keep
   // their match timers; classic levels keep their arcade countdowns.
-  const untimed = !pvp && !def.timed && (!!def.story || def.mode === 'bastion');
+  const untimed = !pvp && !def.timed && (!!def.story || def.mode === 'bastion' || !!def.untimed);
   // First 'E' tile center, used by the gateOpen event.
   let exitX = lvl.w * TILE / 2, exitY = lvl.h * TILE / 2;
   outer: for (let y = 0; y < lvl.h; y++) {

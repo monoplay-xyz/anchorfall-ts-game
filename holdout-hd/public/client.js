@@ -467,6 +467,7 @@ function handleEvent(ev) {
   // tag a hit with whether it landed on one of THIS connection's seats, so the
   // renderer only shakes/flashes the screen when it's your own operator hit.
   if (ev.type === 'playerHit') ev.mine = (session?.focusPids?.() ?? new Set()).has(ev.pid);
+  if (tut) tutorialEvent(ev); // advance the coach on kills / rescues
   addEventFX(ev);
   playEvent(ev);
   if (ev.type === 'talk') showDialogue(ev);
@@ -1509,6 +1510,9 @@ class LocalSession {
     // Daily Challenge: a seeded endless siege on one map+twist, shared board.
     // opts.daily = { dateStr, label, def } — def already carries endless + mods.
     this.daily = (this.bastion && opts.daily) ? opts.daily : null;
+    // Tutorial: a coached classic run on a one-map list (opts.tutorialDef), no
+    // saves/rankings — just teaches move/fire/rescue/extract.
+    this.tutorial = !!opts.tutorial;
     this.expedition = !this.story && !this.mode && !this.bastion && !!opts.expedition;
     this.levels = this.story ? storyLevels
       : this.mode ? (this.mode === 'ctf' ? ctfLevels : brLevels)
@@ -1525,6 +1529,7 @@ class LocalSession {
     this.roster = save?.roster ?? (this.bastion ? strongholdRoster() : startingRoster.slice());
     // Daily: a one-map list of the seeded def, so the lobby/HUD/start() all read it.
     if (this.daily) { this.levels = [this.daily.def]; this.levelIdx = 0; }
+    if (this.tutorial && opts.tutorialDef) { this.levels = [opts.tutorialDef]; this.levelIdx = 0; }
     this.players = []; // { pid, name, device, charId, cursor }
     this.game = null;
     this.snap = null;
@@ -1670,6 +1675,8 @@ class LocalSession {
     if (this.endless && lvl.mode === 'bastion') {
       lvl = { ...lvl, bastion: { ...(lvl.bastion || {}), endless: true } };
     }
+    // fresh coach counters each (re)start so a retry doesn't inherit progress
+    if (this.tutorial) tut = { step: 0, kills: 0, rescued: 0, moved: 0, lastPos: null };
     const begin = () => {
       this.game = createGame(
         lvl,
@@ -1906,6 +1913,23 @@ class LocalSession {
     this.game = null;
     this.paused = false;
     for (const p of this.players) { p.charId = null; p.cursor = 0; p.bot = null; }
+    // Tutorial: never saves or ranks — a clear graduates the player to the
+    // campaign; a wipe just offers a relaxed retry. (Intercept before the
+    // normal classic/endless/fail chain.)
+    if (this.tutorial) {
+      endTutorialCoach();
+      if (cleared) {
+        playUi('victory');
+        showMsg('You’re Ready',
+          'That’s the core of it — move, fire, rescue, extract.\nJump into the campaign, or hold a Stronghold in Endless.',
+          'Play Campaign', () => { session = null; show('menu'); showMenuPage('pageSingle'); refreshContinue(); },
+          'Main Menu', () => this.leave());
+      } else {
+        showMsg('Take Your Time', 'No one is lost on a practice run.\nGive it another go — you’ve got this.',
+          'Retry', () => this.lobby(), 'Main Menu', () => this.leave());
+      }
+      return;
+    }
     if (cleared) {
       // rankings: one board entry per cleared level (server POST, or static-
       // build local bests). submitRun no-ops on demo runs and keyless defs.
@@ -3321,6 +3345,56 @@ function paintDaily() {
 }
 $('btnDaily').onclick = e => { e.currentTarget.blur(); startDaily(); };
 paintDaily();
+
+// --- Tutorial coach: a scripted first mission teaching the core verbs -------
+// Reuses level 1 (Outer Barricade) untimed, with an on-screen coach that
+// advances as the new player moves, fires, rescues the pinned marksman, and
+// extracts. No saves, no rankings — just onboarding.
+let tut = null; // { step, kills, rescued, moved, lastPos } while a tutorial runs
+const TUTORIAL_STEPS = [
+  { text: '① MOVE — left stick, or WASD / Arrow keys', ok: 'Moving!', done: () => tut.moved > TILE * 5 },
+  { text: '② HOLD FIRE to break the cordon — RT · Space · Enter', ok: 'Nice shooting!', done: () => tut.kills >= 2 },
+  { text: '③ RESCUE — walk into the pinned marksman to free them', ok: 'Rescued!', done: () => tut.rescued >= 1 },
+  { text: '④ EXTRACT — reach the glowing exit', ok: '', done: (snap) => snap.status === 'cleared' },
+];
+function startTutorial() {
+  if (session) return;
+  playUi('select');
+  const base = campaign[0]; // move → fight → rescue → extract, all in one small map
+  const def = { ...base, untimed: true, name: 'Tutorial' };
+  tut = { step: 0, kills: 0, rescued: 0, moved: 0, lastPos: null };
+  session = new LocalSession(null, { tutorial: true, tutorialDef: def });
+  session.lobby();
+}
+function tutorialEvent(ev) { // funneled from handleEvent while a tutorial runs
+  if (!tut) return;
+  if (ev.type === 'die') tut.kills++;
+  else if (ev.type === 'pickup') tut.rescued++;
+}
+function endTutorialCoach() { tut = null; const el = $('tutorialCoach'); if (el) el.hidden = true; }
+function tutorialTick(snap) {
+  const el = $('tutorialCoach');
+  if (!tut || !el) { if (el) el.hidden = true; return; }
+  // accumulate the local operator's travel for the MOVE step
+  const mine = session.focusPids?.() ?? new Set();
+  const me = (snap.players || []).find(p => mine.has(p.pid)) || (snap.players || [])[0];
+  if (me) {
+    if (tut.lastPos) tut.moved += Math.hypot(me.x - tut.lastPos.x, me.y - tut.lastPos.y);
+    tut.lastPos = { x: me.x, y: me.y };
+  }
+  const step = TUTORIAL_STEPS[tut.step];
+  if (!step) { el.hidden = true; return; }
+  el.hidden = false;
+  el.textContent = step.text;
+  if (step.done(snap)) {
+    if (step.ok) showToast('✓ ' + step.ok, 1500, true);
+    playUi('victory');
+    tut.step++;
+    el.classList.add('ok');
+    setTimeout(() => el.classList.remove('ok'), 600);
+  }
+}
+$('btnTutorial').onclick = e => { e.currentTarget.blur(); startTutorial(); };
 $('btnBrowse').onclick = e => { e.currentTarget.blur(); showMenuPage('pageBrowse'); };
 // room visibility toggles (Online page): cycle Public/Private per mode group,
 // persisted; the choice rides the next host message's explicit public flag
@@ -3838,6 +3912,7 @@ function frame(now) {
         if (views) renderMod.renderViews(ctx, snap, charMap, views, now / 1000, dt);
         else render(ctx, snap, charMap, session.focusPids(), now / 1000, dt);
         updateHUD(snap);
+        if (session.tutorial) tutorialTick(snap);
         // hold-MAP full-map overlay (pad SELECT / Tab / M) — play only;
         // lobbies, menus and dialogs ignore the map button entirely
         if (snap.status === 'play' && !visibleScreen()
@@ -3849,6 +3924,7 @@ function frame(now) {
   } else {
     // cheap animated backdrop behind the DOM menu (optional renderer feature)
     renderMod.drawMenuBackdrop?.(ctx, now / 1000);
+    if (tut) endTutorialCoach(); // session gone (quit mid-tutorial): clear the coach
   }
   requestAnimationFrame(frame);
 }
