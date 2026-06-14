@@ -516,11 +516,13 @@ function show(id) {
   hideBanner();
   hideToast();
   closePauseUi(); // any full-screen change tears the pause/leave dialog down
+  // only play the entrance when actually transitioning INTO a screen — not on
+  // every re-render (the lobby re-renders on each carousel step, and replaying
+  // the whole-screen stagger there looked like a full page reload)
+  const wasHidden = $(id) ? $(id).hidden : true;
   for (const s of ['menu', 'lobby', 'msg']) $(s).hidden = s !== id;
-  // fade the revealed screen in (the active menu page re-triggers its own
-  // staggered entrance via showMenuPage)
   const sc = $(id);
-  if (sc && !sc.hidden) { sc.classList.remove('anim-in'); void sc.offsetWidth; sc.classList.add('anim-in'); }
+  if (sc && !sc.hidden && wasHidden) { sc.classList.remove('anim-in'); void sc.offsetWidth; sc.classList.add('anim-in'); }
   // back on the menu with the room browser still the current page: resume its
   // 5s auto-refresh (it reaps itself whenever the page is not actually open)
   if (id === 'menu' && menuPageId === 'pageBrowse') startBrowse();
@@ -1290,6 +1292,9 @@ function localFitZoom(snap, pids, vw, vh) {
 // transition), null for the classic single-view render().
 function splitViews(snap, dt) {
   if (split.session !== session) { split.session = session; split.on = false; split.k = 0; }
+  // Anchor Siege (MOBA) is a single-camera mode: you follow your own hero, and
+  // its bot allies must never spawn extra splitscreen viewports.
+  if (session?.mode === 'siege' || snap?.mode === 'siege') { split.on = false; split.k = 0; return null; }
   // a seat only counts once its pid exists in the snapshot (net seats can be
   // claimed mid-lobby; a dead seat's pid leaves the player list)
   const seats = localSeatInfo()
@@ -3569,6 +3574,7 @@ function refreshContinue() {
   $('btnHostCtf').hidden = !ctfLevels.length;
   $('btnBr').hidden = !brLevels.length;
   $('btnSiege').hidden = !siegeLevels.length;
+  $('btnHostSiege').hidden = !siegeLevels.length;
   $('btnFamily').hidden = !familyLevels.length;
   $('btnHostBr').hidden = !brLevels.length;
   // visibility toggles and the browser need a live server (static builds
@@ -4167,6 +4173,11 @@ $('btnHostBr').onclick = e => {
   e.currentTarget.blur();
   if (!brLevels.length || session) return;
   session = new NetSession('host', $('joinCode').value.trim().toUpperCase(), 'br');
+};
+$('btnHostSiege').onclick = e => {
+  e.currentTarget.blur();
+  if (!siegeLevels.length || session) return;
+  session = new NetSession('host', $('joinCode').value.trim().toUpperCase(), 'siege');
 };
 $('btnHostStory').onclick = e => {
   e.currentTarget.blur();

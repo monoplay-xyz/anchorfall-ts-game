@@ -171,6 +171,7 @@ const SIEGE_TOWER_DMG = [2, 3, 4];
 const SIEGE_TOWER_RANGE = [6, 6.5, 7];  // tiles
 const SIEGE_TOWER_PERIOD = 0.8;         // seconds between tower shots
 const SIEGE_TOWER_REWARD = 8;           // shards to the team that destroys a tower
+const SIEGE_HERO_SPEED = 0.72;          // MOBA heroes move deliberately (vs the fast run-and-gun campaign)
 const MINION_HP = 4;
 const MINION_SPEED = 2.0;               // tiles/sec along the lane
 const MINION_R = TILE * 0.32;
@@ -4308,6 +4309,7 @@ export function step(g, inputs, dt) {
         p.fx = mx; p.fy = my;
         let v = ch.speed * TILE * dt * (p.stimT > 0 ? 1.3 : 1);
         if (vehicle) v = ch.speed * TILE * dt * (vehicle.kind === 'stag' ? STAG_SPEED : 1);
+        if (g.siege && !vehicle) v *= SIEGE_HERO_SPEED; // MOBA: deliberate hero movement
         v *= moveMult(g, p.x, p.y); // sand drags, ice skates, snowfall slows
         if (g.flags.length && g.flags.some(f => f.carrier === p.pid)) v *= CARRY_SLOW;
         if (!vehicle && onWater) v *= SWIM_SLOW; // swimmers paddle slower

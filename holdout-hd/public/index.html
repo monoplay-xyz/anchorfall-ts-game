@@ -229,6 +229,8 @@
           <button id="btnStory">Story: Anchorfall Crossing</button>
           <button id="btnStoryContinue" hidden>Continue Story</button>
           <button id="btnBastion" hidden>Stronghold</button>
+          <!-- MOBA lane-push: solo vs bots (online hosting is on the Online page) -->
+          <button id="btnSiege" hidden>Anchor Siege &mdash; MOBA</button>
           <button class="ghost mback">Back</button>
         </div>
 
@@ -240,8 +242,6 @@
           <!-- mirrors the Online-page cycler: couch CTF uses the same persisted pick -->
           <button id="btnCtfMapV" class="ghost" hidden>CTF map: &mdash;</button>
           <button id="btnBr" hidden>Battle Royale</button>
-          <!-- MOBA lane-push: solo vs bots or couch teams -->
-          <button id="btnSiege" hidden>Anchor Siege &mdash; MOBA</button>
           <button class="ghost mback">Back</button>
         </div>
 
@@ -256,6 +256,8 @@
           <button id="btnHostDaily" hidden>Host Daily Challenge</button>
           <button id="btnHostCtf" hidden>Host CTF</button>
           <button id="btnHostBr" hidden>Host Battle Royale</button>
+          <!-- MOBA lane-push online: host a room, friends join by code -->
+          <button id="btnHostSiege" hidden>Host Anchor Siege</button>
           <!-- ctf map choice (shows once 2+ ctf maps ship) — cycles, persisted;
                rides the host message levelIdx like stronghold hosting does -->
           <button id="btnCtfMap" class="ghost" hidden>CTF map: &mdash;</button>
