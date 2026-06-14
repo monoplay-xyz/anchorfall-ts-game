@@ -115,7 +115,9 @@ function saveRankings() {
 // Insert an entry on its board; returns the 1-based rank or null if it missed
 // the top 50.
 function recordRanking(key, entry) {
-  if (!levelKeys.has(key)) return null;
+  // Fixed catalog/endless boards live in levelKeys; daily boards are dynamic
+  // (one per UTC date) and validated by shape instead.
+  if (!levelKeys.has(key) && !DAILY_KEY_RE.test(key)) return null;
   const board = rankings[key] || (rankings[key] = []);
   board.push(entry);
   board.sort((a, b) => b.score - a.score || a.timeS - b.timeS);
@@ -233,6 +235,19 @@ app.get('/api/rooms', (req, res) => {
 // served from this server). Online room clears are recorded server-side and
 // never POSTed.
 const endlessName = def => `${def.stronghold?.name || def.title || def.name} — Endless`;
+// Daily Challenge boards are dynamic (one per UTC date), so they aren't in the
+// fixed key registry — they're validated by shape instead. A board is READABLE
+// if well-formed; only today's (±1.5d for clock skew) is WRITEABLE, so a forger
+// can't seed infinite future boards.
+const DAILY_KEY_RE = /^daily\/\d{4}-\d{2}-\d{2}$/;
+const dailyName = key => `Daily — ${key.slice(6)}`;
+function isWriteableDaily(key) {
+  if (!DAILY_KEY_RE.test(key)) return false;
+  const d = new Date(key.slice(6) + 'T00:00:00Z').getTime();
+  if (!Number.isFinite(d)) return false;
+  const today = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00Z').getTime();
+  return Math.abs(d - today) <= 86400000 * 1.5;
+}
 app.get('/api/rankings', (req, res) => {
   const out = levels.filter(l => rankings[l.key]?.length)
     .map(l => ({ key: l.key, name: l.title || l.name, count: rankings[l.key].length }));
@@ -241,10 +256,15 @@ app.get('/api/rankings', (req, res) => {
     const ek = endlessKeyOf(l.key);
     if (rankings[ek]?.length) out.push({ key: ek, name: endlessName(l), count: rankings[ek].length });
   }
+  // Daily Challenge boards: whichever dates have recorded runs (newest first).
+  Object.keys(rankings).filter(k => DAILY_KEY_RE.test(k) && rankings[k]?.length)
+    .sort((a, b) => b.localeCompare(a))
+    .forEach(k => out.push({ key: k, name: dailyName(k), count: rankings[k].length }));
   res.json({ levels: out });
 });
 app.get('/api/rankings/:cat/:stem', (req, res) => {
   const key = `${req.params.cat}/${req.params.stem}`;
+  if (DAILY_KEY_RE.test(key)) return res.json({ key, name: dailyName(key), entries: rankings[key] || [] });
   if (!levelKeys.has(key)) return res.status(404).json({ error: 'unknown level' });
   const def = levelByKey.get(key);
   const name = req.params.cat === 'endless' ? endlessName(def) : (def.title || def.name);
@@ -255,7 +275,7 @@ app.post('/api/rankings', express.json({ limit: '4kb' }), (req, res) => {
   if (rankRateLimited(ip)) return res.status(429).json({ error: 'rate limited' });
   const b = req.body || {};
   const key = String(b.key || '');
-  if (!levelKeys.has(key)) return res.status(400).json({ error: 'unknown level key' });
+  if (!levelKeys.has(key) && !isWriteableDaily(key)) return res.status(400).json({ error: 'unknown level key' });
   if (!Array.isArray(b.names) || !b.names.length || b.names.length > 8) return res.status(400).json({ error: 'names must be 1-8 strings' });
   const names = b.names.map(cleanName); // same trust-boundary hygiene as ws names
   const players = Math.min(8, Math.max(1, Math.floor(Number(b.players)) || names.length));

@@ -88,6 +88,31 @@ const FARM_GROW_T = 25; // seconds per stage (15 with a hired farmer)
 const FARM_GROW_FAST = 15;
 const BASTION_DEFAULTS = { nights: 5, dayLen: 90, nightLen: 75, bloodMoons: [3, 5] };
 const BLOOD_WARN_LEAD = 30; // seconds before a blood-moon dusk
+
+// --- Daily Challenge -------------------------------------------------------
+// A deterministic daily siege: the same UTC date yields the same stronghold map
+// + modifier twist for everyone, played as an endless holdout ranked on a shared
+// daily board. A pure function of (dateStr, mapCount) so the client and server
+// derive byte-identical specs — no trust needed on which map/twist is "today".
+const DAILY_TWISTS = [
+  { id: 'standard',  label: 'Standard Siege', mods: {} },
+  { id: 'iron',      label: 'Iron Night',     mods: { waveMult: 1.4 } },          // thicker waves
+  { id: 'bloodtide', label: 'Blood Tide',     mods: { bloodEvery: 2 } },          // blood moon every other night
+  { id: 'swiftdusk', label: 'Swift Dusk',     mods: { dayLen: 55 } },             // less time to prep
+  { id: 'bossrush',  label: 'Boss Rush',      mods: { bossEvery: 3 } },           // a boss every 3rd night
+  { id: 'onslaught', label: 'Onslaught',      mods: { wavesPerNight: 2, waveMult: 1.2 } }, // two waves a night
+];
+function dailyHash(s) {
+  let h = 2166136261; // FNV-1a (deterministic, no Math.random/Date)
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return (h >>> 0);
+}
+export function dailyChallenge(dateStr, mapCount) {
+  const h = dailyHash(String(dateStr));
+  const mapIdx = mapCount > 0 ? h % mapCount : 0;
+  const tw = DAILY_TWISTS[(h >>> 8) % DAILY_TWISTS.length]; // independent bits → map and twist vary apart
+  return { dateStr: String(dateStr), mapIdx, twist: tw.id, label: tw.label, mods: { ...tw.mods } };
+}
 const WAVE_ENGAGE = 6; // tiles: a core-marcher engages a player it SEES this close
 const WAVE_DISENGAGE = 9; // tiles: it resumes the march once they slip this far
 
@@ -3071,10 +3096,12 @@ function spawnNightWave(g, off = 0) {
   // only, so a blood-moon double edge never doubles the boss). Def-gated:
   // classic bastion defs never carry the field and play exactly as before.
   // Boss cadence: the campaign's scheduled bossNights, OR — in endless — one
-  // Entropy boss every 5th night (the def carries no list), first edge only.
+  // Entropy boss every bossEvery nights (default 5; a daily twist may tighten
+  // it). The def carries no list in endless; first edge only.
+  const bossEvery = g.bastion.bossEvery || 5;
   let bossDue = off === 0 && (
     (Array.isArray(g.bastion.bossNights) && g.bastion.bossNights.includes(n))
-    || (endless && n >= 5 && n % 5 === 0)
+    || (endless && bossEvery > 0 && n % bossEvery === 0)
   ) ? 1 : 0;
   let mi = off; // mutation index runs across the whole night's spawns
   for (let ei = 0; ei < edges.length; ei++) {
@@ -3142,7 +3169,8 @@ function stepCycle(g, dt) {
   // Endless: no fixed night count — blood moons recur every 3rd night from the
   // 3rd, and dawn never declares victory (the run ends only when the base falls).
   const endless = !!(g.bastion && g.bastion.endless);
-  const isBloodNight = k => endless ? (k >= 3 && k % 3 === 0) : g.bastion.bloodMoons.includes(k);
+  const bloodEvery = g.bastion.bloodEvery || 3; // default every 3rd night; a daily twist may tighten it
+  const isBloodNight = k => endless ? (bloodEvery > 0 && k % bloodEvery === 0) : g.bastion.bloodMoons.includes(k);
   const evX = g.core ? g.core.x : g.w * TILE / 2;
   const evY = g.core ? g.core.y : g.h * TILE / 2;
   cy.t -= dt;
@@ -5275,7 +5303,7 @@ export function snapshot(g, full = true) {
     ...(g.cycle ? { cycle: { phase: g.cycle.phase, nightNo: g.cycle.nightNo, t: g.cycle.t, bloodMoon: g.cycle.bloodMoon, nights: g.bastion.nights,
       ...(g.bastion.endless ? { endless: true } : {}),
       ...(g.cycle.phase === 'day' && (g.bastion.endless
-        ? ((g.cycle.nightNo + 1) >= 3 && (g.cycle.nightNo + 1) % 3 === 0)
+        ? ((g.cycle.nightNo + 1) % (g.bastion.bloodEvery || 3) === 0)
         : g.bastion.bloodMoons.includes(g.cycle.nightNo + 1)) ? { nextBloodMoon: true } : {}) } } : {}),
     ...(g.chests.length ? { chests: g.chests.map(c => ({ x: c.x, y: c.y, opened: c.opened, loot: c.loot })) } : {}),
     ...(g.crackers.length ? { crackers: g.crackers.map(c => ({ x: c.x, y: c.y, landed: c.landed, fuse: c.fuse })) } : {}),

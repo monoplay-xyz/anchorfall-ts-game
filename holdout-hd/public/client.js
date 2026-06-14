@@ -1,4 +1,4 @@
-import { TILE, createGame, step, snapshot, applyResults, charsById } from '/shared/game.js';
+import { TILE, createGame, step, snapshot, applyResults, charsById, dailyChallenge } from '/shared/game.js';
 // Namespace import so optional sim features (serializeGame/restoreGame for save
 // beacons) can ship independently — accessed via gameMod.* with runtime checks.
 import * as gameMod from '/shared/game.js';
@@ -1506,6 +1506,9 @@ class LocalSession {
     this.bastion = opts.mode === 'bastion';
     // Endless Siege: a bastion run with no night cap, escalating forever
     this.endless = this.bastion && !!opts.endless;
+    // Daily Challenge: a seeded endless siege on one map+twist, shared board.
+    // opts.daily = { dateStr, label, def } — def already carries endless + mods.
+    this.daily = (this.bastion && opts.daily) ? opts.daily : null;
     this.expedition = !this.story && !this.mode && !this.bastion && !!opts.expedition;
     this.levels = this.story ? storyLevels
       : this.mode ? (this.mode === 'ctf' ? ctfLevels : brLevels)
@@ -1520,6 +1523,8 @@ class LocalSession {
     // stronghold lobbies draw from the stronghold roster (starters + every
     // operative unlocked by beaten levels); other modes are untouched
     this.roster = save?.roster ?? (this.bastion ? strongholdRoster() : startingRoster.slice());
+    // Daily: a one-map list of the seeded def, so the lobby/HUD/start() all read it.
+    if (this.daily) { this.levels = [this.daily.def]; this.levelIdx = 0; }
     this.players = []; // { pid, name, device, charId, cursor }
     this.game = null;
     this.snap = null;
@@ -1974,15 +1979,18 @@ class LocalSession {
       // then in-run score; the combined number decodes back to Night N).
       const nights = endlessNights;
       if (nights >= 1 && !demoMode) {
+        // Daily runs land on the shared daily board; free Endless on the map's own board.
         const base = levelKeyOf(lvl);
-        const ekey = base ? 'endless/' + base.split('/')[1] : null;
+        const ekey = this.daily ? 'daily/' + this.daily.dateStr : (base ? 'endless/' + base.split('/')[1] : null);
         if (ekey) submitRun(lvl, this.players.map(p => p.name), this.players.length, nights * 100000 + Math.min(99999, score), timeS, { key: ekey });
       }
       playUi('victory');
-      showMsg('Endless Over',
+      const dailyBack = () => { session = null; show('menu'); showMenuPage('pageMain'); refreshContinue(); };
+      showMsg(this.daily ? `Daily Over — ${this.daily.label}` : 'Endless Over',
         `You held ${lvl.stronghold?.name ?? lvl.name ?? 'the line'} through ${nights} night${nights === 1 ? '' : 's'}.\nScore: ${score.toLocaleString()}`,
         'Play Again', () => this.lobby(),
-        'Level Select', () => { session = null; shPurpose = 'local'; show('menu'); showMenuPage('pageSh'); refreshContinue(); });
+        this.daily ? 'Main Menu' : 'Level Select',
+        this.daily ? dailyBack : () => { session = null; shPurpose = 'local'; show('menu'); showMenuPage('pageSh'); refreshContinue(); });
     } else {
       // story runs are untimed, so a story fail can only be a squad wipe
       const body = this.story
@@ -2660,8 +2668,8 @@ function shRecordClear(def) {
 // localStorage and the page reads those instead, labelled as local bests.
 const BESTS_KEY = 'holdout-hd.bests';     // static: { [levelKey]: [entry...] }
 const LASTRUN_KEY = 'holdout-hd.lastrun'; // { key, score, timeS, date } — board highlight
-const RANK_CATS = ['story', 'stronghold', 'endless', 'classic', 'ctf', 'br'];
-const RANK_CAT_LABEL = { story: 'STORY', stronghold: 'STRONGHOLD', endless: 'ENDLESS SIEGE', classic: 'CLASSIC', ctf: 'VERSUS — CTF', br: 'VERSUS — ROYALE' };
+const RANK_CATS = ['daily', 'story', 'stronghold', 'endless', 'classic', 'ctf', 'br'];
+const RANK_CAT_LABEL = { daily: 'DAILY CHALLENGE', story: 'STORY', stronghold: 'STRONGHOLD', endless: 'ENDLESS SIEGE', classic: 'CLASSIC', ctf: 'VERSUS — CTF', br: 'VERSUS — ROYALE' };
 const pad2 = n => String(n).padStart(2, '0');
 const rankSlug = s => String(s ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'level';
 let rankIndex = null; // latest GET /api/rankings payload (server builds only)
@@ -2886,9 +2894,9 @@ async function renderRankBoard() {
     host.innerHTML = '<div class="rgrp">NO RUNS RECORDED ON THIS BOARD YET</div>';
     return;
   }
-  // Endless boards rank by nights survived: the stored score is nights*1e5 +
-  // in-run score, so the SCORE column decodes back to "Night N".
-  const isEndless = String(rankBoardKey).startsWith('endless/');
+  // Endless + Daily boards rank by nights survived: the stored score is
+  // nights*1e5 + in-run score, so the SCORE column decodes back to "Night N".
+  const isEndless = String(rankBoardKey).startsWith('endless/') || String(rankBoardKey).startsWith('daily/');
   const head = document.createElement('div');
   head.className = 'rrowt head';
   for (const c of ['#', 'NAMES', 'PL', isEndless ? 'NIGHTS' : 'SCORE', 'TIME', 'DATE']) {
@@ -3290,6 +3298,29 @@ refreshContinue();
 $('btnSingle').onclick = e => { e.currentTarget.blur(); showMenuPage('pageSingle'); };
 $('btnVersus').onclick = e => { e.currentTarget.blur(); showMenuPage('pageVersus'); };
 $('btnOnline').onclick = e => { e.currentTarget.blur(); showMenuPage('pageOnline'); };
+// Daily Challenge: today's UTC date seeds the same map + twist for everyone,
+// played as an endless siege onto a shared daily board. Couch-local launch.
+const todayUTC = () => new Date().toISOString().slice(0, 10);
+function startDaily() {
+  if (session) return;
+  const dateStr = todayUTC();
+  const spec = dailyChallenge(dateStr, bastionLevels.length);
+  const baseLvl = bastionLevels[spec.mapIdx];
+  if (!baseLvl) return;
+  playUi('select');
+  const def = { ...baseLvl, bastion: { ...(baseLvl.bastion || {}), endless: true, ...spec.mods } };
+  session = new LocalSession(null, { mode: 'bastion', endless: true, daily: { dateStr, label: spec.label, def } });
+  session.lobby();
+}
+function paintDaily() {
+  const b = $('btnDaily'); if (!b) return;
+  const spec = dailyChallenge(todayUTC(), bastionLevels.length);
+  const map = bastionLevels[spec.mapIdx];
+  b.textContent = `Daily Challenge — ${spec.label}`;
+  if (map) b.title = `${map.stronghold?.name ?? map.name} · ${spec.label} · ${todayUTC()}`;
+}
+$('btnDaily').onclick = e => { e.currentTarget.blur(); startDaily(); };
+paintDaily();
 $('btnBrowse').onclick = e => { e.currentTarget.blur(); showMenuPage('pageBrowse'); };
 // room visibility toggles (Online page): cycle Public/Private per mode group,
 // persisted; the choice rides the next host message's explicit public flag
