@@ -325,8 +325,58 @@ const MINION_R = TILE * 0.32;
 const MINION_SCORE = 10;                // -> 0.4 xp on kill, 1 team shard
 const MINION_CORE_DPS = 0.5;            // hp/s a minion gnaws an enemy core
 const MINION_TOWER_DPS = 0.5;           // hp/s a minion gnaws an enemy tower
+// MOBA Wave B minion roster. The default GRUNT keeps the base stats above; a
+// kind only ever OVERRIDES a few multipliers/flags, so a grunt's snapshot stays
+// byte-identical (kind === 'grunt' ships no extra fields — see spawnSiegeWave +
+// the snapshot gate). TANK: a slow, fat lane-breaker whose contact aura SLOWS
+// heroes; WAR MONGER: an elite faster pusher that hits cores/towers harder.
+const MINION_KINDS = {
+  grunt:     { hpMul: 1,    speedMul: 1,    score: MINION_SCORE,      coreDpsMul: 1,   towerDpsMul: 1,   slow: 0 },
+  tank:      { hpMul: 4,    speedMul: 0.55, score: MINION_SCORE * 2,  coreDpsMul: 1.2, towerDpsMul: 1.2, slow: 0.6 },
+  warmonger: { hpMul: 2,    speedMul: 1.35, score: MINION_SCORE * 2,  coreDpsMul: 2,   towerDpsMul: 2,   slow: 0 },
+};
+const MINION_SLOW_R = TILE * 1.1;       // tank aura reach: a hero in this ring is slowed
+const MINION_SLOW_T = 0.8;              // seconds the tank slow lingers after leaving the aura
 const SIEGE_TOWER_R = TILE * 0.55;      // collision radius for player shots
 const SIEGE_CORE_R = TILE * 0.9;
+// MOBA Wave C: NEUTRAL mid-lane prism emplacements ('p' tiles) the two teams
+// fight over. Much weaker than a built prism (PRISM_DMG/RANGE/PERIOD above): a
+// stubby ~half-damage beam on a slow cadence, short reach. KILLABLE — it carries
+// hp and takes player-shot damage; destroying it pushes a 'prismDown' event. It
+// auto-fires an instant beam at the nearest LIVE target (minion of either team,
+// else an active operative) in range — a contested objective, not a team asset.
+const SIEGE_PRISM_HP = 8;               // ~handful of operative shots to clear
+const SIEGE_PRISM_DMG = 1;              // weaker than a built prism (1/2/3) — chip damage
+const SIEGE_PRISM_RANGE = 3.5;          // tiles (built prism reaches 7-8)
+const SIEGE_PRISM_PERIOD = 1.8;         // slow cadence (built prism fires every 1.2s)
+const SIEGE_PRISM_R = TILE * 0.5;       // collision radius for player shots
+// Neutral pickup spawner: a deterministic clock (pickupT counts down by dt) drops
+// a field-weapon or shard-cache at a lane-mid cell every SIEGE_PICKUP_INTERVAL
+// seconds, the lane walked by a counter (pickupN) — never Math.random.
+const SIEGE_PICKUP_INTERVAL = 30;       // seconds between neutral drops
+const SIEGE_PICKUP_SHARDS = 6;          // shards in a dropped cache
+// MOBA Wave D: TIMED TRAPS ('t' tiles). A trap sits unarmed until an OWN-TEAM
+// hero ACT-HOLDS on it (the relight/forge/horn hold rail). Once armed, a FOE
+// minion or hero stepping on it TRIPS it: a hostile, team-tagged ground patch
+// (rides g.patches with a team field) sears enemies for a few seconds, then the
+// trap COOLS DOWN before it can be re-armed. Fully deterministic, gated on siege.
+const SIEGE_TRAP_ARM_T = 1.2;           // act-hold seconds to arm (scaled by holders, like relight)
+const SIEGE_TRAP_R = TILE * 0.6;        // arm-reach / draw radius
+const SIEGE_TRAP_TRIP_R = TILE * 0.7;   // a foe inside this ring trips an armed trap
+const SIEGE_TRAP_COOL = 6;              // seconds a tripped trap stays dead before re-arming
+const SIEGE_TRAP_PATCH_TTL = 3;         // seconds the hostile patch lingers
+const SIEGE_TRAP_PATCH_R = TILE * 1.3;  // patch radius
+const SIEGE_TRAP_PATCH_DMG = 1;         // per-tick patch damage (hit-grace spaces it to ~1/s)
+// MOBA Wave D: SUPER WEAPONS. Each team's superCharge fills DETERMINISTICALLY by
+// kills (minion/tower/hero). At full charge, an own-team hero ACT-HOLDING at their
+// OWN core casts a lane barrage down the enemy lane and resets the charge.
+const SIEGE_SUPER_FULL = 20;            // charge units to fill the meter
+const SIEGE_SUPER_KILL_MINION = 1;      // charge per minion kill
+const SIEGE_SUPER_KILL_TOWER = 4;       // charge per tower kill
+const SIEGE_SUPER_KILL_HERO = 3;        // charge per enemy-hero takedown
+const SIEGE_SUPER_HOLD_T = 1.0;         // act-hold seconds at own core to fire (scaled by holders)
+const SIEGE_SUPER_DMG = 6;              // barrage damage to each struck minion/tower
+const SIEGE_SUPER_R = TILE * 1.6;       // barrage blast radius around each lane node
 const TURRET_TYPES = ['gun', 'prism', 'tesla', 'toxin'];
 const TYPE_SELECT_T = 8; // seconds before an unattended carousel confirms 'gun'
 // RA2 rebalance: a prism is a glass cannon — fragile (dies in ~2 hits) and its
@@ -636,6 +686,8 @@ export function parseLevel(def) {
   const pillars = [];
   const forges = [];
   const teleports = [];
+  const siegePrisms = []; // 'p' neutral MOBA prism emplacements (siege maps)
+  const siegeTraps = []; // 't' timed-trap emplacements (siege maps)
   const cores = []; // every 'K' monolith (beacon-defense maps field four)
   let core = null;
   let ci = 0;
@@ -759,6 +811,18 @@ export function parseLevel(def) {
         const td = (def.teleports || [])[teleports.length] || {};
         teleports.push({ id: td.id || 'tp' + teleports.length, x: px, y: py, twin: td.twin ?? null });
         grid[y][x] = '.';
+      } else if (c === 'p') {
+        // MOBA Wave C: NEUTRAL siege prism emplacement — pixel coords only here;
+        // createGame stamps the id/hp once it knows this is a siege game (so the
+        // 'p' tile is inert on any non-siege map, which never reads siegePrisms).
+        siegePrisms.push({ x: px, y: py });
+        grid[y][x] = '.';
+      } else if (c === 't') {
+        // MOBA Wave D: TIMED TRAP emplacement — pixel coords only here; createGame
+        // stamps the id/state once it knows this is a siege game (so the 't' tile
+        // is inert on any non-siege map, which never reads siegeTraps).
+        siegeTraps.push({ x: px, y: py });
+        grid[y][x] = '.';
       } else if (ENEMY_LETTERS.has(c)) {
         enemies.push(makeEnemy(c, px, py, eid++));
         grid[y][x] = '.';
@@ -772,7 +836,7 @@ export function parseLevel(def) {
   // single-core maps keep their one 'K' on .core; beacon-defense maps read
   // the full .cores array (createGame decides by def.bastionVariant)
   core = cores.length ? cores[0] : null;
-  return { grid: grid.map(r => r.join('')), w, h, spawns, captives, enemies, npcs, builds, crystals, chests, vehicles, towers, shops, hires, flags, pickups, qitems, switches, glyphs, pillars, forges, teleports, core, cores };
+  return { grid: grid.map(r => r.join('')), w, h, spawns, captives, enemies, npcs, builds, crystals, chests, vehicles, towers, shops, hires, flags, pickups, qitems, switches, glyphs, pillars, forges, teleports, siegePrisms, siegeTraps, core, cores };
 }
 
 export function createGame(def, party, charMap, roster) {
@@ -864,7 +928,7 @@ export function createGame(def, party, charMap, roster) {
     }
   }
   // --- Anchor Siege setup: two team cores, lane waypoints, pre-placed towers ---
-  let siegeCores = null, siegeState = null, siegeTowers = null;
+  let siegeCores = null, siegeState = null, siegeTowers = null, siegePrisms = null, siegeTraps = null, nextSiegeId = 1;
   if (siege) {
     // exactly two 'K' cores; team by position — the core LOWER on the map
     // (larger y) is team 0 (bottom-left base), the other is team 1.
@@ -881,12 +945,29 @@ export function createGame(def, party, charMap, roster) {
       wavePerMin: (def.siege && def.siege.wavePerMin) || 1,
       lanes,
       lanesRev: lanes.map(l => ({ waypoints: l.waypoints.slice().reverse() })),
+      // MOBA Wave C neutral pickup spawner: a deterministic countdown + lane
+      // counter (no RNG). pickupT drains by dt; each fire drops at lane pickupN.
+      pickupT: SIEGE_PICKUP_INTERVAL, pickupN: 0,
+      // MOBA Wave D super weapon meter: per-team charge filled by kills. A full
+      // meter + an own-core act-hold fires a lane barrage and resets that slot.
+      superCharge: [0, 0], superMax: SIEGE_SUPER_FULL, superHoldT: [0, 0],
     };
     siegeTowers = (def.towers || []).map((t, i) => {
       const lvlv = Math.max(1, Math.min(3, t.level || 1));
       return { id: i, x: (t.x + 0.5) * TILE, y: (t.y + 0.5) * TILE, team: t.team, lane: t.lane || 0,
         level: lvlv, hp: SIEGE_TOWER_HP[lvlv - 1], maxHp: SIEGE_TOWER_HP[lvlv - 1], cool: 0, destroyed: false };
     });
+    // NEUTRAL 'p' prism emplacements get a monotonic id (g.nextSiegeId) + hp here
+    // — the parseLevel scan only knew the pixel coords. Inert on non-siege maps.
+    siegePrisms = (lvl.siegePrisms || []).map(pr => ({
+      id: nextSiegeId++, x: pr.x, y: pr.y, hp: SIEGE_PRISM_HP, maxHp: SIEGE_PRISM_HP, cool: 0,
+    }));
+    // MOBA Wave D: timed traps get a monotonic id (g.nextSiegeId) + their state
+    // here (the parseLevel scan only knew the pixel coords). team -1 = unclaimed;
+    // armed flips true under an own-team act-hold; cool counts down after a trip.
+    siegeTraps = (lvl.siegeTraps || []).map(tr => ({
+      id: nextSiegeId++, x: tr.x, y: tr.y, team: -1, armed: false, armT: 0, cool: 0,
+    }));
   }
   // --- Map theme: a named preset (THEMES) that re-skins the level. It only
   // pre-fills look/hazard fields below; an explicit def.modifier still wins
@@ -946,6 +1027,12 @@ export function createGame(def, party, charMap, roster) {
     // Anchor Siege state (minions + lanes) and the pre-placed lane towers.
     siege: siegeState,
     siegeTowers: siegeTowers,
+    // MOBA Wave C: neutral killable mid-lane prism emplacements + the id source
+    // for them. Both null/0 off-mode (every non-siege snapshot stays byte-stable).
+    siegePrisms: siegePrisms,
+    // MOBA Wave D: timed trap emplacements (null off-mode — byte-stable).
+    siegeTraps: siegeTraps,
+    nextSiegeId,
     deathCountByTeam: siege ? [0, 0] : null,
     // Family Mode: gentle co-op — generous shared lives, respawn-on-cooldown.
     family: !!def.family,
@@ -2032,6 +2119,15 @@ function siegeSpawnSpot(g, p) {
   }
   return open.length ? open[k % open.length] : { x: core.x, y: core.y };
 }
+// The LEAD minion's kind is a deterministic function of that team's waveNo (no
+// RNG): a TANK leads every wave where waveNo%3===2, a WAR MONGER leads every
+// waveNo%5===4 (tank wins the tie when both land), otherwise the lead is a
+// grunt like the rest. Same waveNo always yields the same lead across runs.
+function siegeWaveLead(waveNo) {
+  if (waveNo % 3 === 2) return 'tank';
+  if (waveNo % 5 === 4) return 'warmonger';
+  return 'grunt';
+}
 function spawnSiegeWave(g, team) {
   const S = g.siege;
   if (!S.lanes.length) return;
@@ -2042,13 +2138,21 @@ function spawnSiegeWave(g, team) {
   const want = S.waveBase + Math.min(6, Math.floor(g.elapsed / 60) * S.wavePerMin);
   const count = Math.max(0, Math.min(S.cap - live, want));
   const start = wps[0];
+  const lead = siegeWaveLead(S.waveNo[team]);
   for (let i = 0; i < count; i++) {
-    S.minions.push({ id: S.nextMinionId++, team, laneI,
+    const kind = i === 0 ? lead : 'grunt';
+    const kd = MINION_KINDS[kind];
+    const hp = Math.round(MINION_HP * kd.hpMul);
+    const m = { id: S.nextMinionId++, team, laneI,
       x: start.x + ((i % 3) - 1) * TILE * 0.45, y: start.y + (Math.floor(i / 3) - 1) * TILE * 0.45,
-      hp: MINION_HP, maxHp: MINION_HP, pathIdx: 1, score: MINION_SCORE });
+      hp, maxHp: hp, pathIdx: 1, score: kd.score };
+    // grunt is the default — it ships no kind field so its snapshot/serialize
+    // stays byte-identical to the pre-Wave-B minion.
+    if (kind !== 'grunt') m.kind = kind;
+    S.minions.push(m);
   }
   S.waveNo[team]++;
-  g.events.push({ type: 'siegeWave', team, count, x: start.x, y: start.y });
+  g.events.push({ type: 'siegeWave', team, count, x: start.x, y: start.y, ...(lead !== 'grunt' ? { lead } : {}) });
 }
 function stepSiegeWaves(g, dt) {
   const S = g.siege; if (!S) return;
@@ -2061,18 +2165,28 @@ function stepSiegeMinions(g, dt) {
   const S = g.siege; if (!S) return;
   for (let i = S.minions.length - 1; i >= 0; i--) {
     const m = S.minions[i];
+    const kd = MINION_KINDS[m.kind] || MINION_KINDS.grunt; // default grunt: all-1 muls
     const foe = siegeFoe(m.team);
+    // TANK aura: an enemy hero inside the ring gets a lingering slow timer (no
+    // projectile, fully deterministic — mirrors the toxin-pool proximity slow).
+    if (kd.slow) {
+      const r2 = MINION_SLOW_R * MINION_SLOW_R;
+      for (const p of g.players) {
+        if (p.team !== foe || p.state !== 'active') continue;
+        if (dist2(m, p) < r2) { p.siegeSlowT = MINION_SLOW_T; p.siegeSlow = kd.slow; }
+      }
+    }
     let gnawing = false;
     // STOP and chew an enemy tower in reach (so a wave actually breaks a tower)
     for (const t of g.siegeTowers) {
       if (t.destroyed || t.team !== foe) continue;
-      if (dist2(m, t) < (TILE * 0.9) ** 2) { t.hp -= MINION_TOWER_DPS * dt; if (t.hp <= 0) siegeTowerDown(g, t, null); gnawing = true; break; }
+      if (dist2(m, t) < (TILE * 0.9) ** 2) { t.hp -= MINION_TOWER_DPS * kd.towerDpsMul * dt; if (t.hp <= 0) siegeTowerDown(g, t, null); gnawing = true; break; }
     }
     // once that team's towers are down, the core is exposed — chew it
     if (!gnawing && siegeCoreOpen(g, foe)) for (const c of g.cores) {
       if (c.team !== foe || c.hp <= 0) continue;
       // DEV core integrity: minion still stalls on the core, but deals no damage
-      if (dist2(m, c) < SIEGE_CORE_R ** 2) { if (!(g.cheats && g.cheats.coreInvuln)) c.hp = Math.max(0, c.hp - MINION_CORE_DPS * dt); gnawing = true; break; }
+      if (dist2(m, c) < SIEGE_CORE_R ** 2) { if (!(g.cheats && g.cheats.coreInvuln)) c.hp = Math.max(0, c.hp - MINION_CORE_DPS * kd.coreDpsMul * dt); gnawing = true; break; }
     }
     if (gnawing) continue; // hold position while chewing
     // otherwise march along the lane toward the enemy core
@@ -2083,8 +2197,8 @@ function stepSiegeMinions(g, dt) {
       const dx = wp.x - m.x, dy = wp.y - m.y;
       if (Math.hypot(dx, dy) < TILE * 0.5 && m.pathIdx < wps.length - 1) m.pathIdx++;
       const [nx, ny] = norm(dx, dy);
-      m.x += nx * MINION_SPEED * TILE * dt;
-      m.y += ny * MINION_SPEED * TILE * dt;
+      m.x += nx * MINION_SPEED * kd.speedMul * TILE * dt;
+      m.y += ny * MINION_SPEED * kd.speedMul * TILE * dt;
     }
   }
 }
@@ -2112,7 +2226,9 @@ function stepSiegeTowers(g, dt) {
 function damageMinion(g, m, dmg, killerPid) {
   m.hp -= dmg;
   if (m.hp <= 0) killMinion(g, m, killerPid);
-  else g.events.push({ type: 'hit', x: m.x, y: m.y, kind: 'minion' });
+  // dmg rides the minion hit (siege-only event) so the render floats a damage
+  // number — purely additive on a siege-exclusive event, so non-siege stays stable.
+  else g.events.push({ type: 'hit', x: m.x, y: m.y, kind: 'minion', dmg });
 }
 function killMinion(g, m, killerPid) {
   const i = g.siege.minions.indexOf(m);
@@ -2120,20 +2236,210 @@ function killMinion(g, m, killerPid) {
   g.siege.minions.splice(i, 1);
   g.events.push({ type: 'die', x: m.x, y: m.y, kind: 'minion', team: m.team, points: 0 });
   const killer = killerPid != null ? g.players.find(p => p.pid === killerPid) : null;
-  if (killer) { addShards(g, killer, 1); awardXp(g, killer.pid, m); killer.kills = (killer.kills || 0) + 1; g.kills++; }
+  if (killer) {
+    addShards(g, killer, 1); awardXp(g, killer.pid, m); killer.kills = (killer.kills || 0) + 1; g.kills++;
+    // MOBA Wave D: a real takedown feeds the killer's super meter (a team-cast
+    // kill carries no killerPid, so the super weapon can never charge itself).
+    addSuperCharge(g, killer.team, SIEGE_SUPER_KILL_MINION);
+  }
 }
 function siegeTowerDown(g, t, killerPid) {
   if (t.destroyed) return;
   t.destroyed = true; t.hp = 0;
   g.events.push({ type: 'towerDown', x: t.x, y: t.y, team: t.team });
   const killer = killerPid != null ? g.players.find(p => p.pid === killerPid) : null;
-  if (killer) { addShards(g, killer, SIEGE_TOWER_REWARD); awardXp(g, killer.pid, { score: 50 }); }
+  if (killer) { addShards(g, killer, SIEGE_TOWER_REWARD); awardXp(g, killer.pid, { score: 50 }); addSuperCharge(g, killer.team, SIEGE_SUPER_KILL_TOWER); }
 }
 function damageTower(g, t, dmg, killerPid) {
   if (t.destroyed) return;
   t.hp -= dmg;
   if (t.hp <= 0) siegeTowerDown(g, t, killerPid);
   else g.events.push({ type: 'buildHit', x: t.x, y: t.y });
+}
+// MOBA Wave C: NEUTRAL killable prism emplacements. Cloned from the built-prism
+// instant-beam branch (stepStructures) but MUCH weaker — half-or-less damage, a
+// short 3.5-tile reach and a slow 1.8s cadence. Team-NEUTRAL: it fires at the
+// nearest LIVE target of either side (a minion first — the cheap mass on the
+// field — else an active operative), so both teams want it cleared off the lane.
+// Fully deterministic: the closest-target scan walks fixed arrays, no RNG.
+function stepSiegePrisms(g, dt) {
+  if (!g.siege || !g.siegePrisms) return;
+  for (const pr of g.siegePrisms) {
+    if (pr.hp <= 0) continue;
+    pr.cool -= dt;
+    if (pr.cool > 0) continue;
+    const R2 = (SIEGE_PRISM_RANGE * TILE) ** 2;
+    let tgt = null, best = R2;
+    for (const m of g.siege.minions) { const d = dist2(pr, m); if (d < best) { best = d; tgt = m; } }
+    if (!tgt) for (const p of g.players) {
+      if (p.state !== 'active') continue;
+      const d = dist2(pr, p); if (d < best) { best = d; tgt = p; }
+    }
+    if (tgt) {
+      g.events.push({ type: 'prismBeam', x: pr.x, y: pr.y, tx: tgt.x, ty: tgt.y, dmg: SIEGE_PRISM_DMG, siege: true });
+      // a minion target dies via the minion path (no kill credit — neutral); an
+      // operative target takes a beam tick through the normal player-damage path.
+      if (tgt.maxHp !== undefined && tgt.pid !== undefined) damagePlayer(g, tgt, SIEGE_PRISM_DMG);
+      else damageMinion(g, tgt, SIEGE_PRISM_DMG, null);
+      pr.cool = SIEGE_PRISM_PERIOD;
+    }
+  }
+}
+// KILLABLE: a neutral prism takes shot/contact damage; at 0 hp it dies and pushes
+// a 'prismDown' event. No team reward (it belongs to nobody) — its value is the
+// emplacement going silent on the contested lane.
+function damageSiegePrism(g, pr, dmg) {
+  if (pr.hp <= 0) return;
+  pr.hp -= dmg;
+  if (pr.hp <= 0) { pr.hp = 0; g.events.push({ type: 'prismDown', x: pr.x, y: pr.y }); }
+  else g.events.push({ type: 'buildHit', x: pr.x, y: pr.y });
+}
+// MOBA Wave C neutral pickup spawner: a deterministic clock drops a reward at a
+// lane-MID cell on a timer, REUSING the existing field-weapon ('A') / shard-drop
+// pipelines so heroes collect them normally. The lane is walked by a counter
+// (pickupN % lanes); the drop type alternates field-weapon / shard-cache by the
+// counter parity; the field-weapon kind cycles FIELD_KINDS deterministically.
+function stepSiegePickups(g, dt) {
+  const S = g.siege; if (!S || !S.lanes.length) return;
+  S.pickupT -= dt;
+  if (S.pickupT > 0) return;
+  S.pickupT = SIEGE_PICKUP_INTERVAL;
+  const lane = S.lanes[S.pickupN % S.lanes.length];
+  const wps = lane.waypoints;
+  if (!wps.length) { S.pickupN++; return; }
+  const mid = wps[Math.floor(wps.length / 2)]; // lane-mid waypoint cell
+  if (S.pickupN % 2 === 0) {
+    // a shard cache rides the magnetizable shard-drop pipeline
+    g.drops.push({ x: mid.x, y: mid.y, amount: SIEGE_PICKUP_SHARDS, ttl: DROP_TTL });
+    g.events.push({ type: 'siegePickup', x: mid.x, y: mid.y, kind: 'shards' });
+  } else {
+    // a field weapon rides the 'A'-pickup pipeline (collected like any field gun)
+    const kind = FIELD_KINDS[(S.pickupN >> 1) % FIELD_KINDS.length];
+    g.pickups.push({ id: 'fw' + g.nextPickupId++, x: mid.x, y: mid.y, kind, ammo: FIELD_WEAPONS[kind].ammo });
+    g.events.push({ type: 'siegePickup', x: mid.x, y: mid.y, kind });
+  }
+  S.pickupN++;
+}
+
+// --- MOBA Wave D: timed traps -----------------------------------------------
+// ARM: an OWN-TEAM hero ACT-HOLDS at a cooled-down trap (the relight/forge/horn
+// hold rail — scaled by holders). The first holder's team CLAIMS the trap. Once
+// armed, a FOE minion/hero stepping in trips it. Fully deterministic.
+function stepSiegeTraps(g, inputs, dt) {
+  if (!g.siege || !g.siegeTraps) return;
+  const r2 = SIEGE_TRAP_R * SIEGE_TRAP_R;
+  for (const tr of g.siegeTraps) {
+    // a tripped trap is on cooldown: it can't be armed and won't trip again
+    if (tr.cool > 0) { tr.cool = Math.max(0, tr.cool - dt); tr.armT = 0; continue; }
+    if (tr.armed) { tr.armT = 0; continue; } // already live — nothing to charge
+    // act-hold charge: count holders standing ON the trap, claiming team = first
+    // (only same-team-or-unclaimed holders charge it — a foe can't arm your trap)
+    let holders = 0, claim = -1;
+    for (const p of g.players) {
+      if (p.state !== 'active' || p.towerId != null || p.riding || p.shopping || p.selecting) continue;
+      const inp = inputs[p.pid] || {};
+      if (!inp.act || dist2(p, tr) >= r2) continue;
+      if (tr.team !== -1 && p.team !== tr.team) continue; // claimed by the other side
+      if (claim === -1) claim = p.team;
+      if (p.team === claim) holders++;
+    }
+    if (!holders) { tr.armT = 0; continue; }
+    tr.armT += dt * holders;
+    if (tr.armT < SIEGE_TRAP_ARM_T) continue;
+    tr.armT = 0;
+    tr.armed = true;
+    tr.team = claim;
+    g.events.push({ type: 'trapArm', x: tr.x, y: tr.y, team: tr.team });
+  }
+}
+// TRIP: any FOE minion or active foe hero inside an armed trap's ring sets it off
+// — a hostile, team-tagged ground patch (rides g.patches) sears enemies, then the
+// trap drops onto its cooldown. Runs in the world-clock pass (no inputs needed).
+function stepSiegeTrapTrips(g) {
+  if (!g.siege || !g.siegeTraps) return;
+  const r2 = SIEGE_TRAP_TRIP_R * SIEGE_TRAP_TRIP_R;
+  for (const tr of g.siegeTraps) {
+    if (!tr.armed || tr.cool > 0) continue;
+    const foe = siegeFoe(tr.team);
+    let tripped = false;
+    for (const m of g.siege.minions) {
+      if (m.team !== foe) continue;
+      if (dist2(tr, m) < r2) { tripped = true; break; }
+    }
+    if (!tripped) for (const p of g.players) {
+      if (p.team !== foe || p.state !== 'active') continue;
+      if (dist2(tr, p) < r2) { tripped = true; break; }
+    }
+    if (!tripped) continue;
+    tr.armed = false;
+    tr.cool = SIEGE_TRAP_COOL;
+    // the hostile patch carries the OWNER team so its damage spares friendlies
+    g.patches.push({ x: tr.x, y: tr.y, kind: 'trap', r: SIEGE_TRAP_PATCH_R,
+      ttl: SIEGE_TRAP_PATCH_TTL, hostile: true, team: tr.team });
+    g.events.push({ type: 'trapTrip', x: tr.x, y: tr.y, team: tr.team });
+  }
+}
+
+// --- MOBA Wave D: super weapons ---------------------------------------------
+// Every kill credited to a team fills its superCharge (clamped at superMax). The
+// charge is purely deterministic (kill counts only), gated on siege.
+function addSuperCharge(g, team, amount) {
+  const S = g.siege;
+  if (!S || team == null || team < 0 || team > 1) return;
+  S.superCharge[team] = Math.min(S.superMax, S.superCharge[team] + amount);
+}
+// CAST: when a team's meter is full, an own-team hero ACT-HOLDING at their OWN
+// core (the relight/forge/horn hold rail) fires a BARRAGE down the enemy lane —
+// a blast at every enemy-lane waypoint that pounds the foe's minions and towers —
+// then resets that team's charge. Deterministic; no RNG.
+function stepSiegeSuper(g, inputs, dt) {
+  const S = g.siege; if (!S) return;
+  const r2 = (TILE * BUILD_REACH) ** 2;
+  for (let team = 0; team < 2; team++) {
+    if (S.superCharge[team] < S.superMax) { S.superHoldT[team] = 0; continue; }
+    const core = (g.cores || []).find(c => c.team === team);
+    if (!core) { S.superHoldT[team] = 0; continue; }
+    let holders = 0;
+    for (const p of g.players) {
+      if (p.team !== team || p.state !== 'active' || p.towerId != null || p.riding || p.shopping || p.selecting) continue;
+      const inp = inputs[p.pid] || {};
+      if (inp.act && dist2(p, core) < r2) holders++;
+    }
+    if (!holders) { S.superHoldT[team] = 0; continue; }
+    S.superHoldT[team] += dt * holders;
+    if (S.superHoldT[team] < SIEGE_SUPER_HOLD_T) continue;
+    S.superHoldT[team] = 0;
+    S.superCharge[team] = 0;
+    fireSiegeSuper(g, team);
+  }
+}
+// the payload: a barrage that detonates at each waypoint of the enemy's forward
+// lanes, damaging every enemy minion/tower caught in the blast rings. Walks fixed
+// arrays in order (no RNG) so two runs match exactly.
+function fireSiegeSuper(g, team) {
+  const S = g.siege;
+  const foe = siegeFoe(team);
+  // the foe marches team===0 forward lanes, team===1 reversed lanes; the barrage
+  // walks the SAME node set the enemy waves traverse so it actually hits the push.
+  const lanes = foe === 0 ? S.lanes : S.lanesRev;
+  const r2 = SIEGE_SUPER_R * SIEGE_SUPER_R;
+  const nodes = [];
+  for (const lane of lanes) for (const wp of lane.waypoints) nodes.push(wp);
+  g.events.push({ type: 'superBlast', team, x: g.cores.find(c => c.team === team).x,
+    y: g.cores.find(c => c.team === team).y, nodes: nodes.map(n => [n.x, n.y]) });
+  for (const node of nodes) {
+    // pound enemy minions in the ring (a death credits no one — it's a team cast)
+    for (let i = g.siege.minions.length - 1; i >= 0; i--) {
+      const m = g.siege.minions[i];
+      if (m.team !== foe) continue;
+      if (dist2(node, m) < r2) damageMinion(g, m, SIEGE_SUPER_DMG, null);
+    }
+    // and chew enemy towers caught underneath (no kill credit — team payload)
+    for (const t of g.siegeTowers) {
+      if (t.destroyed || t.team !== foe) continue;
+      if (dist2(node, t) < r2) damageTower(g, t, SIEGE_SUPER_DMG, null);
+    }
+  }
 }
 
 function fireWeapon(g, shooter, weapon, who, target = null) {
@@ -2549,7 +2855,7 @@ function pvpHit(g, victim, dmg, attackerPid) {
     if (att) {
       att.kills = (att.kills || 0) + 1;
       // a siege takedown is worth shards + xp (and counts toward total kills)
-      if (g.siege) { addShards(g, att, 3); awardXp(g, att.pid, { score: 75 }); g.kills++; }
+      if (g.siege) { addShards(g, att, 3); awardXp(g, att.pid, { score: 75 }); g.kills++; addSuperCharge(g, att.team, SIEGE_SUPER_KILL_HERO); }
     }
   }
 }
@@ -3611,6 +3917,21 @@ function stepPatches(g, dt) {
     pa.ttl -= (g.weather === 'rain' && pa.kind === 'burn') ? dt * 2 : dt;
     if (pa.ttl <= 0) { g.patches.splice(i, 1); continue; }
     const r2 = pa.r * pa.r;
+    // MOBA Wave D trap patches are team-tagged: they sear the OWNER team's FOES —
+    // foe minions AND foe heroes — and spare the owner's side. Deterministic.
+    if (pa.team != null) {
+      const foe = siegeFoe(pa.team);
+      if (g.siege) for (let mi = g.siege.minions.length - 1; mi >= 0; mi--) {
+        const m = g.siege.minions[mi];
+        if (m.team !== foe || dist2(pa, m) >= r2) continue;
+        damageMinion(g, m, SIEGE_TRAP_PATCH_DMG, null);
+      }
+      for (const p of g.players) {
+        if (p.team !== foe || p.state !== 'active' || p.invuln > 0 || dist2(pa, p) >= r2) continue;
+        damagePlayer(g, p, SIEGE_TRAP_PATCH_DMG);
+      }
+      continue;
+    }
     // hostile patches (Pyre Beetle bursts) are the mirror image: they sear
     // players standing in them (the hit-grace spaces the burn to ~1 dmg/s)
     // and pass clean over enemies — no enemy-on-enemy friendly fire.
@@ -5634,6 +5955,14 @@ export function step(g, inputs, dt) {
     stepSiegeWaves(g, dt);
     stepSiegeMinions(g, dt);
     stepSiegeTowers(g, dt);
+    stepSiegePrisms(g, dt);  // neutral mid-lane prisms auto-fire (no-op off-mode)
+    stepSiegePickups(g, dt); // neutral lane-mid pickup drops on a clock (no-op off-mode)
+    // MOBA Wave D: own-team act-hold arms a trap; a foe stepping in trips it (after
+    // minions have moved this tick); a full super meter + an own-core act-hold fires
+    // a lane barrage. All no-ops off-mode (byte-stable for every non-siege snapshot).
+    stepSiegeTraps(g, inputs, dt);
+    stepSiegeTrapTrips(g);
+    stepSiegeSuper(g, inputs, dt);
     maybeOpenGate(g); // time-locked gates open when `after` elapses at full quorum
   }
 
@@ -5731,6 +6060,7 @@ export function step(g, inputs, dt) {
     if (p.specialCool > 0) p.specialCool -= dt;
     if (p.stimT > 0) p.stimT -= dt;
     if (p.stunT > 0) p.stunT -= dt; // volt zap root: blocks movement and fire
+    if (g.siege && p.siegeSlowT > 0) p.siegeSlowT -= dt; // tank-aura slow decays (siege only)
     const inp = inputs[p.pid] || {};
     const ch = g.charMap[p.charId];
     if (!ch) continue;
@@ -6042,6 +6372,7 @@ export function step(g, inputs, dt) {
         if (sprinting && !vehicle) v *= SPRINT_MULT;
         if (g.cheats && g.cheats.speed > 1) v *= g.cheats.speed; // DEV speed multiplier
         if (g.siege && !vehicle) v *= SIEGE_HERO_SPEED; // MOBA: deliberate hero movement
+        if (g.siege && p.siegeSlowT > 0) v *= p.siegeSlow; // tank cannon: a slowed hero crawls
         v *= moveMult(g, p.x, p.y); // sand drags, ice skates, snowfall slows
         if (g.flags.length && g.flags.some(f => f.carrier === p.pid)) v *= CARRY_SLOW;
         if (!vehicle && onWater) v *= SWIM_SLOW; // swimmers paddle slower
@@ -7300,6 +7631,15 @@ export function step(g, inputs, dt) {
             break;
           }
         }
+        // NEUTRAL prisms are killable by EITHER team's shots (no team check)
+        if (!dead && g.siegePrisms) for (const pr of g.siegePrisms) {
+          if (pr.hp <= 0) continue;
+          if (dist2(s, pr) < (SIEGE_PRISM_R + (s.radius || SHOT_R)) ** 2) {
+            damageSiegePrism(g, pr, s.dmg);
+            if (s.pierce > 0) s.pierce--; else dead = true;
+            break;
+          }
+        }
         if (!dead) for (const c of g.cores) {
           if (c.team === s.team || c.hp <= 0 || !siegeCoreOpen(g, c.team)) continue;
           if (dist2(s, c) < (SIEGE_CORE_R + (s.radius || SHOT_R)) ** 2) {
@@ -7488,7 +7828,7 @@ export function snapshot(g, full = true) {
     })),
     // ground patches and combat followers ship only when populated — classic
     // snapshots never gain the keys
-    ...(g.patches.length ? { patches: g.patches.map(pa => ({ x: pa.x, y: pa.y, kind: pa.kind, r: pa.r, ttl: pa.ttl, ...(pa.hostile ? { hostile: true } : {}) })) } : {}),
+    ...(g.patches.length ? { patches: g.patches.map(pa => ({ x: pa.x, y: pa.y, kind: pa.kind, r: pa.r, ttl: pa.ttl, ...(pa.hostile ? { hostile: true } : {}), ...(pa.team != null ? { team: pa.team } : {}) })) } : {}),
     // frontier III: field weapon pickups, quest items, quest states — all
     // shipped only when populated so classic snapshots never gain a key
     ...(g.pickups.length ? { pickups: g.pickups.map(w => ({ id: w.id, x: w.x, y: w.y, kind: w.kind, ammo: w.ammo })) } : {}),
@@ -7528,10 +7868,19 @@ export function snapshot(g, full = true) {
     ...(g.cores ? { cores: g.cores.map(c => ({ x: c.x, y: c.y, hp: c.hp, maxHp: c.maxHp, lit: c.lit, ...(c.team != null ? { team: c.team } : {}) })) } : {}),
     // Anchor Siege: minions, lane towers, lane polylines, and core-open flags
     ...(g.siege ? { siege: {
-      minions: g.siege.minions.map(m => ({ id: m.id, team: m.team, x: qi(m.x), y: qi(m.y), hp: m.hp, maxHp: m.maxHp })),
+      minions: g.siege.minions.map(m => ({ id: m.id, team: m.team, x: qi(m.x), y: qi(m.y), hp: m.hp, maxHp: m.maxHp, ...(m.kind ? { kind: m.kind } : {}) })),
       towers: g.siegeTowers.map(t => ({ x: t.x, y: t.y, team: t.team, hp: t.hp, maxHp: t.maxHp, level: t.level, destroyed: t.destroyed })),
       lanes: g.siege.lanes.map(l => l.waypoints.map(w => [w.x, w.y])),
       open: [siegeCoreOpen(g, 0), siegeCoreOpen(g, 1)],
+      // MOBA Wave C neutral killable prisms (+hp) — shipped only when the map
+      // fields any, so prism-less siege maps keep a byte-identical snapshot.
+      ...(g.siegePrisms && g.siegePrisms.length ? { prisms: g.siegePrisms.map(pr => ({ id: pr.id, x: pr.x, y: pr.y, hp: pr.hp, maxHp: pr.maxHp })) } : {}),
+      // MOBA Wave D timed traps (team -1 unclaimed; armed flag; cool timer) —
+      // shipped only when the map fields any, so trap-less siege maps stay stable.
+      ...(g.siegeTraps && g.siegeTraps.length ? { traps: g.siegeTraps.map(tr => ({ id: tr.id, x: tr.x, y: tr.y, team: tr.team, armed: tr.armed, ...(tr.cool > 0 ? { cool: q1(tr.cool) } : {}) })) } : {}),
+      // MOBA Wave D super weapon meter (per-team charge / cap) — always present in
+      // siege so the HUD can draw the bar; absent for every non-siege snapshot.
+      superCharge: g.siege.superCharge.slice(), superMax: g.siege.superMax,
     } } : {}),
     // Difficulty: ships only when NOT the default 'normal', so every
     // default-difficulty snapshot stays byte-identical (the HUD shows the badge

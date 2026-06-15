@@ -1507,6 +1507,31 @@ export function playEvent(ev) {
       setTimeout(() => tone(987.77, 0.16, 'sine', 0.07, 1.05), 90);
     }
   }
+  // --- MOBA Wave D: timed traps + super weapons + prism shatter ---
+  else if (ev.type === 'trapArm') {
+    // a tight mechanical click as the trap latches live
+    tone(660, 0.05, 'square', 0.06, 0.9);
+    setTimeout(() => tone(990, 0.05, 'square', 0.05, 1.1), 60);
+  }
+  else if (ev.type === 'trapTrip') {
+    // the snap + a short fiery whoosh as the patch blooms
+    tone(180, 0.08, 'square', 0.1, 0.5);
+    noise(0.14, 0.1, 900);
+    setTimeout(() => noise(0.1, 0.06, 500), 60);
+  }
+  else if (ev.type === 'superBlast') {
+    // a deep cannon swell into a rolling barrage roll — the team payload lands
+    tone(48, 0.5, 'sawtooth', 0.22, 2.4);
+    noise(0.5, 0.14, 240);
+    setTimeout(() => { tone(90, 0.4, 'sawtooth', 0.16, 0.5); noise(0.4, 0.1, 160); }, 200);
+    setTimeout(() => noise(0.6, 0.07, 110), 420);
+  }
+  else if (ev.type === 'prismDown') {
+    // the neutral prism shatters: glassy crack + a settling shimmer
+    noise(0.1, 0.12, 3200);
+    tone(1318, 0.1, 'triangle', 0.07, 0.6);
+    setTimeout(() => tone(523, 0.14, 'sine', 0.05, 0.7), 90);
+  }
   // unknown event types stay silent, never throw
 }
 

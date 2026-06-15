@@ -2390,11 +2390,40 @@ class LocalSession {
         if (own) steerTo(own.x, own.y);
         return inp;
       }
-      // priority: a nearby enemy operative -> enemy tower -> enemy minion
+      // priority: a nearby enemy operative -> enemy tower -> neutral prism -> enemy minion
       let tgt = null, best = 5 * TILE;
       for (const q of snap.players || []) { if (q.team !== foe || q.state !== 'active') continue; const d = dst(q); if (d < best) { best = d; tgt = q; } }
       if (!tgt) { best = 7 * TILE; for (const t of snap.siege.towers || []) { if (t.destroyed || t.team !== foe) continue; const d = dst(t); if (d < best) { best = d; tgt = t; } } }
-      if (!tgt) { best = 6 * TILE; for (const m of snap.siege.minions || []) { if (m.team !== foe) continue; const d = dst(m); if (d < best) { best = d; tgt = m; } } }
+      // a contested NEUTRAL prism in reach: shoot it down before it chips the lane
+      if (!tgt) { best = 4.5 * TILE; for (const pr of snap.siege.prisms || []) { if ((pr.hp ?? 0) <= 0) continue; const d = dst(pr); if (d < best) { best = d; tgt = pr; } } }
+      if (!tgt) {
+        // FOCUS-FIRE the soft, high-value minions first: score each enemy minion
+        // by kind value minus distance, and bias hard toward an already-wounded
+        // one so the wave gets cleared rather than chip-spread. A TANK is the
+        // last resort — it trades poorly — and we never close inside its slow
+        // aura: kite it from > KITE range instead of walking into the ring.
+        const KITE = 2.2 * TILE, REACH = 6 * TILE;
+        let bestScore = -Infinity, tank = null, tankD = Infinity;
+        for (const m of snap.siege.minions || []) {
+          if (m.team !== foe) continue;
+          const d = dst(m);
+          if (d > REACH) continue;
+          if (m.kind === 'tank') { if (d < tankD) { tankD = d; tank = m; } continue; }
+          const val = m.kind === 'warmonger' ? 3 : 1;
+          const wounded = (m.maxHp && m.hp < m.maxHp) ? 1.5 : 0; // finish the chip
+          const score = val + wounded - d / TILE;
+          if (score > bestScore) { bestScore = score; tgt = m; }
+        }
+        // no soft target but a tank is lumbering up: kite-and-shoot from afar
+        if (!tgt && tank) {
+          inp.fire = true;
+          if (tankD < KITE) {
+            const own = (snap.cores || []).find(c => c.team === me.team);
+            if (own) steerTo(own.x, own.y); // back off out of the slow ring
+          } else { steerTo(tank.x, tank.y); }
+          return inp;
+        }
+      }
       if (tgt) { inp.fire = true; steerTo(tgt.x, tgt.y); return inp; }
       const fc = (snap.cores || []).find(c => c.team === foe);
       if (fc) steerTo(fc.x, fc.y);

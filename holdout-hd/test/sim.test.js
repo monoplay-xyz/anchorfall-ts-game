@@ -8969,6 +8969,637 @@ function test32PlayerCtfSmoke() {
   console.log(`  32-player ctf wire: avg ${avg} bytes/tick, peak ${maxBytes}, levelStart ${full} (${ticks} ticks)`);
 }
 
+// ===== MOBA Wave B: tank / war-monger minion kinds + themed arenas ===========
+
+const siegeLevels = levels.filter(l => l.category === 'siege');
+const anchorlineDef = () => siegeLevels.find(l => l.name === 'Anchorline');
+
+// helper: spin a siege game with a tiny wave interval so waves spawn fast, and
+// return the LEAD-minion kind seen for `team` on each waveNo (0..n-1). The lead
+// is the i===0 minion of each spawn batch — i.e. the LOWEST id among the minions
+// born this tick (ids >= the id watermark from before the spawn). kind absent ===
+// 'grunt'. A huge cap keeps a wave from being throttled so the lead always spawns.
+function siegeLeadKinds(def, team, waveCount) {
+  const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, [startingRoster[0]]);
+  g.siege.interval = 0.5;
+  g.siege.spawnT = [0.5, 0.5];
+  g.siege.cap = 99;
+  const leads = [];
+  for (let i = 0; i < 6000 && leads.length < waveCount; i++) {
+    const before = g.siege.waveNo[team];
+    const idMark = g.siege.nextMinionId; // ids assigned this step are >= idMark
+    step(g, { 0: {} }, 1 / 30);
+    if (g.siege.waveNo[team] === before + 1) {
+      const block = g.siege.minions.filter(m => m.team === team && m.id >= idMark).sort((a, b) => a.id - b.id);
+      const lead = block[0];
+      leads.push(lead ? (lead.kind || 'grunt') : 'grunt');
+    }
+  }
+  return leads;
+}
+
+// the PURE rule the sim spawns from: waveNo%3===2 -> tank (wins ties),
+// waveNo%5===4 -> warmonger, else grunt.
+function expectedLead(waveNo) {
+  if (waveNo % 3 === 2) return 'tank';
+  if (waveNo % 5 === 4) return 'warmonger';
+  return 'grunt';
+}
+
+function testSiegeMinionKindsDeterministic() {
+  const def = anchorlineDef();
+  assert.ok(def, 'Anchorline siege level loads from levels/siege');
+  const N = 16;
+  const a = siegeLeadKinds(def, 0, N);
+  const b = siegeLeadKinds(def, 0, N);
+  assert.equal(a.length, N, `${N} waves observed`);
+  // a given waveNo yields the same lead across two independent runs
+  assert.deepEqual(a, b, 'lead-minion kind is deterministic across two runs');
+  // and it matches the documented pure rule for every waveNo
+  const want = Array.from({ length: N }, (_, i) => expectedLead(i));
+  assert.deepEqual(a, want, 'lead kind follows the waveNo rule exactly');
+  // the right waves carry the right kinds: wave 2 (and 5,8,11) are tanks; wave 4
+  // is a war monger; wave 0/1/3 are plain grunts
+  assert.equal(a[2], 'tank', 'waveNo 2 leads with a TANK');
+  assert.equal(a[5], 'tank', 'waveNo 5 leads with a TANK');
+  assert.equal(a[4], 'warmonger', 'waveNo 4 leads with a WAR MONGER');
+  assert.equal(a[0], 'grunt', 'waveNo 0 is a plain grunt wave');
+  assert.equal(a[1], 'grunt', 'waveNo 1 is a plain grunt wave');
+  assert.equal(a[3], 'grunt', 'waveNo 3 is a plain grunt wave');
+  assert.ok(a.includes('warmonger'), 'war mongers do appear');
+  assert.ok(a.includes('tank'), 'tanks do appear');
+}
+
+function testSiegeTankStatsVsGrunt() {
+  const def = anchorlineDef();
+  const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, [startingRoster[0]]);
+  g.siege.interval = 0.5; g.siege.spawnT = [0.5, 0.5]; g.siege.cap = 99;
+  // run long enough to see a tank lead (waveNo 2) and a war monger (waveNo 4)
+  for (let i = 0; i < 6000 && g.siege.waveNo[0] < 6; i++) step(g, { 0: {} }, 1 / 30);
+  const team0 = g.siege.minions.filter(m => m.team === 0);
+  const grunt = team0.find(m => !m.kind);
+  const tank = team0.find(m => m.kind === 'tank');
+  const monger = team0.find(m => m.kind === 'warmonger');
+  assert.ok(grunt && tank, 'both a grunt and a tank are live on the field');
+  // TANK is fatter than a grunt
+  assert.ok(tank.maxHp > grunt.maxHp, `tank maxHp (${tank.maxHp}) > grunt maxHp (${grunt.maxHp})`);
+  // and grunt ships NO kind field (byte-stable default), while specials do
+  assert.equal(grunt.kind, undefined, 'a grunt carries no kind field (byte-stable default)');
+  assert.equal(tank.kind, 'tank', 'a tank stamps its kind');
+  if (monger) {
+    assert.equal(monger.kind, 'warmonger', 'a war monger stamps its kind');
+    assert.ok(monger.maxHp > grunt.maxHp, 'war monger is tougher than a grunt too');
+  }
+  // SLOWER: over a fixed idle window with no obstruction, a tank advances less
+  // along its lane than a grunt born the same instant. Spawn one of each at the
+  // start of lane 0 and integrate movement for 1s.
+  const g2 = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, [startingRoster[0]]);
+  g2.siege.minions = [];
+  const start = g2.siege.lanes[0].waypoints[0];
+  g2.siege.minions.push({ id: 1, team: 0, laneI: 0, x: start.x, y: start.y, hp: 4, maxHp: 4, pathIdx: 1, score: 10 });
+  g2.siege.minions.push({ id: 2, team: 0, laneI: 0, x: start.x, y: start.y, hp: 16, maxHp: 16, pathIdx: 1, score: 20, kind: 'tank' });
+  for (let i = 0; i < 30; i++) step(g2, { 0: {} }, 1 / 30); // 1 second
+  const gm = g2.siege.minions.find(m => m.id === 1);
+  const tm = g2.siege.minions.find(m => m.id === 2);
+  const gd = Math.hypot(gm.x - start.x, gm.y - start.y);
+  const td = Math.hypot(tm.x - start.x, tm.y - start.y);
+  assert.ok(td < gd, `tank crawls slower: tank moved ${td.toFixed(1)}px vs grunt ${gd.toFixed(1)}px in 1s`);
+}
+
+function testSiegeThemedArenasMirrorAnchorline() {
+  const anchor = anchorlineDef();
+  for (const name of ['Emberlane', 'Glacier']) {
+    const def = siegeLevels.find(l => l.name === name);
+    assert.ok(def, `${name} siege level loads from levels/siege`);
+    assert.equal(def.mode, 'siege', `${name} is a siege map`);
+    // tower / core / waypoint counts MIRROR anchorline exactly (only theme differs)
+    assert.equal(def.towers.length, anchor.towers.length, `${name} has the same tower count as Anchorline`);
+    assert.equal(def.siege.lanes.length, anchor.siege.lanes.length, `${name} has the same lane count`);
+    assert.deepEqual(def.siege.lanes.map(l => l.waypoints.length), anchor.siege.lanes.map(l => l.waypoints.length),
+      `${name} mirrors Anchorline's per-lane waypoint counts`);
+    assert.deepEqual(def.siege.lanes, anchor.siege.lanes, `${name} reuses Anchorline's exact lane waypoints`);
+    assert.deepEqual(def.towers, anchor.towers, `${name} reuses Anchorline's exact tower layout`);
+    // parses to exactly two cores (team 0 + team 1) and eight towers
+    const parsed = parseLevel(def);
+    assert.equal(parsed.cores.length, 2, `${name} parses exactly 2 cores`);
+    const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, [startingRoster[0]]);
+    assert.equal(g.cores.length, 2, `${name} builds 2 team cores`);
+    assert.deepEqual(g.cores.map(c => c.team).sort(), [0, 1], `${name} cores are team 0 and team 1`);
+    assert.equal(g.siegeTowers.length, 8, `${name} builds 8 lane towers`);
+    // every lane waypoint and tower sits on walkable floor (no lava/void/wall) so
+    // minions path the lane; and a 60s sim breaks an enemy tower (lane traversal).
+    const HAZ = c => c === '!' || c === '%' || c === '#';
+    for (const lane of def.siege.lanes) for (const [x, y] of lane.waypoints) {
+      assert.ok(!HAZ(def.tiles[y][x]), `${name} waypoint (${x},${y}) is walkable, not '${def.tiles[y][x]}'`);
+    }
+    for (const tw of def.towers) assert.ok(!HAZ(def.tiles[tw.y][tw.x]), `${name} tower (${tw.x},${tw.y}) sits on floor`);
+    let towersHurt = false;
+    for (let i = 0; i < 60 * 30; i++) { step(g, { 0: {} }, 1 / 30); if (g.siegeTowers.some(t => t.destroyed || t.hp < t.maxHp)) towersHurt = true; }
+    assert.ok(towersHurt, `${name}: minions traverse a lane and chew an enemy tower`);
+  }
+}
+
+// gating: a grunt-only window keeps the siege snapshot free of any kind key, and
+// a non-siege snapshot never gains a minion/kind field at all.
+function testSiegeMinionKindSnapshotGating() {
+  const def = anchorlineDef();
+  const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, [startingRoster[0]]);
+  // first few seconds spawn only grunt waves (waveNo 0,1) -> no 'kind' on the wire
+  for (let i = 0; i < 30 * 8; i++) step(g, { 0: {} }, 1 / 30);
+  const s = snapshot(g, false);
+  assert.ok(s.siege && Array.isArray(s.siege.minions), 'siege snapshot ships minions');
+  for (const m of s.siege.minions) {
+    if (!m.kind) assert.equal('kind' in m, false, 'a grunt minion ships NO kind key (byte-stable)');
+  }
+  // a non-siege game never gains a siege/kind key
+  const classic = createGame(levels.find(l => l.category === 'classic'), [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, [startingRoster[0]]);
+  const cs = snapshot(classic, false);
+  assert.equal('siege' in cs, false, 'classic snapshot carries no siege key');
+}
+
+// MOBA Wave C: a 'p' tile seeds a NEUTRAL killable prism — hp + a monotonic id —
+// and the siege snapshot ships it (with hp) only on a map that fields one. A
+// non-siege map ignores the marker entirely, and a prism-less siege snapshot
+// gains no 'prisms' key (byte-stable).
+function testSiegePrismSeedingAndGating() {
+  const def = anchorlineDef();
+  // each themed siege arena flanks mid with exactly two neutral 'p' prisms
+  for (const name of ['Anchorline', 'Emberlane', 'Glacier']) {
+    const d = siegeLevels.find(l => l.name === name);
+    const lvl = parseLevel(d);
+    assert.equal(lvl.siegePrisms.length, 2, `${name} parses exactly two 'p' prisms`);
+    const g = createGame(d, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, [startingRoster[0]]);
+    assert.equal(g.siegePrisms.length, 2, `${name} builds two siege prisms`);
+    // monotonic, distinct ids from g.nextSiegeId; full hp; flanking the mid shop
+    const ids = g.siegePrisms.map(p => p.id);
+    assert.deepEqual(ids, [...new Set(ids)], `${name} prism ids are distinct`);
+    assert.ok(ids.every((v, i) => i === 0 || v > ids[i - 1]), `${name} prism ids are monotonic`);
+    assert.ok(g.nextSiegeId > Math.max(...ids), `${name} nextSiegeId advanced past the seeded prisms`);
+    for (const pr of g.siegePrisms) {
+      assert.ok(pr.hp > 0 && pr.hp === pr.maxHp, `${name} prism spawns at full hp`);
+      // sits on the mid row beside the central shop (tile y 24, flanking x 21/27)
+      const tx = Math.round(pr.x / TILE - 0.5), ty = Math.round(pr.y / TILE - 0.5);
+      assert.equal(ty, 24, `${name} prism sits on the mid row`);
+      assert.ok(tx === 21 || tx === 27, `${name} prism flanks the central shop (x ${tx})`);
+    }
+    // snapshot ships the prisms with hp, gated inside the siege block
+    const s = snapshot(g, false);
+    assert.ok(Array.isArray(s.siege.prisms), `${name} snapshot ships siege.prisms`);
+    assert.equal(s.siege.prisms.length, 2, `${name} snapshot ships both prisms`);
+    for (const sp of s.siege.prisms) assert.ok('hp' in sp && 'maxHp' in sp && 'id' in sp, `${name} prism snapshot carries id+hp`);
+  }
+  // a prism-less siege snapshot gains NO 'prisms' key (byte-stable). Forge one by
+  // stripping the prisms from a live siege game.
+  const g0 = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, [startingRoster[0]]);
+  g0.siegePrisms = [];
+  const s0 = snapshot(g0, false);
+  assert.equal('prisms' in s0.siege, false, 'a prism-less siege snapshot ships no prisms key');
+  // a classic (non-siege) game never carries the prism state at all
+  const classic = createGame(levels.find(l => l.category === 'classic'), [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, [startingRoster[0]]);
+  assert.equal(classic.siegePrisms, null, 'a classic game has no siege prisms');
+  assert.equal('siege' in snapshot(classic, false), false, 'classic snapshot carries no siege key');
+}
+
+// the neutral prism AUTO-FIRES at the nearest target in its (short) range and is
+// WEAKER than a built prism: tiny per-shot damage, a 3-4 tile reach, a slow ~1.8s
+// cadence. We drive it with a single planted minion and measure the chip.
+function testSiegePrismFiresWeak() {
+  const def = anchorlineDef();
+  const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, [startingRoster[0]]);
+  // isolate one prism: drop the lane minion waves and the second prism, park the
+  // operative far away so it can't muddy the target pick.
+  g.siege.minions = [];
+  g.siege.spawnT = [1e9, 1e9]; // no fresh waves during the probe
+  g.siegePrisms = [g.siegePrisms[0]];
+  const pr = g.siegePrisms[0];
+  g.players[0].x = pr.x + 40 * TILE; g.players[0].y = pr.y + 40 * TILE; // out of everything
+  // plant a single FAT minion right on the prism so it stays in range while we
+  // count beams (fat enough to survive many chips so it never despawns mid-probe)
+  const m = { id: 1, team: 0, laneI: 0, x: pr.x, y: pr.y, hp: 999, maxHp: 999, pathIdx: 99, score: 10 };
+  g.siege.minions.push(m);
+  // step() drains nothing — events accrue on g.events until snapshot() splices
+  // them; clear the array before each probe window and count what the step added.
+  const beamsLastStep = () => g.events.filter(e => e.type === 'prismBeam' && e.siege).length;
+  // ONE step off cooldown: a single beam lands, chipping the minion by 1 hp.
+  // (pin the minion onto the prism each step so it never marches out of reach)
+  const pin = () => { m.x = pr.x; m.y = pr.y; };
+  const hp0 = m.hp;
+  pin(); g.events.length = 0;
+  step(g, { 0: {} }, 1 / 30);
+  const beams = g.events.filter(e => e.type === 'prismBeam' && e.siege);
+  assert.equal(beams.length, 1, 'the neutral prism fires exactly one beam off cooldown');
+  assert.equal(beams[0].dmg, 1, 'the neutral prism beam is a weak 1-damage chip');
+  assert.equal(hp0 - m.hp, 1, 'the planted minion takes the 1-damage beam');
+  // SLOW CADENCE: over the next ~1.5s (< the ~1.8s period) it must NOT fire again
+  let more = 0;
+  for (let i = 0; i < 45; i++) { pin(); g.events.length = 0; step(g, { 0: {} }, 1 / 30); more += beamsLastStep(); }
+  assert.equal(more, 0, 'no second beam inside the slow ~1.8s cadence window');
+  // and by ~2s total it has fired again (cadence is ~1.8s, far slower than 1.2s)
+  let fired = 0;
+  for (let i = 0; i < 30 && !fired; i++) { pin(); g.events.length = 0; step(g, { 0: {} }, 1 / 30); fired += beamsLastStep(); }
+  assert.ok(fired >= 1, 'the prism re-fires once its slow cadence elapses');
+  // SHORT REACH: a lone minion ~5 tiles away (past the 3-4 tile reach) is ignored.
+  const g2 = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, [startingRoster[0]]);
+  g2.siege.minions = []; g2.siege.spawnT = [1e9, 1e9];
+  g2.siegePrisms = [g2.siegePrisms[0]];
+  const pr2 = g2.siegePrisms[0];
+  g2.players[0].x = pr2.x + 40 * TILE; g2.players[0].y = pr2.y + 40 * TILE;
+  const fm = { id: 2, team: 0, laneI: 0, x: pr2.x + 5 * TILE, y: pr2.y, hp: 999, maxHp: 999, pathIdx: 99, score: 10 };
+  g2.siege.minions.push(fm);
+  let far = 0;
+  for (let i = 0; i < 90; i++) { fm.x = pr2.x + 5 * TILE; fm.y = pr2.y; g2.events.length = 0; step(g2, { 0: {} }, 1 / 30); far += g2.events.filter(e => e.type === 'prismBeam' && e.siege).length; }
+  assert.equal(far, 0, 'a target 5 tiles out is beyond the neutral prism reach — no beam');
+}
+
+// KILLABLE: enough player-shot damage destroys a neutral prism and fires a single
+// 'prismDown' event; after that it stops firing and drops off the snapshot.
+function testSiegePrismKillable() {
+  const def = anchorlineDef();
+  const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, [startingRoster[0]]);
+  g.siege.minions = []; g.siege.spawnT = [1e9, 1e9];
+  g.siegePrisms = [g.siegePrisms[0]];
+  const pr = g.siegePrisms[0];
+  const startHp = pr.hp;
+  assert.ok(startHp > 1, 'a fresh prism has multi-hit hp');
+  // park the operative on the prism and feed player shots straight onto it: a
+  // stationary 0-velocity 'p' shot sitting on the prism is hit by the siege
+  // shot-collision pass. Pump shots until the prism falls (cap the loop).
+  const p = g.players[0]; p.x = pr.x; p.y = pr.y;
+  let downs = 0, steps = 0;
+  while (pr.hp > 0 && steps < 400) {
+    g.shots.push({ id: g.nextShotId++, x: pr.x, y: pr.y, vx: 0, vy: 0, ttl: 1, dmg: 1, who: 'p',
+      team: p.team, pid: p.pid, ownerPid: p.pid, pierce: 0, radius: 4, hits: [] });
+    g.events.length = 0;
+    step(g, { 0: {} }, 1 / 30);
+    downs += g.events.filter(e => e.type === 'prismDown').length;
+    steps++;
+  }
+  assert.equal(pr.hp, 0, 'the neutral prism is destroyed by sustained shot damage');
+  assert.equal(downs, 1, 'destruction fires exactly one prismDown event');
+  // a dead prism never fires again, even with a minion sat on it
+  const km = { id: 9, team: 0, laneI: 0, x: pr.x, y: pr.y, hp: 999, maxHp: 999, pathIdx: 99, score: 10 };
+  g.siege.minions.push(km);
+  let after = 0;
+  for (let i = 0; i < 120; i++) { km.x = pr.x; km.y = pr.y; g.events.length = 0; step(g, { 0: {} }, 1 / 30); after += g.events.filter(e => e.type === 'prismBeam' && e.siege).length; }
+  assert.equal(after, 0, 'a destroyed prism never beams again');
+  // and it drops off the wire (snapshot ships only living prisms... it stays in
+  // the array at hp 0 but reads dead — the render culls it; the kill is the event)
+  const s = snapshot(g, false);
+  const sp = (s.siege.prisms || []).find(x => x.id === pr.id);
+  if (sp) assert.equal(sp.hp, 0, 'a downed prism reads hp 0 on the wire');
+}
+
+// the neutral pickup spawner drops on its DETERMINISTIC clock at a lane-mid cell:
+// the first drop (counter 0) is a shard cache on lane 0's mid waypoint; the next
+// (counter 1) is a field weapon on lane 1's mid; two runs match exactly.
+function testSiegePickupSpawner() {
+  const def = anchorlineDef();
+  const drive = () => {
+    const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, [startingRoster[0]]);
+    // park the operative far off so it never collects a drop mid-probe
+    g.players[0].x = 1e6; g.players[0].y = 1e6;
+    const dropsSeen = [];
+    for (let i = 0; i < 30 * 70 && dropsSeen.length < 2; i++) {
+      g.events.length = 0;
+      step(g, { 0: {} }, 1 / 30);
+      for (const e of g.events) if (e.type === 'siegePickup') {
+        dropsSeen.push({ kind: e.kind, x: Math.round(e.x), y: Math.round(e.y),
+          drops: g.drops.length, pickups: g.pickups.length });
+      }
+    }
+    return dropsSeen;
+  };
+  const a = drive();
+  const b = drive();
+  assert.equal(a.length, 2, 'two neutral pickups drop within ~70s (interval ~30s)');
+  assert.deepEqual(a, b, 'the neutral pickup schedule is deterministic across runs');
+  // the lane-mid cells: lane 0 mid waypoint then lane 1 mid waypoint
+  const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, [startingRoster[0]]);
+  const mid = lane => { const w = g.siege.lanes[lane].waypoints; return w[Math.floor(w.length / 2)]; };
+  const m0 = mid(0), m1 = mid(1);
+  assert.equal(a[0].kind, 'shards', 'the first drop (counter 0) is a shard cache');
+  assert.equal(a[0].x, Math.round(m0.x), 'first drop sits on lane 0 mid x');
+  assert.equal(a[0].y, Math.round(m0.y), 'first drop sits on lane 0 mid y');
+  assert.notEqual(a[1].kind, 'shards', 'the second drop (counter 1) is a field weapon');
+  assert.equal(a[1].x, Math.round(m1.x), 'second drop sits on lane 1 mid x');
+  assert.equal(a[1].y, Math.round(m1.y), 'second drop sits on lane 1 mid y');
+  // each drop actually lands in the collectible pipeline it reuses: a shard cache
+  // grows g.drops; a field weapon grows g.pickups (so heroes collect it normally)
+  assert.ok(a[0].drops >= 1, 'a shard cache rides the g.drops pipeline');
+  assert.ok(a[1].pickups >= 1, 'a field weapon rides the g.pickups pipeline');
+}
+
+// ===== MOBA Wave D: timed traps + super weapons + combat FX ==================
+
+// helper: a one-player siege game with the lane waves switched off so probes
+// aren't muddied by spawned minions/pickups.
+function quietSiege(name = 'Anchorline') {
+  const def = siegeLevels.find(l => l.name === name);
+  const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, [startingRoster[0]]);
+  g.siege.minions = [];
+  g.siege.spawnT = [1e9, 1e9];
+  g.siege.pickupT = 1e9;
+  return g;
+}
+
+// Every themed arena seeds the SAME 't' traps + 'A' pickups (only theme differs),
+// every trap/pickup sits on walkable floor, and the siege snapshot ships the traps
+// (gated). A trap-less siege snapshot gains no 'traps' key, and a classic game
+// never carries siege trap state at all.
+function testSiegeTrapSeedingAndGating() {
+  const anchor = anchorlineDef();
+  const HAZ = c => c === '!' || c === '%' || c === '#' || c === 'K' || c === 'P' || c === 'S' || c === 'p';
+  for (const name of ['Anchorline', 'Emberlane', 'Glacier']) {
+    const d = siegeLevels.find(l => l.name === name);
+    const lvl = parseLevel(d);
+    assert.equal(lvl.siegeTraps.length, 4, `${name} parses exactly four 't' traps`);
+    // every themed arena reuses Anchorline's exact trap/pickup tile coordinates
+    const trapCells = [];
+    const pickupCells = [];
+    for (let y = 0; y < d.tiles.length; y++) for (let x = 0; x < d.tiles[y].length; x++) {
+      if (d.tiles[y][x] === 't') trapCells.push([x, y]);
+      if (d.tiles[y][x] === 'A') pickupCells.push([x, y]);
+    }
+    assert.equal(trapCells.length, 4, `${name} grid carries four 't' trap tiles`);
+    assert.equal(pickupCells.length, 2, `${name} grid carries two 'A' pickup tiles`);
+    if (name !== 'Anchorline') {
+      const aCells = [];
+      for (let y = 0; y < anchor.tiles.length; y++) for (let x = 0; x < anchor.tiles[y].length; x++) if (anchor.tiles[y][x] === 't') aCells.push([x, y]);
+      assert.deepEqual(trapCells, aCells, `${name} reuses Anchorline's exact trap coordinates`);
+    }
+    // each trap/pickup occupied an open floor cell BEFORE it was stamped (the parse
+    // replaces the marker with '.', so check the marker isn't on a hazard tile)
+    for (const [x, y] of trapCells) assert.equal(HAZ(d.tiles[y][x]), false, `${name} trap (${x},${y}) is on open floor`);
+    const g = createGame(d, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, [startingRoster[0]]);
+    assert.equal(g.siegeTraps.length, 4, `${name} builds four siege traps`);
+    // monotonic distinct ids drawn from the same g.nextSiegeId source as prisms
+    const ids = g.siegeTraps.map(t => t.id);
+    assert.deepEqual(ids, [...new Set(ids)], `${name} trap ids are distinct`);
+    assert.ok(g.nextSiegeId > Math.max(...ids), `${name} nextSiegeId advanced past the traps`);
+    for (const tr of g.siegeTraps) {
+      assert.equal(tr.team, -1, `${name} traps start unclaimed`);
+      assert.equal(tr.armed, false, `${name} traps start disarmed`);
+      assert.equal(tr.cool, 0, `${name} traps start off cooldown`);
+    }
+    // field pickups: the two 'A' markers join g.pickups (collectible field guns)
+    assert.ok(g.pickups.length >= 2, `${name} fields the two 'A' pickups`);
+    // snapshot ships the traps inside the siege block (gated)
+    const s = snapshot(g, false);
+    assert.ok(Array.isArray(s.siege.traps), `${name} snapshot ships siege.traps`);
+    assert.equal(s.siege.traps.length, 4, `${name} snapshot ships all four traps`);
+    for (const st of s.siege.traps) assert.ok('id' in st && 'team' in st && 'armed' in st, `${name} trap snapshot carries id+team+armed`);
+  }
+  // a trap-less siege snapshot gains NO 'traps' key (byte-stable)
+  const g0 = quietSiege();
+  g0.siegeTraps = [];
+  const s0 = snapshot(g0, false);
+  assert.equal('traps' in s0.siege, false, 'a trap-less siege snapshot ships no traps key');
+  // a classic (non-siege) game never carries trap state, and never gains a siege key
+  const classic = createGame(levels.find(l => l.category === 'classic'), [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, [startingRoster[0]]);
+  assert.equal(classic.siegeTraps, null, 'a classic game has no siege traps');
+  assert.equal('siege' in snapshot(classic, false), false, 'classic snapshot carries no siege key');
+}
+
+// ARMING requires an OWN-TEAM act-hold: a foe hold can't arm it, an idle trap
+// never arms itself, and exactly one 'trapArm' fires when it latches.
+function testSiegeTrapArmingRequiresOwnTeamHold() {
+  // no hold -> no arm, no event
+  const gIdle = quietSiege();
+  const trI = gIdle.siegeTraps[0];
+  for (let i = 0; i < 90; i++) step(gIdle, { 0: {} }, 1 / 30);
+  assert.equal(trI.armed, false, 'an un-held trap never arms');
+  // a FOE hold can't arm a trap already CLAIMED by the other team
+  const gFoe = quietSiege();
+  const trF = gFoe.siegeTraps[0];
+  trF.team = 0; // claimed by team 0
+  const pF = gFoe.players[0]; pF.team = 1; pF.x = trF.x; pF.y = trF.y;
+  let foeArm = 0;
+  for (let i = 0; i < 120; i++) { gFoe.events.length = 0; step(gFoe, { 0: { act: true } }, 1 / 30); foeArm += gFoe.events.filter(e => e.type === 'trapArm').length; }
+  assert.equal(trF.armed, false, 'a foe cannot arm a trap the other team claimed');
+  assert.equal(foeArm, 0, 'no trapArm event under a foe hold');
+  // an OWN-TEAM hold arms it: armed flag flips, team claimed, exactly one event
+  const g = quietSiege();
+  const tr = g.siegeTraps[0];
+  const p = g.players[0]; p.team = 0; p.x = tr.x; p.y = tr.y;
+  let armEv = 0, steps = 0;
+  while (!tr.armed && steps < 120) { g.events.length = 0; step(g, { 0: { act: true } }, 1 / 30); armEv += g.events.filter(e => e.type === 'trapArm').length; steps++; }
+  assert.equal(tr.armed, true, 'an own-team act-hold arms the trap');
+  assert.equal(tr.team, 0, 'arming claims the trap for the holder team');
+  assert.equal(armEv, 1, 'arming fires exactly one trapArm event');
+  // the snapshot reflects the armed/claimed state
+  const st = snapshot(g, false).siege.traps.find(x => x.id === tr.id);
+  assert.equal(st.armed, true, 'snapshot reports the trap armed');
+  assert.equal(st.team, 0, 'snapshot reports the claiming team');
+}
+
+// A FOE tripping an armed trap spawns a team-tagged DAMAGING patch and drops the
+// trap onto cooldown; the patch sears the foe (minion + hero) and SPARES the owner.
+function testSiegeTrapTripDamagesFoeAndCools() {
+  const g = quietSiege();
+  const tr = g.siegeTraps[0];
+  tr.team = 0; tr.armed = true;
+  // a team-1 (foe) minion steps onto the armed trap
+  g.siege.minions.push({ id: 1, team: 1, laneI: 0, x: tr.x, y: tr.y, hp: 99, maxHp: 99, pathIdx: 99, score: 10 });
+  g.events.length = 0;
+  step(g, { 0: {} }, 1 / 30);
+  const trips = g.events.filter(e => e.type === 'trapTrip');
+  assert.equal(trips.length, 1, 'a foe stepping on an armed trap fires exactly one trapTrip');
+  assert.equal(trips[0].team, 0, 'the trip event carries the OWNER team');
+  assert.equal(tr.armed, false, 'a tripped trap disarms');
+  assert.ok(tr.cool > 0, 'a tripped trap drops onto cooldown');
+  // a hostile, team-0-owned patch now rides g.patches
+  const pa = g.patches.find(x => x.kind === 'trap');
+  assert.ok(pa, 'the trip spawns a trap ground patch');
+  assert.equal(pa.team, 0, 'the patch carries the owner team');
+  assert.equal(pa.hostile, true, 'the patch is hostile');
+  // it ships on the wire with a team tag (siege patch), gated
+  const sp = snapshot(g, false).patches.find(x => x.kind === 'trap');
+  assert.ok(sp && sp.team === 0, 'snapshot ships the trap patch with its team');
+  // the patch damages the FOE minion sitting in it over the next second
+  const fm = g.siege.minions[0]; const mhp0 = fm.hp;
+  for (let i = 0; i < 30; i++) { if (g.siege.minions[0]) { g.siege.minions[0].x = tr.x; g.siege.minions[0].y = tr.y; } step(g, { 0: {} }, 1 / 30); }
+  const fmNow = g.siege.minions[0];
+  assert.ok(!fmNow || fmNow.hp < mhp0, 'the trap patch sears the foe minion');
+  // and it SPARES the owner's own minion sitting in the same spot. Pull the lane
+  // towers so a nearby foe tower can't muddy the "spared" reading — the only thing
+  // that can touch the planted minion in this probe is the trap patch itself.
+  const g2 = quietSiege();
+  g2.siegeTowers = [];
+  const tr2 = g2.siegeTraps[0]; tr2.team = 0; tr2.armed = true;
+  g2.siege.minions.push({ id: 9, team: 1, laneI: 0, x: tr2.x, y: tr2.y, hp: 4, maxHp: 4, pathIdx: 99, score: 10 }); // trips it
+  step(g2, { 0: {} }, 1 / 30);
+  assert.ok(g2.patches.some(x => x.kind === 'trap'), 'the trip left a trap patch to test against');
+  g2.siege.minions = []; // clear the foe, plant an OWN (team 0) minion in the patch
+  const own = { id: 10, team: 0, laneI: 0, x: tr2.x, y: tr2.y, hp: 99, maxHp: 99, pathIdx: 99, score: 10 };
+  g2.siege.minions.push(own); const ohp0 = own.hp;
+  for (let i = 0; i < 30; i++) { own.x = tr2.x; own.y = tr2.y; step(g2, { 0: {} }, 1 / 30); }
+  assert.equal(own.hp, ohp0, 'the owner team is spared by its own trap patch');
+  // an armed trap on cooldown does NOT re-trip while cooling
+  const g3 = quietSiege();
+  const tr3 = g3.siegeTraps[0]; tr3.team = 0; tr3.cool = 3; tr3.armed = false;
+  g3.siege.minions.push({ id: 1, team: 1, laneI: 0, x: tr3.x, y: tr3.y, hp: 99, maxHp: 99, pathIdx: 99, score: 10 });
+  let trips3 = 0;
+  for (let i = 0; i < 30; i++) { g3.siege.minions[0].x = tr3.x; g3.siege.minions[0].y = tr3.y; g3.events.length = 0; step(g3, { 0: {} }, 1 / 30); trips3 += g3.events.filter(e => e.type === 'trapTrip').length; }
+  assert.equal(trips3, 0, 'a cooling trap never trips');
+  assert.ok(tr3.cool < 3, 'the cooldown counts down');
+}
+
+// SUPER charge fills DETERMINISTICALLY by kills (minion/tower/hero), clamped at the
+// cap; a full meter + an own-core act-hold fires exactly one superBlast and resets.
+function testSiegeSuperChargeAndBlast() {
+  // a minion kill credited to team 0 adds charge; the meter clamps at superMax
+  const g = quietSiege();
+  const p = g.players[0]; p.team = 0;
+  assert.equal(g.siege.superCharge[0], 0, 'super charge starts empty');
+  let kills = 0;
+  while (g.siege.superCharge[0] < g.siege.superMax && kills < 400) {
+    const m = { id: 2000 + kills, team: 1, laneI: 0, x: p.x + TILE, y: p.y, hp: 1, maxHp: 1, pathIdx: 99, score: 10 };
+    g.siege.minions.push(m);
+    g.shots.push({ id: g.nextShotId++, x: m.x, y: m.y, vx: 0, vy: 0, ttl: 1, dmg: 5, who: 'p', team: 0, pid: 0, ownerPid: 0, pierce: 0, radius: 8, hits: [] });
+    step(g, { 0: {} }, 1 / 30);
+    kills++;
+  }
+  assert.equal(g.siege.superCharge[0], g.siege.superMax, 'minion kills fill team 0 super meter to the cap');
+  assert.equal(g.siege.superCharge[1], 0, 'team 1 earns no charge from team 0 kills');
+  // overfill clamps: another kill does not exceed the cap
+  const over = { id: 9999, team: 1, laneI: 0, x: p.x + TILE, y: p.y, hp: 1, maxHp: 1, pathIdx: 99, score: 10 };
+  g.siege.minions.push(over);
+  g.shots.push({ id: g.nextShotId++, x: over.x, y: over.y, vx: 0, vy: 0, ttl: 1, dmg: 5, who: 'p', team: 0, pid: 0, ownerPid: 0, pierce: 0, radius: 8, hits: [] });
+  step(g, { 0: {} }, 1 / 30);
+  assert.equal(g.siege.superCharge[0], g.siege.superMax, 'super charge clamps at the cap');
+  // full meter + own-core act-hold -> exactly one superBlast, charge resets
+  const core = g.cores.find(c => c.team === 0); p.x = core.x; p.y = core.y;
+  g.siege.minions = [];
+  let blast = 0, steps = 0;
+  while (!blast && steps < 90) { g.events.length = 0; step(g, { 0: { act: true } }, 1 / 30); blast += g.events.filter(e => e.type === 'superBlast').length; steps++; }
+  assert.equal(blast, 1, 'a full meter + own-core act-hold fires exactly one superBlast');
+  assert.equal(g.siege.superCharge[0], 0, 'firing the super resets that team charge');
+  // a NON-full meter never fires even with a core act-hold
+  const g2 = quietSiege();
+  const c2 = g2.cores.find(c => c.team === 0); const p2 = g2.players[0]; p2.team = 0; p2.x = c2.x; p2.y = c2.y;
+  g2.siege.superCharge[0] = g2.siege.superMax - 1;
+  let nope = 0;
+  for (let i = 0; i < 90; i++) { g2.events.length = 0; step(g2, { 0: { act: true } }, 1 / 30); nope += g2.events.filter(e => e.type === 'superBlast').length; }
+  assert.equal(nope, 0, 'an un-full meter never fires a super');
+  // tower/hero kills also charge the meter (bigger increments than a minion)
+  const g3 = quietSiege();
+  const before = g3.siege.superCharge[0];
+  const t = g3.siegeTowers.find(tw => tw.team === 1); // a foe tower
+  g3.shots.push({ id: g3.nextShotId++, x: t.x, y: t.y, vx: 0, vy: 0, ttl: 1, dmg: 999, who: 'p', team: 0, pid: 0, ownerPid: 0, pierce: 0, radius: 8, hits: [] });
+  // park the operative on the tower so the siege shot-collision pass connects
+  g3.players[0].x = t.x; g3.players[0].y = t.y; g3.players[0].team = 0;
+  step(g3, { 0: {} }, 1 / 30);
+  assert.ok(t.destroyed, 'the foe tower falls to the shot');
+  assert.ok(g3.siege.superCharge[0] - before >= 4, 'a tower kill charges the super meter more than a minion');
+}
+
+// the super BARRAGE damages enemy-lane minions/towers and credits NO ONE (team
+// cast), so it can never charge itself into an infinite loop.
+function testSiegeSuperBlastDamagesEnemyLane() {
+  const g = quietSiege();
+  g.siege.superCharge[0] = g.siege.superMax;
+  const core = g.cores.find(c => c.team === 0); const p = g.players[0]; p.team = 0; p.x = core.x; p.y = core.y;
+  // plant a fat foe minion on the foe's forward lane (team 1 marches lanesRev)
+  const node = g.siege.lanesRev[0].waypoints[2];
+  const fm = { id: 5, team: 1, laneI: 0, x: node.x, y: node.y, hp: 99, maxHp: 99, pathIdx: 99, score: 10 };
+  g.siege.minions.push(fm); const hp0 = fm.hp;
+  let fired = false;
+  for (let i = 0; i < 90 && !fired; i++) { fm.x = node.x; fm.y = node.y; step(g, { 0: { act: true } }, 1 / 30); if (g.siege.superCharge[0] === 0) fired = true; }
+  assert.ok(fired, 'the super fired');
+  const live = g.siege.minions.find(m => m.id === 5);
+  assert.ok(!live || live.hp < hp0, 'the barrage damages a foe minion on the enemy lane');
+  // the barrage credited NOBODY: the team that cast it gained no fresh charge from
+  // its own kills (it would never refill on a single cast)
+  assert.equal(g.siege.superCharge[0], 0, 'a team-cast barrage charges no one (no self-refill)');
+}
+
+// determinism: two identical siege runs that arm a trap, trip it, and fire a super
+// produce byte-identical snapshots (no RNG anywhere in the new paths).
+function testSiegeWaveDDeterministic() {
+  const runOnce = () => {
+    const def = anchorlineDef();
+    const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, [startingRoster[0]]);
+    const p = g.players[0]; p.team = 0;
+    const tr = g.siegeTraps[0];
+    const dt = 1 / 30;
+    for (let i = 0; i < 600 && g.status === 'play'; i++) {
+      // for the first 60 ticks, hold act on a trap to arm it; then idle
+      const onTrap = i < 60;
+      if (onTrap) { p.x = tr.x; p.y = tr.y; }
+      step(g, { 0: { act: onTrap } }, dt);
+    }
+    return JSON.stringify(snapshot(g, true));
+  };
+  assert.equal(runOnce(), runOnce(), 'two scripted Wave-D siege runs produce identical snapshots');
+}
+
+// serialize/restore is byte-stable with traps + super charge live (mid-arm, mid-cool)
+function testSiegeWaveDSerializeRoundTrip() {
+  const g = quietSiege();
+  const tr = g.siegeTraps[0]; tr.team = 0; tr.armed = true;
+  g.siege.superCharge = [7, 3];
+  // trip the trap so a trap patch + cooldown are live too
+  g.siege.minions.push({ id: 1, team: 1, laneI: 0, x: tr.x, y: tr.y, hp: 99, maxHp: 99, pathIdx: 99, score: 10 });
+  step(g, { 0: {} }, 1 / 30);
+  const twin = restoreGame(serializeGame(g), charMap);
+  assert.equal(JSON.stringify(snapshot(twin, false)), JSON.stringify(snapshot(g, false)),
+    'siege Wave-D serialize/restore is byte-stable');
+  // the restored game keeps stepping (traps + super survive the round-trip)
+  assert.deepEqual(twin.siege.superCharge, g.siege.superCharge, 'super charge survives serialize/restore');
+  assert.equal(twin.siegeTraps.length, g.siegeTraps.length, 'traps survive serialize/restore');
+}
+
+// RENDER PARITY CONTRACT: the exact siege snapshot field NAMES the web render
+// (public/render.js) reads must match what the sim EMITS. drawSiegeMinion keys on
+// m.kind ('tank'/'warmonger'); drawSiegeTrap reads tr.{x,y,team,armed,cool};
+// drawSiegeSuper(=core-bar overlay) reads siege.{superCharge[],superMax}; the prism
+// hp pip reads pr.{hp,maxHp}. This test arms a trap + charges the super on EVERY
+// themed siege map so all optional/gated fields ship, then asserts the names. A
+// classic (non-siege) snapshot must gain NONE of them (byte-stable for all modes).
+function testSiegeRenderFieldParity() {
+  for (const name of ['Anchorline', 'Emberlane', 'Glacier']) {
+    const g = quietSiege(name);
+    // arm trap[0] (team 0) + charge team-0 super to the cap so cool/armed/charge ship
+    const tr = g.siegeTraps[0]; tr.team = 0; tr.armed = true;
+    g.siege.superCharge = [g.siege.superMax, 1];
+    // plant a tank + a warmonger so the 'kind' key the render switches on appears
+    const wp = g.siege.lanes[0].waypoints[1];
+    g.siege.minions.push({ id: 901, team: 0, laneI: 0, x: wp.x, y: wp.y, hp: 16, maxHp: 16, pathIdx: 1, score: 20, kind: 'tank' });
+    g.siege.minions.push({ id: 902, team: 0, laneI: 0, x: wp.x, y: wp.y, hp: 8, maxHp: 8, pathIdx: 1, score: 20, kind: 'warmonger' });
+    const sg = snapshot(g, false).siege;
+    // minion kind: render's drawSiegeMinion switches on exactly these strings
+    const kinds = new Set(sg.minions.map(m => m.kind || 'grunt'));
+    assert.ok(kinds.has('tank') && kinds.has('warmonger'), `${name} ships tank+warmonger minion kinds the render draws`);
+    // traps: drawSiegeTrap reads id/x/y/team/armed (cool only when cooling)
+    assert.ok(Array.isArray(sg.traps) && sg.traps.length, `${name} ships siege.traps the render iterates`);
+    for (const t of sg.traps) {
+      for (const k of ['id', 'x', 'y', 'team', 'armed']) assert.ok(k in t, `${name} trap snapshot has render field '${k}'`);
+    }
+    assert.ok(sg.traps.some(t => t.armed === true), `${name} ships an armed trap (render's live-pad branch)`);
+    // prisms: the render hp pip reads pr.hp / pr.maxHp
+    assert.ok(Array.isArray(sg.prisms) && sg.prisms.length, `${name} ships siege.prisms the render iterates`);
+    for (const p of sg.prisms) assert.ok('hp' in p && 'maxHp' in p, `${name} prism snapshot has render hp pip fields`);
+    // super meter: the HUD bar reads siege.superCharge[team] against siege.superMax
+    assert.ok(Array.isArray(sg.superCharge) && sg.superCharge.length === 2, `${name} ships a two-team siege.superCharge array`);
+    assert.equal(typeof sg.superMax, 'number', `${name} ships a numeric siege.superMax cap`);
+    assert.equal(sg.superCharge[0], sg.superMax, `${name} ships team-0 super at the cap (render's READY branch)`);
+  }
+  // cool only ships while a trap is on cooldown: trip an armed trap and confirm the
+  // render's spent-pad field (tr.cool) appears, then a fresh trap omits it.
+  const gc = quietSiege('Anchorline');
+  const tc = gc.siegeTraps[0]; tc.team = 0; tc.armed = true;
+  gc.siege.minions.push({ id: 1, team: 1, laneI: 0, x: tc.x, y: tc.y, hp: 99, maxHp: 99, pathIdx: 99, score: 10 });
+  step(gc, { 0: {} }, 1 / 30);
+  const cooled = snapshot(gc, false).siege.traps.find(t => t.id === tc.id);
+  assert.ok('cool' in cooled, 'a tripped trap ships the cool field the spent-pad render reads');
+  const fresh = snapshot(quietSiege('Anchorline'), false).siege.traps[0];
+  assert.equal('cool' in fresh, false, 'a fresh (un-cooled) trap omits the cool field (byte-stable)');
+  // GATING: a classic snapshot gains NONE of the siege render fields
+  const classic = createGame(levels.find(l => l.category === 'classic'),
+    [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, [startingRoster[0]]);
+  assert.equal('siege' in snapshot(classic, false), false, 'classic snapshot carries no siege render fields');
+}
+
 // --- public-deploy hardening: drive the REAL server over real sockets ---------
 // Two spawns of server.js on spare ports. PUBLIC instance (PUBLIC_DEPLOY=1,
 // HOLDOUT_SMOKE=1 to prove the hook is dead, SAVES_DIR=tmp, ROOM_CAP=4,
@@ -9266,6 +9897,22 @@ testAddPlayerMidGame();
 testAddPlayerMidGameCaps();
 testBr16SeatsDeployUnstuck();
 test32PlayerCtfSmoke();
+testSiegeMinionKindsDeterministic();
+testSiegeTankStatsVsGrunt();
+testSiegeThemedArenasMirrorAnchorline();
+testSiegeMinionKindSnapshotGating();
+testSiegePrismSeedingAndGating();
+testSiegePrismFiresWeak();
+testSiegePrismKillable();
+testSiegePickupSpawner();
+testSiegeTrapSeedingAndGating();
+testSiegeTrapArmingRequiresOwnTeamHold();
+testSiegeTrapTripDamagesFoeAndCools();
+testSiegeSuperChargeAndBlast();
+testSiegeSuperBlastDamagesEnemyLane();
+testSiegeWaveDDeterministic();
+testSiegeWaveDSerializeRoundTrip();
+testSiegeRenderFieldParity();
 await testServerPublicHardening();
 
 console.log('sim tests passed');

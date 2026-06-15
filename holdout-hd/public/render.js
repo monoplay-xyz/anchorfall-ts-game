@@ -1506,7 +1506,12 @@ export function addEventFX(ev) {
   // (ev.evo); otherwise render() resolves it from the nearest leveled player.
   // ev.weapon rides along so field weapons get their own muzzle FX.
   if (ev.type === 'shoot') flashes.push({ x: ev.x, y: ev.y, life: 0.07, who: ev.who, evo: ev.evo, weapon: ev.weapon });
-  else if (ev.type === 'hit') { burst(4, '#ffd9d2', 110, 0.3); burst(3, PAL.red, 90, 0.3); }
+  else if (ev.type === 'hit') {
+    burst(4, '#ffd9d2', 110, 0.3); burst(3, PAL.red, 90, 0.3);
+    // MOBA Wave D: a siege minion hit ships its damage — float a small number.
+    // Campaign 'hit' events carry no dmg, so nothing changes there.
+    if (ev.dmg != null && ev.x != null) popups.push({ x: ev.x, y: ev.y - 16, text: `-${ev.dmg}`, life: 0.6, max: 0.6, color: '#ffd9d2', size: 12 });
+  }
   else if (ev.type === 'hitWall' || ev.type === 'shield') burst(5, PAL.steel, 90, 0.25);
   else if (ev.type === 'explode') {
     // scaled by aoe radius so blast-evolved rounds visibly hit harder
@@ -2036,6 +2041,56 @@ export function addEventFX(ev) {
   }
   else if (ev.type === 'aboard') {
     if (ev.x != null) { burst(8, PAL.relay, 110, 0.4); popups.push({ x: ev.x, y: ev.y - 24, text: 'ABOARD', life: 0.9, max: 0.9, color: PAL.relay }); }
+  }
+  // --- MOBA Wave D: timed traps + super weapons + damage popups ---
+  else if (ev.type === 'trapArm') {
+    // the trap goes live: a tight team-tinted ring + a few sparks
+    if (ev.x != null) {
+      const col = (ev.team ?? 0) % 2 ? '#FF6A5A' : PAL.relay;
+      ring(26, col, 0.5, 2.5);
+      burst(8, col, 110, 0.4);
+      popups.push({ x: ev.x, y: ev.y - 22, text: 'ARMED', life: 0.8, max: 0.8, color: col });
+    }
+  }
+  else if (ev.type === 'trapTrip') {
+    // a foe sets it off: a hot ground burst + a warning ring (the patch rides g.patches)
+    if (ev.x != null) {
+      burst(16, PAL.lythAmber, 190, 0.5);
+      burst(6, PAL.ember, 130, 0.45);
+      ring(TILE * 1.3, 'rgba(240,169,60,0.85)', 0.5, 3);
+    }
+    shake = Math.max(shake, 4);
+  }
+  else if (ev.type === 'superBlast') {
+    // a team payload roars down the enemy lane: stacked shockwave rings at the
+    // caster's core, a big burst at every barrage node, screen-edge flash + shake
+    const col = (ev.team ?? 0) % 2 ? '#FF6A5A' : PAL.anchor;
+    if (ev.x != null) {
+      rings.push({ x: ev.x, y: ev.y, r0: 8, r1: 220, life: 1.0, max: 1.0, color: col, w: 4 });
+      rings.push({ x: ev.x, y: ev.y, r0: 8, r1: 150, life: 0.8, max: 0.8, color: PAL.lythGold, w: 3 });
+      burst(30, col, 280, 0.8);
+      burst(12, PAL.lythGold, 200, 0.7);
+    }
+    // pound each barrage node with its own blast (nodes ride the event payload)
+    if (Array.isArray(ev.nodes)) for (const [nx, ny] of ev.nodes) {
+      burstAt(nx, ny, 14, PAL.lythAmber, 220, 0.6);
+      burstAt(nx, ny, 5, PAL.ember, 150, 0.5);
+      rings.push({ x: nx, y: ny, r0: 6, r1: TILE * 1.6, life: 0.5, max: 0.5, color: PAL.lythAmber, w: 2.5 });
+    }
+    for (const edge of ['n', 's', 'e', 'w']) edgePulses.push({ edge, life: 0.6, max: 0.6, rgb: (ev.team ?? 0) % 2 ? '255,106,90' : '95,154,255', peak: 0.6 });
+    popups.push({ screen: true, x: 0, y: 0, text: 'SUPER BARRAGE', life: 2.0, max: 2.0, color: col, size: 26 });
+    shake = Math.max(shake, 12);
+    punch = Math.max(punch, 0.6);
+  }
+  else if (ev.type === 'prismDown') {
+    // a neutral mid-lane prism shatters: cold shards + a settling ring
+    if (ev.x != null) {
+      burst(16, PAL.relay, 190, 0.6);
+      burst(8, PAL.coldHi, 150, 0.5);
+      ring(50, PAL.relay, 0.6, 3);
+      popups.push({ x: ev.x, y: ev.y - 26, text: 'PRISM DOWN', life: 1.4, max: 1.4, color: PAL.coldHi });
+    }
+    shake = Math.max(shake, 5);
   }
   // unknown event types are ignored gracefully
 }
@@ -4002,10 +4057,137 @@ function drawSiegeTower(ctx, tw, t, lights) {
   lights.push({ x, y: y - 4, r: 34, rgb: hexRgb(col), a: 0.07 + 0.04 * pulse });
 }
 
-// Cheap team-colored minion dots (~0.3*TILE) with a tiny hp tick when hurt.
+// MOBA Wave C NEUTRAL prism emplacement: a contested mid-lane crystal both teams
+// shoot down. Drawn neutral AMBER (no team color) as an upright faceted shard on
+// a dark plinth, with a thin hp pip bar so its killable state reads. It dies when
+// hp hits 0 (the snapshot stops shipping it), so there's no rubble state here.
+function drawSiegePrism(ctx, pr, t, lights) {
+  const { x, y } = pr;
+  const s = 0.5 * TILE;
+  const col = PAL.lythGold;
+  const frac = Math.max(0, Math.min(1, (pr.hp ?? 1) / (pr.maxHp || 1)));
+  const pulse = 0.5 + 0.5 * Math.sin(t * 4 + x * 0.05);
+  shadowBlob(ctx, x, y + s * 0.55, s * 0.6, s * 0.26);
+  // dark plinth
+  ctx.fillStyle = PAL.graphDark;
+  ctx.fillRect(x - s * 0.45, y + s * 0.35, s * 0.9, s * 0.26);
+  // faceted amber shard
+  ctx.save();
+  ctx.fillStyle = col;
+  ctx.shadowColor = col;
+  ctx.shadowBlur = 6 + 4 * pulse;
+  ctx.beginPath();
+  ctx.moveTo(x, y - s * 0.95); ctx.lineTo(x + s * 0.42, y - s * 0.1);
+  ctx.lineTo(x + s * 0.18, y + s * 0.4); ctx.lineTo(x - s * 0.18, y + s * 0.4);
+  ctx.lineTo(x - s * 0.42, y - s * 0.1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+  // thin hp pip bar above it
+  const bw = s * 1.0, bx = x - bw / 2, by = y - s * 0.95 - 8;
+  ctx.fillStyle = 'rgba(20,22,30,0.85)';
+  ctx.fillRect(bx - 1, by - 1, bw + 2, 4);
+  ctx.fillStyle = col;
+  ctx.fillRect(bx, by, bw * frac, 2);
+  lights.push({ x, y: y - 4, r: 30, rgb: hexRgb(col), a: 0.07 + 0.05 * pulse });
+}
+
+// MOBA Wave D timed-trap emplacement: a flat ground pad on a contested lane. It
+// reads UNCLAIMED (team -1, dim grey), ARMED (team-tinted live plate with hot
+// teeth + a pulse), or SPENT (cooling — a dark plate with a thin recharge pip).
+// Snapshot fields: team, armed, cool (cool only ships while > 0).
+function drawSiegeTrap(ctx, tr, t, lights) {
+  const { x, y } = tr;
+  const s = 0.45 * TILE;
+  const unclaimed = (tr.team ?? -1) < 0;
+  const cooling = !tr.armed && tr.cool > 0;
+  const col = unclaimed ? '#8F9CB8' : siegeTeamCol(tr.team);
+  shadowBlob(ctx, x, y + s * 0.4, s * 0.7, s * 0.26);
+  ctx.save();
+  // recessed plate (octagonal)
+  ctx.fillStyle = cooling ? PAL.graphDark : 'rgba(30,32,40,0.92)';
+  ctx.beginPath();
+  for (let k = 0; k < 8; k++) {
+    const a = (k / 8) * Math.PI * 2 + Math.PI / 8;
+    const px = x + Math.cos(a) * s, py = y + Math.sin(a) * s * 0.6;
+    if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = col;
+  ctx.globalAlpha = unclaimed ? 0.45 : cooling ? 0.4 : 0.85;
+  ctx.lineWidth = 1.4;
+  ctx.stroke();
+  if (tr.armed) {
+    // live: hot inner teeth + a pulsing core, plus a faint danger light
+    const pulse = 0.5 + 0.5 * Math.sin(t * 6 + x * 0.05);
+    ctx.fillStyle = col;
+    ctx.globalAlpha = 0.6 + 0.35 * pulse;
+    ctx.shadowColor = col;
+    ctx.shadowBlur = 5 + 4 * pulse;
+    for (let k = 0; k < 6; k++) {
+      const a = (k / 6) * Math.PI * 2 + t * 0.6;
+      const px = x + Math.cos(a) * s * 0.6, py = y + Math.sin(a) * s * 0.36;
+      ctx.beginPath(); ctx.arc(px, py, 1.6, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.beginPath(); ctx.arc(x, y, 2 + pulse, 0, Math.PI * 2); ctx.fill();
+    lights.push({ x, y, r: 26, rgb: hexRgb(col), a: 0.06 + 0.06 * pulse });
+  } else if (cooling) {
+    // spent: a small dim hourglass dot in the centre so the cooling pad reads
+    // (the wire ships `cool` seconds but no max, so this stays a flat indicator)
+    ctx.globalAlpha = 0.4;
+    ctx.fillStyle = col;
+    ctx.fillRect(x - 1.5, y - 1.5, 3, 3);
+  }
+  ctx.restore();
+}
+
+// Team-colored minion glyphs with a tiny hp tick when hurt. The default GRUNT
+// is a small diamond (~0.3*TILE); the MOBA Wave-B kinds read distinctly:
+//  - TANK: a fat dim hexagonal hull with a slow-ring telegraph (its aura)
+//  - WAR MONGER: a bright forward-raked chevron, larger than a grunt
 function drawSiegeMinion(ctx, m, t) {
-  const r = 0.3 * TILE;
   const col = siegeTeamCol(m.team);
+  if (m.kind === 'tank') {
+    const r = 0.5 * TILE;
+    shadowBlob(ctx, m.x, m.y + r * 0.55, r * 0.85, r * 0.34);
+    // faint slow-aura ring so players read the danger zone
+    ctx.save();
+    ctx.strokeStyle = col;
+    ctx.globalAlpha = 0.22 + 0.1 * Math.sin(t * 4);
+    ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.arc(m.x, m.y, r * 1.7, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle = siegeTeamDim(m.team); // heavier hull reads darker
+    ctx.beginPath();
+    for (let k = 0; k < 6; k++) {
+      const a = (k / 6) * Math.PI * 2 - Math.PI / 2;
+      const px = m.x + Math.cos(a) * r, py = m.y + Math.sin(a) * r;
+      if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = col; ctx.lineWidth = 1.6; ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.fillRect(m.x - 1.5, m.y - 1.5, 3, 3); // armored core stud
+    drawMinionHp(ctx, m, col, r);
+    return;
+  }
+  if (m.kind === 'warmonger') {
+    const r = 0.4 * TILE;
+    shadowBlob(ctx, m.x, m.y + r * 0.5, r * 0.7, r * 0.3);
+    ctx.fillStyle = col;
+    ctx.beginPath(); // forward-raked elite chevron (faces +x toward the push)
+    ctx.moveTo(m.x + r, m.y);
+    ctx.lineTo(m.x - r * 0.5, m.y - r * 0.85);
+    ctx.lineTo(m.x - r * 0.15, m.y);
+    ctx.lineTo(m.x - r * 0.5, m.y + r * 0.85);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.fillRect(m.x - 1, m.y - 1, 2, 2);
+    drawMinionHp(ctx, m, col, r);
+    return;
+  }
+  const r = 0.3 * TILE;
   shadowBlob(ctx, m.x, m.y + r * 0.5, r * 0.7, r * 0.3);
   ctx.fillStyle = col;
   ctx.beginPath();
@@ -4015,6 +4197,9 @@ function drawSiegeMinion(ctx, m, t) {
   ctx.fill();
   ctx.fillStyle = 'rgba(255,255,255,0.5)'; // small highlight
   ctx.fillRect(m.x - 1, m.y - r * 0.5, 2, 2);
+  drawMinionHp(ctx, m, col, r);
+}
+function drawMinionHp(ctx, m, col, r) {
   if (m.maxHp && m.hp != null && m.hp < m.maxHp) {
     const frac = Math.max(0, Math.min(1, m.hp / m.maxHp));
     const bw = r * 1.6, bx = m.x - bw / 2, by = m.y - r - 4;
@@ -4067,6 +4252,30 @@ function drawSiegeCoreBars(ctx, VW, cores, siege, t) {
     const lx = team === 0 ? x + 5 : x + bw - 5;
     const label = `${vuln ? 'OPEN  ' : ''}CORE ${Math.max(0, Math.round(c.hp ?? 0))}/${c.maxHp || 0}`;
     ctx.fillText(label, lx, y + bh - 4);
+    // MOBA Wave D super-weapon meter: a thin charge bar tucked under the core bar.
+    // Ships in every siege snapshot (superCharge per-team + superMax cap).
+    const charge = siege?.superCharge?.[team];
+    const cap = siege?.superMax || 0;
+    if (charge != null && cap > 0) {
+      const sbh = 6, sy = y + bh + 4;
+      const sfrac = Math.max(0, Math.min(1, charge / cap));
+      const ready = sfrac >= 1;
+      const sCol = ready ? PAL.lythGold : PAL.lythAmber;
+      const sPulse = ready ? 0.5 + 0.5 * Math.sin(t * 7) : 0;
+      ctx.fillStyle = 'rgba(13,14,24,0.9)';
+      ctx.fillRect(x - 2, sy - 1, bw + 4, sbh + 2);
+      ctx.fillStyle = 'rgba(30,32,40,0.95)';
+      ctx.fillRect(x, sy, bw, sbh);
+      ctx.fillStyle = sCol;
+      if (ready) { ctx.shadowColor = sCol; ctx.shadowBlur = 6 + 6 * sPulse; }
+      const sfw = bw * sfrac;
+      ctx.fillRect(team === 0 ? x : x + bw - sfw, sy, sfw, sbh);
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = ready ? '#0B0A14' : '#9FB0C8';
+      ctx.font = 'bold 8px monospace';
+      ctx.textAlign = team === 0 ? 'left' : 'right';
+      ctx.fillText(ready ? 'SUPER READY' : 'SUPER', team === 0 ? x + 4 : x + bw - 4, sy + sbh - 1);
+    }
   }
   ctx.restore();
 }
@@ -8772,6 +8981,12 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
     for (const tw of (sg.towers ?? [])) {
       if (inView(tw.x, tw.y, 90)) drawSiegeTower(ctx, tw, t, lights);
     }
+    for (const pr of (sg.prisms ?? [])) {
+      if (inView(pr.x, pr.y, 80)) drawSiegePrism(ctx, pr, t, lights);
+    }
+    for (const tr of (sg.traps ?? [])) {
+      if (inView(tr.x, tr.y, 70)) drawSiegeTrap(ctx, tr, t, lights);
+    }
     for (const m of (sg.minions ?? [])) {
       if (inView(m.x, m.y, 60)) drawSiegeMinion(ctx, m, t);
     }
@@ -9542,7 +9757,7 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
     if (p.screen || !inView(p.x, p.y, 80)) continue;
     ctx.globalAlpha = Math.max(0, p.life / p.max);
     ctx.fillStyle = p.color;
-    ctx.font = 'bold 14px monospace';
+    ctx.font = `bold ${p.size || 14}px monospace`;
     ctx.textAlign = 'center';
     ctx.fillText(p.text, p.x, p.y);
   }
@@ -10156,6 +10371,10 @@ export function renderMinimap(ctx, snap, focusPids) {
     const sw = snap.superweapon;
     const spent = sw.state === 'spent' || sw.state === 'wrecked';
     dot(sw.x, sw.y, spent ? '#6A6258' : sw.state === 'ready' ? '#F0C94C' : (sw.type === 'weather' ? '#9fd0ff' : '#ffae5a'), 3.2);
+  }
+  // anchor siege lane minions: team-colored specks; TANK/WAR MONGER read bigger
+  for (const m of snap.siege?.minions ?? []) {
+    dot(m.x, m.y, siegeTeamCol(m.team), m.kind === 'tank' ? 2.6 : m.kind === 'warmonger' ? 2.2 : 1.4);
   }
   for (const p of snap.players) if (p.state === 'active') dot(p.x, p.y, focus.has(p.pid) ? '#ffffff' : PAL.relay, 3);
   // camera viewport rectangle
