@@ -296,6 +296,7 @@ const STAMINA_REGEN = 0.6;   // meter-units per second regained (FULL hp only)
 const FLAG_REACH = 0.6; // tiles, flag touch radius
 const FLAG_DROP_T = 8; // seconds a dropped flag lies before returning
 const CTF_RESPAWN = 5;
+const SIEGE_RESPAWN = 15; // MOBA: flat 15s death timer before respawning at the team core
 const CTF_CAPS_TO_WIN = 3;
 const CARRY_SLOW = 0.85; // flag carrier speed multiplier
 const ZONE_TICK = 2; // seconds between 1-damage zone ticks
@@ -2778,12 +2779,12 @@ function downPlayer(g, p) {
     g.events.push({ type: 'down', x: p.x, y: p.y });
     return;
   }
-  // Siege: respawn at the team core after a delay that grows with the team's
-  // death count (4s rising to 12s). XP/level/maxHp persist (like CTF).
+  // Siege: respawn at the team core after a flat 15s death timer (MOBA-style).
+  // XP/level/maxHp persist (like CTF).
   if (g.siege) {
     g.deathCountByTeam[p.team]++;
     p.state = 'down';
-    p.respawn = Math.min(12, 4 + Math.min(8, Math.ceil(g.deathCountByTeam[p.team] / 3)));
+    p.respawn = SIEGE_RESPAWN;
     p.dashT = 0;
     p.stimT = 0;
     g.events.push({ type: 'down', x: p.x, y: p.y });
