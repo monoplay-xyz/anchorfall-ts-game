@@ -301,6 +301,137 @@ function testMusicBoxOnAllStoryAndStronghold() {
   }
 }
 
+// --- STRONGHOLD relic: four CORNER MOUNTS instead of the single altar. Each
+// shard locks into the nearest unfilled corner mount; all four filled completes
+// the relic (awakening). STORY keeps its single altar (no .mounts). ---
+function testStrongholdCornerMounts() {
+  // a roomy open bastion map: center spawn, four open corners.
+  const W = 16, H = 12;
+  const tiles = ['#'.repeat(W)];
+  for (let y = 1; y < H - 1; y++) tiles.push('#' + '.'.repeat(W - 2) + '#');
+  tiles.push('#'.repeat(W));
+  tiles[Math.floor(H / 2)] = '#' + '.'.repeat(6) + 'P' + '.'.repeat(W - 9) + '#';
+  tiles[2] = '#' + '.'.repeat(10) + 'g' + '.'.repeat(W - 13) + '#';
+  const shDef = { name: 'MB Bastion', mode: 'bastion', time: 600, tiles, captiveChars: [], stronghold: { level: 5, hpMult: 1 } };
+
+  const g = createGame(shDef, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  assert.ok(g.musicBox.enabled, 'stronghold enables the music box');
+  assert.ok(Array.isArray(g.musicBox.mounts) && g.musicBox.mounts.length === 4, 'stronghold seeds four corner mounts');
+  assert.ok(g.musicBox.mounts.every(m => Number.isFinite(m.x) && Number.isFinite(m.y) && m.filled === false), 'mounts start unfilled with valid coords');
+  assert.equal(g.musicBox.fragments.length, 4, 'four shards still spawn for stronghold');
+  // each mount sits near a distinct corner (nearest open tile to the corner)
+  const corners = [[0, 0], [(W - 1) * TILE, 0], [0, (H - 1) * TILE], [(W - 1) * TILE, (H - 1) * TILE]];
+  for (let i = 0; i < 4; i++) {
+    const m = g.musicBox.mounts[i];
+    const near = corners.some(([cx, cy]) => Math.hypot(m.x - cx, m.y - cy) < 6 * TILE);
+    assert.ok(near, `mount ${i} sits near a map corner`);
+  }
+  // mounts ship in the snapshot (gated to stronghold)
+  const snap = snapshot(g);
+  assert.ok(snap.musicBox.mounts && snap.musicBox.mounts.length === 4, 'snapshot carries the four mounts for stronghold');
+
+  // carry each shard to a corner mount -> assembled increments, mount fills, and
+  // 4/4 completes the relic. Keep the operative invulnerable for the scripted run.
+  const p = g.players[0];
+  p.invuln = 999; g.graceT = 0;
+  for (let i = 0; i < 4; i++) {
+    const fr = g.musicBox.fragments[i];
+    p.x = fr.x; p.y = fr.y;
+    step(g, { 0: {} }, 1 / 30); // scoop
+    assert.equal(fr.carrier, 0, `shard ${i} picked up`);
+    // walk to the nearest unfilled mount and deposit
+    const target = g.musicBox.mounts.find(m => !m.filled);
+    p.x = target.x; p.y = target.y;
+    step(g, { 0: {} }, 1 / 30); // lock in
+    assert.equal(g.musicBox.assembled, i + 1, `assembled is ${i + 1} after locking shard ${i}`);
+    assert.ok(target.filled, `mount accepting shard ${i} is now filled`);
+  }
+  assert.equal(g.musicBox.mounts.filter(m => m.filled).length, 4, 'all four corner mounts filled');
+  assert.ok(g.musicBox.complete, 'stronghold relic completes when all four mounts are filled');
+
+  // STORY keeps the single-altar version: NO mounts.
+  const storyDef = { name: 'MB Story', story: true, chapter: 2, time: 600, tiles, captiveChars: [] };
+  const sg = createGame(storyDef, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  assert.ok(sg.musicBox.enabled, 'story enables the music box');
+  assert.ok(!sg.musicBox.mounts, 'story uses the single altar — no corner mounts');
+  assert.ok(!snapshot(sg).musicBox.mounts, 'story snapshot never ships mounts');
+}
+
+// --- DEV cheats (solo offline): enabling a cheat sets g.devMode, and the sim
+// honors god mode / instant-kill / speed / instant-build deterministically. The
+// finish() score-submission is gated on g.devMode (verified at unit level here:
+// devMode flips, and the dirty flag survives serialize/restore). ---
+function testDevCheats() {
+  const W = 14, H = 10;
+  const tiles = ['#'.repeat(W)];
+  for (let y = 1; y < H - 1; y++) tiles.push('#' + '.'.repeat(W - 2) + '#');
+  tiles.push('#'.repeat(W));
+  tiles[Math.floor(H / 2)] = '#' + '.'.repeat(5) + 'P' + '.'.repeat(W - 8) + '#';
+  // a few enemies so kill-all/instant-kill have targets
+  tiles[2] = '#' + '.'.repeat(4) + 'gggg' + '.'.repeat(W - 10) + '#';
+  const def = { name: 'Cheat Map', time: 600, tiles, captiveChars: [] };
+
+  // GOD MODE: a player with god on never goes down even when forced to 0 hp.
+  const g = createGame(def, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  g.cheats = { god: true, speed: 1, instantKill: false, instantBuild: false };
+  g.devMode = true; // enabling any cheat sets this sticky flag (client does it)
+  const p = g.players[0];
+  p.invuln = 0; g.graceT = 0;
+  p.x = (2.5) * TILE; p.y = (2.5) * TILE; // stand right under the grunt line
+  // hammer the player into enemies for a while — god mode must keep it active
+  run(g, () => ({ 0: {} }), 2);
+  assert.equal(g.players[0].state, 'active', 'god mode keeps the player active under contact');
+  assert.equal(g.captives.filter(c => c.fromPlayer).length, 0, 'god mode produces no downed-player captive');
+
+  // INSTANT KILL: any player-owned damage one-shots even tough enemies. Make
+  // every grunt unkillably-tough (hp 99) so a normal scout can't whittle them
+  // — only the one-shot cheat clears them under fire.
+  const mkTough = ik => {
+    const gg = createGame(def, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+    gg.cheats = { god: false, speed: 1, instantKill: ik, instantBuild: false };
+    for (const e of gg.enemies) { e.hp = 99; e.maxHp = 99; e.dormant = false; e.awake = true; }
+    gg.players[0].invuln = 999; gg.graceT = 0;
+    return gg;
+  };
+  // control: WITHOUT instant-kill the scout can't dent hp-99 grunts in 1.5s
+  const ctrl = mkTough(false);
+  const ctrlK0 = ctrl.kills;
+  run(ctrl, (gg) => ({ 0: aimAtNearest(gg, gg.players[0]) }), 1.5);
+  assert.equal(ctrl.kills, ctrlK0, 'without instant-kill, hp-99 grunts survive scout fire');
+  // with instant-kill: a single landed player shot drops the enemy
+  const g2 = mkTough(true);
+  const killsBefore = g2.kills;
+  run(g2, (gg) => ({ 0: aimAtNearest(gg, gg.players[0]) }), 1.5);
+  assert.ok(g2.kills > killsBefore, 'instant-kill one-shots tough enemies under player fire');
+
+  // SPEED: x10 moves the hero markedly farther per frame than x1.
+  const mk = () => {
+    const gg = createGame(def, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+    gg.players[0].invuln = 999; gg.graceT = 0;
+    return gg;
+  };
+  const slow = mk(); slow.cheats = { god: false, speed: 1, instantKill: false, instantBuild: false };
+  const fast = mk(); fast.cheats = { god: false, speed: 10, instantKill: false, instantBuild: false };
+  const x0s = slow.players[0].x, x0f = fast.players[0].x;
+  step(slow, { 0: { right: true } }, 1 / 30);
+  step(fast, { 0: { right: true } }, 1 / 30);
+  const dSlow = slow.players[0].x - x0s, dFast = fast.players[0].x - x0f;
+  assert.ok(dFast > dSlow * 5, 'x10 speed cheat moves the hero far more than x1');
+
+  // devMode survives serialize/restore (a saved cheated run stays dirty).
+  const ser = serializeGame(g);
+  assert.equal(ser.devMode, true, 'devMode persists through serializeGame');
+  assert.equal(ser.cheats.god, true, 'cheats persist through serializeGame');
+  const back = restoreGame(ser, charMap);
+  assert.equal(back.devMode, true, 'devMode survives restoreGame');
+
+  // untouched modes never gain cheats: a plain game has no g.cheats, so every
+  // sim guard is inert and behavior is unchanged.
+  const plain = createGame(def, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  assert.equal(plain.cheats, undefined, 'a normal run carries no cheats object');
+  assert.equal(plain.devMode, undefined, 'a normal run is not dev-dirty');
+}
+
 // --- RELIC AWAKENING horde: latch on relic completion, escalating nightmares
 // from all four edges, ends after the track length restoring dark/weather, and
 // a survival bonus that drops with hits + deaths. Gated entirely on g.musicBox.
@@ -1318,6 +1449,8 @@ testNewEnemiesCanDownPlayer();
 testRescueAndPermanentLossRules();
 testMusicBoxFeature();
 testMusicBoxOnAllStoryAndStronghold();
+testStrongholdCornerMounts();
+testDevCheats();
 testRelicAwakeningHorde();
 testScriptedBotClearsLevelOne();
 testAggroSleep();

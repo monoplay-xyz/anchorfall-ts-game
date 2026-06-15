@@ -1873,7 +1873,15 @@ class LocalSession {
       return;
     }
     this.paused = true;
+    this.openPauseRoot();
+  }
+  // The main pause dialog (Resume / Cheats / Save & Quit / Quit). Split out so
+  // the cheats sub-panel can re-open it on Back without re-toggling paused.
+  openPauseRoot() {
+    this.paused = true; // re-assert across closePauseUi when returning from a sub-panel
     const items = [{ label: 'Resume', onPick: () => closePauseUi() }];
+    // Cheats (Dev): SOLO OFFLINE single-player only — never online/co-op/versus
+    if (this.cheatsAvailable()) items.push({ label: 'Cheats (Dev)', onPick: () => this.openCheatMenu() });
     if (this.canSaveQuit()) items.push({ label: 'Save & Quit', ghost: true, onPick: () => this.saveQuit() });
     items.push({ label: 'Quit to Menu', ghost: true, onPick: () => this.leave() });
     openPauseUi({
@@ -1889,6 +1897,111 @@ class LocalSession {
         this.fireSquelch = new Set(DEVICES.filter(d => prevDev[d]?.fire));
       },
     });
+  }
+  // Dev cheats are gated to a SOLO OFFLINE run: a LocalSession (never the online
+  // NetSession), a single human seat, and never a versus mode (ctf/br/siege).
+  // Demo/attract runs never see it either.
+  cheatsAvailable() {
+    return !this.mode && !demoMode && this.players.filter(p => !p.device?.startsWith('bot')).length === 1;
+  }
+  // The cheats sub-panel. Re-renders itself after each toggle/action so the
+  // labels reflect live state. Enabling ANY cheat sets a sticky dev/dirty flag
+  // on the game (g.devMode) so the run can never submit a score or ranking.
+  openCheatMenu() {
+    const g = this.game;
+    if (!g) return;
+    // re-opening a sub-panel routes through closePauseUi (which runs the prior
+    // dialog's onClose -> paused=false); re-assert the pause so the sim stays
+    // frozen while we navigate the cheats tree.
+    this.paused = true;
+    const c = g.cheats ??= { god: false, speed: 1, instantKill: false, instantBuild: false };
+    const SPEEDS = [1, 5, 10, 100]; // Off / x5 / x10 / x100
+    const speedLabel = v => v <= 1 ? 'OFF' : '×' + v;
+    const onState = b => b ? 'ON' : 'OFF';
+    const dirty = () => { g.devMode = true; }; // sticky for the whole run
+    const me = g.players.find(p => p.pid === this.primaryPid()) || g.players[0];
+    const reopen = () => this.openCheatMenu();
+    const items = [
+      { label: `God Mode: ${onState(c.god)}`, onPick: () => { c.god = !c.god; if (c.god) dirty(); reopen(); } },
+      { label: `Speed: ${speedLabel(c.speed)}`, onPick: () => {
+          const i = SPEEDS.indexOf(c.speed); c.speed = SPEEDS[(i + 1) % SPEEDS.length];
+          if (c.speed > 1) dirty(); reopen();
+        } },
+      { label: `Instant Kill: ${onState(c.instantKill)}`, onPick: () => { c.instantKill = !c.instantKill; if (c.instantKill) dirty(); reopen(); } },
+      { label: `Instant Build: ${onState(c.instantBuild)}`, onPick: () => { c.instantBuild = !c.instantBuild; if (c.instantBuild) dirty(); reopen(); } },
+      { label: 'Kill All Enemies', onPick: () => { dirty(); this.cheatKillAll(); reopen(); } },
+      { label: 'Equip / Awaken Relic', onPick: () => { dirty(); this.cheatAwakenRelic(); reopen(); } },
+      { label: 'Select Character', onPick: () => { dirty(); this.cheatPickCharacter(me); } },
+      { label: 'Back', ghost: true, onPick: () => { this.openPauseRoot(); } },
+    ];
+    openPauseUi({
+      title: 'Cheats (Dev)',
+      body: g.devMode ? 'DEV MODE — score & rankings disabled for this run.' : 'Solo dev tools. Enabling any cheat disables scoring.',
+      hint: 'UP/DOWN picks · FIRE toggles · START / ESC / B backs out',
+      items,
+      // pauseUi.devs stays null (local pause): every device navigates it. Back
+      // returns to the pause root rather than resuming, matching nav depth.
+      onBack: () => this.openPauseRoot(),
+      onClose: () => {
+        this.paused = false;
+        this.fireSquelch = new Set(DEVICES.filter(d => prevDev[d]?.fire));
+      },
+    });
+  }
+  // Kill All Enemies: clear every live enemy (deterministic — same as a wave
+  // wipe; routes through killEnemy when exported so kills/score stay consistent,
+  // else marks them dead so the sim culls them next tick).
+  cheatKillAll() {
+    const g = this.game;
+    if (!g?.enemies) return;
+    for (const e of g.enemies) {
+      if (e.dead) continue;
+      e.hp = 0;
+      e.dead = true;
+    }
+  }
+  // Equip / Awaken Relic: instantly complete the music-box relic so the
+  // awakening fires without fetching shards. Marks every fragment placed, fills
+  // the stronghold corner mounts, sets assembled=4/complete — stepHorde latches
+  // on the next tick exactly as a hand-carried completion would.
+  cheatAwakenRelic() {
+    const g = this.game;
+    const mb = g?.musicBox;
+    if (!mb || !mb.enabled || mb.complete) return;
+    for (const f of mb.fragments) { f.carrier = null; f.placed = true; }
+    if (mb.mounts) for (const m of mb.mounts) m.filled = true;
+    mb.assembled = (mb.fragments?.length) || 4;
+    mb.complete = true;
+  }
+  // Select Character: cycle the local seat's operative through the full roster.
+  // A quick picker via the pause dialog — each FIRE advances to the next char,
+  // applying it live to the sim player. Back returns to the cheats panel.
+  cheatPickCharacter(me) {
+    const g = this.game;
+    if (!g || !me) return;
+    this.paused = true; // hold the freeze across closePauseUi re-entry
+    const ids = Object.keys(charMap);
+    const apply = id => { me.charId = id; };
+    const render = () => {
+      const cur = ids.indexOf(me.charId);
+      const items = ids.map((id, i) => ({
+        label: (i === cur ? '▶ ' : '   ') + charMap[id].name,
+        onPick: () => { apply(id); this.openCheatMenu(); },
+      }));
+      items.push({ label: 'Back', ghost: true, onPick: () => this.openCheatMenu() });
+      openPauseUi({
+        title: 'Select Character',
+        body: `Current: ${me.charId ? charMap[me.charId].name : '—'}`,
+        hint: 'UP/DOWN picks · FIRE equips · START / ESC / B backs out',
+        items,
+        onBack: () => this.openCheatMenu(),
+        onClose: () => {
+          this.paused = false;
+          this.fireSquelch = new Set(DEVICES.filter(d => prevDev[d]?.fire));
+        },
+      });
+    };
+    render();
   }
   // Save & Quit is offered on non-versus LOCAL runs (classic/story/bastion —
   // each twin-test-proven to round-trip through serializeGame); couch versus
@@ -2085,6 +2198,14 @@ class LocalSession {
   }
   finish() {
     if (this.mode) return this.finishVersus();
+    // DEV/dirty run: any cheat enabled this run sets g.devMode. A dirty run must
+    // NOT submit a score or record ranking/milestone progress — capture before
+    // the game drops, then route every submitRun/recordProgress through guards
+    // that no-op when dirty (demoMode is already covered inside both helpers).
+    const devDirty = !!this.game.devMode;
+    const submitRunMaybe = (...a) => { if (!devDirty) submitRun(...a); };
+    const recordProgressMaybe = (...a) => { if (!devDirty) recordProgress(...a); };
+    if (devDirty) showToast('DEV MODE — score not recorded', 3000, true);
     const res = applyResults(this.roster, this.game);
     const cleared = this.game.status === 'cleared';
     const score = Math.round(this.game.score);
@@ -2128,10 +2249,10 @@ class LocalSession {
         return;
       }
       // milestone progress: a cleared co-op mission + run stats toward unlocks
-      if (!demoMode) recordProgress({ gamePlayed: true, missionCleared: true, strongholdClear: this.bastion, kills: runKills, rescues: runRescues, score, operators: playedOps });
+      if (!demoMode) recordProgressMaybe({ gamePlayed: true, missionCleared: true, strongholdClear: this.bastion, kills: runKills, rescues: runRescues, score, operators: playedOps });
       // rankings: one board entry per cleared level (server POST, or static-
       // build local bests). submitRun no-ops on demo runs and keyless defs.
-      submitRun(lvl, this.players.map(p => p.name), this.players.length, score, timeS);
+      submitRunMaybe(lvl, this.players.map(p => p.name), this.players.length, score, timeS);
       this.roster = res.roster;
       if (this.story) {
         this.levelIdx++;
@@ -2204,10 +2325,10 @@ class LocalSession {
         // Daily runs land on the shared daily board; free Endless on the map's own board.
         const base = levelKeyOf(lvl);
         const ekey = this.daily ? 'daily/' + this.daily.dateStr : (base ? 'endless/' + base.split('/')[1] : null);
-        if (ekey) submitRun(lvl, this.players.map(p => p.name), this.players.length, nights * 100000 + Math.min(99999, score), timeS, { key: ekey });
+        if (ekey) submitRunMaybe(lvl, this.players.map(p => p.name), this.players.length, nights * 100000 + Math.min(99999, score), timeS, { key: ekey });
       }
       // milestone progress: best/total endless nights + (for dailies) the day + run stats
-      if (!demoMode) recordProgress({ gamePlayed: true, endlessNights: nights, dailyDate: this.daily ? this.daily.dateStr : undefined, kills: runKills, rescues: runRescues, score, operators: playedOps });
+      if (!demoMode) recordProgressMaybe({ gamePlayed: true, endlessNights: nights, dailyDate: this.daily ? this.daily.dateStr : undefined, kills: runKills, rescues: runRescues, score, operators: playedOps });
       playUi('victory');
       const dailyBack = () => { session = null; show('menu'); showMenuPage('pageMain'); refreshContinue(); };
       showMsg(this.daily ? `Daily Over — ${this.daily.label}` : 'Endless Over',
@@ -2217,7 +2338,7 @@ class LocalSession {
         this.daily ? dailyBack : () => { session = null; shPurpose = 'local'; show('menu'); showMenuPage('pageSh'); refreshContinue(); });
     } else {
       // a lost co-op run still accrues games played / kills / score / operators
-      if (!demoMode) recordProgress({ gamePlayed: true, kills: runKills, rescues: runRescues, score, operators: playedOps });
+      if (!demoMode) recordProgressMaybe({ gamePlayed: true, kills: runKills, rescues: runRescues, score, operators: playedOps });
       // story runs are untimed, so a story fail can only be a squad wipe
       const body = this.story
         ? 'The whole squad went down.\nNo one is lost on a failed run — try again.'

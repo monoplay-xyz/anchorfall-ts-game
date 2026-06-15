@@ -5542,6 +5542,67 @@ function drawMusicFragment(ctx, f, t, lights, loose = true) {
   lights.push({ x, y: fy, r: 30, rgb: '198,140,255', a: 0.08 + 0.06 * pulse });
 }
 
+// STRONGHOLD corner relic MOUNT: a stone pylon that lights when a shard is
+// locked in. While unfilled it idles dim with an empty socket; filled, it
+// glows + throws a beam. When ALL FOUR are filled (allDone) every mount blazes
+// with an EXTREME glow + a tall light pillar, readable clear across the map.
+function drawMusicMount(ctx, m, t, lights, allDone) {
+  const { x, y } = m;
+  const filled = !!m.filled;
+  const pulse = 0.5 + 0.5 * Math.sin(t * 3 + (x + y) * 0.01);
+  shadowBlob(ctx, x, y + 11, 13, 5);
+  // a tapered stone pylon
+  ctx.fillStyle = '#2C2F3B';
+  ctx.beginPath(); ctx.ellipse(x, y + 6, 13, 6, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#3A3F4E';
+  ctx.beginPath();
+  ctx.moveTo(x - 8, y + 6); ctx.lineTo(x - 5, y - 14); ctx.lineTo(x + 5, y - 14); ctx.lineTo(x + 8, y + 6);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#474D60';
+  ctx.fillRect(x - 5, y - 15, 10, 2);
+  // socket / set crystal at the pylon crown
+  if (filled) {
+    ctx.save();
+    ctx.shadowColor = '#c178ff';
+    ctx.shadowBlur = 10 + 6 * pulse;
+    ctx.fillStyle = `rgba(198,140,255,${0.85 + 0.15 * pulse})`;
+    ctx.beginPath();
+    ctx.moveTo(x, y - 24); ctx.lineTo(x + 4, y - 17); ctx.lineTo(x, y - 11); ctx.lineTo(x - 4, y - 17);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+  } else {
+    ctx.fillStyle = '#23262F';
+    ctx.beginPath(); ctx.ellipse(x, y - 15, 3.2, 2.2, 0, 0, Math.PI * 2); ctx.fill();
+  }
+  // additive glow + beam. Filled mounts always glow; at 4/4 every mount goes
+  // to an extreme blaze with a tall pillar so the lit stronghold reads at a glance.
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const glowR = (filled ? 34 : 16) + (allDone ? 40 : 0) + 6 * pulse;
+  const aIn = ((filled ? 0.40 : 0.16) + (allDone ? 0.45 : 0)) * (0.75 + 0.25 * pulse);
+  const og = ctx.createRadialGradient(x, y - 10, 0, x, y - 10, glowR);
+  og.addColorStop(0, `rgba(214,168,255,${aIn})`);
+  og.addColorStop(1, 'rgba(214,168,255,0)');
+  ctx.fillStyle = og;
+  ctx.fillRect(x - glowR - 8, y - glowR - 8, (glowR + 8) * 2, (glowR + 8) * 2);
+  if (filled || allDone) {
+    const beamH = (filled ? 60 : 0) + (allDone ? 160 : 0) + 20 * pulse;
+    const bw = 5 + (allDone ? 8 : 0);
+    const bg = ctx.createLinearGradient(x, y - 10, x, y - 10 - beamH);
+    bg.addColorStop(0, `rgba(225,190,255,${(allDone ? 0.55 : 0.30) + 0.12 * pulse})`);
+    bg.addColorStop(1, 'rgba(225,190,255,0)');
+    ctx.fillStyle = bg;
+    ctx.fillRect(x - bw, y - 10 - beamH, bw * 2, beamH);
+  }
+  ctx.restore();
+  lights.push({
+    x, y: y - 8,
+    r: (filled ? 40 : 22) + (allDone ? 60 : 0) + 8 * pulse,
+    rgb: '198,140,255',
+    a: (filled ? 0.16 : 0.07) + (allDone ? 0.22 : 0) + 0.04 * pulse,
+  });
+}
+
 // Doors: closed bulkheads read as walls (they block movement, sight, shots).
 // Open ones slide their two panels apart along the door's long axis.
 function drawDoor(ctx, d, t, dt, lights) {
@@ -8055,10 +8116,18 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
     for (const c of crackers) if (inView(c.x, c.y, TILE * 9)) drawCrackerCharge(ctx, c, t, lights);
   }
 
-  // --- music box easter egg: the ruin altar + its glowing fragments ---
+  // --- music box easter egg: the ruin altar (story) OR the four corner relic
+  // mounts (stronghold) + its glowing fragments ---
   if (snap.musicBox) {
     const mb = snap.musicBox;
-    if (inView(mb.altar.x, mb.altar.y, 60)) drawMusicAltar(ctx, mb.altar, mb, t, lights);
+    if (mb.mounts) {
+      const allDone = !!mb.complete || mb.mounts.every(m => m.filled);
+      for (const m of mb.mounts) {
+        if (inView(m.x, m.y, 120)) drawMusicMount(ctx, m, t, lights, allDone);
+      }
+    } else if (inView(mb.altar.x, mb.altar.y, 60)) {
+      drawMusicAltar(ctx, mb.altar, mb, t, lights);
+    }
     for (const f of mb.fragments ?? []) {
       // placed fragments rest on the altar (drawn as part of it); carried ones
       // trail their carrier; only loose-on-the-ground fragments draw here
@@ -9328,7 +9397,15 @@ export function renderMinimap(ctx, snap, focusPids) {
   // music box: the altar (gold) and every still-loose fragment (amethyst);
   // carried + placed fragments clear, matching the captive-ping precedent
   if (snap.musicBox) {
-    if (seenAt(snap.musicBox.altar.x, snap.musicBox.altar.y)) dot(snap.musicBox.altar.x, snap.musicBox.altar.y, '#d6a8ff', 3);
+    if (snap.musicBox.mounts) {
+      // stronghold: ping each corner mount (brighter once filled); the altar
+      // coords are only the horde banner anchor here, so they aren't pinged
+      for (const m of snap.musicBox.mounts) {
+        if (seenAt(m.x, m.y)) dot(m.x, m.y, m.filled ? '#e9d6ff' : '#d6a8ff', m.filled ? 3.5 : 3);
+      }
+    } else if (seenAt(snap.musicBox.altar.x, snap.musicBox.altar.y)) {
+      dot(snap.musicBox.altar.x, snap.musicBox.altar.y, '#d6a8ff', 3);
+    }
     for (const f of snap.musicBox.fragments ?? []) {
       if (!f.placed && f.carrier == null && seenAt(f.x, f.y)) dot(f.x, f.y, '#be78ff', 2.5);
     }

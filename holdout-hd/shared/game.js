@@ -1088,6 +1088,19 @@ function setupMusicBox(g, def) {
     altar: { x: altarSpot.x, y: altarSpot.y },
     fragments, assembled: 0, complete: false,
   };
+  // STRONGHOLD ONLY: instead of one altar, four relic MOUNTS — one at the
+  // nearest open walkable tile to each map corner (reusing cornerOpenTile, the
+  // same deterministic inward scan the original corner fragments used). A shard
+  // carried to ANY unfilled mount locks into it; all four filled completes the
+  // relic. The .altar field is KEPT for the horde event's banner coordinates;
+  // story keeps its single-altar deposit path untouched (no .mounts).
+  if (def.mode === 'bastion') {
+    const corners = [[0, 0], [g.w - 1, 0], [0, g.h - 1], [g.w - 1, g.h - 1]];
+    g.musicBox.mounts = corners.map(([cx, cy]) => {
+      const spot = cornerOpenTile(g, cx, cy);
+      return { x: spot.x, y: spot.y, filled: false };
+    });
+  }
 }
 
 function spawnPlayer(pid, name, charId, x, y) {
@@ -1945,6 +1958,7 @@ function releaseHoldings(g, p) {
 
 function downPlayer(g, p) {
   if (p.state !== 'active' || p.invuln > 0) return;
+  if (g.cheats && g.cheats.god) return; // DEV god mode: never goes down
   // RELIC AWAKENING scoring: a death during the live event is a heavy penalty.
   if (g.horde && !g.horde.ended) g.horde.deaths++;
   releaseHoldings(g, p);
@@ -2009,6 +2023,7 @@ function downPlayer(g, p) {
 // survival maps spend shield pips first, then hp, with a short hit-grace.
 function damagePlayer(g, p, dmg = 1) {
   if (p.state !== 'active' || p.invuln > 0) return;
+  if (g.cheats && g.cheats.god) return; // DEV god mode: take no damage
   // RELIC AWAKENING scoring: a connecting hit during the live event bleeds the
   // survival bonus. Counted once per landed damage instance (the invuln guard
   // above already throttles repeat contact).
@@ -2563,6 +2578,8 @@ function damageEnemy(g, e, dmg, x, y, cause, ownerPid) {
     g.events.push({ type: 'shieldPop', x: x ?? e.x, y: y ?? e.y, kind: e.kind });
     return false;
   }
+  // DEV instant-kill: any player-owned damage (ownerPid set) one-shots.
+  if (g.cheats && g.cheats.instantKill && ownerPid != null) dmg = e.hp + 999;
   e.hp -= dmg;
   e.hurt = 0.14;
   g.events.push({ type: 'hit', x: x ?? e.x, y: y ?? e.y, kind: e.kind, hp: Math.max(0, e.hp), cause });
@@ -4773,6 +4790,7 @@ export function step(g, inputs, dt) {
         p.fx = mx; p.fy = my;
         let v = ch.speed * TILE * dt * (p.stimT > 0 ? 1.3 : 1);
         if (vehicle) v = ch.speed * TILE * dt * (vehicle.kind === 'stag' ? STAG_SPEED : 1);
+        if (g.cheats && g.cheats.speed > 1) v *= g.cheats.speed; // DEV speed multiplier
         if (g.siege && !vehicle) v *= SIEGE_HERO_SPEED; // MOBA: deliberate hero movement
         v *= moveMult(g, p.x, p.y); // sand drags, ice skates, snowfall slows
         if (g.flags.length && g.flags.some(f => f.carrier === p.pid)) v *= CARRY_SLOW;
@@ -5059,6 +5077,33 @@ export function step(g, inputs, dt) {
             break; // at most one fragment per pickup tick
           }
         }
+      } else if (mb.mounts) {
+        // STRONGHOLD: lock the carried shard into the nearest UNFILLED corner
+        // mount within deposit range. Completion path is identical to the
+        // single-altar version (assembled++/complete -> awakening).
+        const depR2 = (PLAYER_R + MUSICBOX_R + 8) ** 2;
+        let mount = null, best = depR2;
+        for (const m of mb.mounts) {
+          if (m.filled) continue;
+          const d = dist2(p, m);
+          if (d < best) { best = d; mount = m; }
+        }
+        if (mount) {
+          const f = mb.fragments.find(fr => fr.carrier === p.pid);
+          if (f) {
+            f.carrier = null;
+            f.placed = true;
+            f.x = mount.x;
+            f.y = mount.y;
+            mount.filled = true;
+            mb.assembled++;
+            g.events.push({ type: 'mbPlace', x: mount.x, y: mount.y, assembled: mb.assembled, of: MUSICBOX_FRAGS });
+            if (mb.assembled >= MUSICBOX_FRAGS) {
+              mb.complete = true;
+              g.events.push({ type: 'mbComplete', x: mb.altar.x, y: mb.altar.y });
+            }
+          }
+        }
       } else if (dist2(p, mb.altar) < (PLAYER_R + MUSICBOX_R + 8) ** 2) {
         const f = mb.fragments.find(fr => fr.carrier === p.pid);
         if (f) {
@@ -5191,9 +5236,16 @@ export function step(g, inputs, dt) {
     const builderArr = holdersOf(b);
     const builders = builderArr.length;
     if (!builders) continue;
-    let delta = Math.min((builders * dt) / (b.cost * 0.6), 1 - b.progress);
-    const pay = Math.min(delta * b.cost, getShards(g, builderArr[0]));
-    if (b.cost > 0) delta = pay / b.cost;
+    let delta, pay;
+    if (g.cheats && g.cheats.instantBuild) {
+      // DEV instant build: finish now, free (no hold timer, no shard cost)
+      delta = 1 - b.progress;
+      pay = 0;
+    } else {
+      delta = Math.min((builders * dt) / (b.cost * 0.6), 1 - b.progress);
+      pay = Math.min(delta * b.cost, getShards(g, builderArr[0]));
+      if (b.cost > 0) delta = pay / b.cost;
+    }
     if (delta <= 0) continue; // pool empty: progress stalls
     addShards(g, builderArr[0], -pay);
     b.paid += pay;
@@ -6188,6 +6240,8 @@ export function snapshot(g, full = true) {
         altar: { x: g.musicBox.altar.x, y: g.musicBox.altar.y },
         fragments: g.musicBox.fragments.map(f => ({ id: f.id, x: f.x, y: f.y, carrier: f.carrier, placed: f.placed })),
         assembled: g.musicBox.assembled, complete: g.musicBox.complete,
+        // stronghold ships the four corner mounts; story omits the key entirely
+        ...(g.musicBox.mounts ? { mounts: g.musicBox.mounts.map(m => ({ x: m.x, y: m.y, filled: m.filled })) } : {}),
       },
     } : {}),
     // RELIC AWAKENING: ships ONLY while the event has latched (gated, so every
