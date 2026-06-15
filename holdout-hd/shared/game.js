@@ -2386,6 +2386,7 @@ function dropHeld(g, p) {
       sc.carrier = null;
       sc.x = p.x;
       sc.y = p.y;
+      sc.noPid = p.pid; // don't let the dropper instantly re-scoop it off the ground
       g.events.push({ type: 'scrapDrop', x: p.x, y: p.y, id: sc.id });
     }
     return true;
@@ -2439,7 +2440,7 @@ function releaseHoldings(g, p) {
   // a downed/extracted carrier sets down their stranded operator + scrap where
   // they fell (mirrors how captives free their owner) so neither is ever lost
   for (const o of g.stranded) if (o.carrier === p.pid) { o.carrier = null; o.x = p.x; o.y = p.y; }
-  for (const s of g.scrap) if (s.carrier === p.pid) { s.carrier = null; s.x = p.x; s.y = p.y; }
+  for (const s of g.scrap) if (s.carrier === p.pid) { s.carrier = null; s.x = p.x; s.y = p.y; s.noPid = p.pid; }
 }
 
 function downPlayer(g, p) {
@@ -6316,7 +6317,13 @@ export function step(g, inputs, dt) {
     // never touches g.shards or the relic fragments. No-op off-mode (empty arr).
     if (!g.scrap.some(s => s.carrier === p.pid)) {
       for (const s of g.scrap) {
-        if (s.carrier == null && dist2(p, s) < (PLAYER_R + SCRAP_R) ** 2) {
+        if (s.carrier != null) continue;
+        const inReach = dist2(p, s) < (PLAYER_R + SCRAP_R) ** 2;
+        if (s.noPid === p.pid) { // just dropped by this seat: don't re-grab until they step off it
+          if (!inReach) s.noPid = null; // walked away -> anyone (incl. them) may pick it up again
+          continue;
+        }
+        if (inReach) {
           s.carrier = p.pid;
           g.events.push({ type: 'scrapPickup', x: s.x, y: s.y, id: s.id, pid: p.pid });
           break; // at most one scrap per pickup tick

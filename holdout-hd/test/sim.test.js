@@ -444,6 +444,49 @@ function testStrandedOperatorsAndScrap() {
   assert.equal(rt.followers.length, g.followers.length, 'defenders survive serialize/restore');
 }
 
+// --- DROP scrap on OPEN GROUND must persist: the dropper cannot instantly
+// re-scoop the scrap it just laid down (the "cant get rid of it" bug). ---
+function testScrapDropOnGroundPersists() {
+  const W = 18, H = 14;
+  const tiles = ['#'.repeat(W)];
+  for (let y = 1; y < H - 1; y++) tiles.push('#' + '.'.repeat(W - 2) + '#');
+  tiles.push('#'.repeat(W));
+  tiles[Math.floor(H / 2)] = '#' + '.'.repeat(7) + 'P' + '.'.repeat(W - 10) + '#';
+  tiles[2] = '#' + '.'.repeat(13) + 'g' + '.'.repeat(W - 16) + '#'; // a far sleeping grunt keeps the field non-empty (else the level auto-wins)
+  const def = { name: 'Scrap Drop Test', story: true, chapter: 3, time: 600, tiles, captiveChars: [], stranded: { operators: 1, scrap: 1 } };
+  const g = createGame(def, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  const p = g.players[0];
+  p.invuln = 999; g.graceT = 0;
+
+  const sc = g.scrap[0];
+  p.x = sc.x; p.y = sc.y;
+  step(g, { 0: {} }, 1 / 30);
+  assert.equal(sc.carrier, 0, 'walking onto scrap carries it');
+
+  // mark every operator recruited so DROP lands on the GROUND (not a recruit)
+  for (const o of g.stranded) o.recruited = true;
+  step(g, { 0: { drop: true } }, 1 / 30);
+  assert.equal(sc.carrier, null, 'DROP lays the scrap on the ground');
+  assert.equal(sc.noPid, 0, 'dropped scrap is tagged so the dropper cant instantly re-grab it');
+
+  // THE FIX: still standing on it, it is NOT re-scooped (control: without the
+  // noPid guard the next tick would set carrier back to 0).
+  step(g, { 0: {} }, 1 / 30);
+  assert.equal(sc.carrier, null, 'the dropper does NOT instantly re-scoop the scrap it just dropped');
+  step(g, { 0: {} }, 1 / 30);
+  assert.equal(sc.carrier, null, 'still on the ground a tick later');
+
+  // walk away -> the no-pick tag clears
+  p.x = sc.x + 4 * TILE; p.y = sc.y;
+  step(g, { 0: {} }, 1 / 30);
+  assert.equal(sc.noPid, null, 'stepping off the dropped scrap clears the no-pick tag');
+
+  // walk back -> now it can be picked up again
+  p.x = sc.x; p.y = sc.y;
+  step(g, { 0: {} }, 1 / 30);
+  assert.equal(sc.carrier, 0, 'after stepping away the dropper can pick it back up');
+}
+
 // --- every shipped story + stronghold level seeds a usable music box ---
 function testMusicBoxOnAllStoryAndStronghold() {
   for (const level of levels.filter(l => l.category === 'story' || l.category === 'stronghold')) {
@@ -2458,6 +2501,7 @@ testNewEnemiesCanDownPlayer();
 testRescueAndPermanentLossRules();
 testMusicBoxFeature();
 testStrandedOperatorsAndScrap();
+testScrapDropOnGroundPersists();
 testMusicBoxOnAllStoryAndStronghold();
 testStrongholdCornerMounts();
 testWallCostsOneShard();
