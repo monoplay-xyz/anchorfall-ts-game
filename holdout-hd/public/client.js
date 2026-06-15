@@ -2106,7 +2106,7 @@ class LocalSession {
         playUi('victory');
         showMsg('You’re Ready',
           'That’s the core of it — move, fire, rescue, extract.\nJump into the campaign, or hold a Stronghold in Endless.',
-          'Play Campaign', () => { session = null; show('menu'); showMenuPage('pageSingle'); refreshContinue(); },
+          'Play Campaign', () => { session = null; show('menu'); showMenuPage('pageClassic'); refreshContinue(); },
           'Main Menu', () => this.leave());
       } else {
         showMsg('Take Your Time', 'No one is lost on a practice run.\nGive it another go — you’ve got this.',
@@ -3392,10 +3392,12 @@ async function renderBrowse() {
 // ---------- menu pages (MAIN / SINGLEPLAYER / VERSUS / ONLINE / SETTINGS /
 // REMAP / STRONGHOLD SELECT / BROWSE) — DOM screens inside #menu, pad-navigable ----
 const MENU_PARENT = {
-  pageSingle: 'pageMain', pageVersus: 'pageMain', pageOnline: 'pageMain',
+  pagePlay: 'pageMain',
+  pageSingle: 'pagePlay', pageVersus: 'pagePlay', pageOnline: 'pagePlay',
+  pageClassic: 'pageSingle', pageStory: 'pageSingle',
   pageSettings: 'pageMain', pageRemap: 'pageSettings', pageSh: 'pageSingle',
   pageRank: 'pageMain', pageRankBoard: 'pageRank', pageBrowse: 'pageOnline',
-  pageOperators: 'pageMain', pageAccount: 'pageMain',
+  pageOperators: 'pageMain', pageAccount: 'pageSettings',
 };
 let menuPageId = 'pageMain';
 let shPurpose = 'local'; // why the level select is open: 'local' | 'host'
@@ -3405,6 +3407,9 @@ function showMenuPage(id) {
   for (const el of document.querySelectorAll('#menu .mpage')) el.hidden = el.id !== id;
   cancelRemapListen();
   setNavFocus(null); // navTick re-picks a default focus on the new page
+  // Classic/Story New-vs-Continue pages: re-read save slots so Continue shows
+  // (and gets default focus) exactly when a run exists to resume.
+  if (id === 'pageClassic' || id === 'pageStory') refreshContinue();
   if (id === 'pageSh') renderShGrid();
   if (id === 'pageSettings') renderCtrlReadout?.(); // refresh the controller list (pads hot-plug)
   if (id === 'pageRemap') renderRemap();
@@ -3631,6 +3636,9 @@ function refreshContinue() {
   // the sim can actually restore it (older shared/game.js = no offer)
   $('btnResumeGame').hidden = !(loadSuspend() && typeof gameMod.restoreGame === 'function');
   $('btnContinue').hidden = !localStorage.getItem(SAVE_KEY);
+  // Story lives behind a Single-Player tile that only appears once story maps
+  // ship; New Game inside it shares that gate, Continue Story needs a save too.
+  $('btnStoryMode').hidden = !storyLevels.length;
   $('btnStory').hidden = !storyLevels.length;
   $('btnStoryContinue').hidden = !storyLevels.length || !localStorage.getItem(STORY_KEY);
   $('btnHostStory').hidden = !storyLevels.length;
@@ -3658,7 +3666,11 @@ function refreshContinue() {
 refreshContinue();
 
 // page navigation buttons + every Back control (mouse path; pad B mirrors it)
+$('btnPlay').onclick = e => { e.currentTarget.blur(); showMenuPage('pagePlay'); };
 $('btnSingle').onclick = e => { e.currentTarget.blur(); showMenuPage('pageSingle'); };
+// Single Player → mode → New Game/Continue: pick the mode first, then decide
+$('btnClassic').onclick = e => { e.currentTarget.blur(); showMenuPage('pageClassic'); };
+$('btnStoryMode').onclick = e => { e.currentTarget.blur(); showMenuPage('pageStory'); };
 $('btnVersus').onclick = e => { e.currentTarget.blur(); showMenuPage('pageVersus'); };
 $('btnOnline').onclick = e => { e.currentTarget.blur(); showMenuPage('pageOnline'); };
 // Daily Challenge: today's UTC date seeds the same map + twist for everyone,

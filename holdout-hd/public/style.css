@@ -492,8 +492,13 @@ button.ghost.navfocus { color: #eaf6ff; }
   .screen::before, .screen.anim-in, .mpage.anim-in > * { animation: none; }
 }
 
-/* ---- tile-style navigation buttons on the primary menu pages ---- */
-#pageMain button, #pageSingle button, #pageVersus button, #pageOnline > button {
+/* ---- tile-style navigation buttons on the primary menu pages ----
+   Hub + every nav page share one polished tile look (accent bar + chevron +
+   hover/focus lift). Kept as a vertical list so gamepad up/down nav maps
+   straight to DOM order. */
+#pageMain button, #pagePlay button, #pageSingle button,
+#pageClassic button, #pageStory button,
+#pageVersus button, #pageOnline > button {
   width: 330px; text-align: left; padding: 13px 46px 13px 22px;
   font-size: 16px; letter-spacing: 1.5px;
   background: linear-gradient(100deg, #2d927f 0%, #185349 100%);
@@ -502,15 +507,21 @@ button.ghost.navfocus { color: #eaf6ff; }
               0 7px 18px rgba(0, 0, 0, .38);
   transition: transform .14s ease, filter .14s ease, box-shadow .14s ease;
 }
-#pageMain button::after, #pageSingle button::after,
+#pageMain button::after, #pagePlay button::after, #pageSingle button::after,
+#pageClassic button::after, #pageStory button::after,
 #pageVersus button::after, #pageOnline > button::after {
   content: '›'; position: absolute; right: 18px; top: 50%;
   transform: translateY(-50%); font-size: 22px; font-weight: 600;
   color: rgba(111, 216, 242, .65); transition: transform .14s ease, opacity .14s ease;
 }
-#pageMain button, #pageSingle button, #pageVersus button, #pageOnline > button { position: relative; }
+#pageMain button, #pagePlay button, #pageSingle button,
+#pageClassic button, #pageStory button,
+#pageVersus button, #pageOnline > button { position: relative; }
 #pageMain button:hover, #pageMain button.navfocus,
+#pagePlay button:hover, #pagePlay button.navfocus,
 #pageSingle button:hover, #pageSingle button.navfocus,
+#pageClassic button:hover, #pageClassic button.navfocus,
+#pageStory button:hover, #pageStory button.navfocus,
 #pageVersus button:hover, #pageVersus button.navfocus,
 #pageOnline > button:hover, #pageOnline > button.navfocus {
   transform: translateY(-2px);
@@ -519,21 +530,30 @@ button.ghost.navfocus { color: #eaf6ff; }
               0 10px 26px rgba(54, 160, 138, .34);
 }
 #pageMain button:hover::after, #pageMain button.navfocus::after,
+#pagePlay button:hover::after, #pagePlay button.navfocus::after,
 #pageSingle button:hover::after, #pageSingle button.navfocus::after,
+#pageClassic button:hover::after, #pageClassic button.navfocus::after,
+#pageStory button:hover::after, #pageStory button.navfocus::after,
 #pageVersus button:hover::after, #pageVersus button.navfocus::after,
 #pageOnline > button:hover::after, #pageOnline > button.navfocus::after {
   transform: translate(5px, -50%); color: var(--relay);
 }
 /* secondary (ghost) tiles read muted; their accent is steel not cyan */
-#pageMain button.ghost, #pageSingle button.ghost,
+#pageMain button.ghost, #pagePlay button.ghost, #pageSingle button.ghost,
+#pageClassic button.ghost, #pageStory button.ghost,
 #pageVersus button.ghost, #pageOnline > button.ghost {
   background: rgba(255, 255, 255, .08);
   box-shadow: inset 3px 0 0 rgba(140, 152, 184, .5), 0 5px 14px rgba(0, 0, 0, .32);
 }
-#pageMain button.ghost::after, #pageSingle button.ghost::after,
+#pageMain button.ghost::after, #pagePlay button.ghost::after, #pageSingle button.ghost::after,
+#pageClassic button.ghost::after, #pageStory button.ghost::after,
 #pageVersus button.ghost::after, #pageOnline > button.ghost::after { color: rgba(140, 152, 184, .6); }
-/* featured first action — the campaign entry reads brightest */
-#pageMain #btnSingle {
+/* featured entries read brightest — Play on the hub, and the primary action on
+   the campaign/story pages (Continue when a save exists, else New Game) */
+#pageMain #btnPlay,
+#btnContinue, #btnStoryContinue,
+#btnContinue[hidden] ~ #btnSolo,
+#btnStoryContinue[hidden] ~ #btnStory {
   background: linear-gradient(100deg, #40d0af 0%, #1d8e76 100%);
   box-shadow: inset 3px 0 0 var(--relay),
               inset 0 1px 0 rgba(255, 255, 255, .22),

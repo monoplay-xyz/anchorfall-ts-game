@@ -128,6 +128,17 @@ const FILES = new Map(); // rel -> { state: 'loading'|'ready'|'missing', buf }
 let seq = new Map();     // cue key -> per-mission rotation counter
 let cueGateAt = new Map(); // cue key -> earliest next allowed play (cooldowns)
 
+// The music tracks (~40MB) are kept OUT of the Railway build (see
+// .railwayignore) to keep deploys fast; on the public web they stream from the
+// jsDelivr CDN (the repo is public). The desktop/console app is served from
+// localhost and uses its bundled copy. Everything else (the voice pack) is
+// always local.
+const CDN_MUSIC = 'https://cdn.jsdelivr.net/gh/monoplay-xyz/holdout@main/holdout-hd/public/assets/audio/';
+const IS_LOCAL = typeof location !== 'undefined' &&
+  (/^(localhost|127\.|0\.0\.0\.0)/.test(location.hostname || '') || location.protocol === 'file:');
+function audioUrl(rel) {
+  return (rel.startsWith('music/') && !IS_LOCAL) ? CDN_MUSIC + rel : `/assets/audio/${rel}`;
+}
 function loadFile(rel) {
   let f = FILES.get(rel);
   if (f) return f;
@@ -136,7 +147,7 @@ function loadFile(rel) {
   FILES.set(rel, f);
   (async () => {
     try {
-      const res = await fetch(`/assets/audio/${rel}`);
+      const res = await fetch(audioUrl(rel));
       if (!res.ok || !ctx) throw new Error('clip unavailable');
       f.buf = await ctx.decodeAudioData(await res.arrayBuffer());
       f.state = 'ready';

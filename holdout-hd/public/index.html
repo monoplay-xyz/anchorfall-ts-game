@@ -192,45 +192,70 @@
       <div id="ctrlOverlay" hidden></div>
 
       <div id="menu" class="screen">
-        <!-- MAIN -->
+        <!-- MAIN — clean hub: Play / Rankings / Operators / Settings / How to Play -->
         <div class="mpage" id="pageMain">
           <h1>MONO<span>LYTHIUM</span></h1>
           <p class="sub">&mdash; THE ANCHORFALL &mdash;</p>
           <p class="tag">Hold the line. Rescue the lost. Reach the exit.</p>
-          <button id="btnSingle">Singleplayer</button>
-          <!-- gentle child-friendly co-op (1-4 players, bright, forgiving) -->
-          <button id="btnFamily" hidden>Family Mode</button>
-          <button id="btnVersus">Versus</button>
-          <button id="btnOnline">Online</button>
-          <!-- seeded daily siege — same map+twist worldwide, shared daily board -->
-          <button id="btnDaily">Daily Challenge</button>
+          <!-- Save & Quit bookmark — quick-resume at the top, shown only while a suspended run parses -->
+          <button id="btnResumeGame" hidden>Resume Game</button>
+          <!-- featured hub entry — opens the Play submenu (modes live there now) -->
+          <button id="btnPlay">Play</button>
           <button id="btnRankings">Rankings</button>
           <!-- operator gallery + milestone unlock progress -->
-          <button id="btnOperators">Operators</button>
-          <!-- account: sync operators + progress across devices -->
-          <button id="btnAccount" hidden>Account</button>
+          <button id="btnOperators">Achievements / Operators</button>
           <button id="btnSettings">Settings</button>
           <!-- interactive coached first mission for new players -->
           <button id="btnTutorial" class="ghost">How to Play</button>
-          <!-- Save & Quit bookmark — shown only while a suspended run parses -->
-          <button id="btnResumeGame" hidden>Resume Game</button>
           <!-- native desktop (Electron) only: quit the app -->
           <button id="btnQuitDesktop" class="ghost" hidden>Quit to Desktop</button>
           <p class="help">Couch co-op everywhere: plug in controllers, everyone presses FIRE in a lobby to join.<br>
           Audio wakes on your first click or button press. Pad: A selects &middot; B backs out of any page.</p>
         </div>
 
-        <!-- SINGLEPLAYER -->
+        <!-- PLAY — every game mode lives under here -->
+        <div class="mpage" id="pagePlay" hidden>
+          <h2>Play</h2>
+          <p class="tag">choose how you drop in</p>
+          <button id="btnSingle">Single Player</button>
+          <!-- gentle child-friendly co-op (1-4 players, bright, forgiving) -->
+          <button id="btnFamily" hidden>Family Mode</button>
+          <button id="btnVersus">Versus</button>
+          <button id="btnOnline">Online</button>
+          <!-- seeded daily siege — same map+twist worldwide, shared daily board -->
+          <button id="btnDaily">Daily Challenge</button>
+          <button class="ghost mback">Back</button>
+        </div>
+
+        <!-- SINGLE PLAYER — pick a mode, then New Game / Continue inside it -->
         <div class="mpage" id="pageSingle" hidden>
-          <h2>Singleplayer</h2>
+          <h2>Single Player</h2>
           <p class="tag">1&ndash;4 players, one screen</p>
-          <button id="btnSolo">Classic Campaign</button>
-          <button id="btnContinue" hidden>Continue Classic</button>
-          <button id="btnStory">Story: Anchorfall Crossing</button>
-          <button id="btnStoryContinue" hidden>Continue Story</button>
+          <button id="btnClassic">Classic Campaign</button>
+          <button id="btnStoryMode">Story: Anchorfall Crossing</button>
           <button id="btnBastion" hidden>Stronghold</button>
           <!-- MOBA lane-push: solo vs bots (online hosting is on the Online page) -->
           <button id="btnSiege" hidden>Anchor Siege &mdash; MOBA</button>
+          <button class="ghost mback">Back</button>
+        </div>
+
+        <!-- CLASSIC CAMPAIGN — New Game / Continue (Continue only when a save exists) -->
+        <div class="mpage" id="pageClassic" hidden>
+          <h2>Classic Campaign</h2>
+          <p class="tag">survive the Anchorfall, level by level</p>
+          <!-- resume a saved campaign — shown first so a blind FIRE never wipes a run -->
+          <button id="btnContinue" hidden>Continue</button>
+          <button id="btnSolo">New Game</button>
+          <button class="ghost mback">Back</button>
+        </div>
+
+        <!-- STORY — New Game / Continue (Continue only when a save exists) -->
+        <div class="mpage" id="pageStory" hidden>
+          <h2>Story: Anchorfall Crossing</h2>
+          <p class="tag">a guided run with beacons &amp; dialogue</p>
+          <!-- resume a saved story — shown first so a blind FIRE never wipes a run -->
+          <button id="btnStoryContinue" hidden>Continue Story</button>
+          <button id="btnStory">New Game</button>
           <button class="ghost mback">Back</button>
         </div>
 
@@ -306,6 +331,8 @@
           <button id="btnVolVoice" class="ghost" data-vol="voice">Voice (EVA + dialogue): 100%</button>
           <button id="btnVolSfx" class="ghost" data-vol="sfx">Effects: 100%</button>
           <button id="btnRemap" class="ghost">Input remapping</button>
+          <!-- account: sync operators + progress across devices — folded under Settings -->
+          <button id="btnAccount" class="ghost" hidden>Account</button>
           <p class="help">Keyboard fits two: WASD &middot; Space fire &middot; E talk/build &middot; F special &middot; Q item &middot; hold Tab for the map &nbsp;|&nbsp; Arrows &middot; Enter fire &middot; / talk/build &middot; RShift special &middot; . item &middot; hold M for the map<br>
           Gamepad: stick/d-pad &middot; A/RT fire &middot; X talk/build &middot; B/RB special &middot; Y item &middot; hold SELECT for the map &middot; Start pauses<br>
           Splitscreen (couch): <b>Dynamic</b> shares one camera until local players spread apart, then splits the screen and merges back when they regroup &middot; <b>Always</b> splits whenever 2+ local players deploy &middot; <b>Off</b> keeps the classic shared camera. 3 players get a tactical-map fourth cell; couch Battle Royale always splits.<br>
@@ -366,7 +393,7 @@
             <button id="btnLogout" class="ghost">Sign Out</button>
           </div>
           <p class="help" id="acctMsg">&nbsp;</p>
-          <button class="ghost mback" data-back="pageMain">Back</button>
+          <button class="ghost mback" data-back="pageSettings">Back</button>
         </div>
 
         <!-- OPERATOR GALLERY + milestone unlock progress -->

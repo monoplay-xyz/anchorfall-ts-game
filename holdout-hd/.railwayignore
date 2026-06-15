@@ -4,3 +4,6 @@ desktop
 test
 docs
 *.md
+# music streams from the jsDelivr CDN on the public web build (see audio.js) —
+# keep it out of the deploy upload so railway up stays fast (~30MB not ~70MB)
+public/assets/audio/music
