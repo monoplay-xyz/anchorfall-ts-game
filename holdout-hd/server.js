@@ -669,9 +669,15 @@ function startLevel(room) {
     baseDef = bastionLevels[spec.mapIdx] || baseDef;
     dailyMods = spec.mods;
   }
-  const gameDef = room.endless && baseDef.mode === 'bastion'
+  let gameDef = room.endless && baseDef.mode === 'bastion'
     ? { ...baseDef, bastion: { ...(baseDef.bastion || {}), endless: true, ...(dailyMods || {}) } }
     : baseDef;
+  // DIFFICULTY (PvE only): clone the def with the host's choice so the shared sim
+  // scales spawn counts. Only when non-default, so classic/story/bastion-normal
+  // and every versus room stay byte-identical on the wire (no difficulty key).
+  if (room.difficulty && room.difficulty !== 'normal' && !isPvp(room)) {
+    gameDef = { ...gameDef, difficulty: room.difficulty };
+  }
   room.game = createGame(gameDef, party, charMap, room.roster);
   room.phase = 'play';
   room.tick = 0;
@@ -809,7 +815,14 @@ wss.on('connection', (ws, req) => {
       const daily = mode === 'bastion' && !!m.daily;
       const endless = mode === 'bastion' && (!!m.endless || daily);
       const dailyDate = daily ? new Date().toISOString().slice(0, 10) : null;
-      const r = { code, mode, public: pub, endless, daily, dailyDate, hostPid: me.pid, players: new Map([[me.pid, me]]), levelIdx, roster, game: null, timer: null, phase: 'lobby', holds: [], tick: 0, lastActivity: Date.now() };
+      // DIFFICULTY (PvE only): the host's lobby choice scales enemy spawn counts
+      // in createGame, exactly as solo does. Versus modes (ctf/br/siege) field no
+      // AI enemies, so they're pinned to 'normal' (the byte-identical default) —
+      // the CTF wire snapshot never gains a difficulty key. Validated to the three
+      // known settings; an unknown/absent value falls back to 'normal'.
+      const pveHost = mode === 'classic' || mode === 'story' || mode === 'bastion';
+      const difficulty = (pveHost && ['easy', 'normal', 'extreme'].includes(m.difficulty)) ? m.difficulty : 'normal';
+      const r = { code, mode, public: pub, endless, daily, dailyDate, difficulty, hostPid: me.pid, players: new Map([[me.pid, me]]), levelIdx, roster, game: null, timer: null, phase: 'lobby', holds: [], tick: 0, lastActivity: Date.now() };
       rooms.set(code, r);
       me.room = r;
       sendTo(me, { t: 'joined', you: me.pid, token: myToken });

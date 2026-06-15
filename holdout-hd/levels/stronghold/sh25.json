@@ -8,8 +8,6 @@
   "bastionVariant": "beacons",
   "bastion": {
     "nights": 4,
-    "dayLen": 110,
-    "nightLen": 95,
     "bloodMoons": [
       4
     ],

@@ -461,31 +461,48 @@ function testMusicBoxOnAllStoryAndStronghold() {
   }
 }
 
-// --- STRONGHOLD relic: four CORNER MOUNTS instead of the single altar. Each
-// shard locks into the nearest unfilled corner mount; all four filled completes
-// the relic (awakening). STORY keeps its single altar (no .mounts). ---
+// --- STRONGHOLD relic: four FORTRESS-CORNER MOUNTS instead of the single altar.
+// They cluster around the CENTRAL BASE/CORE (a fixed radius out to each diagonal,
+// snapped to open tiles) — NOT at the map edges. Each shard locks into the nearest
+// unfilled mount; all four filled completes the relic. STORY keeps its single
+// altar (no .mounts). ---
 function testStrongholdCornerMounts() {
-  // a roomy open bastion map: center spawn, four open corners.
-  const W = 16, H = 12;
+  // a roomy open bastion map: a CORE ('K') at the center, four open corners. The
+  // core makes baseCenter explicit so we can prove the mounts cluster around it.
+  const W = 18, H = 14;
   const tiles = ['#'.repeat(W)];
   for (let y = 1; y < H - 1; y++) tiles.push('#' + '.'.repeat(W - 2) + '#');
   tiles.push('#'.repeat(W));
-  tiles[Math.floor(H / 2)] = '#' + '.'.repeat(6) + 'P' + '.'.repeat(W - 9) + '#';
-  tiles[2] = '#' + '.'.repeat(10) + 'g' + '.'.repeat(W - 13) + '#';
+  const midY = Math.floor(H / 2), midX = Math.floor(W / 2);
+  tiles[midY] = '#' + '.'.repeat(midX - 1) + 'K' + '.'.repeat(W - midX - 2) + '#'; // core dead-center
+  tiles[midY - 2] = '#' + '.'.repeat(2) + 'P' + '.'.repeat(W - 5) + '#'; // spawn off-center
+  tiles[2] = '#' + '.'.repeat(W - 6) + 'g' + '...#'; // a sleeping grunt keeps the field non-empty
   const shDef = { name: 'MB Bastion', mode: 'bastion', time: 600, tiles, captiveChars: [], stronghold: { level: 5, hpMult: 1 } };
 
   const g = createGame(shDef, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
   assert.ok(g.musicBox.enabled, 'stronghold enables the music box');
+  assert.ok(g.core && Number.isFinite(g.core.x), 'the test bastion map seeds a central core');
   assert.ok(Array.isArray(g.musicBox.mounts) && g.musicBox.mounts.length === 4, 'stronghold seeds four corner mounts');
   assert.ok(g.musicBox.mounts.every(m => Number.isFinite(m.x) && Number.isFinite(m.y) && m.filled === false), 'mounts start unfilled with valid coords');
   assert.equal(g.musicBox.fragments.length, 4, 'four shards still spawn for stronghold');
-  // each mount sits near a distinct corner (nearest open tile to the corner)
-  const corners = [[0, 0], [(W - 1) * TILE, 0], [0, (H - 1) * TILE], [(W - 1) * TILE, (H - 1) * TILE]];
+  // each mount clusters AROUND the base/core (a few tiles out, one per diagonal),
+  // and emphatically NOT at the far map corners.
+  const base = { x: g.core.x, y: g.core.y };
+  const mapCorners = [[0, 0], [(W - 1) * TILE, 0], [0, (H - 1) * TILE], [(W - 1) * TILE, (H - 1) * TILE]];
   for (let i = 0; i < 4; i++) {
     const m = g.musicBox.mounts[i];
-    const near = corners.some(([cx, cy]) => Math.hypot(m.x - cx, m.y - cy) < 6 * TILE);
-    assert.ok(near, `mount ${i} sits near a map corner`);
+    const distBase = Math.hypot(m.x - base.x, m.y - base.y);
+    assert.ok(distBase <= 7 * TILE, `mount ${i} clusters near the base center (got ${Math.round(distBase / TILE)} tiles)`);
+    const atMapCorner = mapCorners.some(([cx, cy]) => Math.hypot(m.x - cx, m.y - cy) < 3 * TILE);
+    assert.ok(!atMapCorner, `mount ${i} is NOT parked at a map corner`);
   }
+  // the four mounts straddle the base: at least one on each side of the core,
+  // proving they fan out to the fortress's diagonal corners (not all bunched).
+  assert.ok(g.musicBox.mounts.some(m => m.x < base.x) && g.musicBox.mounts.some(m => m.x > base.x), 'mounts flank the base on both the left and right');
+  assert.ok(g.musicBox.mounts.some(m => m.y < base.y) && g.musicBox.mounts.some(m => m.y > base.y), 'mounts flank the base above and below');
+  // DETERMINISM: a second build of the same def seeds byte-identical mount coords.
+  const g3 = createGame(shDef, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  assert.deepEqual(g3.musicBox.mounts.map(m => [m.x, m.y]), g.musicBox.mounts.map(m => [m.x, m.y]), 'mount placement is deterministic');
   // mounts ship in the snapshot (gated to stronghold)
   const snap = snapshot(g);
   assert.ok(snap.musicBox.mounts && snap.musicBox.mounts.length === 4, 'snapshot carries the four mounts for stronghold');
@@ -515,6 +532,117 @@ function testStrongholdCornerMounts() {
   assert.ok(sg.musicBox.enabled, 'story enables the music box');
   assert.ok(!sg.musicBox.mounts, 'story uses the single altar — no corner mounts');
   assert.ok(!snapshot(sg).musicBox.mounts, 'story snapshot never ships mounts');
+}
+
+// --- WALL PRICE: a single shard per fortified segment. The bastion shop stocks
+// the wall offer at cost 1 / amount 1, and a laid wall records exactly 1 shard of
+// investment (so dismantle math, repair and the HUD all read the cheaper wall).
+// CONTROL: the turret offer is untouched (still cost 8) — proving we only moved
+// the wall knob, not the whole placeable deck. ---
+function testWallCostsOneShard() {
+  const W = 16, H = 12;
+  const tiles = ['#'.repeat(W)];
+  for (let y = 1; y < H - 1; y++) tiles.push('#' + '.'.repeat(W - 2) + '#');
+  tiles.push('#'.repeat(W));
+  tiles[Math.floor(H / 2)] = '#' + '.'.repeat(6) + 'P' + '.'.repeat(W - 9) + '#';
+  tiles[2] = '#' + '.'.repeat(10) + 'g' + '.'.repeat(W - 13) + '#';
+  const shDef = { name: 'Wall Price', mode: 'bastion', time: 600, tiles, captiveChars: [], stronghold: { level: 5, hpMult: 1 } };
+  const g = createGame(shDef, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+
+  // the stocked wall OFFER is 1 shard for 1 wall (was 5 for 3).
+  const wallOffer = (g.shopOffers || []).find(o => o.what === 'wall');
+  assert.ok(wallOffer, 'a bastion shop stocks the wall offer');
+  assert.equal(wallOffer.cost, 1, 'wall offer costs 1 shard');
+  assert.equal(wallOffer.amount, 1, 'wall offer hands over a single wall');
+  // CONTROL: the turret offer is unchanged, proving we only retuned the wall.
+  const turretOffer = (g.shopOffers || []).find(o => o.what === 'turret');
+  assert.equal(turretOffer.cost, 8, 'turret offer is untouched (still 8 shards)');
+
+  // a LAID wall records exactly 1 shard of investment. Hand the operative a wall
+  // in inventory and drive the RA2 buy-then-place flow through step(): enter
+  // placement, drop the anchor, lay the (single-tile) line.
+  const p = g.players[0];
+  p.invuln = 1e9; g.graceT = 0;
+  p.x = 4 * TILE + TILE / 2; p.y = (Math.floor(H / 2) - 2) * TILE + TILE / 2; // open interior, clear of walls
+  p.inventory = [{ kind: 'wall', count: 1 }]; p.invIdx = 0;
+  const wallsBefore = g.builds.filter(b => b.kind === 'wall').length;
+  step(g, { 0: { place: true } }, 1 / 30);          // enter placement (ghost on the operative's tile)
+  assert.equal(p.placing, 'wall', 'placement mode armed for the wall');
+  step(g, { 0: {} }, 1 / 30);                        // release place (edge reset)
+  step(g, { 0: { fire: true } }, 1 / 30);            // first confirm: drop the wall anchor
+  step(g, { 0: {} }, 1 / 30);                        // release fire (edge reset)
+  step(g, { 0: { fire: true } }, 1 / 30);            // second confirm: lay the one-tile line
+  const newWalls = g.builds.filter(b => b.kind === 'wall');
+  assert.equal(newWalls.length, wallsBefore + 1, 'exactly one wall segment was laid');
+  const laid = newWalls[newWalls.length - 1];
+  assert.equal(laid.cost, 1, 'a laid wall records cost 1');
+  assert.equal(laid.invested, 1, 'a laid wall records 1 shard invested');
+}
+
+// --- DAY/NIGHT DEFAULTS: a bastion level with no dayLen/nightLen override
+// inherits the longer-day/shorter-night rhythm (120s day / 60s night). The cycle
+// clock starts on a 120s day. A level that DOES set its own pair (the deliberate
+// long-night design twists) keeps it. CONTROL: a classic level has no cycle. ---
+function testDayNightDefaults() {
+  const W = 14, H = 10;
+  const tiles = ['#'.repeat(W)];
+  for (let y = 1; y < H - 1; y++) tiles.push('#' + '.'.repeat(W - 2) + '#');
+  tiles.push('#'.repeat(W));
+  tiles[Math.floor(H / 2)] = '#' + '.'.repeat(5) + 'P' + '.'.repeat(W - 8) + '#';
+  tiles[2] = '#' + '.'.repeat(9) + 'g' + '.'.repeat(W - 12) + '#';
+
+  // INHERIT: no bastion.dayLen/nightLen -> the 120/60 defaults.
+  const inheritDef = { name: 'Default Cycle', mode: 'bastion', time: 600, tiles, captiveChars: [], stronghold: { level: 1, hpMult: 1 } };
+  const g = createGame(inheritDef, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  assert.equal(g.bastion.dayLen, 120, 'default day length is 120s');
+  assert.equal(g.bastion.nightLen, 60, 'default night length is 60s');
+  assert.equal(g.cycle.phase, 'day', 'a bastion run opens on day');
+  assert.equal(g.cycle.t, 120, 'the opening day clock starts at 120s');
+
+  // OVERRIDE: a deliberate long-night design twist keeps its own pair.
+  const twistDef = { name: 'Long Night', mode: 'bastion', time: 600, tiles, captiveChars: [],
+    bastion: { nights: 6, dayLen: 70, nightLen: 95 }, stronghold: { level: 14, hpMult: 1 } };
+  const tg = createGame(twistDef, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  assert.equal(tg.bastion.dayLen, 70, 'a level override keeps its short day');
+  assert.equal(tg.bastion.nightLen, 95, 'a level override keeps its long night');
+
+  // CONTROL: a classic (non-bastion) level has no cycle at all (byte-stable).
+  const classicDef = { name: 'Plain', time: 90, tiles, captiveChars: [] };
+  const cg = createGame(classicDef, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  assert.equal(cg.bastion, null, 'classic levels carry no bastion config');
+  assert.equal(cg.cycle, null, 'classic levels carry no day/night cycle');
+}
+
+// --- DIFFICULTY threading (the shape the SERVER now sends): a host's chosen
+// difficulty rides into createGame as def.difficulty and scales spawn counts the
+// same way solo does. EXTREME is the byte-stable baseline; NORMAL halves it. This
+// mirrors server.js startLevel cloning the def with room.difficulty. ---
+function testHostedDifficultyScales() {
+  // a wide bastion map: a scripted night wave whose letter-count we can count.
+  const W = 40, H = 18;
+  const tiles = ['#'.repeat(W)];
+  for (let y = 1; y < H - 1; y++) tiles.push('#' + (y === 1 ? 'P' + '.'.repeat(W - 3) : y === 9 ? '.'.repeat(W - 3) + 'g.' : '.'.repeat(W - 2)) + '#');
+  tiles.push('#'.repeat(W));
+  // a host hands difficulty straight into the def (exactly server.js's clone).
+  const hostDef = (d) => ({ name: 'Hosted', time: 60, captiveChars: [], difficulty: d,
+    modifiers: { waves: [{ at: 0.5, letters: 'gggggggg', edge: 'n' }] }, tiles });
+  const waveCount = (d) => {
+    const g = createGame(hostDef(d), [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+    g.graceT = 99999; g.players[0].invuln = 999;
+    const before = g.enemies.length;
+    run(g, () => ({ 0: {} }), 1);
+    return g.enemies.length - before;
+  };
+  const wExtreme = waveCount('extreme');
+  const wNormal = waveCount('normal');
+  assert.equal(wExtreme, 8, 'a hosted EXTREME room spawns the full 8-letter wave (baseline)');
+  assert.equal(wNormal, 4, 'a hosted NORMAL room spawns about half (8 -> 4)');
+  // a def WITHOUT a difficulty key (versus rooms, or a normal host) defaults to
+  // normal and never ships the difficulty wire key — keeping CTF byte-stable.
+  const vg = createGame({ name: 'Versus-ish', time: 60, captiveChars: [], tiles,
+    modifiers: { waves: [] } }, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  assert.equal(vg.difficulty, 'normal', 'no def.difficulty defaults to normal (versus/host baseline)');
+  assert.ok(!('difficulty' in snapshot(vg)), 'a normal-default snapshot ships no difficulty key (byte-stable)');
 }
 
 // --- DEV cheats (solo offline): enabling a cheat sets g.devMode, and the sim
@@ -590,6 +718,68 @@ function testDevCheats() {
   const plain = createGame(def, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
   assert.equal(plain.cheats, undefined, 'a normal run carries no cheats object');
   assert.equal(plain.devMode, undefined, 'a normal run is not dev-dirty');
+}
+
+// --- DEV "Pause Time" cheat (solo offline): freezes the WORLD — enemies stop
+// moving, the mission countdown holds, enemy projectiles hang — while the
+// operative still moves/aims/fires/builds. Gated on g.cheats.pauseTime, so an
+// untouched run (no g.cheats) is a byte-identical no-op. Control proves the
+// world DOES advance when the cheat is off. ---
+function testPauseTimeCheatFreezesWorld() {
+  const W = 14, H = 10;
+  const tiles = ['#'.repeat(W)];
+  for (let y = 1; y < H - 1; y++) tiles.push('#' + '.'.repeat(W - 2) + '#');
+  tiles.push('#'.repeat(W));
+  const mid = Math.floor(H / 2);
+  // player on the left of the open middle row; a grunt 4 tiles to its right so
+  // it is awake (arcade map auto-wakes) and aggro'd — it will march at the hero.
+  tiles[mid] = '#' + '.'.repeat(2) + 'P' + '...' + 'g' + '.'.repeat(W - 8) + '#';
+  const def = { name: 'Freeze Map', time: 600, tiles, captiveChars: [] };
+
+  // Build twin runs that differ ONLY in the pauseTime flag, then drive both with
+  // an empty input for a few ticks (the grunt walks itself toward the hero).
+  const mk = pauseTime => {
+    const gg = createGame(def, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+    gg.cheats = { god: false, speed: 1, instantKill: false, instantBuild: false, pauseTime };
+    if (pauseTime) gg.devMode = true; // sticky dirty flag (client sets this too)
+    gg.graceT = 0;                    // skip the level-start grace so enemies act now
+    gg.players[0].invuln = 999;       // keep the hero up regardless of contact
+    return gg;
+  };
+
+  // CONTROL (cheat OFF): the world advances — the grunt closes on the hero and
+  // the mission clock ticks down.
+  const ctrl = mk(false);
+  const ce0 = ctrl.enemies[0];
+  const cx0 = ce0.x, cy0 = ce0.y, cTime0 = ctrl.timeLeft;
+  run(ctrl, () => ({ 0: {} }), 1.0);
+  const cMoved = Math.hypot(ctrl.enemies[0].x - cx0, ctrl.enemies[0].y - cy0);
+  assert.ok(cMoved > TILE * 0.25, 'control (cheat off): the enemy advances on the hero');
+  assert.ok(ctrl.timeLeft < cTime0, 'control (cheat off): the mission countdown decrements');
+
+  // FROZEN (cheat ON): the enemy holds its exact tile and the clock does not
+  // move — but the operative still walks under a right-input.
+  const froz = mk(true);
+  const fe0 = froz.enemies[0];
+  const fx0 = fe0.x, fy0 = fe0.y, fTime0 = froz.timeLeft;
+  const px0 = froz.players[0].x;
+  run(froz, () => ({ 0: { right: true } }), 1.0);
+  assert.equal(froz.enemies[0].x, fx0, 'pause time: enemy x is unchanged (world frozen)');
+  assert.equal(froz.enemies[0].y, fy0, 'pause time: enemy y is unchanged (world frozen)');
+  assert.equal(froz.timeLeft, fTime0, 'pause time: the mission countdown holds');
+  assert.ok(froz.players[0].x - px0 > TILE * 0.25, 'pause time: the operative still moves');
+
+  // Toggling the cheat OFF mid-run releases the world again (the same game keeps
+  // simulating): the held enemy resumes its march.
+  froz.cheats.pauseTime = false;
+  const rx0 = froz.enemies[0].x;
+  run(froz, () => ({ 0: {} }), 1.0);
+  assert.notEqual(froz.enemies[0].x, rx0, 'clearing pause time resumes enemy movement');
+
+  // Untouched runs never gain the flag, so the gate is fully inert: a plain
+  // game (no g.cheats) advances exactly as before.
+  const plain = createGame(def, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  assert.equal(plain.cheats, undefined, 'a normal run carries no cheats object (pause-time gate inert)');
 }
 
 // --- RELIC AWAKENING horde: latch on relic completion, escalating nightmares
@@ -852,6 +1042,16 @@ function testDifficultySelector() {
 // the weather machine storms a zone over a few seconds. Entirely gated on the
 // unlock flag, so every other mode stays byte-identical.
 
+// Mirror the sim's superweapon kill radii (tiles) so the auto-target assertions
+// can check the chosen impact landed on the dense cluster, not the lone enemy.
+const NUKE_RADIUS_TILES = 4.5;
+const STORM_RADIUS_TILES = 5.0;
+const RAD_RADIUS_TILES = 3.0;
+// A player in any of these states was taken down (vs 'active' play or a clean
+// 'extracted' win). The friendly-safe asserts use this so a level auto-clearing
+// after we cull the enemies (state 'extracted') is not mistaken for a death.
+const DOWNED = new Set(['down', 'out', 'pick']);
+
 // Drive the awakening to a SURVIVED finish so g.superweaponUnlocked flips true.
 // Reuses the startedAt rewind trick to walk the clock to the end in one step.
 function unlockSuperweapon(g) {
@@ -985,14 +1185,18 @@ function testSuperweaponNukeClearsStronghold() {
   }
   assert.ok(garrisonIds.length >= 9, 'a dense garrison is staged');
 
-  // FIRE: owner commits the target. The strike is telegraphed (flight delay),
-  // then the blast resolves and wipes the cluster.
+  // FIRE: owner just TRIGGERS it (aimless) — the sim auto-targets the densest
+  // hostile cluster, which is this 9-pack. The strike is telegraphed (flight
+  // delay), then the blast resolves and wipes the cluster.
   g.players[0].x = site.x; g.players[0].y = site.y; // owner near the device
-  step(g, { 0: { superFire: true, aimX: tx, aimY: ty } }, 1 / 30);
+  step(g, { 0: { superFire: true } }, 1 / 30);
   assert.equal(g.superweapon.state, 'spent', 'firing consumes the one use');
   assert.equal(g.superweapon.used, true, 'the device is marked used');
-  // the flight is in the air now (one-shot: a second fire does nothing)
-  step(g, { 0: { superFire: true, aimX: site.x, aimY: site.y } }, 1 / 30);
+  // the auto-target landed on the dense cluster, not the lone far control
+  assert.ok((g.superweapon.targetX - tx) ** 2 + (g.superweapon.targetY - ty) ** 2 < (NUKE_RADIUS_TILES * TILE) ** 2,
+    'auto-target struck the dense cluster, not the lone far enemy');
+  // the flight is in the air now (one-shot: a second trigger does nothing)
+  step(g, { 0: { superFire: true } }, 1 / 30);
   // walk past the flight delay so the blast lands
   run(g, () => { g.players[0].invuln = 1e9; return { 0: {} }; }, 1.5, 1 / 30);
   const survivors = g.enemies.filter(e => !e.dead && garrisonIds.includes(e.id)).length;
@@ -1027,11 +1231,14 @@ function runWeatherStorm() {
     g.enemies.push(e); ids.push(e.id);
   }
 
-  // FIRE: a lightning storm field is scheduled (no instant blast).
+  // FIRE: aimless trigger — the sim auto-targets the packed cluster and schedules
+  // a lightning storm field over it (no instant blast).
   g.players[0].x = site.x; g.players[0].y = site.y;
-  step(g, { 0: { superFire: true, aimX: tx, aimY: ty } }, 1 / 30);
+  step(g, { 0: { superFire: true } }, 1 / 30);
   assert.equal(g.superweapon.state, 'spent', 'firing consumes the one use');
   assert.ok(g.hazards.some(h => h.kind === 'storm'), 'a storm field is scheduled');
+  assert.ok((g.superweapon.targetX - tx) ** 2 + (g.superweapon.targetY - ty) ** 2 < (STORM_RADIUS_TILES * TILE) ** 2,
+    'storm auto-target landed on the packed cluster');
 
   // WARNING DELAY: during the LightningDeferment window NO bolt has struck yet.
   const aliveAtWarn = g.enemies.filter(e => !e.dead && ids.includes(e.id)).length;
@@ -1069,6 +1276,172 @@ function testSuperweaponWeatherStormsOverTime() {
   const aliveControl = g.enemies.filter(e => !e.dead && ids.includes(e.id)).length;
   assert.equal(aliveControl, ids.length, 'without a storm the cluster takes no damage (control)');
   assert.ok(a.aliveAfter < aliveControl, 'the storm kills strictly more than the un-triggered baseline');
+}
+
+// Place a friendly turret build + an ownerless recruited defender + a VULNERABLE
+// player INSIDE an AoE footprint, ~2.3 tiles off the impact center: that is well
+// within the nuke blast (4.5t) and radiation crater (3t) / storm (5t), yet far
+// enough from the packed (speed-0) cluster that ordinary enemy melee can't reach
+// them — so the ONLY thing that could hurt them is the superweapon. It doesn't.
+function stageFriendliesAt(g, cx, cy) {
+  const off = TILE * 2.3;
+  const turret = { x: cx + off, y: cy, kind: 'turret', cost: 8, progress: 1, paid: 8, built: true, hp: 5, maxHp: 5, cool: 0, evT: 0, level: 1 };
+  g.builds.push(turret);
+  const defender = {
+    id: g.nextFollowerId++, kind: 'defender', owner: null,
+    x: cx, y: cy + off, hp: 4, maxHp: 4, slot: -1,
+    fx: 0, fy: 1, cool: 0, invulnT: 0, path: null, pathI: 0, repathT: 0, isFollower: true,
+  };
+  g.followers.push(defender);
+  const p = g.players[0];
+  p.x = cx - off; p.y = cy; p.state = 'active'; p.invuln = 0; // VULNERABLE on purpose
+  return { turret, defender, player: p, off };
+}
+
+// AUTO-TARGET + FRIENDLY-FIRE-PROOF (nuke). The trigger is aimless: the sim must
+// pick the densest hostile cluster (NOT a lone far enemy), wipe it, AND leave a
+// player + turret + recruited defender standing inside the blast unharmed.
+function testSuperweaponNukeAutoTargetsFriendlySafe() {
+  const g = createGame(relicStoryDef(4), [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  unlockSuperweapon(g);
+  const site = findSuperSite(g);
+  const sw = buildSuperweaponAt(g, 'nuke', site);
+  sw.chargeT = 0;
+  run(g, () => { g.players[0].invuln = 1e9; return { 0: {} }; }, 0.2, 1 / 30);
+  assert.equal(g.superweapon.state, 'ready', 'nuke ready');
+
+  // CONTROL: a lone enemy parked far from everything. It must NOT be chosen over
+  // the tight cluster, and (being outside the blast) must survive.
+  const lone = makeEnemyForTest(g, 'b', (3 + 0.5) * TILE, (2 + 0.5) * TILE); // hp24 boss, but ALONE
+  g.enemies.push(lone);
+
+  // DENSE cluster of 8 grunts packed tight around a target cell.
+  const cx = (15 + 0.5) * TILE, cy = (11 + 0.5) * TILE;
+  const clusterIds = [];
+  for (let i = 0; i < 8; i++) {
+    const ang = (i / 8) * Math.PI * 2;
+    const e = makeEnemyForTest(g, 'g', cx + Math.cos(ang) * TILE * 0.8, cy + Math.sin(ang) * TILE * 0.8);
+    g.enemies.push(e); clusterIds.push(e.id);
+  }
+  // friendlies standing inside the blast footprint (so the AoE engulfs them too)
+  const { turret, defender, player, off } = stageFriendliesAt(g, cx, cy);
+  // sanity: the staged friendlies really are inside the nuke blast radius.
+  assert.ok(off < NUKE_RADIUS_TILES * TILE, 'the staged friendlies sit inside the nuke blast radius');
+
+  // TRIGGER (no aim). Auto-target must hit the dense cluster, not the lone boss.
+  step(g, { 0: { superFire: true } }, 1 / 30);
+  assert.equal(g.superweapon.state, 'spent', 'the trigger fired the device');
+  assert.ok((g.superweapon.targetX - cx) ** 2 + (g.superweapon.targetY - cy) ** 2 < (NUKE_RADIUS_TILES * TILE) ** 2,
+    'auto-target chose the dense cluster, not the lone far boss');
+  // the auto-target ignored the lone far boss (it must still be alive now).
+  assert.ok(g.enemies.some(e => !e.dead && e.id === lone.id), 'the lone far enemy is never targeted');
+  // let the flight resolve WITH the (vulnerable) player held in the blast. Cull
+  // every NON-cluster enemy each tick (the far boss + any edge-spawn) so the only
+  // thing that could touch the parked friendlies is the nuke/crater — which it
+  // doesn't. (We already proved the boss survived the auto-target above.)
+  const pin = () => {
+    const q = g.players[0]; q.x = cx - off; q.y = cy; q.invuln = 0;
+    for (const e of g.enemies) if (!clusterIds.includes(e.id)) e.dead = true;
+    return { 0: {} };
+  };
+  run(g, pin, 1.5, 1 / 30);
+
+  // the cluster is wiped by the nuke it auto-targeted.
+  const survivors = g.enemies.filter(e => !e.dead && clusterIds.includes(e.id)).length;
+  assert.equal(survivors, 0, 'the nuke wipes the dense cluster it auto-targeted');
+
+  // FRIENDLY-FIRE-PROOF: the player, turret and defender stood inside the blast
+  // (and the lingering radiation crater) yet take ZERO damage.
+  assert.equal(turret.hp, turret.maxHp, 'the friendly turret in the blast is undamaged');
+  assert.equal(defender.hp, defender.maxHp, 'the recruited defender in the blast is undamaged');
+  assert.ok(!DOWNED.has(player.state), 'the (vulnerable) player in the blast is never downed');
+
+  // and the radiation crater that lingers still never chips the friendlies.
+  assert.ok(g.hazards.some(h => h.kind === 'radiation'), 'a radiation crater lingers');
+  assert.ok(off < RAD_RADIUS_TILES * TILE, 'the friendlies sit inside the radiation crater');
+  run(g, pin, 3, 1 / 30); // sit in the crater
+  assert.equal(turret.hp, turret.maxHp, 'the turret survives the radiation crater too');
+  assert.equal(defender.hp, defender.maxHp, 'the defender survives the radiation crater too');
+  assert.ok(!DOWNED.has(g.players[0].state), 'the player survives standing in the radiation crater');
+}
+
+// AUTO-TARGET + FRIENDLY-FIRE-PROOF (weather). The aimless trigger auto-targets
+// the dense cluster; the storm shreds it over its duration but never harms the
+// player / turret / defender standing under the same footprint.
+function testSuperweaponWeatherAutoTargetsFriendlySafe() {
+  const g = createGame(relicStoryDef(4), [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  unlockSuperweapon(g);
+  const site = findSuperSite(g);
+  const sw = buildSuperweaponAt(g, 'weather', site);
+  sw.chargeT = 0;
+  run(g, () => { g.players[0].invuln = 1e9; return { 0: {} }; }, 0.2, 1 / 30);
+  assert.equal(g.superweapon.state, 'ready', 'weather ready');
+
+  // CONTROL: a lone far enemy that must not be chosen over the cluster.
+  const lone = makeEnemyForTest(g, 'b', (3 + 0.5) * TILE, (2 + 0.5) * TILE);
+  g.enemies.push(lone);
+
+  // a TIGHT 12-pack (within ~1 tile of center) so the storm shreds it AND the
+  // friendlies staged 2.3 tiles out stay clear of any enemy melee/gnaw reach.
+  const cx = (10 + 0.5) * TILE, cy = (10 + 0.5) * TILE;
+  const clusterIds = [];
+  for (let i = 0; i < 12; i++) {
+    const ang = (i / 12) * Math.PI * 2, rr = TILE * (0.3 + (i % 3) * 0.25);
+    const e = makeEnemyForTest(g, 'g', cx + Math.cos(ang) * rr, cy + Math.sin(ang) * rr);
+    g.enemies.push(e); clusterIds.push(e.id);
+  }
+  const { turret, defender, player, off } = stageFriendliesAt(g, cx, cy);
+  assert.ok(off < STORM_RADIUS_TILES * TILE, 'the staged friendlies sit inside the storm footprint');
+
+  g.players[0].x = site.x; g.players[0].y = site.y;
+  step(g, { 0: { superFire: true } }, 1 / 30);
+  assert.equal(g.superweapon.state, 'spent', 'the trigger fired the device');
+  assert.ok((g.superweapon.targetX - cx) ** 2 + (g.superweapon.targetY - cy) ** 2 < (STORM_RADIUS_TILES * TILE) ** 2,
+    'weather auto-target chose the dense cluster, not the lone far enemy');
+
+  // run the storm out. Hold the VULNERABLE player parked under the footprint;
+  // cull every NON-cluster enemy each tick (the far lone boss + any edge-spawn)
+  // so the only thing that could hurt the parked friendlies is the storm itself —
+  // which (post-change) never touches them. The defender's ordinary-combat grace
+  // is topped too (the storm never calls damageFollower anyway).
+  const loneId = lone.id;
+  const pin = () => {
+    const q = g.players[0]; q.x = cx - off; q.y = cy; q.invuln = 0; defender.invulnT = 1;
+    for (const e of g.enemies) if (!clusterIds.includes(e.id)) e.dead = true;
+    return { 0: {} };
+  };
+  // before culling, confirm the auto-target ignored the lone enemy (it survived
+  // the warning window untouched while the cluster was chosen).
+  assert.ok(g.enemies.some(e => !e.dead && e.id === loneId), 'the lone far enemy is never targeted');
+  run(g, pin, 11, 1 / 30);
+
+  const survivors = g.enemies.filter(e => !e.dead && clusterIds.includes(e.id)).length;
+  assert.ok(survivors <= 3, `the storm shreds the cluster it auto-targeted (${clusterIds.length} -> ${survivors})`);
+
+  // FRIENDLY-FIRE-PROOF across the whole storm: nothing friendly was scratched.
+  assert.equal(turret.hp, turret.maxHp, 'the turret under the storm is undamaged');
+  assert.equal(defender.hp, defender.maxHp, 'the defender under the storm is undamaged');
+  assert.ok(!DOWNED.has(g.players[0].state), 'the player under the storm is never downed');
+}
+
+// AUTO-TARGET no-op: with zero enemies and no strongholds, a trigger keeps the
+// charge (it does not waste the one-shot on empty air).
+function testSuperweaponAutoTargetNoEnemiesKeepsCharge() {
+  const g = createGame(relicStoryDef(4), [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  unlockSuperweapon(g);
+  const site = findSuperSite(g);
+  const sw = buildSuperweaponAt(g, 'nuke', site);
+  sw.chargeT = 0;
+  run(g, () => { g.players[0].invuln = 1e9; return { 0: {} }; }, 0.2, 1 / 30);
+  assert.equal(g.superweapon.state, 'ready', 'nuke ready');
+  // clear the field (incl. the map's lone sleeper) so there is nothing to hit.
+  for (const e of g.enemies) e.dead = true;
+  assert.ok(!g.strongholds || !g.strongholds.length, 'the story map seeds no stronghold to fall back on');
+  g.players[0].x = site.x; g.players[0].y = site.y;
+  step(g, { 0: { superFire: true } }, 1 / 30);
+  assert.equal(g.superweapon.state, 'ready', 'with nothing to hit the trigger is a no-op (charge kept)');
+  assert.equal(g.superweapon.used, false, 'the one-shot was not consumed on empty air');
+  assert.equal(g.hazards.length, 0, 'no strike was scheduled');
 }
 
 // --- relic awakening freezes the day/night clock --------------------------
@@ -2087,7 +2460,11 @@ testMusicBoxFeature();
 testStrandedOperatorsAndScrap();
 testMusicBoxOnAllStoryAndStronghold();
 testStrongholdCornerMounts();
+testWallCostsOneShard();
+testDayNightDefaults();
+testHostedDifficultyScales();
 testDevCheats();
+testPauseTimeCheatFreezesWorld();
 testRelicAwakeningHorde();
 testDifficultySelector();
 testRelicFreezesDayNightCycle();
@@ -2095,6 +2472,9 @@ testSuperweaponLockedUntilSurvived();
 testSuperweaponBuildChargeAndTinyWave();
 testSuperweaponNukeClearsStronghold();
 testSuperweaponWeatherStormsOverTime();
+testSuperweaponNukeAutoTargetsFriendlySafe();
+testSuperweaponWeatherAutoTargetsFriendlySafe();
+testSuperweaponAutoTargetNoEnemiesKeepsCharge();
 testScriptedBotClearsLevelOne();
 testAggroSleep();
 testSmallMapsStayArcade();

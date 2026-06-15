@@ -153,21 +153,22 @@ const SUPER_KINDS = new Set(['nuke', 'weather']);
 function seatCanBuildSuper(snap) {
   return !!(snap && snap.superweaponUnlocked && !snap.superweapon);
 }
-// True when an armed superweapon is awaiting a target AND this seat is its owner
-// (only the owner may fire). Drives the targeting reticle + the superFire input.
+// True when an armed superweapon is READY to LAUNCH AND this seat is its owner
+// (only the owner may launch). The launch is aimless — the sim auto-targets the
+// densest hostile cluster — so this only drives the one-button launch input + the
+// "press to launch" prompt, NOT any aim/reticle.
 function seatCanFireSuper(snap, pid) {
   const sw = snap && snap.superweapon;
   return !!(sw && sw.state === 'ready' && sw.ownerPid === pid);
 }
-// A seat only needs the mouse aim point while it is actually placing a structure
-// or while THIS seat owns an armed superweapon awaiting a target — so we never
-// spend uplink bytes on aim during ordinary play. The sim ignores aim outside
-// those modes anyway; this just keeps the input message lean.
+// A seat only needs the mouse aim point while it is actually PLACING a structure
+// — so we never spend uplink bytes on aim during ordinary play. (The superweapon
+// no longer uses aim: it auto-targets, fired with a plain trigger.) The sim
+// ignores aim outside placement anyway; this just keeps the input message lean.
 function seatNeedsAim(snap, pid) {
   if (!snap) return false;
   const me = snap.players?.find(p => p.pid === pid);
-  if (me && me.placing) return true;
-  return seatCanFireSuper(snap, pid);
+  return !!(me && me.placing);
 }
 
 // E = interact (matches the on-screen [E/X] prompts), F = special, Q = item,
@@ -2068,6 +2069,9 @@ class LocalSession {
     // additive: present only once the cheats panel has opened — undefined keeps
     // untouched runs byte-identical (the sim reads g.cheats.coreInvuln defensively)
     if (c.coreInvuln === undefined) c.coreInvuln = false;
+    // Pause Time: freezes the WORLD (enemies/spawns/timers/hazards/enemy fire)
+    // while the operative keeps moving, aiming and building. Additive like above.
+    if (c.pauseTime === undefined) c.pauseTime = false;
     const SPEEDS = [1, 5, 10, 100]; // Off / x5 / x10 / x100
     const speedLabel = v => v <= 1 ? 'OFF' : '×' + v;
     const onState = b => b ? 'ON' : 'OFF';
@@ -2085,6 +2089,9 @@ class LocalSession {
       // Core Integrity: the center/objective the enemies attack cannot be destroyed
       // (distinct from God Mode, which keeps the PLAYER alive). Damage is nullified.
       { label: `Core Integrity: ${onState(c.coreInvuln)}`, onPick: () => { c.coreInvuln = !c.coreInvuln; if (c.coreInvuln) dirty(); reopen(); } },
+      // Pause Time: stop the world (enemies/spawns/timers/hazards/enemy fire) but
+      // keep the operative free to move, aim, fire, build and reposition.
+      { label: `Pause Time: ${onState(c.pauseTime)}`, onPick: () => { c.pauseTime = !c.pauseTime; if (c.pauseTime) dirty(); reopen(); } },
       { label: 'Max Out (Full Upgrades)', onPick: () => { dirty(); this.cheatMaxOut(me); reopen(); } },
       { label: 'Kill All Enemies', onPick: () => { dirty(); this.cheatKillAll(); reopen(); } },
       { label: 'Equip / Awaken Relic', onPick: () => { dirty(); this.cheatAwakenRelic(); reopen(); } },
@@ -2136,9 +2143,9 @@ class LocalSession {
   }
   // Build Superweapon (solo dev tool): unlock the relic superweapon and drop a
   // charging device at the local seat's tile. Mirrors the sim's build-complete
-  // state (charging, ~60s timer) so the charge/ready/fire path is demoable
-  // without surviving the awakening first. The targeting + fire still run
-  // through the normal input contract (mouse aim -> superFire) once it's ready.
+  // state (charging, ~60s timer) so the charge/ready/launch path is demoable
+  // without surviving the awakening first. The launch runs through the normal
+  // input contract (a plain superFire trigger; the sim auto-targets) once ready.
   cheatBuildSuperweapon(kind, me) {
     const g = this.game;
     if (!g || !me) return;
@@ -2281,7 +2288,13 @@ class LocalSession {
     for (const [dev, st] of Object.entries(polled)) {
       if (st.startJust && this.deviceOf(dev)) { this.togglePause(); break; }
     }
-    if (this.paused || this.game.status !== 'play') return;
+    // SOLO PAUSE = real halt: while paused — or while ANY pause/cheat overlay is
+    // up (pauseUi) — never advance the sim. The pauseUi guard is belt-and-braces
+    // against a sub-panel transiently clearing this.paused (its onClose sets
+    // paused=false before the reopen re-asserts it): the dialog being visible is
+    // the source of truth, so the world stays frozen the whole time the menu is
+    // open. Enemies, timers and projectiles all hold until Resume.
+    if (this.paused || pauseUi || this.game.status !== 'play') return;
     const inputs = {};
     for (const p of this.players) {
       if (p.device.startsWith('bot')) { inputs[p.pid] = this.botInput(p, dt); continue; }
@@ -2294,17 +2307,18 @@ class LocalSession {
       inputs[p.pid] = st
         ? { up: st.up, down: st.down, left: st.left, right: st.right, fire, special: st.special, act: st.act, item: st.item, invSel: st.invSel, place: st.place, drop: st.drop, sprint: st.sprint }
         : {};
-      // mouse aim drives the placement/targeting ghost, but only for keyboard
-      // seats that are actually placing/targeting: a gamepad seat keeps arrow/
-      // stick stepping (placementCursor would otherwise be yanked to the shared
-      // pointer), and idle seats spend no aim at all.
+      // mouse aim drives the placement ghost, but only for keyboard seats that
+      // are actually placing: a gamepad seat keeps arrow/stick stepping
+      // (placementCursor would otherwise be yanked to the shared pointer), and
+      // idle seats spend no aim at all.
       if (st && p.device.startsWith('kb') && seatNeedsAim(this.snap, p.pid)) {
         const aim = mouseAimWorld();
         if (aim) { inputs[p.pid].aimX = aim.x; inputs[p.pid].aimY = aim.y; }
       }
       // SUPERWEAPON LAUNCH: when this seat owns a READY device, its fire button
-      // doubles as the target-confirm — the sim edge-fires once with the aim
-      // point above, then the device is spent and this whole branch goes dark.
+      // doubles as the launch trigger — the sim auto-targets the densest hostile
+      // cluster and edge-fires once, then the device is spent and this branch
+      // goes dark. No aim involved.
       if (st && seatCanFireSuper(this.snap, p.pid)) inputs[p.pid].superFire = fire;
     }
     // BUILD: drain a one-shot superBuild queued by the pause-menu build entry into
@@ -2703,6 +2717,13 @@ class NetSession {
         // stronghold: the host's earned roster rides along (the server
         // validates ids, dedupes and always keeps every starter)
         if (hostMode === 'bastion') msg.roster = strongholdRoster();
+        // DIFFICULTY (PvE only): the host's lobby choice rides the host message
+        // so the SERVER's createGame scales spawn counts the same way solo does.
+        // Versus (ctf/br/siege) field no AI enemies — never sent, so their rooms
+        // stay at the byte-identical 'normal' default on the wire. Only sent when
+        // non-default, keeping classic/story/bastion-normal hosts byte-stable too.
+        const hostPve = hostMode === 'classic' || hostMode === 'story' || hostMode === 'bastion';
+        if (hostPve && difficulty !== 'normal') msg.difficulty = difficulty;
         // Endless Siege rides the host message (additive — an older server
         // ignores it and the room plays as the fixed-night campaign)
         if (hostEndless) msg.endless = true;
@@ -2872,7 +2893,7 @@ class NetSession {
     const pid = this.seats.get(dev);
     const o = { up: c.up, down: c.down, left: c.left, right: c.right, fire, special: c.special, act: c.act, item: c.item, invSel: c.invSel, place: c.place, drop: c.drop, sprint: c.sprint };
     // online couch: the lone pointer aims keyboard seats only (pad seats step),
-    // and only while that seat is placing/targeting
+    // and only while that seat is placing a structure
     if (dev.startsWith('kb') && seatNeedsAim(this.snap, pid)) {
       const aim = mouseAimWorld();
       if (aim) { o.aimX = aim.x; o.aimY = aim.y; }

@@ -7199,47 +7199,30 @@ function drawPlacementGhost(ctx, snap, me, t) {
   }
 }
 
-// Superweapon KILL RADII (tiles) — mirror the sim's NUKE_RADIUS / STORM_RADIUS so
-// the targeting circle matches the real blast. Render-only; kept local so this
-// stays a client/render change with no sim contract added.
-const SUPER_KILL_TILES = { nuke: 4.5, weather: 5.0 };
-// Targeting reticle + kill-radius ring drawn in WORLD space at the tile the owner
-// is hovering with the mouse. Gated by the caller to a READY device whose owner is
+// LAUNCH-READY prompt drawn in WORLD space ON the device. The strike is aimless
+// (the sim auto-targets the densest hostile cluster), so there is no reticle and
+// no aim cursor — just a pulsing ring + "FIRE TO LAUNCH" on the silo so the owner
+// knows the trigger is live. Gated by the caller to a READY device whose owner is
 // a local focus seat, so it never appears for non-owners or spent/charging states.
-// Snaps to tile center exactly like the sim's tileCenter, so the ring shows the
-// true impact footprint. `wx/wy` are world coords (already snapped by the caller).
-function drawSuperTargetReticle(ctx, sw, wx, wy, t) {
+function drawSuperLaunchPrompt(ctx, sw, t) {
   const weather = sw.type === 'weather';
   const col = weather ? '#9fd0ff' : '#ffae5a';
-  const r = (SUPER_KILL_TILES[sw.type] ?? 4.5) * TILE;
   const pulse = 0.5 + 0.5 * Math.sin(t * 5);
+  const wx = sw.x, wy = sw.y;
   ctx.save();
-  // kill-radius footprint: a filled-then-stroked danger circle
-  ctx.fillStyle = weather ? 'rgba(159,208,255,0.10)' : 'rgba(255,120,60,0.12)';
-  ctx.beginPath(); ctx.arc(wx, wy, r, 0, Math.PI * 2); ctx.fill();
+  // a pulsing ground ring around the device: it is armed, press to fire
   ctx.lineWidth = 2;
   ctx.setLineDash([8, 6]);
   ctx.lineDashOffset = -t * 24; // slow rotation of the dashes
-  ctx.strokeStyle = `rgba(${weather ? '159,208,255' : '255,120,60'},${0.55 + 0.35 * pulse})`;
-  ctx.beginPath(); ctx.arc(wx, wy, r, 0, Math.PI * 2); ctx.stroke();
+  ctx.strokeStyle = `rgba(${weather ? '159,208,255' : '255,174,90'},${0.5 + 0.4 * pulse})`;
+  ctx.beginPath(); ctx.arc(wx, wy, TILE * 1.4 + pulse * 2, 0, Math.PI * 2); ctx.stroke();
   ctx.setLineDash([]);
-  // crosshair reticle on the target cell
   ctx.shadowColor = col; ctx.shadowBlur = 6;
-  ctx.strokeStyle = col;
-  ctx.lineWidth = 1.6;
-  const a = 14, b = 5;
-  ctx.beginPath();
-  ctx.moveTo(wx - a, wy); ctx.lineTo(wx - b, wy);
-  ctx.moveTo(wx + b, wy); ctx.lineTo(wx + a, wy);
-  ctx.moveTo(wx, wy - a); ctx.lineTo(wx, wy - b);
-  ctx.moveTo(wx, wy + b); ctx.lineTo(wx, wy + a);
-  ctx.stroke();
-  ctx.beginPath(); ctx.arc(wx, wy, 4 + pulse, 0, Math.PI * 2); ctx.stroke();
-  ctx.shadowBlur = 0;
   ctx.fillStyle = col; ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center';
-  ctx.fillText(weather ? 'STORM TARGET' : 'NUKE TARGET', wx, wy - r - 6);
-  ctx.fillStyle = 'rgba(240,201,76,0.9)';
-  ctx.fillText('FIRE TO LAUNCH', wx, wy + r + 14);
+  ctx.fillText(weather ? 'WEATHER READY' : 'NUKE READY', wx, wy - TILE * 1.4 - 16);
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = `rgba(240,201,76,${0.7 + 0.3 * pulse})`;
+  ctx.fillText('FIRE TO LAUNCH', wx, wy - TILE * 1.4 - 4);
   ctx.restore();
 }
 
@@ -7979,7 +7962,7 @@ function drawSuperweaponHud(ctx, VW, sw, t) {
     ctx.font = 'bold 18px monospace';
     ctx.shadowColor = '#F0C94C'; ctx.shadowBlur = 10;
     ctx.fillStyle = '#F0C94C';
-    ctx.fillText('READY — SELECT TARGET', VW / 2, y + 36);
+    ctx.fillText('READY — FIRE TO LAUNCH', VW / 2, y + 36);
   } else if (sw.state === 'charging') {
     const secs = Math.ceil(sw.chargeT ?? 0);
     ctx.font = 'bold 20px monospace'; ctx.fillStyle = col;
@@ -8928,24 +8911,16 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
     drawPlacementGhost(ctx, snap, p, t);
   }
 
-  // --- SUPERWEAPON TARGETING reticle: when a READY device's owner is a local
-  // focus seat, draw the crosshair + kill-radius ring at the hovered tile. Gated
-  // on snap.superweapon.state === 'ready' and ownership, so non-owners and every
-  // other state (charging/spent/wrecked) draw nothing. The aim point comes from
-  // the shared pointer, run through THIS view's camera so split cells stay true,
-  // and snapped to tile center to match the sim's tileCenter target. ---
+  // --- SUPERWEAPON LAUNCH-READY marker: when a READY device's owner is a local
+  // focus seat, pulse a "press to launch" ring on the device itself. The strike
+  // is AIMLESS — the sim auto-targets the densest hostile cluster — so there is
+  // no reticle and no aim cursor; this is purely a prompt that the trigger is
+  // live. Gated on state==='ready' + ownership, so non-owners and every other
+  // state draw nothing. ---
   {
     const sw = snap.superweapon;
-    if (sw && sw.state === 'ready' && focus.has(sw.ownerPid) && aimScreen) {
-      // inverse of the world transform for this cell (base z, ignoring the brief
-      // punch kick): full-canvas px -> view-local px -> world coords.
-      const sx = aimScreen.x - (clipped ? rect.x : 0);
-      const sy = aimScreen.y - (clipped ? rect.y : 0);
-      const awx = camera.x + (sx - VW / 2) / z;
-      const awy = camera.y + (sy - VH / 2) / z;
-      const tx = (Math.floor(awx / TILE) + 0.5) * TILE;
-      const ty = (Math.floor(awy / TILE) + 0.5) * TILE;
-      drawSuperTargetReticle(ctx, sw, tx, ty, t);
+    if (sw && sw.state === 'ready' && focus.has(sw.ownerPid)) {
+      drawSuperLaunchPrompt(ctx, sw, t);
     }
   }
 

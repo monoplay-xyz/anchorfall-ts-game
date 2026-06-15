@@ -7,8 +7,6 @@
   "mode": "bastion",
   "bastion": {
     "nights": 3,
-    "dayLen": 95,
-    "nightLen": 85,
     "bloodMoons": [
       2,
       3

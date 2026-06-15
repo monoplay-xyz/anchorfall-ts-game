@@ -169,7 +169,7 @@ const BUILD_REACH = 1.5; // tiles, act range for building and talking
 // map targeting. PLACEABLES: inventory kind -> the g.builds structure it lays.
 const PLACEABLES = {
   turret: { build: 'turret', cost: 8 },
-  wall: { build: 'wall', cost: 5, drag: true }, // drag-to-line, per-segment cost
+  wall: { build: 'wall', cost: 1, drag: true }, // drag-to-line, 1 shard per segment
   barricade: { build: 'barricade', cost: 4 },
 };
 const PLACE_REACH = 6; // tiles: how far from the operative a ghost may roam
@@ -206,7 +206,7 @@ const MUTATIONS = ['feral', 'bulk', 'volatile', 'split'];
 const WAVE_EDGES = ['n', 'e', 's', 'w'];
 const FARM_GROW_T = 25; // seconds per stage (15 with a hired farmer)
 const FARM_GROW_FAST = 15;
-const BASTION_DEFAULTS = { nights: 5, dayLen: 90, nightLen: 75, bloodMoons: [3, 5] };
+const BASTION_DEFAULTS = { nights: 5, dayLen: 120, nightLen: 60, bloodMoons: [3, 5] };
 const BLOOD_WARN_LEAD = 30; // seconds before a blood-moon dusk
 
 // --- Daily Challenge -------------------------------------------------------
@@ -237,7 +237,7 @@ const WAVE_ENGAGE = 6; // tiles: a core-marcher engages a player it SEES this cl
 const WAVE_DISENGAGE = 9; // tiles: it resumes the march once they slip this far
 
 // --- structure levels, towers, shops, hires, vehicles, pvp tuning ---
-// 'wall' is the frontier IV fortified segment (cost 5 by convention): a real
+// 'wall' is the frontier IV fortified segment (cost 1 per segment): a real
 // damageable structure, so stronghold bases ship as PREBUILT wall perimeters
 // instead of indestructible '#' rock.
 const STRUCT_HP = { barricade: [14, 22, 32], turret: [10, 14, 18], tower: [20, 28, 38], wall: [20, 35, 60] };
@@ -477,12 +477,12 @@ const MASK_OFFER = { what: 'mask', cost: 10, amount: 1 };
 // placeable structures beyond the standard five. `place: true` routes them
 // through addToInventory (see buyOffer) — the operative then cycles inventory
 // (inp.invSel) and enters placement mode (inp.place) to drop them. Costs match
-// PLACEABLES (turret 8, wall 5/segment x3, barricade 4). Appended the same way
+// PLACEABLES (turret 8, wall 1/segment, barricade 4). Appended the same way
 // MASK_OFFER is, so classic/PvP stalls keep the implicit five and stay byte-
 // stable on the wire.
 const PLACEABLE_OFFERS = [
   { what: 'turret', cost: 8, place: true },
-  { what: 'wall', cost: 5, amount: 3, place: true, drag: true },
+  { what: 'wall', cost: 1, amount: 1, place: true, drag: true },
   { what: 'barricade', cost: 4, place: true },
 ];
 // --- Map THEMES (def.theme): one named look+hazard preset that re-skins the
@@ -1376,16 +1376,26 @@ function setupMusicBox(g, def) {
     altar: { x: altarSpot.x, y: altarSpot.y },
     fragments, assembled: 0, complete: false,
   };
-  // STRONGHOLD ONLY: instead of one altar, four relic MOUNTS — one at the
-  // nearest open walkable tile to each map corner (reusing cornerOpenTile, the
-  // same deterministic inward scan the original corner fragments used). A shard
-  // carried to ANY unfilled mount locks into it; all four filled completes the
-  // relic. The .altar field is KEPT for the horde event's banner coordinates;
-  // story keeps its single-altar deposit path untouched (no .mounts).
+  // STRONGHOLD ONLY: instead of one altar, four relic MOUNTS — clustered at the
+  // four DIAGONAL CORNERS OF THE CENTRAL FORTRESS, not the map edges. Anchor to
+  // the base/core center (baseCenter) and step out a fixed radius along each
+  // diagonal, then snap to the nearest open walkable tile (openTileNear, the
+  // same deterministic ring scan stranded ops use). The seed per corner is the
+  // fixed diagonal index, so server and every client agree without exchanging
+  // setup. A shard carried to ANY unfilled mount locks into it; all four filled
+  // completes the relic. The .altar field is KEPT for the horde event's banner
+  // coordinates; story keeps its single-altar deposit path untouched (no .mounts).
   if (def.mode === 'bastion') {
-    const corners = [[0, 0], [g.w - 1, 0], [0, g.h - 1], [g.w - 1, g.h - 1]];
-    g.musicBox.mounts = corners.map(([cx, cy]) => {
-      const spot = cornerOpenTile(g, cx, cy);
+    const base = baseCenter(g);
+    const RING = 4; // tiles out from the fortress center to each corner mount
+    const diag = [[-1, -1], [1, -1], [-1, 1], [1, 1]]; // tl, tr, bl, br
+    g.musicBox.mounts = diag.map(([dx, dy], i) => {
+      const wx = base.x + dx * RING * TILE, wy = base.y + dy * RING * TILE;
+      // snap to the nearest open tile in a tight band around the corner point;
+      // fall back outward, then to the corner point itself if all is blocked
+      const spot = openTileNear(g, wx, wy, 0, 3, i * 4 + 1)
+        || openTileNear(g, wx, wy, 3, 6, i * 4 + 1)
+        || { x: wx, y: wy };
       return { x: spot.x, y: spot.y, filled: false };
     });
   }
@@ -4252,8 +4262,9 @@ function canBuildSuperweaponAt(g, x, y) {
 
 // Player input drives the relic superweapon lifecycle. Called per active seat
 // from the player loop. inp.superBuild ('nuke'|'weather') asks to assemble on
-// the seat's tile; inp.superFire (with inp.aimX/aimY) commits a target once the
-// device is ready. Both are no-ops until g.superweaponUnlocked is true.
+// the seat's tile; inp.superFire is a plain TRIGGER (no aim) that auto-targets
+// the densest hostile cluster once the device is ready. Both are no-ops until
+// g.superweaponUnlocked is true.
 function stepSuperweaponInput(g, p, inp) {
   if (!g.superweaponUnlocked) return;
   const sw = g.superweapon;
@@ -4271,15 +4282,63 @@ function stepSuperweaponInput(g, p, inp) {
     }
   }
   p.superBuildPrev = SUPER_KINDS.has(inp.superBuild);
-  // FIRE: when the device is ready the OWNER commits a target cell. The fire
-  // edge + an aim point (inp.aimX/aimY) resolve the one shot.
+  // FIRE: when the device is ready the OWNER just TRIGGERS it (one button, no
+  // aim) — the sim deterministically auto-targets the densest hostile cluster
+  // (superweaponAutoTarget) and fires there. If nothing worth hitting exists the
+  // trigger is a no-op so the charge is kept (no wasted one-shot on empty air).
   const fw = g.superweapon;
   if (fw && fw.state === 'ready' && !fw.used && p.pid === fw.ownerPid
-      && inp.superFire && !p.superFirePrev
-      && inp.aimX !== undefined && inp.aimY !== undefined) {
-    fireSuperweapon(g, fw, inp.aimX, inp.aimY);
+      && inp.superFire && !p.superFirePrev) {
+    const tgt = superweaponAutoTarget(g, fw);
+    if (tgt) fireSuperweapon(g, fw, tgt.x, tgt.y);
   }
   p.superFirePrev = !!inp.superFire;
+}
+
+// AUTO-TARGET: deterministically pick the impact point that maximizes HOSTILE
+// concentration within the weapon's kill radius. Candidate centers are every
+// live enemy position plus every enemy stronghold center; for each we count the
+// live hostiles within the radius and keep the densest. Stronghold candidates
+// win ties at equal density (so the strike favors a fortified keep over a loose
+// pack), then a lower candidate index breaks any remaining tie — fully ordered,
+// no Math.random. Returns the tile-center {x,y}, or null when there is nothing
+// to hit (no live enemy AND no stronghold) so the caller keeps the charge.
+// Friendlies never enter the math: the blast is friendly-fire-proof regardless
+// of where it lands, so the only thing that matters is enemy density.
+function superweaponAutoTarget(g, sw) {
+  const radTiles = sw.type === 'weather' ? STORM_RADIUS : NUKE_RADIUS;
+  const r2 = (radTiles * TILE) ** 2;
+  const live = g.enemies.filter(e => !e.dead);
+  // Candidate centers: enemy positions first (rank 0), strongholds after
+  // (rank 1, so they win equal-count ties). Each carries a stable order key.
+  const cands = [];
+  for (const e of live) cands.push({ x: e.x, y: e.y, rank: 0, key: e.id });
+  if (g.strongholds) for (const sh of g.strongholds) cands.push({ x: sh.x, y: sh.y, rank: 1, key: sh.id });
+  let best = null;
+  for (const c of cands) {
+    let count = 0;
+    for (const e of live) {
+      if ((e.x - c.x) ** 2 + (e.y - c.y) ** 2 <= r2) count++;
+    }
+    if (!best
+      || count > best.count
+      || (count === best.count && c.rank > best.rank)
+      || (count === best.count && c.rank === best.rank && c.key < best.key)) {
+      best = { x: c.x, y: c.y, count, rank: c.rank, key: c.key };
+    }
+  }
+  // No enemies at all: fall back to the largest stronghold (biggest garrison),
+  // tie-broken by lowest id, so a trigger still lands somewhere meaningful.
+  if (best && best.count === 0 && g.strongholds && g.strongholds.length) {
+    let sh = null;
+    for (const s of g.strongholds) {
+      const n = s.garrison ? s.garrison.length : 0;
+      if (!sh || n > sh.n || (n === sh.n && s.id < sh.id)) sh = { x: s.x, y: s.y, n, id: s.id };
+    }
+    if (sh) best = { x: sh.x, y: sh.y };
+  }
+  if (!best || (best.count === 0 && !(g.strongholds && g.strongholds.length))) return null;
+  return tileCenter(best.x, best.y);
 }
 
 // Per-step device clock: BUILD channel -> CHARGE -> READY. Called once per step
@@ -4368,8 +4427,9 @@ function fireSuperweapon(g, sw, ax, ay) {
   sw.targetY = c.y;
   if (sw.type === 'nuke') {
     g.events.push({ type: 'nukeStrike', x: c.x, y: c.y, radius: NUKE_RADIUS * TILE });
-    // launch arc telegraph: the blast resolves after a short flight (so anyone
-    // inside the circle, friendly included, has a beat to flee).
+    // launch arc telegraph: the blast resolves after a short flight (~1s) so the
+    // auto-chosen impact reads as intentional and the squad can group/react. The
+    // blast is friendly-fire-proof, but the telegraph still marks the spot.
     g.hazards.push({ kind: 'nukeFlight', x: c.x, y: c.y, radius: NUKE_RADIUS * TILE, ttl: NUKE_FLIGHT_DELAY });
   } else {
     g.events.push({ type: 'stormStart', x: c.x, y: c.y, radius: STORM_RADIUS * TILE });
@@ -4382,10 +4442,12 @@ function fireSuperweapon(g, sw, ax, ay) {
   g.events.push({ type: 'superweaponFired', x: c.x, y: c.y, kind: sw.type });
 }
 
-// Detonate the nuke: instant AoE that one-shots everything in the circle (full
-// damage in the 3-tile core, lethal falloff out to 4.5), downs any caught
-// player without invuln (telegraphed, so it's avoidable), and leaves a
-// lingering radiation pool. No friendly-fire immunity — the RA2 flavor.
+// Detonate the nuke: instant AoE that one-shots every HOSTILE in the circle
+// (full damage in the 3-tile core, lethal falloff out to 4.5) and leaves a
+// lingering radiation pool. FRIENDLY-FIRE-PROOF: players, friendly builds
+// (turrets/walls/barricades), recruited defenders (ownerless followers) and
+// cores are NEVER hit, even when caught in the radius — the auto-target may
+// land near friendlies but never harms them. Only enemies take damage.
 function nukeDetonate(g, x, y) {
   const r = NUKE_RADIUS * TILE, full = NUKE_FULL_RADIUS * TILE;
   const r2 = r * r, full2 = full * full;
@@ -4395,10 +4457,6 @@ function nukeDetonate(g, x, y) {
     const d2 = (e.x - x) ** 2 + (e.y - y) ** 2;
     if (d2 > r2) continue;
     damageEnemy(g, e, d2 <= full2 ? NUKE_DAMAGE : NUKE_FALLOFF_DAMAGE, e.x, e.y, 'nuke');
-  }
-  for (const p of g.players) {
-    if (p.state !== 'active' || p.invuln > 0) continue;
-    if ((p.x - x) ** 2 + (p.y - y) ** 2 <= r2) downPlayer(g, p);
   }
   g.hazards.push({ kind: 'radiation', x, y, radius: RAD_RADIUS * TILE, ttl: RAD_TTL, tick: 0 });
 }
@@ -4415,11 +4473,8 @@ function stepHazards(g, dt) {
       if (hz.ttl <= 0) { nukeDetonate(g, hz.x, hz.y); hz.done = true; }
     } else if (hz.kind === 'radiation') {
       hz.ttl -= dt;
-      // players: standing in the pool downs them (lethal, RA2 flavor)
-      for (const p of g.players) {
-        if (p.state !== 'active' || p.invuln > 0) continue;
-        if ((p.x - hz.x) ** 2 + (p.y - hz.y) ** 2 <= hz.radius * hz.radius) downPlayer(g, p);
-      }
+      // FRIENDLY-FIRE-PROOF: the crater only chip-kills enemies — players,
+      // builds, defenders and cores standing in the pool take no damage.
       // enemies: 1 dmg every RAD_ENEMY_TICK s (serious ongoing area denial)
       hz.tick = (hz.tick || 0) + dt;
       while (hz.tick >= RAD_ENEMY_TICK) {
@@ -4467,13 +4522,11 @@ function stormBolt(g, hz) {
   const by = hz.y + Math.sin(ang) * rad;
   const br = STORM_BOLT_RADIUS * TILE, br2 = br * br;
   g.events.push({ type: 'lightningStrike', x: bx, y: by, radius: br });
+  // FRIENDLY-FIRE-PROOF: a bolt only fries enemies. Players, builds, defenders
+  // and cores caught under the storm footprint take no damage.
   for (const e of g.enemies) {
     if (e.dead) continue;
     if ((e.x - bx) ** 2 + (e.y - by) ** 2 <= br2) damageEnemy(g, e, STORM_BOLT_DAMAGE, e.x, e.y, 'storm');
-  }
-  for (const p of g.players) {
-    if (p.state !== 'active' || p.invuln > 0) continue;
-    if ((p.x - bx) ** 2 + (p.y - by) ** 2 <= br2) downPlayer(g, p);
   }
 }
 
@@ -5423,6 +5476,16 @@ function stepZone(g, dt) {
 export function step(g, inputs, dt) {
   if (g.status !== 'play') return;
 
+  // DEV "Pause Time" cheat (solo offline only; sets g.devMode like every other
+  // cheat): FREEZE THE WORLD while the operative keeps acting. The world-clock
+  // substeps (waves/horde/superweapon charge/cycle/siege/gate/ambient patches),
+  // the mission countdown, the enemy step, status/patch/follower/hazard ticks
+  // and enemy projectiles are all gated below on this flag — so enemies, spawns
+  // and timers hold across ticks while the player still moves, aims, fires,
+  // builds and repositions. Reads g.cheats defensively, so untouched runs (no
+  // g.cheats object) are byte-identical no-ops.
+  const frozen = !!(g.cheats && g.cheats.pauseTime);
+
   g.elapsed += dt;
   // Global pathfinding budgets (big maps only; arcade never spends them and
   // keeps its classic byte-identical behavior): at most 6 full A* searches
@@ -5441,7 +5504,7 @@ export function step(g, inputs, dt) {
   // theme ambient patches: a deterministic clock spits ground patches (lava
   // spits etc.) on a fixed cadence; the spawn cell is walked by a counter, so
   // it is fully reproducible (no Math.random). No-op when the theme set none.
-  if (g.ambientPatches) {
+  if (g.ambientPatches && !frozen) {
     const ap = g.ambientPatches;
     ap.patchT -= dt;
     while (ap.patchT <= 0) {
@@ -5457,16 +5520,20 @@ export function step(g, inputs, dt) {
       }
     }
   }
-  stepWaves(g);
-  stepHorde(g, dt); // RELIC AWAKENING horde (no-op unless g.musicBox completed)
-  stepSuperweapon(g, dt); // relic superweapon build/charge clock (no-op until built)
-  stepCycle(g, dt); // bastion day/night clock (final dawn can clear here)
-  if (g.status !== 'play') return;
-  // Anchor Siege: minion waves march the lanes, towers cover them (no-ops off-mode)
-  stepSiegeWaves(g, dt);
-  stepSiegeMinions(g, dt);
-  stepSiegeTowers(g, dt);
-  maybeOpenGate(g); // time-locked gates open when `after` elapses at full quorum
+  // World-clock substeps freeze under Pause Time: waves/horde/superweapon
+  // charge/day-night/siege/gate all hold so nothing spawns or advances.
+  if (!frozen) {
+    stepWaves(g);
+    stepHorde(g, dt); // RELIC AWAKENING horde (no-op unless g.musicBox completed)
+    stepSuperweapon(g, dt); // relic superweapon build/charge clock (no-op until built)
+    stepCycle(g, dt); // bastion day/night clock (final dawn can clear here)
+    if (g.status !== 'play') return;
+    // Anchor Siege: minion waves march the lanes, towers cover them (no-ops off-mode)
+    stepSiegeWaves(g, dt);
+    stepSiegeMinions(g, dt);
+    stepSiegeTowers(g, dt);
+    maybeOpenGate(g); // time-locked gates open when `after` elapses at full quorum
+  }
 
   // Bastion missions are governed by the day/night clock, not the mission
   // timer — it freezes and never fails the level. PvP clocks never fail the
@@ -5474,7 +5541,7 @@ export function step(g, inputs, dt) {
   // first capture wins, clock frozen at 0) and BR lets the zone settle it.
   // Untimed story missions freeze the countdown entirely: timeLeft never
   // decrements and neither the time-out fail nor 'lowTime' can fire.
-  if (!g.cycle && !g.untimed && g.timeLeft > 0) {
+  if (!frozen && !g.cycle && !g.untimed && g.timeLeft > 0) {
     g.timeLeft -= dt;
     if (g.timeLeft <= 0) {
       g.timeLeft = 0;
@@ -5489,8 +5556,10 @@ export function step(g, inputs, dt) {
       g.events.push({ type: 'lowTime', x: g.w * TILE / 2, y: TILE });
     }
   }
-  g.comboT -= dt;
-  if (g.comboT <= 0) g.combo = 1;
+  if (!frozen) {
+    g.comboT -= dt;
+    if (g.comboT <= 0) g.combo = 1;
+  }
 
   // --- players ---
   for (const p of g.players) {
@@ -5624,8 +5693,9 @@ export function step(g, inputs, dt) {
 
     // --- RELIC SUPERWEAPON (RA2-style nuke / weather machine): inp.superBuild
     // asks to assemble the one-shot device on this seat's tile (once unlocked);
-    // inp.superFire + inp.aimX/aimY commits a target once it is ready. A no-op
-    // until the awakening horde was survived, so untouched modes never run it. ---
+    // inp.superFire is a plain TRIGGER (no aim) that auto-targets the densest
+    // hostile cluster once it is ready. A no-op until the awakening horde was
+    // survived, so untouched modes never run it. ---
     stepSuperweaponInput(g, p, inp);
 
     // --- placement mode (RA2 buy-then-place): inp.place toggles it on for the
@@ -6787,9 +6857,11 @@ export function step(g, inputs, dt) {
   stepFlags(g, dt);
   stepZone(g, dt);
 
-  // --- enemies (frozen during the level-start grace period). Ice momentum
-  // mirrors the player rule: 60% of last tick's movement drifts first. ---
-  if (g.graceT > 0) g.graceT -= dt;
+  // --- enemies (frozen during the level-start grace period, and held entirely
+  // under the Pause Time cheat so the field stops dead). Ice momentum mirrors
+  // the player rule: 60% of last tick's movement drifts first. ---
+  if (frozen) { /* Pause Time: enemies hold position, no AI/attacks tick */ }
+  else if (g.graceT > 0) g.graceT -= dt;
   else {
     for (const e of g.enemies) {
       const ex0 = e.x, ey0 = e.y;
@@ -6803,15 +6875,21 @@ export function step(g, inputs, dt) {
   }
 
   // --- combat depth: status clocks (stun/burn/toxin/mind-control), ground
-  // patches, hired combat followers. All empty on classics — pure no-ops. ---
-  stepStatuses(g, dt);
-  stepPatches(g, dt);
-  stepFollowers(g, dt);
-  stepHazards(g, dt); // relic superweapon hazard fields (no-op until one lands)
+  // patches, hired combat followers. All empty on classics — pure no-ops. All
+  // held under Pause Time so nothing in the world advances. ---
+  if (!frozen) {
+    stepStatuses(g, dt);
+    stepPatches(g, dt);
+    stepFollowers(g, dt);
+    stepHazards(g, dt); // relic superweapon hazard fields (no-op until one lands)
+  }
 
   // --- shots ---
   for (let i = g.shots.length - 1; i >= 0; i--) {
     const s = g.shots[i];
+    // Pause Time: enemy projectiles hang frozen in the air (the player can still
+    // fire and their rounds keep flying). Player shots fall through and advance.
+    if (frozen && s.who === 'e') continue;
     if (s.curve) {
       const ca = Math.cos(s.curve * dt), sa = Math.sin(s.curve * dt);
       const vx = s.vx * ca - s.vy * sa;
