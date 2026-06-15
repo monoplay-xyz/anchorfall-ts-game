@@ -67,6 +67,26 @@ const FAM = {
   monEye: '#3A4A6B',       // friendly dark-but-soft eye
 };
 
+// --- Map THEME palette (parallel to FAM): keyed by snap.theme. Re-skins the
+// whole frame so a level reads as lava / toxic / nuclear / storm / fire / ice.
+//   skyFill    : replaces the void-night backdrop fill
+//   washRgb    : additive grade over the world ('r,g,b' + alpha applied below)
+//   vignetteRgb: themed edge vignette tint
+//   ambient    : particle kind for drawHazardAmbient (ember|fallout|fog|snow|
+//                rain) — null reuses only the weather layer
+// Everything reads through optional lookups so unthemed levels are untouched.
+const THEME_PAL = {
+  lava:    { skyFill: '#1A0A06', washRgb: '255,96,28',  vignetteRgb: '120,28,8',  ambient: 'ember' },
+  fire:    { skyFill: '#1C0C05', washRgb: '255,120,40', vignetteRgb: '130,40,10', ambient: 'ember' },
+  toxic:   { skyFill: '#0A140A', washRgb: '120,220,90', vignetteRgb: '24,70,20',  ambient: 'fog' },
+  nuclear: { skyFill: '#101404', washRgb: '180,230,70', vignetteRgb: '60,72,12',  ambient: 'fallout' },
+  storm:   { skyFill: '#0A0C16', washRgb: '90,120,200', vignetteRgb: '14,18,40',  ambient: 'rain' },
+  ice:     { skyFill: '#0E1622', washRgb: '170,210,255', vignetteRgb: '40,70,110', ambient: 'snow' },
+};
+function themePal(snap) {
+  return (snap && typeof snap.theme === 'string') ? (THEME_PAL[snap.theme] || null) : null;
+}
+
 // Anchor Siege (MOBA) team palette — team 0 = blue/cyan, team 1 = red/orange.
 const SIEGE_TEAM = ['#4f91ff', '#ff6a5a'];
 const SIEGE_TEAM_DIM = ['#2a4e8c', '#8c3a32']; // muted body fill / shadow facet
@@ -6873,6 +6893,69 @@ function drawWeather(ctx, VW, VH, weather, t) {
   ctx.restore();
 }
 
+// Themed full-screen ambient particles driven by snap.theme (THEME_PAL.ambient).
+// Cheap, deterministic (pure functions of t — same flick/fract drift as the
+// weather layers), and a no-op for unthemed levels (the caller only invokes it
+// with a theme palette). Snow/rain themes just lean on drawWeather, so this
+// only paints the non-weather kinds: rising embers, drifting fallout, toxic fog.
+function drawHazardAmbient(ctx, snap, t, VW, VH, tpal) {
+  if (!tpal || !tpal.ambient) return;
+  const kind = tpal.ambient;
+  // snow/rain are handled by the weather layer the theme already implies
+  if (kind === 'snow' || kind === 'rain') return;
+  ctx.save();
+  if (kind === 'ember') {
+    // rising embers: warm motes that float up the frame and twinkle out, two
+    // depths, with a faint heat-shimmer veil low in the world (lava/fire)
+    ctx.globalCompositeOperation = 'lighter';
+    for (const [n, rise, sz, seed] of [[40, 46, 1.4, 7], [22, 78, 2.2, 53]]) {
+      for (let i = 0; i < n; i++) {
+        const rx = flick(i * 8.3 + seed), ry = flick(i * 14.9 + seed * 2);
+        const py2 = ((ry * VH - t * rise) % (VH + 24) + VH + 24) % (VH + 24) - 12;
+        const px2 = ((rx * VW + Math.sin(t * 1.1 + i * 1.7) * 16) % (VW + 20)) - 10;
+        const tw = 0.4 + 0.6 * Math.abs(Math.sin(t * 2.3 + i));
+        ctx.fillStyle = `rgba(255,${120 + Math.floor(ry * 90)},40,${0.55 * tw})`;
+        ctx.fillRect(px2, py2, sz, sz);
+      }
+    }
+  } else if (kind === 'fallout') {
+    // drifting fallout flecks slanting down + a faint geiger speckle that
+    // flashes random-looking specks on a deterministic clock (nuclear)
+    ctx.fillStyle = 'rgba(180,210,70,0.40)';
+    for (let i = 0; i < 46; i++) {
+      const rx = flick(i * 9.7 + 2), ry = flick(i * 15.3 + 8);
+      const py2 = ((ry * VH + t * (24 + ry * 30)) % (VH + 20)) - 10;
+      const px2 = ((rx * VW + Math.sin(t * 0.6 + i) * 18 + t * 12) % (VW + 20)) - 10;
+      ctx.fillRect(px2, py2, 1.6, 1.6);
+    }
+    // geiger speckle: brief bright pinpricks gated by a stepping cycle index
+    for (let i = 0; i < 10; i++) {
+      const ph = fract(t * 3 + i * 0.137);
+      if (ph > 0.25) continue;
+      const cyc = Math.floor(t * 3 + i * 0.137);
+      const rx = flick(i * 27.1 + cyc), ry = flick(i * 19.7 + cyc * 3);
+      ctx.fillStyle = `rgba(220,255,120,${(1 - ph / 0.25) * 0.6})`;
+      ctx.fillRect(rx * VW, ry * VH, 2, 2);
+    }
+  } else if (kind === 'fog') {
+    // green toxic fog drift: soft sickly blobs sliding across + an even haze
+    ctx.fillStyle = 'rgba(70,150,60,0.12)';
+    ctx.fillRect(0, 0, VW, VH);
+    for (let i = 0; i < 5; i++) {
+      const ry = flick(i * 11.9 + 5);
+      const px2 = ((flick(i * 6.7) * VW + t * (10 + i * 6)) % (VW + 600)) - 300;
+      const py2 = ry * VH;
+      const rr = VW * (0.16 + ry * 0.16);
+      const bg2 = ctx.createRadialGradient(px2, py2, rr * 0.2, px2, py2, rr);
+      bg2.addColorStop(0, 'rgba(120,200,90,0.14)');
+      bg2.addColorStop(1, 'rgba(120,200,90,0)');
+      ctx.fillStyle = bg2;
+      ctx.fillRect(px2 - rr, py2 - rr, rr * 2, rr * 2);
+    }
+  }
+  ctx.restore();
+}
+
 // ============================== ALARM HUD ==============================
 // Big blinking countdown banner: dusk/nightwave inbound (<15s on the day
 // clock), BR zone about to shrink, CTF sudden death. Center-top, unmissable.
@@ -7131,6 +7214,10 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
   // night grade: story dark missions are full night; bastion maps breathe
   // through a smooth dusk/dawn tint driven by the cycle clock (last 6s).
   familyMode = snap.family === true; // bright child-friendly storybook grade
+  // Map theme palette (lava/toxic/nuclear/storm/fire/ice). Null on unthemed
+  // levels and suppressed in family mode (the storybook day always wins), so
+  // those frames render exactly as before.
+  const tpal = familyMode ? null : themePal(snap);
   let nightK = snap.dark ? 1 : 0;
   if (cycle) {
     if (cycle.phase === 'night') nightK = Math.max(nightK, Math.min(1, (cycle.t ?? 0) / 6));
@@ -7150,8 +7237,9 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
   computeCamera(camera, snap, opts.camFocus, dt);
   const z = camera.z;
 
-  // Family mode trades the near-black void backdrop for a soft daylight sky.
-  ctx.fillStyle = familyMode ? FAM.sky : PAL.voidNight;
+  // Family mode trades the near-black void backdrop for a soft daylight sky;
+  // a map theme swaps in its own sky tint. Plain levels keep the void night.
+  ctx.fillStyle = familyMode ? FAM.sky : (tpal ? tpal.skyFill : PAL.voidNight);
   ctx.fillRect(0, 0, VW, VH);
   ctx.save();
   ctx.translate(VW / 2, VH / 2);
@@ -8367,8 +8455,24 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
     ctx.restore();
   }
 
+  // --- theme grade: an additive color wash over the whole frame so a lava
+  // map glows orange, a toxic map sickly green, etc. Gentle, slow breathing
+  // pulse keeps it alive. Skipped entirely on unthemed levels. ---
+  if (tpal) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const pulse = 0.11 + 0.025 * Math.sin(t * 0.7);
+    ctx.fillStyle = `rgba(${tpal.washRgb},${pulse})`;
+    ctx.fillRect(0, 0, VW, VH);
+    ctx.restore();
+  }
+
   // --- weather: full-screen FX layers riding snap.weather ---
   drawWeather(ctx, VW, VH, snap.weather, t);
+
+  // --- theme ambient particles: cheap full-screen motes keyed to the theme
+  // (embers / fallout / fog / snow). Pure functions of t, deterministic. ---
+  if (tpal) drawHazardAmbient(ctx, snap, t, VW, VH, tpal);
 
   // --- vignette (screen space, Void Night; deeper on dark missions, pulled
   // far back under the bastion's daylight). Family mode swaps the dark void
@@ -8385,6 +8489,15 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
     vg.addColorStop(1, `rgba(11,10,20,${darkWorld ? 0.8 : 0.62 - 0.38 * dayK})`);
     ctx.fillStyle = vg;
     ctx.fillRect(0, 0, VW, VH);
+    // themed vignette tint riding on top of the void one (lava reds, toxic
+    // greens...). Only on themed levels — plain frames keep the void vignette.
+    if (tpal) {
+      const tv = ctx.createRadialGradient(VW / 2, VH / 2, VH * 0.45, VW / 2, VH / 2, VH * 0.9);
+      tv.addColorStop(0, `rgba(${tpal.vignetteRgb},0)`);
+      tv.addColorStop(1, `rgba(${tpal.vignetteRgb},0.34)`);
+      ctx.fillStyle = tv;
+      ctx.fillRect(0, 0, VW, VH);
+    }
   }
 
   // --- bastion sky: the moon climbs as night takes hold ---

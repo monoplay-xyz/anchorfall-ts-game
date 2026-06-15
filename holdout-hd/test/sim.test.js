@@ -5750,6 +5750,54 @@ function testCommRepairQuest() {
   assert.equal(q.state, 'done', 'the repair settles at the giver');
 }
 
+// --- map themes: def.theme re-skins look + ambient hazard; gated so plain
+// levels stay byte-identical, and the generalized ambient hazard bleeds the
+// unmasked exactly like toxic air ---
+function testMapThemes() {
+  // a lava theme: implies a fire ambient hazard, ships theme in the snapshot,
+  // stocks the mask, and bleeds the unmasked operative on the toxic-air clock
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const lava = bigEmptyLevel([
+    [2, '#P' + '.'.repeat(37) + '#'],
+    [4, put('#' + '.'.repeat(38) + '#', 6, 'C')],
+    [17, put('#' + '.'.repeat(38) + '#', 36, 'g')],
+  ]);
+  lava.theme = 'lava';
+  const g = createGame(lava, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  assert.equal(g.theme, 'lava', 'g.theme set from def.theme');
+  assert.equal(g.ambientHazard.kind, 'fire', 'lava theme arms a fire ambient hazard');
+  assert.equal(g.shopOffers.length, 6, 'an immune-item hazard extends the stall with the mask');
+  const s = snapshot(g, false);
+  assert.equal(s.theme, 'lava', 'theme rides the snapshot');
+  const p = g.players[0];
+  run(g, () => ({ 0: {} }), 8.2);
+  assert.equal(p.hp, 2, 'unmasked: the fire hazard lands the first 1-hp tick by 8s (toxic-air math)');
+  assert.ok(g.events.some(ev => ev.type === 'ambientHazard' && ev.kind === 'fire'),
+    'a per-kind ambientHazard event fired for FX/audio');
+  // wearing the immune item (mask) stops the bleed
+  p.mask = true;
+  const hp1 = p.hp;
+  run(g, () => ({ 0: {} }), 10);
+  assert.equal(p.hp, hp1, 'the immune item grants full immunity');
+
+  // a storm theme implies rain weather + a dark grade, no ambient hazard
+  const storm = bigEmptyLevel([[2, '#P' + '.'.repeat(37) + '#']]);
+  storm.theme = 'storm';
+  const gs = createGame(storm, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const ss = snapshot(gs, true);
+  assert.equal(ss.weather, 'rain', 'storm theme implies rain weather');
+  assert.equal(ss.dark, true, 'storm theme runs the dark grade');
+  assert.equal(ss.theme, 'storm', 'storm theme rides the snapshot');
+  assert.equal(gs.ambientHazard, null, 'storm theme arms no ambient hazard');
+
+  // unthemed levels gain none of the keys (byte-stable)
+  const plain = createGame(levels[0], [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const sp = snapshot(plain, false);
+  assert.equal(sp.theme, undefined, 'classics ship no theme key');
+  assert.equal(plain.ambientHazard, null, 'classics arm no ambient hazard');
+  assert.equal(sp.shopOffers, undefined, 'classics keep the implicit five offers');
+}
+
 // --- ambience/weather/new-mode keys ship only where they belong ---
 function testAmbienceWeatherSnapshotPassthrough() {
   const def = bastionDef();
@@ -5856,6 +5904,7 @@ testVoidBlocksAll();
 testWeatherFogSnowRain();
 testPatrolsGroupAlertAndSpotters();
 testToxicAirAndMasks();
+testMapThemes();
 testCommRepairQuest();
 testAmbienceWeatherSnapshotPassthrough();
 testWavesPerNightAndWaveMult();

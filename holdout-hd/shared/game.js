@@ -313,6 +313,22 @@ const SPOTTER_BONUS = 4; // tiles of aggro granted by the spotter
 // 0.5 hp per 4s until the deadline. The mask item is persistent once worn.
 const TOXIC_AIR_TICK = 4;
 const MASK_OFFER = { what: 'mask', cost: 10, amount: 1 };
+// --- Map THEMES (def.theme): one named look+hazard preset that re-skins the
+// whole environment so a level reads as "a lava map / a toxic map" etc. A
+// theme pre-fills g.dark, g.weather and the deterministic ambient hazard at
+// createGame; the render palette (THEME_PAL in render.js) keys off g.theme.
+// kind maps onto the generalized ambientHazard timer (toxin|radiation|fire),
+// all sharing the toxic-air math (~0.5 hp/4s, immuneItem grants immunity).
+// ambientPatches (optional) seeds deterministic ground patches on a fixed
+// clock — no Math.random, the emitter walks a counter like the siege waves.
+const THEMES = {
+  lava:    { weather: null,   dark: false, ambientHazard: { kind: 'fire',      tick: TOXIC_AIR_TICK, dmg: 0.5, immuneItem: 'mask' } },
+  toxic:   { weather: null,   dark: false, ambientHazard: { kind: 'toxin',     tick: TOXIC_AIR_TICK, dmg: 0.5, immuneItem: 'mask' } },
+  nuclear: { weather: null,   dark: false, ambientHazard: { kind: 'radiation', tick: TOXIC_AIR_TICK, dmg: 0.5, immuneItem: 'mask' } },
+  storm:   { weather: 'rain', dark: true,  ambientHazard: null },
+  fire:    { weather: null,   dark: false, ambientHazard: { kind: 'fire',      tick: TOXIC_AIR_TICK, dmg: 0.5, immuneItem: 'mask' } },
+  ice:     { weather: 'snow', dark: false, ambientHazard: null },
+};
 
 function buildMaxHp(kind) {
   if (kind === 'barricade') return 14;
@@ -672,6 +688,22 @@ export function createGame(def, party, charMap, roster) {
         level: lvlv, hp: SIEGE_TOWER_HP[lvlv - 1], maxHp: SIEGE_TOWER_HP[lvlv - 1], cool: 0, destroyed: false };
     });
   }
+  // --- Map theme: a named preset (THEMES) that re-skins the level. It only
+  // pre-fills look/hazard fields below; an explicit def.modifier still wins
+  // (toxicAir keeps its own ambientHazard wiring). Unthemed levels never touch
+  // any of this, so their snapshots stay byte-identical. ---
+  const theme = (typeof def.theme === 'string' && THEMES[def.theme]) ? def.theme : null;
+  const tdef = theme ? THEMES[theme] : null;
+  // theme weather only applies when the def names no weather of its own.
+  const themeWeather = tdef && WEATHERS.has(tdef.weather) ? tdef.weather : null;
+  // toxicAir modifier maps onto an ambientHazard of kind 'toxin'; otherwise a
+  // theme supplies the ambient hazard. The two never stack (modifier wins).
+  const ambientHazard = mods.toxicAir
+    ? { kind: 'toxin', tick: TOXIC_AIR_TICK, dmg: 0.5, immuneItem: 'mask', until: mods.toxicAir.until || 0 }
+    : (tdef && tdef.ambientHazard ? { ...tdef.ambientHazard } : null);
+  // any ambient hazard with an immuneItem stocks that item in the stall.
+  const stockMask = !!(ambientHazard && ambientHazard.immuneItem === 'mask');
+
   const g = {
     name: def.name || 'Untitled',
     objective: def.objective || '',
@@ -683,7 +715,7 @@ export function createGame(def, party, charMap, roster) {
     // Story modifiers. dark shrinks enemy aggro and caps their sight; waves
     // pour hunters in from a map edge at fixed elapsed times. Classic levels
     // define neither, so their behavior is untouched.
-    dark: !!mods.dark,
+    dark: !!mods.dark || !!(tdef && tdef.dark),
     elapsed: 0,
     waves: (mods.waves || []).map(w => ({ at: w.at, letters: w.letters || '', edge: w.edge, fired: false })),
     players,
@@ -715,11 +747,27 @@ export function createGame(def, party, charMap, roster) {
     ship: null, // the landed Anchorcraft (early-extraction reward), if any
     hpMult,
     // alive world: weather/ambience pass through to snapshots for render/audio
-    weather: WEATHERS.has(def.weather) ? def.weather : null,
+    // (an explicit def.weather wins; otherwise a theme may imply one)
+    weather: WEATHERS.has(def.weather) ? def.weather : themeWeather,
     ambience: def.ambience || null,
+    // Map theme name: drives the render palette + ambient FX. Null when unset.
+    theme,
     // toxic air: unmasked operatives bleed until the deadline (elapsed s)
     toxicAir: mods.toxicAir ? { until: mods.toxicAir.until || 0, warned: false } : null,
-    shopOffers: mods.toxicAir ? SHOP_OFFERS.concat([MASK_OFFER]) : SHOP_OFFERS,
+    // Generalized ambient hazard: one deterministic bleed timer (toxin |
+    // radiation | fire) for any unmasked operative. toxicAir maps onto kind
+    // 'toxin'; a theme can supply one directly. Null on plain levels.
+    ambientHazard,
+    // Optional theme ground-patch emitter (e.g. lava spits): a deterministic
+    // clock (patchT counts down by dt) drops patches on a fixed cadence, the
+    // spawn site walked by a counter (patchN) — never Math.random. Null when
+    // the theme declares none, so the emitter below is a no-op on plain levels.
+    ambientPatches: (tdef && tdef.ambientPatches)
+      ? { kind: tdef.ambientPatches.kind, everySec: tdef.ambientPatches.everySec || 4,
+          r: tdef.ambientPatches.r || 1.2, ttl: tdef.ambientPatches.ttl || 4,
+          cap: tdef.ambientPatches.cap || 4, patchT: tdef.ambientPatches.everySec || 4, patchN: 0 }
+      : null,
+    shopOffers: stockMask ? SHOP_OFFERS.concat([MASK_OFFER]) : SHOP_OFFERS,
     crackers: [],
     // ground patches (burn/toxin) and hired combat followers. Always present;
     // snapshots only ship them when populated, so classics never gain a key.
@@ -3629,6 +3677,24 @@ function openTileNear(g, wx, wy, rMin, rMax, seed) {
   return null;
 }
 
+// Deterministic open-cell pick by a stepping index (theme ambient patches walk
+// a counter through this): scans interior tiles from `idx`, returns the first
+// passable one. Pure function of the grid + idx — fully reproducible.
+function openTileByIndex(g, idx) {
+  const cols = Math.max(1, g.w - 2), rows = Math.max(1, g.h - 2);
+  const total = cols * rows;
+  for (let k = 0; k < total; k++) {
+    const n = (((idx + k) % total) + total) % total;
+    const tx = 1 + (n % cols), ty = 1 + Math.floor(n / cols);
+    const c = g.grid[ty][tx];
+    if (blocksMove(c) || c === '!') continue;
+    const x = (tx + 0.5) * TILE, y = (ty + 0.5) * TILE;
+    if (collides(g, x, y, CAPTIVE_R)) continue;
+    return { x, y };
+  }
+  return null;
+}
+
 // SCAVENGER PROBE (day+25s): a small pack of light enemies off a deterministic
 // edge that PROWLS to the base perimeter and beds down there — they ride the
 // normal walk-home machinery (awake + returning toward a home ring 5-9 tiles
@@ -4135,6 +4201,25 @@ export function step(g, inputs, dt) {
   if (g.toxicAir && !g.toxicAir.warned) {
     g.toxicAir.warned = true;
     g.events.push({ type: 'toxicAir', until: g.toxicAir.until, x: g.w * TILE / 2, y: TILE });
+  }
+  // theme ambient patches: a deterministic clock spits ground patches (lava
+  // spits etc.) on a fixed cadence; the spawn cell is walked by a counter, so
+  // it is fully reproducible (no Math.random). No-op when the theme set none.
+  if (g.ambientPatches) {
+    const ap = g.ambientPatches;
+    ap.patchT -= dt;
+    while (ap.patchT <= 0) {
+      ap.patchT += ap.everySec;
+      if (g.patches.length < ap.cap) {
+        // walk a counter across the open grid for a deterministic, spread site
+        const cell = openTileByIndex(g, ap.patchN * 37 + 11);
+        ap.patchN++;
+        if (cell) {
+          g.patches.push({ x: cell.x, y: cell.y, kind: ap.kind, r: ap.r * TILE, ttl: ap.ttl, hostile: true });
+          g.events.push({ type: 'patch', x: cell.x, y: cell.y, kind: ap.kind, r: ap.r * TILE, hostile: true });
+        }
+      }
+    }
   }
   stepWaves(g);
   stepCycle(g, dt); // bastion day/night clock (final dawn can clear here)
@@ -4783,18 +4868,26 @@ export function step(g, inputs, dt) {
         }
       }
     } else if (p.lavaT) p.lavaT = 0;
-    // Toxic air (def.modifiers.toxicAir): until the deadline, an unmasked
-    // operative bleeds 0.5 hp per 4s — one 1-hp tick every 8s through the
-    // standard shield/invuln rules. A worn mask (p.mask) is full immunity.
-    if (g.toxicAir && g.elapsed < g.toxicAir.until && p.state === 'active'
-        && p.maxHp !== undefined && !p.mask) {
+    // Ambient hazard (generalized toxic-air): a themed environment hazard —
+    // kind 'toxin' (toxicAir modifier), 'radiation' (nuclear) or 'fire'
+    // (lava/fire) — bleeds any operative lacking the immune item at hz.dmg per
+    // hz.tick s (default 0.5 hp / 4s = one 1-hp tick every 8s) through the
+    // standard shield/invuln rules. The immune item (mask) is full immunity.
+    // A toxicAir modifier carries hz.until and only bites before that deadline;
+    // theme hazards have no deadline. Identical math to the original toxicAir.
+    const hz = g.ambientHazard;
+    const hzLive = hz && (hz.until === undefined || g.elapsed < hz.until);
+    if (hzLive && p.state === 'active'
+        && p.maxHp !== undefined && !p[hz.immuneItem]) {
       p.airT = (p.airT || 0) + dt;
-      while (p.airT >= TOXIC_AIR_TICK) {
-        p.airT -= TOXIC_AIR_TICK;
-        p.airAcc = (p.airAcc || 0) + 0.5;
+      while (p.airT >= hz.tick) {
+        p.airT -= hz.tick;
+        p.airAcc = (p.airAcc || 0) + hz.dmg;
         if (p.airAcc >= 1) {
           p.airAcc -= 1;
           damagePlayer(g, p, 1);
+          // distinct per-kind event so audio/FX differ (geiger / sizzle / hiss)
+          g.events.push({ type: 'ambientHazard', kind: hz.kind, x: p.x, y: p.y });
         }
       }
     } else if (p.airT) p.airT = 0;
@@ -5763,6 +5856,9 @@ export function snapshot(g, full = true) {
     // toxic-air deadline (live flag included) for the EVA banner
     ...(g.weather ? { weather: g.weather } : {}),
     ...(g.ambience ? { ambience: g.ambience } : {}),
+    // Map theme name drives the render palette + ambient FX; shipped only when
+    // set, so unthemed levels never gain the key (snapshots stay byte-stable).
+    ...(g.theme ? { theme: g.theme } : {}),
     ...(g.toxicAir ? { toxicAir: { until: g.toxicAir.until, active: g.elapsed < g.toxicAir.until } } : {}),
     // extended stalls (mask stock) ship their offer list; the standard five
     // stay implicit so classic snapshots never gain the key

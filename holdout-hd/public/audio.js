@@ -60,6 +60,7 @@ export function setSfxVolume(v) {
 // same track already loops is a no-op — so the per-frame client sync, the 4/4
 // banner cue, online late-joins and save-resume all funnel through it safely.
 let musicBoxWant = null; // the id we're trying to play, retried while loading
+let musicBoxDone = null; // id that already played its one-shot this level (no replay)
 
 function tryStartMusicBox() {
   if (!ctx || muted || !musicBoxWant || musicBoxBed) return;
@@ -67,17 +68,19 @@ function tryStartMusicBox() {
   // head retries next call, a confirmed-missing head falls through to silence
   const want = musicBoxWant;
   let f = loadFile(want.rel);
-  if (f.state === 'missing') f = loadFile('music/musicbox-default.mp3');
+  if (f.state === 'missing') f = loadFile('music/musicbox-default.ogg');
   if (f.state !== 'ready') return; // loading or both missing: stay silent
   const src = ctx.createBufferSource();
   src.buffer = f.buf;
-  src.loop = true;
+  src.loop = false; // relic tracks play ONCE — the horde wave lasts the song's length
   const g = ctx.createGain();
   const t0 = ctx.currentTime;
   g.gain.setValueAtTime(0.0001, t0);
   g.gain.exponentialRampToValueAtTime(0.5, t0 + 2.5); // MUSIC bus scales this
   src.connect(g);
   g.connect(musicBus); // ride the MUSIC volume bus, gated by the audio toggle
+  // when the song finishes, mark it done so the per-frame sync never restarts it
+  src.onended = () => { if (musicBoxBed && musicBoxBed.src === src) { musicBoxBed = null; musicBoxDone = want.id; musicBoxWant = null; } };
   src.start();
   musicBoxBed = { id: want.id, src, g };
 }
@@ -87,10 +90,11 @@ function tryStartMusicBox() {
 export function playMusicBox(mode, stem) {
   if (typeof window === 'undefined') return; // headless (tests): no-op
   const id = `${mode}-${stem}`;
-  if (musicBoxBed && musicBoxBed.id === id) return;   // already looping this one
+  if (id === musicBoxDone) return;                    // already played its one-shot this level
+  if (musicBoxBed && musicBoxBed.id === id) return;   // already playing this one
   if (musicBoxWant && musicBoxWant.id === id && !musicBoxBed) { tryStartMusicBox(); return; }
   if (musicBoxBed) stopMusicBox(); // a different level's box: drop the old one
-  musicBoxWant = { id, rel: `music/${id}.mp3` };
+  musicBoxWant = { id, rel: `music/${id}.ogg` };
   ensureAudio(); // born on first gesture; harmless if the ctx already exists
   tryStartMusicBox(); // plays now if the buffer's already cached, else retries
 }
@@ -98,6 +102,7 @@ export function playMusicBox(mode, stem) {
 // Stop and clear the music box loop (level change, menu, completion reset).
 export function stopMusicBox() {
   musicBoxWant = null;
+  musicBoxDone = null; // reset the one-shot guard (a new level can play its track)
   if (!musicBoxBed) return;
   const b = musicBoxBed;
   musicBoxBed = null;
@@ -328,7 +333,7 @@ const STORY_BEDS = {
 };
 const AMBIENCES = new Set(['meadow', 'forest', 'swamp', 'ash', 'city', 'night', 'lava', 'ship']);
 
-const scene = { active: false, ambience: 'meadow', phase: 'day', blood: false, weather: 'clear', boss: false };
+const scene = { active: false, ambience: 'meadow', phase: 'day', blood: false, weather: 'clear', theme: null, boss: false };
 let lastSceneAt = -1e9;
 let sceneTimer = null;
 let music = null;        // { cat, src, g }
@@ -363,6 +368,8 @@ export function setScene(snap) {
     scene.blood = !!(cy && cy.bloodMoon && cy.phase === 'night');
     const w = snap.weather ?? snap.modifiers?.weather;
     scene.weather = (w === 'rain' || w === 'snow' || w === 'ashstorm' || w === 'fog') ? w : 'clear';
+    // map theme drives a low per-theme ambient bed (see themeTick)
+    scene.theme = typeof snap.theme === 'string' ? snap.theme : null;
   } catch { /* a malformed snapshot never breaks audio */ }
 }
 
@@ -371,6 +378,7 @@ function sceneOff() {
   scene.active = false;
   scene.blood = false;
   scene.weather = 'clear';
+  scene.theme = null;
 }
 
 function startSceneEngine() {
@@ -537,6 +545,16 @@ function textureTick() {
   if ((a === 'city' || a === 'ship') && r >= 0.05 && r < 0.075) metalGroan();
   if (a === 'ship' && r < 0.02) tone(820 + texRand() * 400, 0.05, 'sine', 0.018, 1.1, amb.out); // console blip
   if (a === 'night' && r >= 0.045 && r < 0.065) lowMoan();
+  // map theme ambient bed: a sparse, very quiet per-theme color through amb.out.
+  // No-op on unthemed levels (scene.theme null). All synth, all reused helpers.
+  const th = scene.theme;
+  if (th && r >= 0.12 && r < 0.17) {
+    if (th === 'lava' || th === 'fire') magmaRumble();
+    else if (th === 'toxic') noise(1.4, 0.02, 600, amb.out);          // chem air drift
+    else if (th === 'nuclear') tone(1400, 0.02, 'square', 0.012, 1.0, amb.out); // faint geiger blip
+    else if (th === 'storm') tone(46, 0.9, 'sine', 0.02, 1.0, amb.out);  // distant thunder roll
+    else if (th === 'ice') tone(2400 + texRand() * 600, 0.05, 'sine', 0.01, 0.8, amb.out); // wind shimmer
+  }
   // night tension pulse (skipped under blood moon — the heartbeat owns it)
   if (!day && !scene.blood && (texT % 2.25) < 0.25) tone(49, 0.45, 'sine', 0.028, 1.0, amb.out);
 }
@@ -1227,6 +1245,16 @@ export function playEvent(ev) {
     tone(90, 0.22, 'sawtooth', 0.08, 0.5);
     noise(0.3, 0.06, 420);
     setTimeout(() => noise(0.22, 0.04, 900), 140);
+  }
+  else if (ev.type === 'ambientHazard') {
+    // a themed environment hazard bit an unmasked operative — a quiet, gated
+    // per-kind cue (the bleed ticks every ~8s, but gate anyway so co-op stacks
+    // never pile up): geiger blip (radiation), chem hiss (toxin), heat sizzle.
+    if (cueGate('ambient-hz', 0.7)) {
+      if (ev.kind === 'radiation') { tone(1500, 0.03, 'square', 0.05, 1.0); setTimeout(() => tone(2100, 0.02, 'square', 0.04, 1.0), 60); }
+      else if (ev.kind === 'toxin') { noise(0.3, 0.06, 760); }
+      else { noise(0.2, 0.05, 500); tone(120, 0.1, 'sawtooth', 0.05, 0.6); } // fire sizzle
+    }
   }
   else if (ev.type === 'turretType') {
     // type confirmed off the carousel — two-step servo chirp

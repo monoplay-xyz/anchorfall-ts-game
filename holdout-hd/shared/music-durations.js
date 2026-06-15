@@ -1,0 +1,43 @@
+// Auto-generated: exact length (seconds) of each music-box / relic track.
+// The Relic Awakening horde runs for EXACTLY this long (the song plays once,
+// no loop). Deterministic input to the sim (server + client). Regenerate when
+// tracks change. Fallback ~120s if a key is missing.
+export const MUSIC_DURATIONS = {
+  "musicbox-default": 110,
+  "story-ch01": 117,
+  "story-ch02": 127,
+  "story-ch03": 126,
+  "story-ch04": 103,
+  "story-ch05": 198,
+  "story-ch06": 134,
+  "story-ch07": 117,
+  "story-ch08": 114,
+  "story-ch09": 206,
+  "story-ch10": 205,
+  "story-ch11": 123,
+  "stronghold-sh01": 178,
+  "stronghold-sh02": 121,
+  "stronghold-sh03": 126,
+  "stronghold-sh04": 205,
+  "stronghold-sh05": 191,
+  "stronghold-sh06": 155,
+  "stronghold-sh07": 118,
+  "stronghold-sh08": 186,
+  "stronghold-sh09": 127,
+  "stronghold-sh10": 120,
+  "stronghold-sh11": 207,
+  "stronghold-sh12": 163,
+  "stronghold-sh13": 112,
+  "stronghold-sh14": 206,
+  "stronghold-sh15": 200,
+  "stronghold-sh16": 145,
+  "stronghold-sh17": 193,
+  "stronghold-sh18": 191,
+  "stronghold-sh19": 134,
+  "stronghold-sh20": 125,
+  "stronghold-sh21": 166,
+  "stronghold-sh22": 218,
+  "stronghold-sh23": 157,
+  "stronghold-sh24": 154
+};
+export const RELIC_WAVE_FALLBACK = 120;
