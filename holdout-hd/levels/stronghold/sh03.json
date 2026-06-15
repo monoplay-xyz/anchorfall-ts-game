@@ -1,393 +1,225 @@
 {
   "stranded": true,
-  "name": "Mire Hold",
-  "objective": "Hold Mire Hold through four nights — restore the three mire relays for Mossu if you can",
+  "name": "The Rifts",
+  "objective": "Hold the rift-shelf keep through four nights — phaseborn drift the void, so trust your inner guns, not your walls",
   "time": 600,
   "expedition": true,
   "mode": "bastion",
+  "theme": "voidscar",
   "bastion": {
     "nights": 4,
     "bloodMoons": [
       3
     ],
-    "waveMult": 1.13
+    "waveMult": 1.13,
+    "roster": [
+      "z",
+      "w",
+      "r",
+      "k"
+    ]
   },
   "stronghold": {
     "level": 3,
-    "name": "Mire Hold",
+    "name": "The Rifts",
     "sizeLabel": "M",
     "difficulty": 2,
     "waves": 5,
     "hpMult": 1.07,
     "unlock": "raider",
-    "blurb": "A stone rise in a drowned forest. Rain kills fire fast, raiders walk the reeds, and three relays sit dark.",
+    "blurb": "A stone shelf marooned in a starlit void. Rifts swallow the south and west, so every wave climbs one long diagonal causeway — and phaseborn walk straight through your walls.",
     "newFeatures": [
-      "Rain — ground fire gutters out fast",
-      "Relay restoration side-op",
-      "Raider packs in the reeds"
+      "Voidscar — '%' rifts block movement, sight AND shots",
+      "Phaseborn debut — revenants drift through walls",
+      "Diagonal frontage — one causeway, no rear assault"
     ]
   },
-  "weather": "rain",
-  "ambience": "swamp",
+  "ambience": "night",
   "intro": [
     {
-      "title": "Mire Hold",
+      "title": "The Rifts",
       "lines": [
-        "The mire swallowed the relay line a week ago. The hold is deaf, and the waves still come.",
-        "Rain favors them: your fires gutter out twice as fast. Three dark relays wait in the reeds — Mossu pays in shards.",
-        "Raider packs walk their rounds out there. Spot them before their snipers spot you."
+        "The shelf is all that holds — black void on three sides, stars in the deep where the ground used to be.",
+        "Shots die in the rifts. So does anyone shoved off the causeway. Your only real front is the long diagonal up from the southwest.",
+        "And the dead here don't need doors. Phaseborn step through stone like fog. Walls won't save you — guns inside the keep will."
       ],
       "art": "siege"
     }
   ],
   "outro": [
     {
-      "title": "Signals in the Rain",
+      "title": "Stars Stand Still",
       "lines": [
-        "The fourth dawn finds the hold above water and the relays singing.",
-        "Somewhere east, the frontier writes Mire Hold back onto the map."
+        "The fourth dawn finds the shelf intact and the rifts gone quiet, their starlight cold and unmoving.",
+        "Whatever drifts through walls drifted back into the dark. For now."
       ],
       "art": "dawn"
     }
   ],
-  "quests": [
-    {
-      "id": "relays",
-      "title": "Restore the relays",
-      "giver": "mossu",
-      "kind": "switch",
-      "count": 3,
-      "reward": {
-        "shards": 20
-      },
-      "hint": "Three mire relays sit dark — throw them back on"
-    }
-  ],
+  "quests": [],
   "captiveChars": [],
   "tiles": [
-    "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
-    "T::....:,..:,,...,:.::::...:...::..:,:,.::,.:...:...,.:..,.::,..,.:,.:,..:..,T",
-    "T.TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT.:TTTTTTTTTTTTTTTTTTT:TTTTTTTTTTTTTTTT.T",
-    "T:TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT::TTTTTTTTTTTTTT#TTTT:TTTTTTTTTTTTTTTT.T",
-    "T.TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT:,TTTTTTTTTTTTT:TTTT:TTTTTTTT::TTTTTTT:T",
-    "T:TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT::TTTTTTTTTT,:...::::::...:.:,.:.:,TTT,T",
-    "T.TTTTTTTTTTTTTTTTTTT..:.:..:.,:Y,...................:..::::::.::,::,::::TTT.T",
-    "T,TTTTT.,,.::..::.:,,..:.,,:........,..,:....:..,.::.:::..:....:,:::..:,,T::.T",
-    "T:TTTTT:C,..::::.....::.::::.,C:.,:,...,.:,:..:....:.::::.:.:..::.::C.:::TTT:T",
-    "T,TTTTT.:TT.:~~~:..:.::.:,:....,.:.:...w.:.,:........,.:..,:,:::::.,::g:::T:,T",
-    "T,TTTTT:TTT.:~~~::,::..,:.::..,.::.:,,..::::.::..,C,,,,:.:..:~~~::::.:,,:.TT.T",
-    "T:TTTTT.,T:::~~~:...::,::::~:...::.,.,::~~::..,,,.....:.,:::~~~#~:::.:::..TT,T",
-    "T:TTTTT:...,.::::.,::,.:::~~~:.::::::,Y:~~::,.::.,.:.,...:.:~~~~~:.:...:::TT:T",
-    "T.TTTTT.,,...,Qw:...::.:~:::~~:::.:..:.:~~:::,,.:::.,..:..,:~~~~~:,,..,.:,TT.T",
-    "T:TTTTT.,.,,.g...,...,.:~~:TTT,::.::::,.::::..,..:.,:,:.,,,.:~~~:.,,.,::,.TT.T",
-    "T.TTTTT,.,.::::......:::~::TT~:::::,.T.:..:,....:,....,:,.,:::::.....:,,.,TT:T",
-    "T.TTTTT.,:::::,r:::..:..:~::T:.::::::T:.,.:,..,::::::...:...:,g..,,,::,,..TT:T",
-    "T.TTTTT.:,:,:.r:.:....:::~:~::,:.,:.::.,.,:...:.:.,:.,.::,.,g..Q...::..,.:TT,T",
-    "T,TTTTT.::::::,,.:....:,Y::::.::::::.:..:,,.:.:.:,,:::Y..:....,:,:::...:,..T:T",
-    "T,TTTTT...,.::,,.:..,..,:....:,:.::.::.,.,:.:,,.:.:.:,,:::,..,.....,....,..T.T",
-    "T.TTTTT:,.::::,...:,..:.:,::...,:,:::...:...:.:,,..::.,:,.::a..n..:,.:..:.:T:T",
-    "T.TTTTTC:::::::,.,:,.,....::...,..:,::::.....::..,....,:..::,...::::::::.:.T:T",
-    "T,TTTTT:.,..,.:.:......,:...:.:,:.:.,,,.,::...:.:,.,,.:.::..:.:,.:~~~~~:..,T,T",
-    "T.TTTTT....,..:.,:,.,,,:.::.::..BBBBBBBBBBBBBBB,,,...,.....:.,..::~~~~~::..T,T",
-    "T.TTTTT...:.,.:.:.::..:.,:.,..:,B;;;;B;;;B;;;;B.:.:..:......:..,,:~~~~~:...T.T",
-    "T.TTTTT....:...::..:::,:.:,.,...B;W;;;;;;;;;W;B......:.:.::,,.,.::~~~~~:,:,T.T",
-    "T,TTTTT.,...w.:::,.::::.:.:::...B;;;P;;*N;PB;;B.,.:::..:.::.,,::::~~~~~:..:T,T",
-    "T:,:...:.:...:Y.:::,:.:,:..:,.,.B;;H;;;;;;;;;;B.::..:....:..::Y.:::::::...,.:T",
-    "T,.:,:..w...:,.:..,..:....:,:.,.B;;;;V;K;S.;;;B....:,:..,..:.::...:,::.::...:T",
-    "T,TTTTT::T,....:,:::.:..:.,.,.,,B;;H;;;;;;;;;;B...,:.:::.:TTTT:.:.a:::,.:::T.T",
-    "T,TTTTT..,gr:,..:.:.::::.,::,:,:B;;;P;;*;;PB;;B::::.:.::,T#T:T..::::::,:C:.T,T",
-    "T.TTTTT,,:...,.:...::,:::,::,:..B;W;;;;;;;;;W;B:.:.::.:::TTT.T.:.:::.:,:::.T.T",
-    "T.TTTT..:.,,::..:.::..:...::T..:B;;;;B;;;B;;;;B.,:..,:,.::TT.T..,g:g:.:::,,T:T",
-    "T.TTTT..,.:....::::..::::::,,T:,BBBBBBBBBBBBBBB.:.,..,::::T:,.::::....::.,:T.T",
-    "T.TTTT::,:~:.::,..:::::::,:.:T..:..,.::..:...:.:.,T:T::::::,::,,.:.:.:...,TT.T",
-    "T.TTTT,.:~~~:,.,.::.:::::.::,,,,:.::..:.:::.:.::.T::::::,:::.:::.:::...:.:TT.T",
-    "T:TTTT.:~~~~~:,,.:..:::,..:....:.:..,,:.:::::::::,:T.::,:,.....::~~~:..:..TT:T",
-    "T.TTTT,::~~~:..,..,:.:.::::..::::::..:...:..::::.:.T.:.,::..::.:~~~~~:..,,TT,T",
-    "T.TTTT:..:~:..:,:.,..:::..:...:...:.,:..:,.:.::::.::.,.:....,:.:~~~~~:...,TT,T",
-    "T.TTTT..:.:.:...,:,:...::.::.:,.:..:.,,:...::..:::.:...::....:,:~~~~~::...TT,T",
-    "T.TTTT.:,:.,C:...:...,:.Y.,...:,.:,,:...,.:::.,:.::,..Y.,,::.,,.:~~~:::..TTT.T",
-    "T:TTT....,..,:.::.:.,::..:..:..:....,:::..::::.:::.,.,:..,.:....,:::..:,.TTT:T",
-    "T.TTT.....:::.:.:.,,.:..:::..:..:..:..:...::::.:,...,..,...,,.....,,.::..TTT.T",
-    "T:TTT.:.,:..:,::...z:w.,...,,,..:..,,:..:::..,:.:.....,..:g:a,..:....,.:.TTT.T",
-    "T.TTT::.,:::...:::..::z...:...:......:Y:~~~:,:.:..,:.,,,:~~~:....:...:,::TTT.T",
-    "T:TTT,...,...,:~~~Qz.:::.,:..,.,.:,:.,.:~~~:....,.:.::.:~~~~~s:::,..::,:.TTT:T",
-    "T,TTT:.:::..,:~~~~~:,,:T.:.,..,:.,::::.:~~~:..,..,....::~~~~~::.,,:.::...TTT.T",
-    "T:TTT:...,:::~~~~~~~:TT#T....:.:..,:..::~~~::,.,.,:...::~~~~~:.:.:,:::..,TTT.T",
-    "T,TTT:..,:.::~~~~~~~:..T..::C....:,....z~~~:.::.C:.,....:~~~:.:...:,:.:..TTT.T",
-    "T:TTT:..::..:~~~~~~T.,.,T..,,.,:,.,..:.::::.:...:.:.,:.T.:T:..:..:..,:,::TTT.T",
-    "T.TTT.:,r:..::~~~~T..:.::::.:...:.:.::,...:.,:Y:::....:TTT,:..,...:.:.C,.TTT.T",
-    "T.TTT.T.....:,:~~T,..,:.,:,..,.:.:..:.:..::.::..:.:..:.TTTT..T:..:.:....TTTT.T",
-    "T:TTT:,T.:..TTTTTTTTTTTTTTTTTTTTTTTTTT::TT,:.,...,:,,TT#TTTTTTTTTTTTTTTTTTTT:T",
-    "T,TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT:.TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT.T",
-    "T.TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT..TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT.T",
-    "T,TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT:,TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT:T",
-    "T.::..::.....,,.,..,....:,..:....:.:..:...,,..,:.,..:......:,:,..:..:.,.:::.:T",
-    "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT"
+    "############################################",
+    "#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%;#",
+    "#%%%%%%%%%%%%%%%%%%%%%%%;;;;;;;;;;;;;;;;;;;#",
+    "#%%%%%%%%%%%%%%%%%%%%%%%;;;;;;;;;;;;;;;;C;;#",
+    "#%%%%%%%%%%%%%%%%%%%%%%%;;;;;;;;BHBBBBB;;;;#",
+    "#%%%%%%%%%%%%%%%%%%%%%%%;;;;;;;;BBB;;BB;;;;#",
+    "#%%%%%%%%%%%%%%%%%%%%%%%;;;;;;;;B;;K;;B;;;;#",
+    "#%%%%%%%%%%%%%%%%%%%%%%%;;;;;;;;B;P;P;B;;;;#",
+    "#%%%%%%%%%%%%%%%%%%%%%%%;;;;k;;;;V;;;;B;;S;#",
+    "#%%%%%%%%%%%%%%%%%%%%%%%;;/r;zC;B;BBNBB;;;;#",
+    "#%%%%%%%%%%%%%%%%%%%%%%%/w;;;;;;;;;;;;;;;;;#",
+    "#%%%%%%%%%%%%%%%%%%%%%/zk;;;;;;;;;;;;;;;;;;#",
+    "#%%%%%%%%%%%%%%%%%%%/;r;;;;;;;;;;;;;;;;;;;;#",
+    "#%%%%%%%%%%%%%%%%%/k;;;;;;;;;;;;;;;;;;;;;;;#",
+    "#%%%%%%%%%%%%%%%/;r;w;;;;;;;;;;;;;%%%%%%%%%#",
+    "#%%%%%%%%%%%%%/k;;C;;;;;;;;;;;;;%%%%%%%%%%%#",
+    "#%%%%%%%%%%%;;r;w;;;;;;;;;;;;;%%%%%%%%%%%%%#",
+    "#%%%%%%%%%;;/z;;;;;;;;;;;;;;%%%%%%%%%%%%%%%#",
+    "#%%%%%%%;;;;z;;;;;;;;;;;;;%%%%%%%%%%%%%%%%%#",
+    "#%%%%%;;;;/z;;;;;;;;;;;;%%%%%%%%%%%%%%%%%%%#",
+    "#%;;;;;;;;r;;;;;;;;;;;%%%%%%%%%%%%%%%%%%%%%#",
+    "#%;r;;;;/w;;;;;;;;;;%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#;;;;;wC;;;;;;;;;;%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#;;;z;;w;;;;;;;;%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#;;;;z;;z;;;;;%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#;;;;;;;;;;;%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#;;;;;;;;;%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#;;;;;;;%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#;;;;;%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "############################################"
   ],
   "builds": [
     {
       "kind": "wall",
       "cost": 5,
-      "prebuilt": true
+      "prebuilt": true,
+      "level": 2
     },
     {
       "kind": "wall",
       "cost": 5,
-      "prebuilt": true
+      "prebuilt": true,
+      "level": 2
     },
     {
       "kind": "wall",
       "cost": 5,
-      "prebuilt": true
+      "prebuilt": true,
+      "level": 2
     },
     {
       "kind": "wall",
       "cost": 5,
-      "prebuilt": true
+      "prebuilt": true,
+      "level": 2
     },
     {
       "kind": "wall",
       "cost": 5,
-      "prebuilt": true
+      "prebuilt": true,
+      "level": 2
     },
     {
       "kind": "wall",
       "cost": 5,
-      "prebuilt": true
-    },
-    {
-      "kind": "barricade",
-      "cost": 4
-    },
-    {
-      "kind": "barricade",
-      "cost": 4
+      "prebuilt": true,
+      "level": 2
     },
     {
       "kind": "wall",
       "cost": 5,
-      "prebuilt": true
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true
+      "prebuilt": true,
+      "level": 2
     },
     {
       "kind": "turret",
-      "cost": 10
-    },
-    {
-      "kind": "turret",
-      "cost": 10
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true
+      "cost": 10,
+      "prebuilt": true,
+      "ttype": "prism"
     },
     {
       "kind": "farm",
       "cost": 6
     },
     {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true
-    },
-    {
-      "kind": "barricade",
-      "cost": 4
-    },
-    {
-      "kind": "barricade",
-      "cost": 4
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true
-    },
-    {
-      "kind": "farm",
-      "cost": 6
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true
-    },
-    {
       "kind": "turret",
-      "cost": 10
-    },
-    {
-      "kind": "turret",
-      "cost": 10
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true
+      "cost": 10,
+      "prebuilt": true,
+      "ttype": "prism"
     },
     {
       "kind": "wall",
       "cost": 5,
-      "prebuilt": true
+      "prebuilt": true,
+      "level": 2
     },
     {
       "kind": "wall",
       "cost": 5,
-      "prebuilt": true
+      "prebuilt": true,
+      "level": 2
     },
     {
       "kind": "wall",
       "cost": 5,
-      "prebuilt": true
+      "prebuilt": true,
+      "level": 2
     },
     {
       "kind": "wall",
       "cost": 5,
-      "prebuilt": true
+      "prebuilt": true,
+      "level": 2
     },
     {
       "kind": "wall",
       "cost": 5,
-      "prebuilt": true
+      "prebuilt": true,
+      "level": 2
     },
     {
       "kind": "wall",
       "cost": 5,
-      "prebuilt": true
-    },
-    {
-      "kind": "barricade",
-      "cost": 4
-    },
-    {
-      "kind": "barricade",
-      "cost": 4
+      "prebuilt": true,
+      "level": 2
     },
     {
       "kind": "wall",
       "cost": 5,
-      "prebuilt": true
+      "prebuilt": true,
+      "level": 2
     },
     {
       "kind": "wall",
       "cost": 5,
-      "prebuilt": true
+      "prebuilt": true,
+      "level": 2
     },
     {
       "kind": "wall",
       "cost": 5,
-      "prebuilt": true
+      "prebuilt": true,
+      "level": 2
     },
     {
       "kind": "wall",
       "cost": 5,
-      "prebuilt": true
+      "prebuilt": true,
+      "level": 2
     },
     {
       "kind": "wall",
       "cost": 5,
-      "prebuilt": true
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true
+      "prebuilt": true,
+      "level": 2
     }
   ],
   "chests": [
     {
       "loot": "shards",
-      "amount": 8
+      "amount": 9
     },
     {
       "loot": "medkit",
@@ -398,44 +230,15 @@
       "amount": 2
     },
     {
-      "loot": "toxin",
-      "amount": 1
-    },
-    {
-      "loot": "shield",
-      "amount": 1
-    },
-    {
       "loot": "shards",
       "amount": 7
-    },
-    {
-      "loot": "shield",
-      "amount": 1
-    },
-    {
-      "loot": "token",
-      "amount": 1
-    },
-    {
-      "loot": "medkit",
-      "amount": 1
-    },
-    {
-      "loot": "shards",
-      "amount": 10
     }
   ],
   "hires": [
     {
-      "job": "farmer",
-      "cost": 8,
-      "name": "Bog-Sage Imra"
-    },
-    {
       "job": "engineer",
       "cost": 10,
-      "name": "Sump Keller"
+      "name": "Rift-Wright Sable"
     }
   ],
   "vehicles": [
@@ -445,570 +248,12 @@
   ],
   "npcs": [
     {
-      "id": "mossu",
-      "name": "Relay-Warden Mossu",
+      "id": "vex",
+      "name": "Voidwarden Vex",
       "lines": [
-        "Three relays out in the mire went dark when the husks came.",
-        "Throw them back on and the frontier hears us again — worth real shards.",
-        "Mind the reeds. The raider packs WALK their rounds now."
-      ]
-    }
-  ],
-  "switches": [
-    {
-      "id": "relayNW",
-      "group": 0
-    },
-    {
-      "id": "relayNE",
-      "group": 1
-    },
-    {
-      "id": "relayS",
-      "group": 2
-    }
-  ],
-  "groups": [
-    [
-      [
-        15,
-        16
-      ],
-      [
-        14,
-        17
-      ],
-      [
-        13,
-        14
-      ],
-      [
-        15,
-        13
-      ]
-    ],
-    [
-      [
-        63,
-        20
-      ],
-      [
-        60,
-        20
-      ],
-      [
-        60,
-        17
-      ],
-      [
-        62,
-        16
-      ]
-    ],
-    [
-      [
-        22,
-        44
-      ],
-      [
-        19,
-        45
-      ],
-      [
-        19,
-        43
-      ],
-      [
-        21,
-        43
-      ]
-    ],
-    [
-      [
-        61,
-        45
-      ],
-      [
-        58,
-        43
-      ],
-      [
-        60,
-        43
-      ]
-    ],
-    [
-      [
-        11,
-        30
-      ],
-      [
-        10,
-        30
-      ],
-      [
-        8,
-        28
-      ],
-      [
-        12,
-        26
-      ]
-    ],
-    [
-      [
-        67,
-        32
-      ],
-      [
-        65,
-        32
-      ],
-      [
-        66,
-        29
-      ]
-    ]
-  ],
-  "patrols": [
-    {
-      "at": [
-        15,
-        16
-      ],
-      "points": [
-        [
-          13,
-          21
-        ],
-        [
-          16,
-          18
-        ],
-        [
-          13,
-          20
-        ],
-        [
-          13,
-          16
-        ]
-      ]
-    },
-    {
-      "at": [
-        14,
-        17
-      ],
-      "points": [
-        [
-          12,
-          16
-        ],
-        [
-          11,
-          20
-        ],
-        [
-          21,
-          17
-        ]
-      ]
-    },
-    {
-      "at": [
-        13,
-        14
-      ],
-      "points": [
-        [
-          16,
-          19
-        ],
-        [
-          14,
-          12
-        ],
-        [
-          18,
-          12
-        ],
-        [
-          19,
-          12
-        ]
-      ]
-    },
-    {
-      "at": [
-        15,
-        13
-      ],
-      "points": [
-        [
-          11,
-          18
-        ],
-        [
-          19,
-          16
-        ]
-      ]
-    },
-    {
-      "at": [
-        60,
-        17
-      ],
-      "points": [
-        [
-          63,
-          16
-        ],
-        [
-          61,
-          15
-        ],
-        [
-          56,
-          22
-        ]
-      ]
-    },
-    {
-      "at": [
-        62,
-        16
-      ],
-      "points": [
-        [
-          63,
-          11
-        ],
-        [
-          55,
-          18
-        ],
-        [
-          66,
-          17
-        ]
-      ]
-    },
-    {
-      "at": [
-        22,
-        44
-      ],
-      "points": [
-        [
-          26,
-          47
-        ],
-        [
-          23,
-          41
-        ],
-        [
-          27,
-          40
-        ]
-      ]
-    },
-    {
-      "at": [
-        19,
-        45
-      ],
-      "points": [
-        [
-          19,
-          50
-        ],
-        [
-          14,
-          43
-        ]
-      ]
-    },
-    {
-      "at": [
-        19,
-        43
-      ],
-      "points": [
-        [
-          15,
-          44
-        ],
-        [
-          25,
-          45
-        ],
-        [
-          21,
-          41
-        ]
-      ]
-    },
-    {
-      "at": [
-        21,
-        43
-      ],
-      "points": [
-        [
-          18,
-          44
-        ],
-        [
-          19,
-          46
-        ],
-        [
-          26,
-          45
-        ]
-      ]
-    },
-    {
-      "at": [
-        61,
-        45
-      ],
-      "points": [
-        [
-          66,
-          44
-        ],
-        [
-          54,
-          44
-        ],
-        [
-          56,
-          43
-        ]
-      ]
-    },
-    {
-      "at": [
-        58,
-        43
-      ],
-      "points": [
-        [
-          55,
-          43
-        ],
-        [
-          55,
-          44
-        ],
-        [
-          55,
-          46
-        ],
-        [
-          61,
-          48
-        ]
-      ]
-    },
-    {
-      "at": [
-        11,
-        30
-      ],
-      "points": [
-        [
-          7,
-          27
-        ],
-        [
-          11,
-          34
-        ]
-      ]
-    },
-    {
-      "at": [
-        10,
-        30
-      ],
-      "points": [
-        [
-          10,
-          28
-        ],
-        [
-          13,
-          26
-        ],
-        [
-          7,
-          31
-        ],
-        [
-          8,
-          24
-        ]
-      ]
-    },
-    {
-      "at": [
-        8,
-        28
-      ],
-      "points": [
-        [
-          7,
-          31
-        ],
-        [
-          7,
-          23
-        ],
-        [
-          7,
-          25
-        ]
-      ]
-    },
-    {
-      "at": [
-        12,
-        26
-      ],
-      "points": [
-        [
-          12,
-          23
-        ],
-        [
-          16,
-          31
-        ]
-      ]
-    },
-    {
-      "at": [
-        67,
-        32
-      ],
-      "points": [
-        [
-          63,
-          31
-        ],
-        [
-          70,
-          27
-        ],
-        [
-          70,
-          29
-        ],
-        [
-          72,
-          34
-        ]
-      ]
-    },
-    {
-      "at": [
-        65,
-        32
-      ],
-      "points": [
-        [
-          66,
-          28
-        ],
-        [
-          63,
-          26
-        ]
-      ]
-    },
-    {
-      "at": [
-        39,
-        9
-      ],
-      "points": [
-        [
-          35,
-          8
-        ],
-        [
-          37,
-          7
-        ],
-        [
-          41,
-          6
-        ]
-      ]
-    },
-    {
-      "at": [
-        39,
-        48
-      ],
-      "points": [
-        [
-          39,
-          43
-        ],
-        [
-          45,
-          49
-        ],
-        [
-          33,
-          48
-        ]
-      ]
-    },
-    {
-      "at": [
-        70,
-        9
-      ],
-      "points": [
-        [
-          72,
-          5
-        ],
-        [
-          73,
-          11
-        ],
-        [
-          68,
-          4
-        ]
-      ]
-    },
-    {
-      "at": [
-        8,
-        50
-      ],
-      "points": [
-        [
-          5,
-          47
-        ],
-        [
-          8,
-          52
-        ],
-        [
-          11,
-          51
-        ]
+        "Don't waste shots into the rifts — the void eats them whole.",
+        "The walls are theater. Phaseborn walk through them. Keep your turrets inside, where the killing is.",
+        "Hold the shelf. Stay off the edges. The drop never ends."
       ]
     }
   ]

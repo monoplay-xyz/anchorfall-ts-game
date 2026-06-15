@@ -1,149 +1,70 @@
 {
   "stranded": true,
-  "name": "The Silent Quorum",
-  "objective": "Keep a shrine lit through eight nights — close the relay circle for the armory cache",
+  "name": "Anchorfall Twin",
+  "objective": "Hold the twin shelf-keeps eight nights — the glacier line breaks only to the north",
   "time": 600,
   "expedition": true,
   "mode": "bastion",
-  "bastionVariant": "beacons",
+  "theme": "glacis",
+  "weather": "snow",
+  "ambience": "meadow",
   "bastion": {
     "nights": 8,
+    "dayLen": 120,
+    "nightLen": 60,
     "bloodMoons": [
       5,
       8
     ],
-    "waveMult": 2.4
+    "waveMult": 2.2,
+    "roster": [
+      "w",
+      "r",
+      "s",
+      "h",
+      "i"
+    ],
+    "edges": [
+      "n"
+    ]
   },
+  "difficulty": "hard",
   "stronghold": {
     "level": 22,
-    "name": "The Silent Quorum",
+    "name": "Anchorfall Twin",
     "sizeLabel": "XL",
     "difficulty": 5,
     "waves": 10,
     "hpMult": 1.7,
-    "blurb": "A fogbound forest where the acolytes hold court. Four shrine beacons, four silenced relays, eight nights of dirge.",
+    "blurb": "A glacier shelf split into two prebuilt holds along the south rim. Every wave grinds down the ice lanes from the open north — frostshades flank between the keeps and a glacier soaks the front. Defend a single wide front broken into twin strongpoints.",
     "newFeatures": [
-      "Acolyte war-camps",
-      "A four-relay quorum on a 90s window",
-      "Shrine-beacon defense"
+      "Back-line single-edge assault (north only)",
+      "Glacier tanks + frostshade chill",
+      "Twin south-rim shelf-keeps"
     ]
   },
-  "weather": "fog",
-  "ambience": "night",
   "intro": [
     {
-      "title": "The Silent Quorum",
+      "title": "Anchorfall Twin",
       "lines": [
-        "No birdsong here. The acolytes sang it out of the trees.",
-        "Four shrines anchor the hold; the waves split between the lit.",
-        "Close the four-relay circle in one window — silence answers silence."
+        "The shelf cracked in two when the anchor fell. Two keeps now, one line.",
+        "Nothing comes from behind — the rear ice is sound. They pour down from the north.",
+        "Frostshades drift the gap between the holds. The glacier just keeps walking."
       ],
-      "art": "quorum"
+      "art": "siege"
     }
   ],
   "outro": [
     {
-      "title": "The Circle Closed",
+      "title": "The Line Held",
       "lines": [
-        "Eight dawns. The dirge is done and the shrines still burn.",
-        "The forest remembers how to sound like a forest."
+        "Eight dawns of snow and grinding ice. Both keeps still stand the watch.",
+        "The shelf is quiet again, and the cold belongs to no one."
       ],
       "art": "dawn"
     }
   ],
-  "quests": [
-    {
-      "id": "quorum22",
-      "title": "Close the quorum circle",
-      "giver": "edra",
-      "kind": "switch",
-      "target": "0",
-      "count": 1,
-      "reward": {
-        "weapon": "stormgun"
-      },
-      "hint": "Throw all four relays within the 90s window"
-    }
-  ],
   "captiveChars": [],
-  "tiles": [
-    "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
-    "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT.,TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT.,TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
-    "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT..TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT.,TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
-    "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT,.TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT,,TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
-    "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT.,TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT..TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
-    "TTTTT..,,...,,..,...._........_........,,.,,,,,..,,.,_...,,.,,..TT.....,_.......TTTTTTTTTTTTTTTTTTTTTTTTTT",
-    "TTTTT.,._..,,.._.,....,.,.,,,_..._._....,......._.._..,_.,._..,.T..,_....,....,...,.,.,..,,.....,.TTTTTTTT",
-    "TTTTT.,_,.,,,...,....,,_....,..__.....,_._....,,.,,....,,.._..,.....,,.,.._......,.,,_.,....,...,._TTTTTTT",
-    "TTTTT..,....,,,.,,..,,,...,.__.,,.,.C.,,..._..,...,,,...._.,..,._,._.,.._.....,,...,..,..,.,,.._,..TTTTTTT",
-    "TTTTTTT..,......,..,._...,.,..,..,.....,.,......._....,.._..,,..,,.._...,,,_.,,..,......,.,.....,..TTTTTTT",
-    "TTTTT...,.C,._.,.....,....,,_,,,.,...,....,.,.,,.....C........,..,Y._,.,,.,,,..._..,,,......_,C...,TTTTTTT",
-    "TTTTTT,..,.._.._._..,.,.,,,..,,.,.,...,z,.,,,._..,,...,,_....__.....,,.._....,._,,...,_,..,.,...,..TTTTTTT",
-    "TTTTTTTT.,_,.,.,.,.,.,...,,..,,..,......Y.._.,,,.,.,._,.....,.v.._.,.,.,._...,.,._,.,,..,.,,,,.....TTTTTTT",
-    "TTTTTT,,..,....z.w_.,BBBBBBB,,.,.....,,,,.......,.,.,....,..,......,._.,,.,.:..BBBBBBB...,,x..,.,..TTTTTTT",
-    "TTTTTTTT......._,,,_.B;;;;;B.,..,...,...,v,.....,..,_..._,.,._,..,.,.,,,,,.:~:,B;;;;;B..z,.......,.TTTTTTT",
-    "TTTTTTTT......_z.q..,B;;;;;B,,._.._....q..,.,..,........T.,,,,...,._...._..:~:,B;;;;;B,..,.q,.,..,.TTTTTTT",
-    "TTTTTT,,._...,...,,..BB;K;*B......,,......_........,,,..,...,,.._.._,..,...:~:.BB;K;*B...q,,,.,..._TTTTTTT",
-    "TTTTT,..,,...._.,...,B;;;;;B...,..__.,,,......_,....._,_.TT.,.._,...,,.,.._:~:.B;;;;;B.,.,...,,._,.TTTTTTT",
-    "TTTTT,.....,....,,.._B;;;;;B.,,..,..,,,.....,.,,,_.,.Y_,..,.,...,...,..,,.,:~:.B;;;;;B,..,__....,.,TTTTTTT",
-    "TTTTT......,..,,....,BBBBBBB....,,.,.,.,..,...,.,.....,._,.,._..,..._.,.....:,.BBBBBBB...,...,,._.TTTTTTTT",
-    "T..,,,....._,..,.,,.,....,..,.,_,,....,__,_._,....,........,.,_.,.z,_.,._.,....,...,.._..,T....,,.TTTTTTTT",
-    "T........,......._,,,..,..,....,.,.,_...,,....,._.,...__,,_.,...._.,,,..,,.,,,,,_...,....,T.,TTT..TTTTTTTT",
-    "TTTT,,.._._...._.,,..,.........,,...,.C,._..,._.,.....,.,...,.......,.,,..,.,,,,.._,.,,,..T.T..,..,,_,...T",
-    "TTTT....,,..,...........,.,_.,,,..,.,..,,._.,_.,.,....,,...,.,,,a_,.n..,._...,.,.._..,...T.,.T,,.....,...T",
-    "TTTT.,..,.Y.,...Y,.,...,,.....,_.,.,....,,._....,....Q....,.._Y,_.,.._,._,.._....,,..,_.....Y.TT._TTTTTTTT",
-    "TTTT.,.,..,..,_...,.__,,.,._..,,.,_._...,.,.,.....,,,,..,,....,....._.._..,.,,_,,......,....T.T.T.TTTTTTTT",
-    "TTTT,..,...,..._,,.,,..,,,......_,......,..,.,._..,,,...,,,.,,...._...,..,.....,,,.._.,.........,.TTTTTTTT",
-    "TTTT...._.......,...,,.,.........,.,.....T..,_._......_,.......,.,.._...,.,..,._.,,.._.,.,,......,TTTTTTTT",
-    "TTTT...,.__,....,,_,...,,...A,.._...,..,,.,....,.._.,...,.,......,,,..,._,.,C,_.,._.._,.,...,_..._TTTTTTTT",
-    "TTTT.,.,,...,,...z..._.._...,_.,,...,.,,.,...,._.......,_.,,....,.....,......,.,..,....,...,......TTTTTTTT",
-    "TTTT,_,..,..,..,..,....,.....,..,.m.,.,........,,.,,,......,..__..,,,...,..,...._,.....,.._.,_.,..TTTTTTTT",
-    "TTTT,,.._,.,...a..n..,,...,..,.,,.,T,..,..,..BBBBBBBBBBBBBBBBB,_...,,,......,...,...,.,......,..,_TTTTTTTT",
-    "TTTT,.,.,.,_...,,...,.,..,..,._,.,.TT,.,,..,,B;;;;;;;;;;;;;;;B.,_.....,..,...,.._.,..,,........,..TTTTTTTT",
-    "TTTT.,,..,....,,,,..,.,...,.._........._..,._B;W;;;B;;;B;.;W;B,...,...,,....,....,........,...,,..TTTTTTTT",
-    "TTTT......_....,,...,...,..,...,....,,...,...B;;H;;;;;;;;;;;;B,_,......,.,.,,,..,,,...,.,.,,......TTTTTTTT",
-    "TTTT,.....,_,..,,,._.,....,,.......,..,...,..B;;;;;;;;;;NS;;;B....,...,..,..,,..,..,,..,.,,.,..,,,TTTTTTTT",
-    "TTTT_..,_..,,,..,.,.._.....,......,...,,,_,_.B;;H;;P;*;P;;;;;B,..,,,_....,,...,...,_.,..Y..,,_,...TTTTTTTT",
-    "TTTT........T...,....,.__...,,_,....,...,..,.B;;;;;;;;;;;;;;;B.,...,,..._,,..,.,,,.,,,.,...._..,,.TTTTTTTT",
-    "TTTT.,..CTT,....,..,.,.._....,_,Y....,Q..._,.B;BH;V;;*;;V;;B;B..,_.,Q,.....,,...,.,,_.,_...,,,..,.TTTTTTTT",
-    "TTTT...TT.,,T__...,..,_....,,.,,...,,.,,,....B;;;;;;;;;;;;;;;B.,..,,....,,....,.,...,...,..,...,..TTTTTTTT",
-    "TTTT.,_.T.T.TT,..,._._..,_,.._...,..,.,,_,..,B;;H;;P;*;P;;;;;B,.,..,.,,..,,_..._,_,.._..,..,....,,TTTTTTTT",
-    "TTTT.,T.TTTTz,...._..,..,._..,,,...,...,,.._.B;;;;;;;;;;B;B;;B..,..,....,,,.....,,.,..,.....,,.,,..TTTTTTT",
-    "TTTT.....T,TT_.,...,Y,...._,........,....T.,.B;;H;;;;;;;;;;;;B,,....,._.,,..,............_,...,.,._TTTTTTT",
-    "TTTT,....T........,_.....,.,...,.,,_..,.,T,.,B;W;;;B;;;BB;BW;B..,._..,........,.,..__.,.,..,,,,....TTTTTTT",
-    "TTTT.,...qT.s,.,.__..,,,.,...._.,..,..T,._T_,B;;;;;;;;;;;;;;;B__....,..,..Y..__.,....,,.....TTT.C_,TTTTTTT",
-    "TTTT...,.r.,...._,........,..,.,....,T#TT.,._BBBBBBBBBBBBBBBBB...,,..,...,,.,...,.,.._,.T,..T,.....TTTTTTT",
-    "TTTT,..,.,,.,....,,,...,...,.,,...,,._TT...,...,,...,,...,.,,..._..,..,,,.,_......,..._T#T,.TT,,.,.TTTTTTT",
-    "TTTT.,,.,....,........,,.,,....,._....,TT...,_...,..,.....,.,,,,..,.._.......,...,,..TTTT...,T...._TTTTTTT",
-    "TTTT,..,.,,........T...,.,...,C...,,....,.,,,.._.,.,._...,,.,_.,...,.,,.,...,.A..,....TTT,T_,.,.,..TTTTTTT",
-    "TTTTT,,,...,,,_..,TT,.....,...,._..........._.,.,.,.,,.,,.,.,..._,..,.._,...,.,...,...TTTT.nz.,..,.TTTTTTT",
-    "TTTTT.....Y..,,,,.T.T_,._,,.....,,.,,........,,,_..,,...,......,,._,,...m,......._,..,.T,T.,,.q,...TTTTTTT",
-    "TTTTT,...._.,....,....,...,..._.,......_._........,.,.,..,,_.,....,......_.,...,,,..,....,,.._....,TTTTTTT",
-    "TTTTT......,._._.._.,._.......,._,,,_.._..,._.,.....,Q,..,,.....,,...,,.,.......,,.....,...a..,..,,TTTTTTT",
-    "TTTTT_...,,.,......,..,.....,...,....,.._.,.,....,..,...,.,..........,.,.,.,..__,..,,,.,,.......,...TTTTTT",
-    "T,.._.,._....,.,,..,,...,..,.,....,.,,._..,...,.,.,..,,,,,,.....,.,.C...._......,,.,........_.Y,.._,TTTTTT",
-    "T.,_,.........._T...,_,._,.,..._,..,,..,..,.,,.._,,.....,.,,._,,,,,,.....,..__..,_,....._,...,......TTTTTT",
-    "TTTTT,.,..,.T,T_T,................_._...,.._x.,..,,...,TTT.,,.._,,....,,...,......,,..,......,...,,,TTTTTT",
-    "TTTTT.,....,TTT.T.:,.BBBBBBB.._...,..,.,......,.....,.,.T.,....,,.._,_..,......BBBBBBB..,,.,,.,..._,TTTTTT",
-    "TTTTT.,.,.,,T,.T.:~:,B;;;;;B......_..,....,..,,..,,.,Y_,TT..,,,.,,,,.._.,,,..,.B;;;;;B.,.,...._.,,,,_.,,.T",
-    "TTTTT,,.,....T,.:~:,.B;;;;;B...,,.,..,,_,...._,..,_..,..,.,.,.._..,...,...,_,_.B;;;;;B.,._.,._,,...,.,...T",
-    "TTTTT.,.,..._,T,,:,..BB;K;*B.,...,......,......_,..__........,,..TT._.,,...TT..BB;K;*B,.,..,....._..TTTTTT",
-    "TTTTT,.,,..,.,.,.,:_.B;;;;;B.....,...,,...._._..,..,....,.,,,..,w_T,.,.....T,..B;;;;;B..,..,._..,..,TTTTTT",
-    "TTTTT..._._,..._,:~:,B;;;;;B.q.....,,.....,..,,......,.,,,...,,..TT.........._.B;;;;;B,.,..,,..,..._TTTTTT",
-    "TTTTTT.__,.....,..:,.BBBBBBB,....T,..,......_.,.,,._,....,..._.u,.......,._...,BBBBBBB,,..._._...,..TTTTTT",
-    "TTTTTT......,.,,.__...,,...._...x,..Y,.,.,,......,.,.m....,..,z....,.,,.,,.....,....__...,,,.,..,,..TTTTTT",
-    "TTTTTT...,....._..._..,.,..,.x_,T.TT..,.....T,.T,,,,_..,_...,,...._..,..,...,...._.,.,_,,,_......_._TTTTTT",
-    "TTTTTT..,._,C,,,,..,.._.._....,.T,T..,.,,,..TT_..,.,C_.,.,..,...zz.,,.Y,.,..,,.,,..,.,,.C.,,..,,,._,TTTTTT",
-    "TTTTTT,..,,,,....,.......,...,..........,,T.T.T....,..._....,,...,..,.,,.....,.,..._.,.,,..,..,..._,TTTTTT",
-    "TTTTTT..,._.......,...._.,,..,..,..,.,..TT.,..T...._..,,..,..._.._......,.,,.._,.._.,....,.,..,._,..TTTTTT",
-    "TTTTTT.._....,.,......_....,...,..,,.,T.._TTT,T...._,,_.......,,,..,..,......,,..,..,,...,.....,._._TTTTTT",
-    "TTTTTTTTTTTTTTTTTTTTTT.,,,,_...,,..,_,TT.TT##TTT..,_...._..,..,..,,..,TTTTTTTT..TTTTTTTTTTTTTTTTTTTTTTTTTT",
-    "TTTTTTTTTTTTTTTTTTTTTTTTTT.,TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT.,TTTTTTTTTTTTTTTTTTTTTTTTTT",
-    "TTTTTTTTTTTTTTTTTTTTTTTTTT.,TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT..TTTTTTTTTTTTTTTTTTTTTTTTTT",
-    "TTTTTTTTTTTTTTTTTTTTTTTTTT,.TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT,,TTTTTTTTTTTTTTTTTTTTTTTTTT",
-    "TTTTTTTTTTTTTTTTTTTTTTTTTT..TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT,.TTTTTTTTTTTTTTTTTTTTTTTTTT",
-    "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT"
-  ],
   "builds": [
     {
       "kind": "wall",
@@ -272,28 +193,8 @@
       "level": 2
     },
     {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
       "kind": "turret",
       "cost": 10
-    },
-    {
-      "kind": "barricade",
-      "cost": 4
-    },
-    {
-      "kind": "barricade",
-      "cost": 4
     },
     {
       "kind": "turret",
@@ -312,10 +213,12 @@
       "level": 2
     },
     {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "turret",
+      "cost": 10
     },
     {
       "kind": "wall",
@@ -330,212 +233,12 @@
       "level": 2
     },
     {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
+      "kind": "turret",
+      "cost": 10
     },
     {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "barricade",
-      "cost": 4
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "barricade",
-      "cost": 4
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "barricade",
-      "cost": 4
-    },
-    {
-      "kind": "barricade",
-      "cost": 4
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
+      "kind": "turret",
+      "cost": 10
     },
     {
       "kind": "wall",
@@ -612,100 +315,6 @@
       "level": 2
     },
     {
-      "kind": "barricade",
-      "cost": 4
-    },
-    {
-      "kind": "turret",
-      "cost": 10
-    },
-    {
-      "kind": "turret",
-      "cost": 10
-    },
-    {
-      "kind": "barricade",
-      "cost": 4
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "farm",
-      "cost": 6
-    },
-    {
-      "kind": "farm",
-      "cost": 6
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "turret",
-      "cost": 10
-    },
-    {
-      "kind": "turret",
-      "cost": 10
-    },
-    {
-      "kind": "farm",
-      "cost": 6
-    },
-    {
-      "kind": "farm",
-      "cost": 6
-    },
-    {
       "kind": "wall",
       "cost": 5,
       "prebuilt": true,
@@ -746,230 +355,6 @@
       "cost": 5,
       "prebuilt": true,
       "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "barricade",
-      "cost": 4
-    },
-    {
-      "kind": "barricade",
-      "cost": 4
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "barricade",
-      "cost": 4
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "barricade",
-      "cost": 4
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "turret",
-      "cost": 10
-    },
-    {
-      "kind": "barricade",
-      "cost": 4
-    },
-    {
-      "kind": "barricade",
-      "cost": 4
-    },
-    {
-      "kind": "turret",
-      "cost": 10
     },
     {
       "kind": "wall",
@@ -1112,851 +497,54 @@
   ],
   "chests": [
     {
-      "loot": "medkit",
-      "amount": 1
-    },
-    {
       "loot": "shards",
       "amount": 10
     },
     {
       "loot": "medkit",
       "amount": 1
-    },
-    {
-      "loot": "cracker",
-      "amount": 2
-    },
-    {
-      "loot": "toxin",
-      "amount": 1
-    },
-    {
-      "loot": "shards",
-      "amount": 9
-    },
-    {
-      "loot": "cracker",
-      "amount": 2
-    },
-    {
-      "loot": "shield",
-      "amount": 1
-    },
-    {
-      "loot": "controller",
-      "amount": 1
-    },
-    {
-      "loot": "token",
-      "amount": 1
-    },
-    {
-      "loot": "shield",
-      "amount": 1
-    },
-    {
-      "loot": "medkit",
-      "amount": 1
-    },
-    {
-      "loot": "shards",
-      "amount": 11
     }
   ],
-  "hires": [
-    {
-      "job": "hound",
-      "cost": 10,
-      "name": "Fang Hush"
-    },
-    {
-      "job": "farmer",
-      "cost": 8,
-      "name": "Sage Murn"
-    },
-    {
-      "job": "engineer",
-      "cost": 10,
-      "name": "Wrench Tacet"
-    },
-    {
-      "job": "smith",
-      "cost": 12,
-      "name": "Forgemaster Grave"
-    },
-    {
-      "job": "archer",
-      "cost": 12,
-      "name": "Fletch Whisper"
-    }
-  ],
-  "vehicles": [
-    {
-      "kind": "stag"
-    },
-    {
-      "kind": "stag"
-    }
-  ],
-  "npcs": [
-    {
-      "id": "edra",
-      "name": "Voiceless Edra",
-      "lines": [
-        "The acolytes silenced the quorum. Four relays, one circle.",
-        "Close it inside ninety heartbeats and the old armory answers."
-      ]
-    }
-  ],
-  "pickups": [
-    {
-      "kind": "stormgun"
-    },
-    {
-      "kind": "flamer"
-    }
-  ],
-  "switches": [
-    {
-      "id": "quA",
-      "group": 0
-    },
-    {
-      "id": "quB",
-      "group": 0
-    },
-    {
-      "id": "quC",
-      "group": 0
-    },
-    {
-      "id": "quD",
-      "group": 0
-    }
-  ],
-  "groups": [
-    [
-      [
-        17,
-        15
-      ],
-      [
-        15,
-        15
-      ],
-      [
-        15,
-        13
-      ],
-      [
-        17,
-        13
-      ]
-    ],
-    [
-      [
-        91,
-        15
-      ],
-      [
-        89,
-        16
-      ],
-      [
-        88,
-        14
-      ],
-      [
-        91,
-        13
-      ]
-    ],
-    [
-      [
-        94,
-        50
-      ],
-      [
-        91,
-        52
-      ],
-      [
-        91,
-        49
-      ],
-      [
-        92,
-        49
-      ]
-    ],
-    [
-      [
-        65,
-        66
-      ],
-      [
-        64,
-        66
-      ],
-      [
-        62,
-        64
-      ],
-      [
-        63,
-        63
-      ],
-      [
-        64,
-        61
-      ]
-    ],
-    [
-      [
-        32,
-        64
-      ],
-      [
-        29,
-        65
-      ],
-      [
-        29,
-        62
-      ]
-    ],
-    [
-      [
-        12,
-        44
-      ],
-      [
-        9,
-        45
-      ],
-      [
-        9,
-        44
-      ],
-      [
-        12,
-        41
-      ]
-    ],
-    [
-      [
-        41,
-        14
-      ],
-      [
-        39,
-        15
-      ],
-      [
-        39,
-        11
-      ]
-    ],
-    [
-      [
-        68,
-        23
-      ],
-      [
-        64,
-        23
-      ],
-      [
-        66,
-        20
-      ]
-    ],
-    [
-      [
-        18,
-        31
-      ],
-      [
-        15,
-        31
-      ],
-      [
-        17,
-        29
-      ]
-    ]
-  ],
-  "patrols": [
-    {
-      "at": [
-        17,
-        15
-      ],
-      "points": [
-        [
-          24,
-          14
-        ],
-        [
-          15,
-          11
-        ],
-        [
-          19,
-          19
-        ]
-      ]
-    },
-    {
-      "at": [
-        15,
-        15
-      ],
-      "points": [
-        [
-          13,
-          10
-        ],
-        [
-          18,
-          9
-        ],
-        [
-          14,
-          17
-        ]
-      ]
-    },
-    {
-      "at": [
-        15,
-        13
-      ],
-      "points": [
-        [
-          12,
-          11
-        ],
-        [
-          16,
-          15
-        ],
-        [
-          21,
-          10
-        ]
-      ]
-    },
-    {
-      "at": [
-        17,
-        13
-      ],
-      "points": [
-        [
-          16,
-          14
-        ],
-        [
-          20,
-          13
-        ]
-      ]
-    },
-    {
-      "at": [
-        91,
-        15
-      ],
-      "points": [
-        [
-          93,
-          10
-        ],
-        [
-          93,
-          17
-        ]
-      ]
-    },
-    {
-      "at": [
-        89,
-        16
-      ],
-      "points": [
-        [
-          86,
-          13
-        ],
-        [
-          84,
-          15
-        ]
-      ]
-    },
-    {
-      "at": [
-        88,
-        14
-      ],
-      "points": [
-        [
-          81,
-          15
-        ],
-        [
-          87,
-          7
-        ]
-      ]
-    },
-    {
-      "at": [
-        91,
-        13
-      ],
-      "points": [
-        [
-          90,
-          18
-        ],
-        [
-          94,
-          12
-        ]
-      ]
-    },
-    {
-      "at": [
-        94,
-        50
-      ],
-      "points": [
-        [
-          98,
-          49
-        ],
-        [
-          94,
-          56
-        ]
-      ]
-    },
-    {
-      "at": [
-        92,
-        49
-      ],
-      "points": [
-        [
-          98,
-          49
-        ],
-        [
-          95,
-          49
-        ],
-        [
-          93,
-          54
-        ],
-        [
-          90,
-          51
-        ]
-      ]
-    },
-    {
-      "at": [
-        65,
-        66
-      ],
-      "points": [
-        [
-          67,
-          68
-        ],
-        [
-          61,
-          67
-        ],
-        [
-          64,
-          70
-        ]
-      ]
-    },
-    {
-      "at": [
-        64,
-        66
-      ],
-      "points": [
-        [
-          62,
-          69
-        ],
-        [
-          65,
-          69
-        ]
-      ]
-    },
-    {
-      "at": [
-        62,
-        64
-      ],
-      "points": [
-        [
-          65,
-          67
-        ],
-        [
-          58,
-          62
-        ],
-        [
-          59,
-          62
-        ],
-        [
-          59,
-          64
-        ]
-      ]
-    },
-    {
-      "at": [
-        63,
-        63
-      ],
-      "points": [
-        [
-          61,
-          64
-        ],
-        [
-          66,
-          57
-        ]
-      ]
-    },
-    {
-      "at": [
-        64,
-        61
-      ],
-      "points": [
-        [
-          63,
-          58
-        ],
-        [
-          61,
-          65
-        ]
-      ]
-    },
-    {
-      "at": [
-        32,
-        64
-      ],
-      "points": [
-        [
-          34,
-          64
-        ],
-        [
-          29,
-          70
-        ]
-      ]
-    },
-    {
-      "at": [
-        29,
-        65
-      ],
-      "points": [
-        [
-          31,
-          64
-        ],
-        [
-          25,
-          64
-        ],
-        [
-          25,
-          59
-        ]
-      ]
-    },
-    {
-      "at": [
-        29,
-        62
-      ],
-      "points": [
-        [
-          24,
-          62
-        ],
-        [
-          35,
-          63
-        ]
-      ]
-    },
-    {
-      "at": [
-        12,
-        44
-      ],
-      "points": [
-        [
-          9,
-          48
-        ],
-        [
-          13,
-          51
-        ],
-        [
-          7,
-          43
-        ],
-        [
-          8,
-          43
-        ]
-      ]
-    },
-    {
-      "at": [
-        9,
-        45
-      ],
-      "points": [
-        [
-          7,
-          42
-        ],
-        [
-          6,
-          49
-        ]
-      ]
-    },
-    {
-      "at": [
-        9,
-        44
-      ],
-      "points": [
-        [
-          6,
-          44
-        ],
-        [
-          9,
-          49
-        ],
-        [
-          14,
-          47
-        ]
-      ]
-    },
-    {
-      "at": [
-        12,
-        41
-      ],
-      "points": [
-        [
-          8,
-          42
-        ],
-        [
-          15,
-          43
-        ],
-        [
-          9,
-          40
-        ]
-      ]
-    },
-    {
-      "at": [
-        41,
-        14
-      ],
-      "points": [
-        [
-          38,
-          8
-        ],
-        [
-          43,
-          16
-        ],
-        [
-          37,
-          13
-        ]
-      ]
-    },
-    {
-      "at": [
-        39,
-        15
-      ],
-      "points": [
-        [
-          34,
-          17
-        ],
-        [
-          40,
-          11
-        ],
-        [
-          39,
-          13
-        ],
-        [
-          42,
-          18
-        ]
-      ]
-    },
-    {
-      "at": [
-        39,
-        11
-      ],
-      "points": [
-        [
-          40,
-          17
-        ],
-        [
-          40,
-          6
-        ],
-        [
-          43,
-          6
-        ],
-        [
-          39,
-          5
-        ]
-      ]
-    },
-    {
-      "at": [
-        66,
-        20
-      ],
-      "points": [
-        [
-          66,
-          18
-        ],
-        [
-          64,
-          22
-        ],
-        [
-          62,
-          23
-        ],
-        [
-          70,
-          18
-        ]
-      ]
-    },
-    {
-      "at": [
-        17,
-        29
-      ],
-      "points": [
-        [
-          14,
-          30
-        ],
-        [
-          19,
-          31
-        ],
-        [
-          22,
-          25
-        ],
-        [
-          13,
-          33
-        ]
-      ]
-    },
-    {
-      "at": [
-        44,
-        56
-      ],
-      "points": [
-        [
-          41,
-          58
-        ],
-        [
-          45,
-          50
-        ],
-        [
-          44,
-          60
-        ]
-      ]
-    },
-    {
-      "at": [
-        62,
-        12
-      ],
-      "points": [
-        [
-          58,
-          9
-        ],
-        [
-          63,
-          10
-        ],
-        [
-          64,
-          10
-        ]
-      ]
-    }
-  ],
-  "switchGroups": [
-    {
-      "group": 0,
-      "need": 4,
-      "window": 90,
-      "reward": {
-        "shards": 25
-      }
-    }
+  "tiles": [
+    "################################################################",
+    "#--------------^^--------------^^--------------^^--------------#",
+    "#--------------^^--------------^^--------------^^--------------#",
+    "#---.w...w...--^^---..w....----^^----..w....---^^--....w....---#",
+    "#---.........--^^---....r..----^^----....r..---^^--.......w.---#",
+    "#---.........w-^^---..#....----^^----....#..---^^-w.........---#",
+    "#---.........--^^---.......----^^----.......---^^--.........---#",
+    "#---.........--^^---.......----^^----.......---^^--.........---#",
+    "#---~~---~~~~~~^^~~~~~~--~~~~~~^^~~~~~~--~~~~~~^^~~~~~~---~~---#",
+    "#---~~---~~~~~~^^~~~~~~--~~~~~~^^~~~~~~--~~~~~~^^~~~~~~---~~---#",
+    "#---.........--^^---.......----^^----.......---^^--.........---#",
+    "#---.........--^^---.......----^^----.......---^^--.........---#",
+    "#---..h...##.--^^---...i...----^^----...h...---^^--.##...i..---#",
+    "#---......##.--^^---.......----^^----.......---^^--.##......---#",
+    "#---.........--^^---.......----^^----.......---^^--.........---#",
+    "#---.........--^^---.......##--^^--##.......---^^--.........---#",
+    "#---.........--^^---.......##--^^--##.......---^^--.........---#",
+    "#---......r..--^^---.......s---^^---s.......---^^--..r......---#",
+    "#---.........--^^---.......----^^----.......---^^--.........---#",
+    "#---.........--^^---.......----^^----.......---^^--.........---#",
+    "#---~~---~~~~~~^^~~~~~~--~~~~~~^^~~~~~~--~~~~~~^^~~~~~~---~~---#",
+    "#---~~---~~~~~~^^~~~~~~--~~~~~~^^~~~~~~--~~~~~~^^~~~~~~---~~---#",
+    "#---.........--^^---.......----^^----.......---^^--.........---#",
+    "#---.........--^^---.......----^^----.......---^^--.........---#",
+    "#---.........#-^^---.......----^^----.......---^^-#.........---#",
+    "#---....h....--^^---..s....----^^----....s..---^^--....h....---#",
+    "#---.........--^^---.......----^^----.......---^^--.........---#",
+    "#---.........--^^---.......----^^----.......---^^--.........---#",
+    "#--------------^^--------------^^--------------^^--------------#",
+    "#--------------^^--------------^^--------------^^--------------#",
+    "#--------------------------------------------------------------#",
+    "#------BBBBB...BBBBB------------------------BBBBB...BBBBB------#",
+    "#------B;B;;;;;;;B;B------------------------B;B;;;;;;;B;B------#",
+    "#------B;;;B;*;B;;;B------------------------B;;;B;*;B;;;B------#",
+    "#------B;;;;;K;;;;;B...........--...........B;;;;;Y;;;;;B------#",
+    "#------B;;P;;;;;P;;B.....C.....--.....C.....B;;P;;;;;P;;B------#",
+    "#------B;;;;;W;;;;;B...........--...........B;;;;;W;;;;;B------#",
+    "#------BBBBBBBBBBBBB------------------------BBBBBBBBBBBBB------#",
+    "#--------------------------------------------------------------#",
+    "################################################################"
   ]
 }

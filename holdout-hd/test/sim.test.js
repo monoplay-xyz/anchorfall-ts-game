@@ -1667,7 +1667,7 @@ function testTwoLocalPlayersMoveIndependently() {
 // Generic integrity gate for EVERY story/expedition level. New chapters are
 // validated automatically the moment their files land in levels/.
 const ART_KEYS = new Set(['anchorcraft', 'crossing', 'basin', 'quorum', 'forkfall', 'siege', 'settlement', 'campfire', 'entropy', 'dawn']);
-const WAVE_LETTERS = new Set('garsmnwbzfqvxu'); // frontier III adds z f q v x u
+const WAVE_LETTERS = new Set('garsmnwbzfqvxu' + 'dehijkly$'); // frontier III adds z f q v x u; map-overhaul biome roster adds d e h i j k l y $
 const QUEST_KINDS = new Set(['fetch', 'kill', 'build', 'switch', 'glyph', 'destroy', 'craft', 'reach']);
 
 function testStoryLevelIntegrity() {
@@ -1688,10 +1688,15 @@ function testStoryLevelIntegrity() {
     }
     if (def.mode === 'ctf') assert.equal(parsed.flags.length, 2, `${tag}: ctf maps carry exactly two flag stands`);
     // bastion maps carry a base core; the beacon-defense variant carries
-    // exactly four 'K' monoliths instead
+    // exactly four 'K' monoliths instead. EXCEPTION (map-overhaul): escort_push
+    // maps win/lose on the anchor (def.escort) and pure survive_timer maps
+    // (def.bastion.survival) have no strongpoint at all (open_field) — both are
+    // intentionally coreless, with the lose condition being anchor-hp (escort)
+    // or party wipe (survival). Both are explicit, def-gated opt-ins.
+    const coreless = def.escort || (def.bastion && def.bastion.survival);
     if (def.mode === 'bastion') {
       if (def.bastionVariant === 'beacons') assert.equal(parsed.cores.length, 4, `${tag}: beacon variant fields exactly 4 K monoliths`);
-      else assert.ok(parsed.core, `${tag}: bastion maps carry a base core`);
+      else if (!coreless) assert.ok(parsed.core, `${tag}: bastion maps carry a base core`);
     }
     // entity arrays must match their tile counts exactly
     const tileCount = ch => def.tiles.reduce((n, r) => n + (r.split(ch).length - 1), 0);
@@ -6480,7 +6485,9 @@ function testStrongholdDefIntegrity() {
   assert.ok(shs.length >= 1, 'stronghold dir ships at least sh01');
   const validChars = new Set(characters.map(c => c.id));
   const BUILD_KINDS = new Set(['pylon', 'barricade', 'turret', 'farm', 'beacon', 'wall', 'comm']);
-  const LEGAL_TILES = new Set('#.To~,:;_*=!^%E' + 'PcNBCKVWSHDYAIQJXZO' + 'garsmnwbzfqvxu');
+  // map-overhaul adds 4 new floor tiles (+ cinder, - packed-snow, @ peat-bog,
+  // / unstable-slab) and 9 new biome enemy letters (d e h i j k l y $).
+  const LEGAL_TILES = new Set('#.To~,:;_*=!^%E' + '+-@/' + 'PcNBCKVWSHDYAIQJXZO' + 'garsmnwbzfqvxu' + 'dehijkly$');
   for (const def of shs) {
     const tag = def.name || 'stronghold level';
     assert.equal(def.mode, 'bastion', `${tag}: stronghold levels run bastion mode`);
@@ -6496,8 +6503,12 @@ function testStrongholdDefIntegrity() {
     const moons = (b.bloodMoons || []).length;
     // truthful accounting: the sim pours EVERY wave of a blood-moon night
     // from two edges (the second a 60% detachment), so each moon night adds
-    // wpn extra wave events — the level-select card must say what the sim does
-    assert.equal(sh.waves, nights * wpn + moons * wpn,
+    // wpn extra wave events — the level-select card must say what the sim does.
+    // ENDLESS maps (def.bastion.endless) have no fixed night count — blood moons
+    // recur on bloodEvery and the run never resolves on a dawn — so the fixed
+    // formula does not apply; the card just shows a positive sentinel.
+    if (b.endless) assert.ok(Number.isInteger(sh.waves) && sh.waves > 0, `${tag}: endless waves is a positive sentinel`);
+    else assert.equal(sh.waves, nights * wpn + moons * wpn,
       `${tag}: waves ${sh.waves} = ${nights} nights x${wpn} + ${moons} moons x${wpn}`);
     if (b.waveMult !== undefined) assert.ok(b.waveMult >= 1 && b.waveMult <= 2.6, `${tag}: waveMult 1..2.6`);
     if (b.bossNights !== undefined) {
@@ -6513,7 +6524,11 @@ function testStrongholdDefIntegrity() {
       for (const c of row) assert.ok(LEGAL_TILES.has(c), `${tag}: tile '${c}' is a legal letter`);
     }
     const ks = def.tiles.reduce((n2, r) => n2 + (r.split('K').length - 1), 0);
+    // escort_push (def.escort) and pure survive_timer (def.bastion.survival) maps
+    // are intentionally coreless — their lose condition is anchor-hp / party wipe.
+    const shColess = def.escort || (def.bastion && def.bastion.survival);
     if (def.bastionVariant === 'beacons') assert.equal(ks, 4, `${tag}: beacon variant fields exactly 4 K tiles`);
+    else if (shColess) assert.equal(ks, 0, `${tag}: coreless escort/survival map fields no K core`);
     else assert.equal(ks, 1, `${tag}: core bastion fields exactly 1 K tile`);
     for (const bd of def.builds || []) {
       assert.ok(BUILD_KINDS.has(bd.kind), `${tag}: build kind '${bd.kind}' is known`);
@@ -7814,17 +7829,42 @@ function testShipBoardingEdgeWalkAwayAndLaunch() {
   assert.ok(g.events.some(ev => ev.type === 'shipLaunch'), 'shipLaunch fired');
 }
 
-// --- p2v regression: a wave marcher corner-pinned on sh12's diagonal tree
-// (88,29) must cross the pin and march on (anti-wedge kick + A* parking) ---
+// --- p2v regression: a wave marcher corner-pinned at the map's far corner must
+// cross the pin and march on (anti-wedge kick + A* parking). The marcher start
+// is derived from sh12's ACTUAL geometry (the farthest core-reachable floor
+// corner) so the regression survives the map-overhaul resize. ---
 function testCornerPinnedMarcherReachesCore() {
   const def = levels.find(l => l.category === 'stronghold' && l.stronghold?.level === 12);
   assert.ok(def, 'sh12 ships');
   const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   g.graceT = 0;
   g.players[0].invuln = 1e9;
+  // BFS the passable grid from the core; the far corner reachable from it is the
+  // pin start (a wave marcher that spawns at a corner must still reach the core).
+  const parsed = parseLevel(def);
+  const cx = Math.floor(g.core.x / TILE), cy = Math.floor(g.core.y / TILE);
+  const W = parsed.w, H = parsed.h, grid = parsed.grid;
+  const pass = c => !'#T~o%'.includes(c);
+  const seen = new Set([cx + ',' + cy]);
+  const st = [[cx, cy]];
+  while (st.length) {
+    const [x, y] = st.pop();
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx, ny = y + dy, k = nx + ',' + ny;
+      if (nx < 0 || ny < 0 || nx >= W || ny >= H || seen.has(k) || !pass(grid[ny][nx])) continue;
+      seen.add(k); st.push([nx, ny]);
+    }
+  }
+  let pinX = cx, pinY = cy, far = -1;
+  for (const k of seen) {
+    const [x, y] = k.split(',').map(Number);
+    const dd = Math.hypot(x - cx, y - cy);
+    if (dd > far) { far = dd; pinX = x; pinY = y; }
+  }
+  assert.ok(far > 10, `sh12 fields a far corner > 10 tiles from the core (got ${far.toFixed(1)})`);
   const e = g.enemies[0];
-  e.x = (89 + 0.5) * TILE;
-  e.y = (28 + 0.5) * TILE;
+  e.x = (pinX + 0.5) * TILE;
+  e.y = (pinY + 0.5) * TILE;
   e.homeX = e.x;
   e.homeY = e.y;
   e.awake = true;

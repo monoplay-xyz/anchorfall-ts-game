@@ -1,142 +1,105 @@
 {
   "stranded": true,
-  "name": "Helix Fields",
-  "objective": "Throw the three dune relays, then hold the bastion through five nights",
+  "name": "Precinct Fog",
+  "objective": "Wall the SE precinct keep and hold the corner through five fog-drowned nights",
   "time": 600,
   "expedition": true,
   "mode": "bastion",
+  "theme": "nocturne",
+  "ambience": "night",
+  "modifiers": {
+    "dark": true
+  },
   "bastion": {
     "nights": 5,
     "bloodMoons": [
       3,
       5
     ],
-    "waveMult": 2.13
+    "waveMult": 2.13,
+    "roster": [
+      "a",
+      "x",
+      "h",
+      "k"
+    ],
+    "edges": [
+      "n",
+      "w"
+    ]
   },
   "stronghold": {
     "level": 18,
-    "name": "Helix Fields",
+    "name": "Precinct Fog",
     "sizeLabel": "XL",
     "difficulty": 4,
     "waves": 7,
     "hpMult": 1.57,
     "unlock": "helix",
-    "blurb": "A dune spiral cut into meadow, forest-rimmed. Restore the relays, then hold the heart of the helix for five nights.",
+    "blurb": "A ruined precinct drowned in fog and dark. Wedge the keep into the SE corner; only the north and west approaches stay open. Things loom out of the murk at arm's length.",
     "newFeatures": [
-      "Helix joins the roster",
-      "Spiral dune ridges",
-      "Relay prep-work before dusk"
+      "Corner last-stand: only two open edges",
+      "Nocturne dark + fog — point-blank ambush",
+      "Phaseborn drift through the keep walls"
     ]
   },
-  "ambience": "meadow",
   "intro": [
     {
-      "title": "Helix Fields",
+      "title": "Precinct Fog",
       "lines": [
-        "The fields grew this spiral the night the Anchor fell. Nobody planted it.",
-        "Three relays watch the arms — all dark. Throw them before dusk.",
-        "Then dig in: five nights, and the spiral pulls the waves inward."
+        "The old precinct went quiet the night the lamps drowned. Now the fog owns it.",
+        "Back into the corner — south wall and east wall are stone. Watch the north and the west.",
+        "Five nights. You won't see them until they're on you. Some don't bother with the walls at all."
       ],
-      "art": "settlement"
+      "art": "siege"
     }
   ],
   "outro": [
     {
-      "title": "The Spiral Holds",
+      "title": "The Corner Holds",
       "lines": [
-        "Dawn five. The dune arms are chewed flat, the relays still sing.",
-        "Helix walks out of the spiral heart and signs on."
+        "Fifth dawn burns the fog off the flagstones. The two open lanes are choked with the dead.",
+        "Whatever the precinct was guarding, it's still standing. So are you."
       ],
       "art": "dawn"
     }
   ],
-  "quests": [
-    {
-      "id": "relays18",
-      "title": "Restore the field relays",
-      "giver": "cartwright",
-      "kind": "switch",
-      "count": 3,
-      "reward": {
-        "shards": 18
-      },
-      "hint": "Throw the three dune relays out along the spiral arms"
-    }
-  ],
   "captiveChars": [],
   "tiles": [
-    "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
-    "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT.,TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT,,TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
-    "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT.,TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT.,TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
-    "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT..TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT,,TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
-    "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT..TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT,.TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
-    "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT,.TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT..TTTTTTTTTTTTTTTTTT,.,,...TTTTT",
-    "TTTTTTTTTTTTTTTTTTTTT,,...,,.....,...,.,.....,..T,T.,,TT..,,,..........,....,.,..,..,,,,.......TTTTT",
-    "TTTTTTT,,..,...,.,,...,......,,.,.,.....,..u...,.,,TT,T,,.....,.,..,,..,.,,,,,,,,,,,..,.,,,,,,,TTTTT",
-    "TTTTTTT,.,..,.,.,,,,..,.,.,,.,..,...,,.,.,.,.,,.,,.,,.....,...,.....,.C,,,...,:.,.....,,,,,,...TTTTT",
-    "TTTTTTT..,C...,....,.,...,,...C..,,,....,w,.,.,.,..,.....,.,...,...,....,,,:::~:::.,..,,,.,....TTTTT",
-    "TTTTTTT..,...,,......,,....,,.,....,...,.z,z,,.,.,.......,,...Y,,.....,.,.:~~~~~~~n.,,..C,.,.,.TTTTT",
-    "TTTTTTT,,.........,,.,...,,,..,,..,,.,..,...,,,,.,,.,,.,,.,,.,,,,..,,,...:~~~~~~~~~:........,,.TTTTT",
-    "TTTTTTT.,....,.,.........,,...,...,.,,,.,,Y,.==.==,===========....,...,.,:~~~~~~~~~w....,..,,..TTTTT",
-    "TTTTTTT,..,.,..,w..a,..,......,,,,...,.==.==========================....,:~~~~~~~~~a.,.,....,..TTTTT",
-    "TTTTTTT,,..,..,,.,,g,.,........,,...===========,==.,=,.=.==.===========.:~~~~~~~~~~~g,.,....,.,TTTTT",
-    "TTTTTTT,.........g...,.......,..,,========,,,.,,,,.,,.,,.,,,,.,.=,========~~~~~~~~~:..,.,,...,.TTTTT",
-    "TTTTTTT.,..,,.,,,.....,....,..,=====C==,,........,,..,..,,..,.x..,,..==.==~~~~~~~~~:,,...,.,.,.TTTTT",
-    "TTTTTTT,..,,,.,..,,...,,...,,=======,..,..,....,,,,.,..,,,.,......,.....==~~~~~~~~~:....,...,..TTTTT",
-    "TTTTTTT.,,.,....,,,,.,,.,.,=Q====.,...,....,.=,=============.=..,,...,.,,.:~~~~~~~:..,...,,...,,,..T",
-    "TTTTTTT,,.,..,.....,,.,.,======,,,....,,.=========================,,.,,..,,::=~===,,,,.,,...,.,....T",
-    "TTTTTTT.Y..,,...,..,.,.,=====,,,..,.,.,============.=.=.=============..,.,,...:=====,,.,,..,,,,.TTTT",
-    "TTTTTTT.,,.===..,,,,...====...,.....,========...,.,,,.,...,,.,,========,.,.......,====,,.......,TTTT",
-    "T.,.,,.,,,...=,..,....====...,...,=======.,,..,.,.,,.,,..,.........=====Q.,...,,,,==Y==,,,,,..,,TTTT",
-    "T,,..,..,...,,.....,.===,...,....======.,,,.,.....,....,.....,,.,..,.======.,.,,...,====.,.,.,,.TTTT",
-    "TTTTTT,,,.==.,,.,,,.Y===,.,,.,.======,.,.,...,,=============,...,..,.,.======.,,.,,,.,===..,,.,,TTTT",
-    "TTTTTT.,===.,..,..,====.,.,..,=====..,..,.,,==o======o=========,...,.,..,=====.,...,..====...,..TTTT",
-    "TTTTTT..===,......,===,,..,...===,,.......========================.......,.====,,.,,,..===.....,TTTT",
-    "TTTTTT.===.,.,,,..===,.,..,.,===.,....,..,,,.,..,..,,,,.,..,,=======....,...====.,...,.,===.,...TTTT",
-    "TTTTTT,===.,....,====......,===.,,.,..,=,...,,..,...,,.,...,Y..======.,,,,.,.====,.,,...,===....TTTT",
-    "TTTTTT.==.,,,,,.,===.,..,.,====.,...,,==,,BBBBBBBBBBBBBBBBB,...,.======,....,.====,....,.====.,.TTTT",
-    "TTTTTT.===,,,....===.,,.A.,===..,..,.===,.B;;;;;;;;;;;;;;;B,,,..,..=====,.,....===.....,,.===...TTTT",
-    "TTTTTT==q..z....===..,.....==.,.....,===.,B;W;;;B;;;B;.;W;B,..,..,,..===,,......===,..,..,.===.,TTTT",
-    "TTTTTT===,.g..,.===.,,.,,.===.m,....===.,,B;;H;;;;;;;;;;;;B,,=,,...,,====,......====.,.,,.,===,,TTTT",
-    "TTTTTT===,..,..,===,...,.,===...,...===.,.B;;;;;;;;;;NS;;;B..==,,....,====...,,..===,,,,....==,.TTTT",
-    "TTTTTT===w,,.,,.===.....,.===,...,..==o...B;;H;;P;*;P;;;;;B,.=o=.......===,,.,,,.===,....,,===.,TTTT",
-    "TTTTTT===,.,.,,,===.,..,.,===.......===..,B;;;;;;;;;;;;;;;B..====,...,,====,..,..,===.,,.,..===,TTTT",
-    "TTTTTT===,,.C.,.===...,.,.Y==.,....,===...B;BH;V;;K;;V;;B;B,..===,Y,.,,.===.,,.,..===.,.,.C,===.TTTT",
-    "TTTTT,===.,,...,===...,.,,====.,,...====.,B;;;;;;;;;;;;;;;B,..===.,,.,,,===,,.....===.,,....==..TTTT",
-    "TTTTT..===.,..,.,===.,.,.,,===.,.,...=o=.,B;;H;;P;*;P;;;;;B.,.o==,.....,===,......===...,..,,,.,TTTT",
-    "TTTTT,.==,....,..===..,.,..====.....,.==,,B;;;;;;;;;;B;B;;B..,===...,,.,===.......===,,,....==..TTTT",
-    "TTTTT,,===.,..,.,====....,,.====..,..,,=..B;;H;;;;;;;;;;;;B.,.===,,...,,===.,.,,..===,,..u..===.TTTT",
-    "TTTTT..===.,,.,...===....,...===.,.,,,.,,,B;W;;;B;;;BB;BW;B,.===,...,.,.==......,,===..a.,..===,TTTT",
-    "TTTTT.,,===,,...,.,===,,....,=====.....,..B;;;;;;;;;;;;;;;B,.===..,,,..===..,,...===..,...r===..TTTT",
-    "TTTTT..,====.,.,.,.====.,..,..======,.,.,,BBBBBBBBBBBBBBBBB..==..,..,,====,...,..===,,,s,,,,==,.TTTT",
-    "TTTTT.,..===,.,.,,..====C..,.,,.======.,..,.,.,..,,,,.,..,..,=..,.,,C,===.,..,,.====.,,,.,.===,,TTTT",
-    "TTTTT,,,..===........====....,,..=======..,,...,.....,,....,.....,,,,===..,.,...===.,...,,,===,,TTTT",
-    "TTTTT....,.===..,,....====.,,.,.,..=Y======================.,,.,...,===,,,....A===.,,.,...===,,.TTTT",
-    "TTTTT.,,,,.====,,....,,=====,,,.,..,.,========o======o===....,.,.,=====,,...,,====.,..,...===...TTTT",
-    "TTTTT,..Y,..===,..,....,======.,,.,,.....=============,...,.....======.,,....====.,...,,,=Y..,,,TTTT",
-    "TTTTT....,...====....,...,======,.......,,,,,,...,.,.,,.,.,.,,======,,,,...,,===..,,.,.,===....TTTTT",
-    "T,......,,..,.==~==..,,.,,..======,.,...,.....,.,...,,,..,..=======,,.m,,..====,,,.,,..===.,...TTTTT",
-    "T,..,,.,.,.,,.:~===::::..,..,,========,.....,.,.,....,,.========.,.,.,....====,..,.,,..===,..,,TTTTT",
-    "TTTT,,,,,,....,::~~~~~~:....,.,.====v========.=.=,============..,....,..=====.,.,.,....,.,.,,,..,..T",
-    "TTTT.,......,,,:~~~~~~~~:,.,.,..,.,=========================,,.,......======..,,..,.,.,.......,,..,T",
-    "TTTTTT..,,,,.,,:~~~~~~~~~=.,,..,...,...=.=============.=.,.,.,...,..======....,.....,......,.,.TTTTT",
-    "TTTT#TT...,,.,.z~~~~~~~~~====..,.,,...,.,..,.,,....,..,.,.,.,.,,.=======,,..,...,.,...,.,..,,,,TTTTT",
-    "TTTTTT...,.,,,,:~~~~~~~~~====,==Q,,..,,.,...,...,.,,.,,...,,.,========.,...,,...,.....,.,,,.,..TTTTT",
-    "TTTT#T.T,,.....n~~~~~~~~~:.========.=,,...,,,.,,,,.,.,..,.,========..,,,,,,.v..w...,.,..,.,....TTTTT",
-    "TTTTT.......,,.:~~~~~~~~~:..,.===========.==,=.,=,Y==,===========,..,...,.Y..,.,g.,,...,.,....,TTTTT",
-    "TTTT....,..,,...r~~~~~~~:.,.,..,.==========================.==..,,,.....,.,,.,,.,.,...,..,....,TTTTT",
-    "TTTT,,,,.,.....,s:~~~~~:.,,,,..,....,.,=======u=x=,==.==,..,.,,.,.,..,,.,.,..,r.........,,,,.,.TTTTT",
-    "TTTT,,..,,.......,:::::.,.......,,....,,,...,,,..,,..,,,,.,,,,...,.....,,,,,...,,,,..,.,..,..,.TTTTT",
-    "TTTT,....,,,C..,.......,.,,.,,,..,.,,.,.,..T...u,z.,.,..,..,,..,,,..,....,,.,......,..C..,..,,,TTTTT",
-    "TTTT......,.,,...,...,.,..,,..,,,.,...,..TT..T........,,...,C..,,.,.,,.,,.,..,...,.,,.,..,.,..,TTTTT",
-    "TTTT..,,..,,.,....,..,.,,,.,.,Y......,.,TT.,...,,.,,,.,,,,..,,...,,,,.,...,...,,..,..,....,.,.,TTTTT",
-    "TTTT.,.......,,,.....,...,.,,...,,,..,,..TTTTTT..,,.,...,.,,..,....,..,,...,,,.........,.,,.,,.TTTTT",
-    "TTTT........,.....,.,,,.,,..,.,..,.....,TT#T#TT..,.,....,.,.,..,,,...,.,..,..,...,..,.,.,,,..,.TTTTT",
-    "TTTT...,,,....,..,.,,.....,,,.,.....,.T,,,TTT##T...,.,..,.,,.,..,.,.,T,,TTTTTTTTTTTTTTTTTTTTTTTTTTTT",
-    "TTTTTTTTTTTTTTTTTTTTTTTT..TTTTTTT..,...TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT..TTTTTTTTTTTTTTTTTTTTTTTTTTTT",
-    "TTTTTTTTTTTTTTTTTTTTTTTT,.TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT.,TTTTTTTTTTTTTTTTTTTTTTTTTTTT",
-    "TTTTTTTTTTTTTTTTTTTTTTTT..TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT,,TTTTTTTTTTTTTTTTTTTTTTTTTTTT",
-    "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT"
+    "################################################",
+    "#..............................................#",
+    "#..............................................#",
+    "#...................;;;;;;;;;.,................#",
+    "#...;;;;;;;;;.......;;;;a;;;;..,..;;;;;;;;;....#",
+    "#...;;;a;;;;;..,,...;;;;;;*;;.....;;;;;;;;;....#",
+    "#...;;;;;;*;Y.......;;;;;;;;;.....;;;;;a;;;....#",
+    "#...;;;;;;;;;.......k;;;;;;;;.....;;;;*;;;;....#",
+    "#...;;;;;;;;;#................#...;;;;;;;;;....#",
+    "#.........C..#....####..,,....#...;;;;;;;;;....#",
+    "#.....~~~....#................#..k.............#",
+    "#.....~~~.,,.#............x...#................#",
+    "#............#....h...;;;;;;;;;..,,...C........#",
+    "#.....................;;;;;#;;;................#",
+    "#.....;;;;;;;;;.....*.;;;;;#;;;....####........#",
+    "#.....;;;;;;;;;.,.....;;;;;#Y;;................#",
+    "#.....;;;;;;x;;..,....;;;;;#;*;.......,,.......#",
+    "#..,..;;;;;;;;;.....,.;;;;;;;;;................#",
+    "#..,..h;;;;;;;;.....,..........h...............#",
+    "#.....;;;;;;;;;.............,..................#",
+    "#.......####...k.............,.................#",
+    "#.................;;;;;;#;;....................#",
+    "#...;;;;;;;;;...#.;;;;;;#;;........,,..........#",
+    "#...;;;;;;;;;...#.;;;;x;#;;....................#",
+    "#...;;;;;x;;*.,,#.;;;;;;;C;....~~~..BBB;BBB;BBB#",
+    "#...;;;;;;;;;...#.;;;;;;;;;....~~~..B;B;;;;;;;;#",
+    "#...;;;;;;;;;.....;;;;;;;;;....~~~..B;*;;H;;B;;#",
+    "#...;;;;;;;;;..................~~~..B;;;;;;;;;;#",
+    "#.......,,.....A....................BB;;;;;;;;;#",
+    "#....................,,.............;;;;C;;;;;;#",
+    "#.......V...........................B;;S;;P*;K;#",
+    "#...................................B;;P;;;;B;;#",
+    "#...................................B;;;;;;;;;;#",
+    "################################################"
   ],
   "builds": [
     {
@@ -182,62 +145,6 @@
       "level": 2
     },
     {
-      "kind": "barricade",
-      "cost": 4
-    },
-    {
-      "kind": "barricade",
-      "cost": 4
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
       "kind": "wall",
       "cost": 5,
       "prebuilt": true,
@@ -260,58 +167,6 @@
       "cost": 10
     },
     {
-      "kind": "turret",
-      "cost": 10
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
       "kind": "wall",
       "cost": 5,
       "prebuilt": true,
@@ -322,34 +177,20 @@
       "cost": 4
     },
     {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
       "kind": "turret",
       "cost": 10
-    },
-    {
-      "kind": "turret",
-      "cost": 10
-    },
-    {
-      "kind": "barricade",
-      "cost": 4
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
     },
     {
       "kind": "wall",
@@ -366,160 +207,6 @@
     {
       "kind": "farm",
       "cost": 6
-    },
-    {
-      "kind": "farm",
-      "cost": 6
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "turret",
-      "cost": 10
-    },
-    {
-      "kind": "turret",
-      "cost": 10
-    },
-    {
-      "kind": "farm",
-      "cost": 6
-    },
-    {
-      "kind": "farm",
-      "cost": 6
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "barricade",
-      "cost": 4
-    },
-    {
-      "kind": "barricade",
-      "cost": 4
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
-    },
-    {
-      "kind": "wall",
-      "cost": 5,
-      "prebuilt": true,
-      "level": 2
     },
     {
       "kind": "wall",
@@ -538,863 +225,30 @@
       "amount": 9
     },
     {
-      "loot": "cracker",
-      "amount": 2
-    },
-    {
       "loot": "medkit",
-      "amount": 1
-    },
-    {
-      "loot": "medkit",
-      "amount": 1
-    },
-    {
-      "loot": "controller",
-      "amount": 1
-    },
-    {
-      "loot": "shield",
-      "amount": 1
-    },
-    {
-      "loot": "shards",
-      "amount": 8
-    },
-    {
-      "loot": "token",
       "amount": 1
     },
     {
       "loot": "cracker",
       "amount": 2
-    },
-    {
-      "loot": "shards",
-      "amount": 10
-    },
-    {
-      "loot": "toxin",
-      "amount": 1
     }
   ],
   "hires": [
     {
-      "job": "hound",
-      "cost": 10,
-      "name": "Fang Vasht"
-    },
-    {
-      "job": "farmer",
-      "cost": 8,
-      "name": "Sage Junipre"
-    },
-    {
       "job": "engineer",
       "cost": 10,
-      "name": "Wrench Calloh"
-    },
-    {
-      "job": "smith",
-      "cost": 12,
-      "name": "Forgemaster Ides"
-    },
-    {
-      "job": "archer",
-      "cost": 12,
-      "name": "Fletch Maro"
+      "name": "Warden Sael"
     }
   ],
   "vehicles": [
     {
       "kind": "stag"
-    },
-    {
-      "kind": "stag"
-    }
-  ],
-  "npcs": [
-    {
-      "id": "cartwright",
-      "name": "Suri the Cartwright",
-      "lines": [
-        "The dune relays went dark when the spiral grew teeth.",
-        "Throw all three before dusk. Silence reads as weakness out here."
-      ]
     }
   ],
   "pickups": [
     {
-      "kind": "flamer"
-    },
-    {
-      "kind": "railcannon"
+      "kind": "mortarMk2"
     }
   ],
-  "switches": [
-    {
-      "id": "helixA",
-      "group": 0
-    },
-    {
-      "id": "helixB",
-      "group": 0
-    },
-    {
-      "id": "helixC",
-      "group": 0
-    }
-  ],
-  "groups": [
-    [
-      [
-        19,
-        14
-      ],
-      [
-        17,
-        15
-      ],
-      [
-        16,
-        13
-      ],
-      [
-        19,
-        13
-      ]
-    ],
-    [
-      [
-        43,
-        10
-      ],
-      [
-        41,
-        10
-      ],
-      [
-        41,
-        9
-      ],
-      [
-        43,
-        7
-      ]
-    ],
-    [
-      [
-        84,
-        14
-      ],
-      [
-        83,
-        13
-      ],
-      [
-        82,
-        10
-      ],
-      [
-        83,
-        12
-      ]
-    ],
-    [
-      [
-        90,
-        42
-      ],
-      [
-        87,
-        43
-      ],
-      [
-        87,
-        41
-      ],
-      [
-        89,
-        40
-      ]
-    ],
-    [
-      [
-        80,
-        58
-      ],
-      [
-        78,
-        60
-      ],
-      [
-        76,
-        57
-      ],
-      [
-        79,
-        57
-      ]
-    ],
-    [
-      [
-        49,
-        62
-      ],
-      [
-        47,
-        62
-      ],
-      [
-        46,
-        60
-      ],
-      [
-        48,
-        60
-      ]
-    ],
-    [
-      [
-        16,
-        59
-      ],
-      [
-        16,
-        60
-      ],
-      [
-        15,
-        57
-      ],
-      [
-        15,
-        55
-      ]
-    ],
-    [
-      [
-        11,
-        32
-      ],
-      [
-        9,
-        34
-      ],
-      [
-        8,
-        31
-      ],
-      [
-        11,
-        31
-      ]
-    ]
-  ],
-  "patrols": [
-    {
-      "at": [
-        19,
-        14
-      ],
-      "points": [
-        [
-          24,
-          12
-        ],
-        [
-          24,
-          14
-        ]
-      ]
-    },
-    {
-      "at": [
-        17,
-        15
-      ],
-      "points": [
-        [
-          15,
-          11
-        ],
-        [
-          20,
-          15
-        ],
-        [
-          14,
-          13
-        ],
-        [
-          18,
-          17
-        ]
-      ]
-    },
-    {
-      "at": [
-        16,
-        13
-      ],
-      "points": [
-        [
-          16,
-          19
-        ],
-        [
-          13,
-          15
-        ],
-        [
-          12,
-          13
-        ]
-      ]
-    },
-    {
-      "at": [
-        43,
-        10
-      ],
-      "points": [
-        [
-          40,
-          12
-        ],
-        [
-          38,
-          6
-        ],
-        [
-          39,
-          10
-        ],
-        [
-          43,
-          6
-        ]
-      ]
-    },
-    {
-      "at": [
-        41,
-        10
-      ],
-      "points": [
-        [
-          37,
-          13
-        ],
-        [
-          39,
-          14
-        ],
-        [
-          41,
-          6
-        ]
-      ]
-    },
-    {
-      "at": [
-        41,
-        9
-      ],
-      "points": [
-        [
-          37,
-          6
-        ],
-        [
-          38,
-          12
-        ]
-      ]
-    },
-    {
-      "at": [
-        43,
-        7
-      ],
-      "points": [
-        [
-          48,
-          11
-        ],
-        [
-          35,
-          6
-        ]
-      ]
-    },
-    {
-      "at": [
-        84,
-        14
-      ],
-      "points": [
-        [
-          75,
-          9
-        ],
-        [
-          84,
-          11
-        ],
-        [
-          83,
-          16
-        ],
-        [
-          86,
-          18
-        ]
-      ]
-    },
-    {
-      "at": [
-        83,
-        12
-      ],
-      "points": [
-        [
-          86,
-          13
-        ],
-        [
-          83,
-          18
-        ]
-      ]
-    },
-    {
-      "at": [
-        90,
-        42
-      ],
-      "points": [
-        [
-          91,
-          35
-        ],
-        [
-          86,
-          42
-        ],
-        [
-          95,
-          43
-        ],
-        [
-          88,
-          37
-        ]
-      ]
-    },
-    {
-      "at": [
-        87,
-        43
-      ],
-      "points": [
-        [
-          86,
-          47
-        ],
-        [
-          84,
-          43
-        ],
-        [
-          90,
-          45
-        ],
-        [
-          87,
-          37
-        ]
-      ]
-    },
-    {
-      "at": [
-        89,
-        40
-      ],
-      "points": [
-        [
-          88,
-          43
-        ],
-        [
-          90,
-          37
-        ]
-      ]
-    },
-    {
-      "at": [
-        80,
-        58
-      ],
-      "points": [
-        [
-          76,
-          60
-        ],
-        [
-          82,
-          54
-        ],
-        [
-          78,
-          59
-        ]
-      ]
-    },
-    {
-      "at": [
-        78,
-        60
-      ],
-      "points": [
-        [
-          78,
-          56
-        ],
-        [
-          72,
-          59
-        ],
-        [
-          77,
-          58
-        ]
-      ]
-    },
-    {
-      "at": [
-        76,
-        57
-      ],
-      "points": [
-        [
-          75,
-          64
-        ],
-        [
-          82,
-          58
-        ],
-        [
-          75,
-          64
-        ],
-        [
-          75,
-          52
-        ]
-      ]
-    },
-    {
-      "at": [
-        79,
-        57
-      ],
-      "points": [
-        [
-          85,
-          57
-        ],
-        [
-          73,
-          58
-        ]
-      ]
-    },
-    {
-      "at": [
-        49,
-        62
-      ],
-      "points": [
-        [
-          54,
-          58
-        ],
-        [
-          46,
-          61
-        ],
-        [
-          49,
-          59
-        ]
-      ]
-    },
-    {
-      "at": [
-        47,
-        62
-      ],
-      "points": [
-        [
-          47,
-          64
-        ],
-        [
-          48,
-          65
-        ],
-        [
-          50,
-          65
-        ]
-      ]
-    },
-    {
-      "at": [
-        46,
-        60
-      ],
-      "points": [
-        [
-          47,
-          65
-        ],
-        [
-          47,
-          58
-        ]
-      ]
-    },
-    {
-      "at": [
-        48,
-        60
-      ],
-      "points": [
-        [
-          45,
-          59
-        ],
-        [
-          48,
-          57
-        ],
-        [
-          52,
-          55
-        ],
-        [
-          50,
-          65
-        ]
-      ]
-    },
-    {
-      "at": [
-        16,
-        59
-      ],
-      "points": [
-        [
-          16,
-          52
-        ],
-        [
-          14,
-          58
-        ],
-        [
-          15,
-          54
-        ],
-        [
-          13,
-          54
-        ]
-      ]
-    },
-    {
-      "at": [
-        16,
-        60
-      ],
-      "points": [
-        [
-          18,
-          64
-        ],
-        [
-          12,
-          60
-        ],
-        [
-          24,
-          53
-        ],
-        [
-          12,
-          60
-        ]
-      ]
-    },
-    {
-      "at": [
-        15,
-        55
-      ],
-      "points": [
-        [
-          12,
-          59
-        ],
-        [
-          10,
-          51
-        ],
-        [
-          11,
-          55
-        ],
-        [
-          10,
-          59
-        ]
-      ]
-    },
-    {
-      "at": [
-        11,
-        32
-      ],
-      "points": [
-        [
-          10,
-          34
-        ],
-        [
-          11,
-          29
-        ],
-        [
-          10,
-          30
-        ],
-        [
-          11,
-          35
-        ]
-      ]
-    },
-    {
-      "at": [
-        9,
-        34
-      ],
-      "points": [
-        [
-          10,
-          40
-        ],
-        [
-          11,
-          28
-        ],
-        [
-          7,
-          32
-        ]
-      ]
-    },
-    {
-      "at": [
-        8,
-        31
-      ],
-      "points": [
-        [
-          6,
-          33
-        ],
-        [
-          6,
-          28
-        ],
-        [
-          9,
-          37
-        ],
-        [
-          10,
-          32
-        ]
-      ]
-    },
-    {
-      "at": [
-        11,
-        31
-      ],
-      "points": [
-        [
-          10,
-          28
-        ],
-        [
-          10,
-          33
-        ],
-        [
-          11,
-          34
-        ],
-        [
-          9,
-          25
-        ]
-      ]
-    },
-    {
-      "at": [
-        62,
-        16
-      ],
-      "points": [
-        [
-          64,
-          17
-        ],
-        [
-          59,
-          11
-        ],
-        [
-          63,
-          11
-        ]
-      ]
-    },
-    {
-      "at": [
-        36,
-        52
-      ],
-      "points": [
-        [
-          41,
-          52
-        ],
-        [
-          36,
-          58
-        ],
-        [
-          36,
-          49
-        ]
-      ]
-    }
-  ]
+  "npcs": []
 }
