@@ -626,3 +626,7 @@ button.ghost.navfocus { color: #eaf6ff; }
 #carDots .cdot { width: 9px; height: 9px; border-radius: 50%; background: rgba(255, 255, 255, .16); transition: transform .12s, background .12s; }
 #carDots .cdot.here { background: var(--relay); transform: scale(1.55); box-shadow: 0 0 8px rgba(111, 216, 242, .6); }
 #carDots .cdot.picked { background: var(--teal); }
+
+/* story level-select: a compact scrollable grid of chapter buttons */
+.chapterList { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; max-height: 44vh; overflow-y: auto; margin: 8px 0; }
+.chapterList button { margin: 0; width: 100%; }

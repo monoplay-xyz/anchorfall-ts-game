@@ -4186,6 +4186,7 @@ function refreshContinue() {
   // ship; New Game inside it shares that gate, Continue Story needs a save too.
   $('btnStoryMode').hidden = !storyLevels.length;
   $('btnStory').hidden = !storyLevels.length;
+  $('btnStorySelect').hidden = !storyLevels.length;
   $('btnStoryContinue').hidden = !storyLevels.length || !localStorage.getItem(STORY_KEY);
   $('btnHostStory').hidden = !storyLevels.length;
   // versus/stronghold buttons only exist once their mode maps ship
@@ -4739,6 +4740,31 @@ $('btnStoryContinue').onclick = e => {
   session = new LocalSession(save, { story: true });
   session.lobby();
 };
+// Story level-select: jump straight to any chapter (handy for replays + testing).
+$('btnStorySelect').onclick = e => {
+  e.currentTarget.blur();
+  if (!storyLevels.length) return;
+  const list = $('chapterList');
+  if (!list.hidden) { list.hidden = true; return; } // toggle closed
+  let reached = 1;
+  try { const s = JSON.parse(localStorage.getItem(STORY_KEY)); if (s && s.chapter) reached = s.chapter; } catch {}
+  list.innerHTML = '';
+  storyLevels.forEach((lvl, i) => {
+    const ch = i + 1;
+    const b = document.createElement('button');
+    const done = ch < reached, here = ch === reached;
+    b.textContent = `${String(ch).padStart(2, '0')} · ${lvl.name}${done ? ' ✓' : here ? ' ◂' : ''}`;
+    b.onclick = ev => {
+      ev.currentTarget.blur();
+      if (session) return;
+      clearBeacon(); // a one-off chapter jump starts that chapter fresh
+      session = new LocalSession({ chapter: ch }, { story: true });
+      session.lobby();
+    };
+    list.appendChild(b);
+  });
+  list.hidden = false;
+};
 $('btnBastion').onclick = e => {
   e.currentTarget.blur();
   if (!bastionLevels.length || session) return;
@@ -4902,6 +4928,7 @@ document.addEventListener('fullscreenchange', () => { fitStage(); });
 // ---------- main loop ----------
 let last = performance.now();
 function frame(now) {
+  try {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   const polled = pollDevices();
@@ -4967,6 +4994,13 @@ function frame(now) {
     // cheap animated backdrop behind the DOM menu (optional renderer feature)
     renderMod.drawMenuBackdrop?.(ctx, now / 1000);
     if (tut) endTutorialCoach(); // session gone (quit mid-tutorial): clear the coach
+  }
+  } catch (e) {
+    // A render/tick exception must NEVER kill the frame loop — that freezes the
+    // whole game ("can't move"). The sim step already ran before most draws, so
+    // input survives; log the error and keep animating so the next frame retries.
+    if (typeof window !== 'undefined' && window.__dbg) window.__dbg('frame: ' + (e && e.stack || e));
+    else console.error('frame loop error', e);
   }
   requestAnimationFrame(frame);
 }
