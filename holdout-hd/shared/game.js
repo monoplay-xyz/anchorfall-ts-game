@@ -6017,6 +6017,19 @@ export function restoreGame(data, charMap) {
   return g;
 }
 
+// --- snapshot float quantization (WIRE OUTPUT ONLY) ------------------------
+// These trim float precision in the EMITTED snapshot object so positions ride
+// the wire at integer-px / 1-2 decimals instead of full IEEE-754 strings —
+// cutting the JSON payload ~30-40% with no visible motion change (the render
+// interpolates anyway). They are deterministic (same input -> same output) so
+// serialize/restore stays byte-stable, and they NEVER touch g.* — every call
+// site reads a sim value and rounds the COPY placed in the snapshot, so sim
+// state (and netcode parity) is untouched. Null/undefined pass through so
+// gated optional fields stay absent.
+const qi = v => (typeof v === 'number' ? Math.round(v) : v);                 // integer px (x/y)
+const q1 = v => (typeof v === 'number' ? Math.round(v * 10) / 10 : v);       // 1 decimal (vx/vy, timers)
+const q2 = v => (typeof v === 'number' ? Math.round(v * 100) / 100 : v);     // 2 decimals (fx/fy facing)
+
 // Pass full=false to omit the static tile grid (the server sends the grid once
 // at levelStart and lite snapshots every tick; clients re-attach the cached grid).
 export function snapshot(g, full = true) {
@@ -6026,8 +6039,8 @@ export function snapshot(g, full = true) {
     ...(full ? { grid: g.grid } : {}), w: g.w, h: g.h,
     ...(g.dark ? { dark: true } : {}),
     // untimed story: the client clock counts UP on elapsed instead of down
-    ...(g.untimed ? { untimed: true, elapsed: g.elapsed } : {}),
-    timeLeft: g.timeLeft,
+    ...(g.untimed ? { untimed: true, elapsed: q1(g.elapsed) } : {}),
+    timeLeft: q1(g.timeLeft),
     status: g.status,
     shards: g.shards,
     // ctf only: per-team pools — the client HUD shows the viewer's team pool
@@ -6051,7 +6064,7 @@ export function snapshot(g, full = true) {
     ...(g.pickups.length ? { pickups: g.pickups.map(w => ({ id: w.id, x: w.x, y: w.y, kind: w.kind, ammo: w.ammo })) } : {}),
     ...(g.qitems.length ? { qitems: g.qitems.map(it => ({ id: it.id, x: it.x, y: it.y, kind: it.kind, carrier: it.carrier })) } : {}),
     ...(g.quests.length ? { quests: g.quests.map(q => ({ id: q.id, state: q.state, progress: q.progress, count: q.count, title: q.title, main: q.main, kind: q.kind })) } : {}),
-    ...(g.followers.length ? { followers: g.followers.map(f => ({ id: f.id, kind: f.kind, owner: f.owner, x: f.x, y: f.y, hp: f.hp, fx: f.fx, fy: f.fy, slot: f.slot })) } : {}),
+    ...(g.followers.length ? { followers: g.followers.map(f => ({ id: f.id, kind: f.kind, owner: f.owner, x: qi(f.x), y: qi(f.y), hp: f.hp, fx: q2(f.fx), fy: q2(f.fy), slot: f.slot })) } : {}),
     // monolythium puzzle systems — shipped only when populated, so classic
     // snapshots never gain a key
     ...(g.switches.length ? { switches: g.switches.map(s => ({ id: s.id, x: s.x, y: s.y, on: s.on, group: s.group })) } : {}),
@@ -6073,7 +6086,7 @@ export function snapshot(g, full = true) {
     ...(g.cores ? { cores: g.cores.map(c => ({ x: c.x, y: c.y, hp: c.hp, maxHp: c.maxHp, lit: c.lit, ...(c.team != null ? { team: c.team } : {}) })) } : {}),
     // Anchor Siege: minions, lane towers, lane polylines, and core-open flags
     ...(g.siege ? { siege: {
-      minions: g.siege.minions.map(m => ({ id: m.id, team: m.team, x: m.x, y: m.y, hp: m.hp, maxHp: m.maxHp })),
+      minions: g.siege.minions.map(m => ({ id: m.id, team: m.team, x: qi(m.x), y: qi(m.y), hp: m.hp, maxHp: m.maxHp })),
       towers: g.siegeTowers.map(t => ({ x: t.x, y: t.y, team: t.team, hp: t.hp, maxHp: t.maxHp, level: t.level, destroyed: t.destroyed })),
       lanes: g.siege.lanes.map(l => l.waypoints.map(w => [w.x, w.y])),
       open: [siegeCoreOpen(g, 0), siegeCoreOpen(g, 1)],
@@ -6103,11 +6116,11 @@ export function snapshot(g, full = true) {
         : g.bastion.bloodMoons.includes(g.cycle.nightNo + 1)) ? { nextBloodMoon: true } : {}) } } : {}),
     ...(g.chests.length ? { chests: g.chests.map(c => ({ x: c.x, y: c.y, opened: c.opened, loot: c.loot })) } : {}),
     ...(g.crackers.length ? { crackers: g.crackers.map(c => ({ x: c.x, y: c.y, landed: c.landed, fuse: c.fuse })) } : {}),
-    ...(g.vehicles.length ? { vehicles: g.vehicles.map(v => ({ id: v.id, x: v.x, y: v.y, kind: v.kind, rider: v.rider })) } : {}),
+    ...(g.vehicles.length ? { vehicles: g.vehicles.map(v => ({ id: v.id, x: qi(v.x), y: qi(v.y), kind: v.kind, rider: v.rider })) } : {}),
     ...(g.towers.length ? { towers: g.towers.map(t => ({ x: t.x, y: t.y, level: t.level, hp: t.hp, maxHp: t.maxHp, occupant: t.occupant, ...(t.hp <= 0 ? { progress: t.progress || 0 } : {}) })) } : {}),
     ...(g.shops.length ? { shops: g.shops.map(s => ({ x: s.x, y: s.y })) } : {}),
     ...(g.hires.length ? { hires: g.hires.map(h => ({ x: h.x, y: h.y, cost: h.cost, job: h.job, hired: h.hired, name: h.name })) } : {}),
-    ...(g.flags.length ? { flags: g.flags.map(f => ({ team: f.team, x: f.x, y: f.y, homeX: f.homeX, homeY: f.homeY, carrier: f.carrier, atBase: f.atBase, dropT: f.dropT })) } : {}),
+    ...(g.flags.length ? { flags: g.flags.map(f => ({ team: f.team, x: qi(f.x), y: qi(f.y), homeX: qi(f.homeX), homeY: qi(f.homeY), carrier: f.carrier, atBase: f.atBase, dropT: q1(f.dropT) })) } : {}),
     ...(g.caps ? { caps: g.caps.slice() } : {}),
     // ctf overtime: present from the sudden-death horn on (and only then —
     // regulation/classic snapshots never gain the key) so the HUD can read
@@ -6116,8 +6129,8 @@ export function snapshot(g, full = true) {
     ...(g.zone ? { zone: { x: g.zone.x, y: g.zone.y, r: g.zone.r, targetR: g.zone.targetR, shrinkT: g.zone.shrinkT } } : {}),
     ...(g.winner !== undefined ? { winner: g.winner } : {}),
     players: g.players.map(p => ({
-      pid: p.pid, name: p.name, charId: p.charId, x: p.x, y: p.y, fx: p.fx, fy: p.fy,
-      state: p.state, invuln: p.invuln, specialCool: p.specialCool,
+      pid: p.pid, name: p.name, charId: p.charId, x: qi(p.x), y: qi(p.y), fx: q2(p.fx), fy: q2(p.fy),
+      state: p.state, invuln: q1(p.invuln), specialCool: q1(p.specialCool),
       ...(p.maxHp !== undefined ? { hp: p.hp, maxHp: p.maxHp, shield: p.shield } : {}),
       ...(p.item ? { item: { kind: p.item.kind, count: p.item.count } } : {}),
       ...(p.team !== undefined ? { team: p.team } : {}),
@@ -6127,12 +6140,12 @@ export function snapshot(g, full = true) {
       ...(p.selecting ? { selecting: true } : {}),
       ...(p.dmgBonus ? { dmgBonus: p.dmgBonus } : {}),
       ...(p.fieldWeapon ? { fieldWeapon: { kind: p.fieldWeapon.kind, ammo: p.fieldWeapon.ammo } } : {}),
-      ...(p.stunT > 0 ? { stunT: p.stunT } : {}),
+      ...(p.stunT > 0 ? { stunT: q1(p.stunT) } : {}),
       // lythseal carrier (own field, never the item slot): opens sealLock
       // doors on touch; the renderer drops Classical Phantom transparency
       // within 6 tiles of this seat and rings the bearer in checkpoint gold
       ...(p.lythseal ? { hasSeal: true, lythseal: true } : {}),
-      ...(p.channelT > 0 ? { channelT: p.channelT } : {}),
+      ...(p.channelT > 0 ? { channelT: q1(p.channelT) } : {}),
       // frontier IV: worn breather mask; aboard the landed Anchorcraft
       ...(p.mask ? { mask: true } : {}),
       ...(p.aboard ? { aboard: true } : {}),
@@ -6143,28 +6156,28 @@ export function snapshot(g, full = true) {
     enemies: g.enemies.map(e => ({
       id: e.id,
       kind: e.kind,
-      x: e.x,
-      y: e.y,
+      x: qi(e.x),
+      y: qi(e.y),
       hp: e.hp,
       maxHp: e.maxHp,
-      fx: e.fx,
-      fy: e.fy,
-      hurt: e.hurt,
+      fx: q2(e.fx),
+      fy: q2(e.fy),
+      hurt: q1(e.hurt),
       state: e.state,
-      aimT: e.aimT,
-      aimX: e.aimX,
-      aimY: e.aimY,
+      aimT: q1(e.aimT),
+      aimX: qi(e.aimX),
+      aimY: qi(e.aimY),
       awake: e.awake,
       returning: e.returning,
       ...(e.mutation ? { mutation: e.mutation } : {}),
       ...(e.shielded ? { shielded: true } : {}), // acolyte ward, one absorb
       // status clocks ship as short floats only while live (lite by default)
-      ...(e.stunT > 0 ? { stunT: e.stunT } : {}),
-      ...(e.burnT > 0 ? { burnT: e.burnT } : {}),
-      ...(e.toxT > 0 ? { toxT: e.toxT } : {}),
-      ...(e.convertedT > 0 ? { convertedT: e.convertedT } : {}),
+      ...(e.stunT > 0 ? { stunT: q1(e.stunT) } : {}),
+      ...(e.burnT > 0 ? { burnT: q1(e.burnT) } : {}),
+      ...(e.toxT > 0 ? { toxT: q1(e.toxT) } : {}),
+      ...(e.convertedT > 0 ? { convertedT: q1(e.convertedT) } : {}),
     })),
-    captives: g.captives.map(c => ({ charId: c.charId, x: c.x, y: c.y, owner: c.owner, fromPlayer: c.fromPlayer })),
+    captives: g.captives.map(c => ({ charId: c.charId, x: qi(c.x), y: qi(c.y), owner: c.owner, fromPlayer: c.fromPlayer })),
     // Music Box easter egg: shipped only when enabled (story/stronghold), so
     // every other mode's snapshot is byte-stable. The client reads mode+stem
     // to load the level's track, fragments/altar to draw + ping, assembled +
@@ -6192,8 +6205,10 @@ export function snapshot(g, full = true) {
         ...(g.horde.result ? { result: g.horde.result } : {}),
       },
     } : {}),
-    // ownerPid lets the renderer dress player shots in their seat's evolution
-    shots: g.shots.map(s => ({ x: s.x, y: s.y, vx: s.vx, vy: s.vy, who: s.who, kind: s.kind, ...(s.ownerPid !== undefined ? { ownerPid: s.ownerPid } : {}) })),
+    // ownerPid lets the renderer dress player shots in their seat's evolution.
+    // id rides so the render-side interpolator can match a shot frame-to-frame
+    // (sim shots already carry a unique id; it was simply not emitted before).
+    shots: g.shots.map(s => ({ id: s.id, x: qi(s.x), y: qi(s.y), vx: q1(s.vx), vy: q1(s.vy), who: s.who, kind: s.kind, ...(s.ownerPid !== undefined ? { ownerPid: s.ownerPid } : {}) })),
     rescued: g.rescued,
     score: Math.round(g.score),
     kills: g.kills,

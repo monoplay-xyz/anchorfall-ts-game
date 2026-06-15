@@ -2303,6 +2303,10 @@ class NetSession {
     this.myPid = null;
     this.myPick = null;
     this.snap = null;
+    // render interpolation: the last TWO net frames {snap, recv} (prev, cur)
+    // so the frame loop can blend entity positions between 30Hz net ticks.
+    // Render-only — never read by sim/HUD/netcode (this.snap stays the raw frame).
+    this.netBuf = null;
     this.grid = null;
     this.mini = null;     // latest AOI minimap array (server ships every 3rd tick)
     this.joinCode = mode === 'join' ? code : null; // rejoin offer before the first lobby lands
@@ -2401,6 +2405,69 @@ class NetSession {
   pickOf(pid) { return this.lobbyData?.players.find(p => p.pid === pid)?.charId || null; }
   focusPids() { return this.seats.size ? new Set(this.seats.values()) : new Set([this.myPid]); }
   primaryPid() { return this.myPid; }
+
+  // --- render interpolation (NET only) -------------------------------------
+  // Buffer the last TWO net frames with their arrival times. Render-only: the
+  // sim never runs here and this.snap stays the raw authoritative frame, so
+  // netcode parity is untouched.
+  pushNetSnap(snap) {
+    if (!snap) { this.netBuf = null; return; }
+    const recv = performance.now();
+    const cur = this.netBuf?.cur;
+    // keep only prev+cur; a fresh frame shifts cur -> prev
+    this.netBuf = { prev: cur || null, cur: { snap, recv } };
+  }
+
+  // Produce an interpolated copy of the latest net frame for the renderer.
+  // Falls back to the raw snap whenever interpolation can't apply (one frame
+  // only, not in play, degenerate timing). Matches entities by id/pid and
+  // SNAPs (no blend) for newcomers/leavers or jumps > 1 tile (respawn/blink).
+  renderSnap(now) {
+    const buf = this.netBuf;
+    if (!buf || !buf.prev || !buf.cur) return this.snap;
+    const cur = buf.cur, prev = buf.prev;
+    if (cur.snap.status !== 'play' || prev.snap.status !== 'play') return this.snap;
+    const span = cur.recv - prev.recv;
+    if (!(span > 0)) return this.snap;
+    // render ~one net interval in the past so we always have two frames to
+    // blend between; clamp alpha to [0,1] (never extrapolate past cur, which
+    // would overshoot on packet loss). RENDER_DELAY ~= one 30Hz tick.
+    const RENDER_DELAY = 45; // ms (≈ 1.0–1.5 net ticks at 30Hz)
+    const rt = now - RENDER_DELAY;
+    let a = (rt - prev.recv) / span;
+    a = a < 0 ? 0 : a > 1 ? 1 : a;
+    const JUMP2 = (TILE * TILE) * 1.0; // squared 1-tile threshold for SNAP
+    // index prev entities by their match key for O(1) lookup
+    const lerpArr = (curArr, prevArr, keyOf) => {
+      if (!Array.isArray(curArr)) return curArr;
+      if (!Array.isArray(prevArr) || !prevArr.length || a <= 0) return curArr;
+      const pmap = new Map();
+      for (const e of prevArr) pmap.set(keyOf(e), e);
+      return curArr.map(c => {
+        const p = pmap.get(keyOf(c));
+        if (!p) return c; // newcomer -> SNAP to current
+        const dx = c.x - p.x, dy = c.y - p.y;
+        if (dx * dx + dy * dy > JUMP2) return c; // respawn/teleport/blink -> SNAP
+        const o = { ...c, x: p.x + dx * a, y: p.y + dy * a };
+        if (typeof c.fx === 'number' && typeof p.fx === 'number') o.fx = p.fx + (c.fx - p.fx) * a;
+        if (typeof c.fy === 'number' && typeof p.fy === 'number') o.fy = p.fy + (c.fy - p.fy) * a;
+        return o;
+      });
+    };
+    const cs = cur.snap, ps = prev.snap;
+    const out = { ...cs };
+    out.players = lerpArr(cs.players, ps.players, e => 'p' + e.pid);
+    out.enemies = lerpArr(cs.enemies, ps.enemies, e => e.id);
+    out.shots = lerpArr(cs.shots, ps.shots, e => e.id);
+    if (cs.followers) out.followers = lerpArr(cs.followers, ps.followers, e => e.id);
+    if (cs.captives) out.captives = lerpArr(cs.captives, ps.captives, e => e.charId + '@' + e.owner);
+    if (cs.vehicles) out.vehicles = lerpArr(cs.vehicles, ps.vehicles, e => e.id);
+    if (cs.flags) out.flags = lerpArr(cs.flags, ps.flags, e => e.team);
+    if (cs.siege && ps.siege) {
+      out.siege = { ...cs.siege, minions: lerpArr(cs.siege.minions, ps.siege.minions, e => e.id) };
+    }
+    return out;
+  }
   // splitscreen: ONLY this machine's couch seats split (insertion order =
   // seat order); a mouse-only machine (no bound seats) keeps the shared view
   // and the server/other machines are untouched either way
@@ -2538,6 +2605,10 @@ class NetSession {
         };
       }
       this.snap = m.s || null;
+      // fresh level: drop any buffered frames so the interpolator can't blend
+      // across the level boundary (a new map = everything snaps into place)
+      this.netBuf = null;
+      this.pushNetSnap(m.s || null);
       hideAll();
     }
     else if (m.t === 'state') {
@@ -2549,6 +2620,10 @@ class NetSession {
       else if (this.mini) m.s.mini = this.mini;
       const prev = this.snap;
       this.snap = m.s;
+      // feed the render interpolator: buffers prev+cur with arrival times so
+      // the frame loop can smooth motion between 30Hz net ticks (render-only —
+      // this.snap above stays the authoritative raw frame every consumer reads)
+      this.pushNetSnap(m.s);
       for (const ev of m.s.events) handleEvent(ev);
       if (!prev) hideAll();
     }
@@ -4390,13 +4465,18 @@ function frame(now) {
     } else {
       const snap = session.snap;
       if (snap) {
+        // NET play: render an interpolated copy (smooth motion between 30Hz
+        // ticks) for the world + camera; HUD/music/tutorial/map keep the raw
+        // authoritative frame. LocalSession has no renderSnap, so solo/couch
+        // render the live local snapshot unchanged (already smooth).
+        const rsnap = session.renderSnap ? session.renderSnap(now) : snap;
         // dynamic splitscreen: views[] while split (or mid-transition), null
         // for the classic shared camera. renderViews is typeof-guarded — the
         // render module's split pass ships separately, and until it lands
         // (or with 0-1 local seats / Off / demo) render() stays single-view.
-        const views = typeof renderMod.renderViews === 'function' ? splitViews(snap, dt) : null;
-        if (views) renderMod.renderViews(ctx, snap, charMap, views, now / 1000, dt);
-        else render(ctx, snap, charMap, session.focusPids(), now / 1000, dt);
+        const views = typeof renderMod.renderViews === 'function' ? splitViews(rsnap, dt) : null;
+        if (views) renderMod.renderViews(ctx, rsnap, charMap, views, now / 1000, dt);
+        else render(ctx, rsnap, charMap, session.focusPids(), now / 1000, dt);
         updateHUD(snap);
         syncMusicBox(snap);
         if (session.tutorial) tutorialTick(snap);

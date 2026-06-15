@@ -4202,6 +4202,99 @@ function drawShop(ctx, s, t, snap, lights) {
 }
 
 // 'H' — hire post: an operator warms their hands by a signal fire until paid.
+// Post jobs work their station on the field (farmer/engineer/smith). Combat
+// jobs (hound/archer/caster) leave the post and render as g.followers instead,
+// so a 'hired' combat post stays an empty signpost until it restocks.
+const POST_JOBS = new Set(['farmer', 'engineer', 'smith']);
+
+// The hired hand standing at their post, working. One body per post job so a
+// hired farmer/engineer/smith reads on the field (the unhired hooded recruit
+// is drawn separately, below). Pure render — the sim already runs the effect.
+function drawHiredWorker(ctx, h, t, lights) {
+  const { x, y } = h;
+  const job = String(h.job ?? '');
+  // worker stands just left of the signal fire; a slow work-cycle drives props
+  const wx = x - 1, wy = y;
+  const cyc = t * 2.2 + x * 0.11;          // the swing/till/strike cadence
+  const swing = Math.sin(cyc);
+  const bob = Math.abs(Math.cos(cyc)) * 0.9;
+  shadowBlob(ctx, wx, wy + 7, 6.5, 3);
+  // legs (a small planted stance)
+  ctx.fillStyle = '#232533';
+  ctx.fillRect(wx - 3.4, wy + 1, 2.8, 5);
+  ctx.fillRect(wx + 0.6, wy + 1, 2.8, 5);
+  // torso — work tunic, owner-neutral earth tones so it reads as a townsfolk
+  ctx.fillStyle = '#5A4A34';
+  ctx.beginPath(); ctx.ellipse(wx, wy - 2 + bob, 5, 7, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = 'rgba(11,10,20,0.3)';
+  ctx.beginPath(); ctx.ellipse(wx, wy + 1 + bob, 3.6, 3.4, 0, 0, Math.PI); ctx.fill();
+  // head
+  ctx.fillStyle = '#C79A6E';
+  ctx.beginPath(); ctx.arc(wx, wy - 9 + bob, 3.4, 0, Math.PI * 2); ctx.fill();
+  if (job === 'farmer') {
+    // straw hat
+    ctx.fillStyle = '#C9A24B';
+    ctx.beginPath(); ctx.ellipse(wx, wy - 10 + bob, 5.4, 1.9, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(wx, wy - 11.6 + bob, 2.8, 2.4, 0, 0, Math.PI * 2); ctx.fill();
+    // hoe: shaft swings down toward the soil
+    const ang = -0.5 + swing * 0.5;
+    ctx.save(); ctx.translate(wx + 3, wy - 4 + bob); ctx.rotate(ang);
+    ctx.strokeStyle = '#6E5A3A'; ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.moveTo(0, -6); ctx.lineTo(0, 8); ctx.stroke();
+    ctx.fillStyle = '#8A98B8'; ctx.fillRect(-2.4, 7.5, 4.5, 2);
+    ctx.restore();
+    // a sprig of LYTH-gold grain by the worker's feet
+    ctx.strokeStyle = PAL.lythGold; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(wx + 6, wy + 6); ctx.lineTo(wx + 6, wy + 1); ctx.stroke();
+  } else if (job === 'engineer') {
+    // goggled cap
+    ctx.fillStyle = '#3A4258';
+    ctx.beginPath(); ctx.arc(wx, wy - 10 + bob, 3.6, Math.PI, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = PAL.teal;
+    ctx.fillRect(wx - 3, wy - 9.4 + bob, 6, 1.4);
+    // wrench raised and turning
+    const ang = 0.4 + swing * 0.7;
+    ctx.save(); ctx.translate(wx + 3.5, wy - 5 + bob); ctx.rotate(ang);
+    ctx.strokeStyle = '#8A98B8'; ctx.lineWidth = 1.8;
+    ctx.beginPath(); ctx.moveTo(0, 4); ctx.lineTo(0, -5); ctx.stroke();
+    ctx.fillStyle = '#8A98B8';
+    ctx.beginPath(); ctx.arc(0, -6, 2.2, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = PAL.voidNight;
+    ctx.beginPath(); ctx.arc(0, -6, 1, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    // a wrench-glint spark on the turn
+    if (swing > 0.6) {
+      ctx.fillStyle = PAL.lythPale;
+      ctx.fillRect(wx + 5, wy - 11 + bob, 1.4, 1.4);
+    }
+  } else { // smith
+    // leather apron
+    ctx.fillStyle = '#4A2E1E';
+    ctx.beginPath(); ctx.moveTo(wx - 3.4, wy - 4 + bob); ctx.lineTo(wx + 3.4, wy - 4 + bob);
+    ctx.lineTo(wx + 2.6, wy + 4 + bob); ctx.lineTo(wx - 2.6, wy + 4 + bob); ctx.closePath(); ctx.fill();
+    // small anvil at the worker's side, faint forge glow on the strike
+    ctx.fillStyle = '#3A3A44';
+    ctx.fillRect(wx + 4, wy + 1, 6, 2.4);
+    ctx.fillRect(wx + 5.5, wy + 3, 2.6, 3);
+    // hammer comes down on the upbeat
+    const lift = swing > 0 ? swing : 0;
+    const ang = -1.1 + (1 - lift) * 1.0;
+    ctx.save(); ctx.translate(wx + 4.5, wy - 5 + bob); ctx.rotate(ang);
+    ctx.strokeStyle = '#6E5A3A'; ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.moveTo(0, 6); ctx.lineTo(0, -5); ctx.stroke();
+    ctx.fillStyle = '#5E6880'; ctx.fillRect(-2.6, -7, 5.2, 3);
+    ctx.restore();
+    if (swing < -0.6) { // sparks fly when the hammer lands
+      ctx.fillStyle = PAL.lythAmber;
+      ctx.fillRect(wx + 6, wy + 0.5, 1.4, 1.4);
+      ctx.fillStyle = PAL.lythGold;
+      ctx.fillRect(wx + 8, wy - 0.5, 1, 1);
+      lights.push({ x: wx + 6, y: wy + 1, r: 22, rgb: '240,169,60', a: 0.18 });
+    }
+  }
+  rimArc(ctx, wx, wy - 6 + bob, 6, 0.3);
+}
+
 function drawHirePost(ctx, h, t, lights) {
   const { x, y } = h;
   shadowBlob(ctx, x, y + 8, 13, 4.5);
@@ -4245,6 +4338,11 @@ function drawHirePost(ctx, h, t, lights) {
     ctx.fillStyle = `rgba(255,217,138,${0.55 + j * 0.3})`; // firelit visor glint
     ctx.fillRect(x - 2.4, y - 7.4 + bob, 3, 1.1);
     drawPrompt(ctx, x, y - 30, `[E/X] HIRE ${h.cost ?? ''}◆ ${String(h.job ?? '').toUpperCase()}`, t);
+  } else if (POST_JOBS.has(String(h.job ?? ''))) {
+    // hired post worker is on station, doing their job. Combat hires (hound/
+    // archer/caster) leave the post for the field and render as followers, so
+    // their hired post stays an empty signpost until it restocks — unchanged.
+    drawHiredWorker(ctx, h, t, lights);
   }
 }
 
