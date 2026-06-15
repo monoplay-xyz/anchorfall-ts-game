@@ -565,6 +565,11 @@ const DOOR_TOUCH = 10; // px beyond the player radius for lythseal door touches
 // 0 hp goes DARK (never destroyed); a day-time act-hold plus 8 shards relights
 // it at full hp. Lose only when all four are dark at once.
 const RELIGHT_COST = 8; // shards to relight a dark beacon
+// Beacon-defense fail threshold scales with difficulty: keep at least this many
+// monoliths lit (clamped to the beacon count). Drop below it and a recovery
+// grace starts; relight back to the threshold or the mission fails.
+const BEACON_THRESHOLD = { easy: 1, normal: 2, extreme: 3 };
+const BEACON_GRACE_T = 10; // seconds below threshold before the mission fails
 const RELIGHT_HOLD_T = 1.5; // seconds of act-hold at the dark monolith
 // Anchorcraft early extraction: from night 2 on, all four beacons lit AT NIGHT
 // lands the ship; boarding everyone launches with a full-clear bonus.
@@ -2888,11 +2893,32 @@ function dropHeld(g, p) {
       recruitDefender(g, p.x, p.y, 'rescue');
       g.events.push({ type: 'opSaved', x: p.x, y: p.y, opId: op.id });
     } else {
+      op.noPid = p.pid; // set down: don't let the dropper instantly re-scoop it
       g.events.push({ type: 'opDrop', x: p.x, y: p.y, opId: op.id });
     }
     return true;
   }
-  // 3. carried relic fragment (drops it on the spot for a teammate to retrieve)
+  // 3. carried rescued character (captive): at the base they're SAVED + recruited
+  // as a defender; dropped elsewhere they're set down (and won't re-attach).
+  const cap = g.captives.find(c => c.owner === p.pid);
+  if (cap) {
+    cap.owner = null;
+    cap.x = p.x;
+    cap.y = p.y;
+    const cbase = baseCenter(g);
+    if (dist2(p, cbase) < (TILE * DEFENDER_HOLD) ** 2) {
+      g.rescued.push(cap.charId);
+      g.captives.splice(g.captives.indexOf(cap), 1);
+      recruitDefender(g, p.x, p.y, 'rescue');
+      g.score += 500;
+      g.events.push({ type: 'opSaved', x: p.x, y: p.y, opId: cap.id, charId: cap.charId });
+    } else {
+      cap.noPid = p.pid; // set down: don't let the dropper instantly re-scoop it
+      g.events.push({ type: 'opDrop', x: p.x, y: p.y, opId: cap.id });
+    }
+    return true;
+  }
+  // 4. carried relic fragment (drops it on the spot for a teammate to retrieve)
   if (g.musicBox && g.musicBox.enabled && !g.musicBox.complete) {
     const f = g.musicBox.fragments.find(fr => fr.carrier === p.pid);
     if (f) {
@@ -2924,7 +2950,7 @@ function releaseHoldings(g, p) {
   dropFlags(g, p);
   // a downed/extracted carrier sets down their stranded operator + scrap where
   // they fell (mirrors how captives free their owner) so neither is ever lost
-  for (const o of g.stranded) if (o.carrier === p.pid) { o.carrier = null; o.x = p.x; o.y = p.y; }
+  for (const o of g.stranded) if (o.carrier === p.pid) { o.carrier = null; o.x = p.x; o.y = p.y; o.noPid = p.pid; }
   for (const s of g.scrap) if (s.carrier === p.pid) { s.carrier = null; s.x = p.x; s.y = p.y; s.noPid = p.pid; }
 }
 
@@ -5458,11 +5484,15 @@ function stepCapture(g, dt) {
   }
   const controlled = heroes >= cap.threshold && !foe;
   const contested = foe && heroes >= cap.threshold; // both inside: a live contest
-  if (controlled) {
+  // Progress only banks at NIGHT (when the assault actually contests the hill) so
+  // the zone must be HELD THROUGH the nights, not just filled during a quiet day.
+  // Maps with no day/night cycle keep the simple fill.
+  const pressure = !g.cycle || g.cycle.phase === 'night';
+  if (controlled && pressure) {
     cap.ownerT = Math.min(cap.duration, cap.ownerT + dt);
-  } else {
+  } else if (!controlled) {
     cap.ownerT = Math.max(0, cap.ownerT - dt * cap.decay);
-  }
+  } // controlled during the day: hold steady (no fill, no decay)
   // emit on EITHER a held-flip or a contest-flip so the HUD/FX can react to a
   // takeover or a freeze (deterministic: a pure function of zone occupancy).
   if (controlled !== cap.held || contested !== cap.contested) {
@@ -7141,7 +7171,13 @@ export function step(g, inputs, dt) {
 
     for (const c of g.captives) {
       // == null, not falsy: local couch players start at pid 0
-      if (c.owner == null && dist2(p, c) < (PLAYER_R + CAPTIVE_R) ** 2) {
+      if (c.owner != null) continue;
+      const inReach = dist2(p, c) < (PLAYER_R + CAPTIVE_R) ** 2;
+      if (c.noPid === p.pid) { // just set down by this seat: don't re-grab until they step off it
+        if (!inReach) c.noPid = null;
+        continue;
+      }
+      if (inReach) {
         c.owner = p.pid;
         g.events.push({ type: 'pickup', x: c.x, y: c.y, charId: c.charId });
       }
@@ -7178,7 +7214,13 @@ export function step(g, inputs, dt) {
     // fine — the two carries are independent). No-op off-mode (empty arr).
     if (!g.stranded.some(o => o.carrier === p.pid)) {
       for (const o of g.stranded) {
-        if (!o.recruited && o.carrier == null && dist2(p, o) < (PLAYER_R + STRANDED_R) ** 2) {
+        if (o.recruited || o.carrier != null) continue;
+        const inReach = dist2(p, o) < (PLAYER_R + STRANDED_R) ** 2;
+        if (o.noPid === p.pid) { // just set down by this seat: don't re-grab until they step off it
+          if (!inReach) o.noPid = null;
+          continue;
+        }
+        if (inReach) {
           o.carrier = p.pid;
           g.events.push({ type: 'opPickup', x: o.x, y: o.y, opId: o.id, pid: p.pid });
           break; // at most one operator per pickup tick
@@ -8188,13 +8230,30 @@ export function step(g, inputs, dt) {
       if (c.hp <= 0) { g.events.push({ type: 'coreDown', x: c.x, y: c.y, team: c.team }); pvpWin(g, siegeFoe(c.team)); return; }
     }
   }
-  // Beacon-defense: the mission is lost only when ALL FOUR monoliths are
-  // dark at once (single dark beacons are recoverable by day).
-  else if (g.cores && g.cores.every(c => !c.lit)) {
-    g.status = 'failed';
-    g.events.push({ type: 'allDark', x: g.w * TILE / 2, y: g.h * TILE / 2 });
-    g.events.push({ type: 'fail', x: g.w * TILE / 2, y: g.h * TILE / 2 });
-    return;
+  // Beacon-defense: keep at least a difficulty-scaled number of monoliths lit
+  // (easy 1 / normal 2 / extreme 3, clamped to the beacon count). Drop below it
+  // and a 10s recovery grace starts — relight back to the threshold or the
+  // mission fails when the grace runs out.
+  else if (g.cores && g.cores.length) {
+    const lit = g.cores.reduce((n, c) => n + (c.lit ? 1 : 0), 0);
+    const want = Math.max(1, Math.min(g.cores.length, BEACON_THRESHOLD[g.difficulty] || 2));
+    if (lit < want) {
+      if (g.beaconGraceT == null) {
+        g.beaconGraceT = BEACON_GRACE_T;
+        g.events.push({ type: 'beaconWarn', need: want, lit, secs: BEACON_GRACE_T, x: g.w * TILE / 2, y: g.h * TILE / 2 });
+      } else {
+        g.beaconGraceT -= dt;
+        if (g.beaconGraceT <= 0) {
+          g.status = 'failed';
+          g.events.push({ type: 'allDark', x: g.w * TILE / 2, y: g.h * TILE / 2 });
+          g.events.push({ type: 'fail', x: g.w * TILE / 2, y: g.h * TILE / 2 });
+          return;
+        }
+      }
+    } else if (g.beaconGraceT != null) {
+      g.beaconGraceT = null;
+      g.events.push({ type: 'beaconRecovered', need: want, x: g.w * TILE / 2, y: g.h * TILE / 2 });
+    }
   }
   // Bastion: the base core falling loses the mission outright.
   if (g.core && g.core.hp <= 0) {
@@ -8248,7 +8307,12 @@ export function step(g, inputs, dt) {
   }
   // Mode missions (bastion/ctf/br) never auto-clear on an empty field —
   // bastion waits for the final dawn, pvp modes have no AI enemies at all.
-  if (g.enemies.length === 0 && !g.mode && !mainsLeft) {
+  // Objective maps must be COMPLETED, not just cleared of enemies: an unopened
+  // gate quorum, an undelivered escort, or an unheld capture each block the
+  // extermination auto-clear so players actually do the mission instead of
+  // farming kills.
+  const objectivePending = (g.gate && !g.gate.open) || !!g.escort || !!g.capture;
+  if (g.enemies.length === 0 && !g.mode && !mainsLeft && !objectivePending) {
     for (const p of g.players) if (p.state === 'active') extractPlayer(g, p);
     g.status = 'cleared';
     g.events.push({ type: 'clear', x: g.w * TILE / 2, y: g.h * TILE / 2, points: Math.round(g.score) });
@@ -8443,10 +8507,12 @@ export function snapshot(g, full = true) {
     // only appears when true, so classic-bastion snapshots stay byte-stable)
     // — the client's wave countdown reads it for the day-before red styling.
     ...(g.cycle ? { cycle: { phase: g.cycle.phase, nightNo: g.cycle.nightNo, t: g.cycle.t, bloodMoon: g.cycle.bloodMoon, nights: g.bastion.nights,
+      ...(g.cycle.hornT > 0 ? { hornP: Math.min(1, g.cycle.hornT / HORN_HOLD_T) } : {}),
       ...(g.bastion.endless ? { endless: true } : {}),
       ...(g.cycle.phase === 'day' && (g.bastion.endless
         ? ((g.cycle.nightNo + 1) % (g.bastion.bloodEvery || 3) === 0)
         : g.bastion.bloodMoons.includes(g.cycle.nightNo + 1)) ? { nextBloodMoon: true } : {}) } } : {}),
+    ...(g.beaconGraceT != null ? { beaconGraceT: g.beaconGraceT } : {}),
     ...(g.chests.length ? { chests: g.chests.map(c => ({ x: c.x, y: c.y, opened: c.opened, loot: c.loot })) } : {}),
     ...(g.crackers.length ? { crackers: g.crackers.map(c => ({ x: c.x, y: c.y, landed: c.landed, fuse: c.fuse })) } : {}),
     ...(g.vehicles.length ? { vehicles: g.vehicles.map(v => ({ id: v.id, x: qi(v.x), y: qi(v.y), kind: v.kind, rider: v.rider })) } : {}),

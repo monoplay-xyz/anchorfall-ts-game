@@ -1,7 +1,7 @@
 {
   "stranded": true,
   "name": "Relay Shrine",
-  "objective": "Seize the marble dais and keep the relay lit through the long defense — wraith-fire crosses the plaza and revenants drift the colonnade.",
+  "objective": "Seize the marble dais and keep the relay lit through the long defense \u2014 wraith-fire crosses the plaza and revenants drift the colonnade.",
   "time": 600,
   "expedition": true,
   "mode": "bastion",
@@ -28,7 +28,7 @@
     "x": 23,
     "y": 19,
     "radius": 3,
-    "duration": 22,
+    "duration": 90,
     "threshold": 1,
     "decay": 1,
     "contest": true
@@ -53,7 +53,7 @@
       "title": "Relay Shrine",
       "lines": [
         "The relay sleeps on the marble dais at the heart of the shrine. Light it, and hold it lit.",
-        "Vault-wraiths arc their fire across the open plaza — never line up two of you.",
+        "Vault-wraiths arc their fire across the open plaza \u2014 never line up two of you.",
         "The colonnade will not stop the phaseborn. They walk through stone."
       ],
       "art": "campfire"

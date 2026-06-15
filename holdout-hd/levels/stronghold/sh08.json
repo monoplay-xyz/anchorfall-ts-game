@@ -1,7 +1,7 @@
 {
   "stranded": true,
   "name": "Summit Ring",
-  "objective": "Seize the frozen summit and hold the ring through the long cold — own the high ground or be ground down on the ice below",
+  "objective": "Seize the frozen summit and hold the ring through the long cold \u2014 own the high ground or be ground down on the ice below",
   "time": 600,
   "expedition": true,
   "mode": "bastion",
@@ -27,7 +27,7 @@
     "x": 24,
     "y": 19,
     "radius": 3,
-    "duration": 28,
+    "duration": 70,
     "threshold": 1,
     "decay": 0.6,
     "contest": true
@@ -51,9 +51,9 @@
     {
       "title": "Summit Ring",
       "lines": [
-        "The crown of the glacier is the only ground worth holding — a stone ring above an open sheet of sliding ice with no cover for miles.",
+        "The crown of the glacier is the only ground worth holding \u2014 a stone ring above an open sheet of sliding ice with no cover for miles.",
         "Take the summit first. The capture meter only fills while you stand the high ground uncontested; let a glacier crest the ramp and it freezes.",
-        "Two glaciers grind up the ramps at once and frostshades flank across the floe, chilling your legs. Footing on the ice is its own enemy — kite carefully."
+        "Two glaciers grind up the ramps at once and frostshades flank across the floe, chilling your legs. Footing on the ice is its own enemy \u2014 kite carefully."
       ],
       "art": "siege"
     }

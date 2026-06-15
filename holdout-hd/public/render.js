@@ -9675,6 +9675,28 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
       ctx.restore();
     }
   }
+  // THE HORN: while a hero act-holds at a lit post during the day, show the charge
+  // ring so you can see how long to hold (mirrors the build-progress arc). Gated:
+  // cycle.hornP only ships while the horn is actually charging.
+  if (snap.cycle && snap.cycle.hornP > 0) {
+    const litPosts = cores.length ? cores.filter(c => (c.hp ?? 1) > 0) : (core ? [core] : []);
+    for (const pst of litPosts) {
+      if (!inView(pst.x, pst.y, 120)) continue;
+      ctx.save();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+      ctx.beginPath(); ctx.arc(pst.x, pst.y, 22, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = '#FFCB45';
+      ctx.beginPath();
+      ctx.arc(pst.x, pst.y, 22, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, snap.cycle.hornP));
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(255,203,69,0.95)';
+      ctx.font = 'bold 8px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('HORN', pst.x, pst.y - 28);
+      ctx.restore();
+    }
+  }
   // --- NEW objectives (map-overhaul): capture zone, escort anchor, bridge mark.
   // Each is gated on its snapshot key, so unobjected maps draw nothing extra.
   if (snap.capture) drawCaptureZone(ctx, snap.capture, t, lights);

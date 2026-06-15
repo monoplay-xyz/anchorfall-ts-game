@@ -10,7 +10,7 @@
     "x": 25,
     "y": 6,
     "radius": 3,
-    "duration": 22,
+    "duration": 60,
     "threshold": 1,
     "decay": 1,
     "contest": true
@@ -44,7 +44,7 @@
     "blurb": "A glacier crown above frozen leads. Climb the slick ramps, take the high ground by day, and hold it while the cold things grind up after you.",
     "newFeatures": [
       "King-of-the-Hill: seize the crown to win",
-      "Ice ramps slide — watch your footing on the climb",
+      "Ice ramps slide \u2014 watch your footing on the climb",
       "Frostshades chill; a Glacier grinds up the ramp"
     ]
   },
@@ -54,7 +54,7 @@
       "title": "Thaw Crown",
       "lines": [
         "The crown sits on a shelf of old glacier ice, ringed in rock with three ramps cut into the slope.",
-        "Take it in daylight — stand the high ground long enough and it is yours. Then keep it.",
+        "Take it in daylight \u2014 stand the high ground long enough and it is yours. Then keep it.",
         "The ramps are sheet ice; you will slide. Frostshades will chill you to a crawl, and a Glacier never stops climbing."
       ],
       "art": "siege"
@@ -65,7 +65,7 @@
       "title": "The Crown Holds",
       "lines": [
         "Four nights, and the banner still flies over the ice crown.",
-        "Below, the frozen leads crack and refreeze — the slope is ours now."
+        "Below, the frozen leads crack and refreeze \u2014 the slope is ours now."
       ],
       "art": "dawn"
     }

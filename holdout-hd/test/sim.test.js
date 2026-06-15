@@ -406,10 +406,16 @@ function testStrandedOperatorsAndScrap() {
   step(rg, { 0: { drop: true } }, 1 / 30);
   assert.ok(!rop.recruited, 'dropping an operator far from base does not recruit');
   assert.equal(rg.followers.length, fBeforeFar, 'no defender spawns on a far drop');
-  // pick them up again and drop at the base centre -> recruited
+  // a JUST-dropped operator is NOT instantly re-scooped while you stand on it
   rp.x = rop.x; rp.y = rop.y;
   step(rg, { 0: {} }, 1 / 30);
-  assert.equal(rop.carrier, 0, 're-carried after the far drop');
+  assert.equal(rop.carrier, null, 'not instantly re-scooped right after the drop');
+  // step away to clear the no-pick tag, then back -> it can be re-carried again
+  rp.x = rop.x + 4 * TILE; rp.y = rop.y;
+  step(rg, { 0: {} }, 1 / 30);
+  rp.x = rop.x; rp.y = rop.y;
+  step(rg, { 0: {} }, 1 / 30);
+  assert.equal(rop.carrier, 0, 're-carried after stepping away and back');
   rp.x = rbase.x; rp.y = rbase.y; rop.x = rbase.x; rop.y = rbase.y;
   const fBeforeBase = rg.followers.length;
   step(rg, { 0: { drop: true } }, 1 / 30);
@@ -6913,10 +6919,14 @@ function testBeaconSiegeDarkRelightAndLoss() {
   g.shards = 7;
   run(g, () => ({ 0: { act: true } }), 3);
   assert.equal(c0.lit, false, '7 shards cannot pay the 8-shard relight');
-  // LOSE only when all four are dark at once
+  // LOSE: dropping below the difficulty threshold (default normal = keep 2 of 4)
+  // starts a 10s recovery grace; failing to recover ends the mission.
   for (const c of g.cores) { c.lit = false; c.hp = 0; }
   step(g, { 0: {} }, 1 / 30);
-  assert.equal(g.status, 'failed', 'all four dark at once loses the mission');
+  assert.equal(g.status, 'play', 'falling below the threshold starts a grace, not an instant loss');
+  assert.ok(g.events.some(ev => ev.type === 'beaconWarn'), 'beaconWarn event fired');
+  run(g, () => ({ 0: {} }), 11); // let the 10s grace lapse with no relight
+  assert.equal(g.status, 'failed', 'failing to recover within the grace loses the mission');
   assert.ok(g.events.some(ev => ev.type === 'allDark'), 'allDark event fired');
   assert.ok(g.events.some(ev => ev.type === 'fail'), 'fail event fired');
 }
@@ -10370,8 +10380,14 @@ function testCaptureHillProgressesAndWins() {
   // stand the hero on the hill: the meter accrues and wins at duration (3s).
   // Run a little past 3s to clear the win threshold; cap the cycle out of the way.
   g.players[0].x = g.capture.x; g.players[0].y = g.capture.y;
-  run(g, () => { g.players[0].x = g.capture.x; g.players[0].y = g.capture.y; return { 0: {} }; }, 3.5);
-  assert.equal(g.status, 'cleared', 'holding the hill to full meter wins');
+  // NIGHT-GATE: holding the hill during the DAY banks nothing — progress only
+  // accrues at night (so the zone must be held THROUGH the assault).
+  if (g.cycle) { g.cycle.phase = 'day'; g.cycle.t = 999; }
+  run(g, () => { if (g.cycle) g.cycle.phase = 'day'; g.players[0].x = g.capture.x; g.players[0].y = g.capture.y; return { 0: {} }; }, 1.5);
+  assert.equal(g.capture.ownerT, 0, 'a held hill banks nothing during the day');
+  // at NIGHT it fills and wins at duration (3s).
+  run(g, () => { if (g.cycle) g.cycle.phase = 'night'; g.players[0].x = g.capture.x; g.players[0].y = g.capture.y; return { 0: {} }; }, 3.5);
+  assert.equal(g.status, 'cleared', 'holding the hill at night to full meter wins');
   const win = g.events.find(ev => ev.type === 'captureWin');
   assert.ok(win, 'a captureWin event fired');
 }
