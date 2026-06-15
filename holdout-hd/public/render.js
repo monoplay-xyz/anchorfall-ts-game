@@ -1551,6 +1551,46 @@ export function addEventFX(ev) {
     ring(180, PAL.red, 1.0, 4);
     popups.push({ screen: true, x: 0, y: 0, text: 'THE RELIC FALLS DORMANT', life: 3.6, max: 3.6, color: PAL.red, size: 28 });
   }
+  // --- RELIC SUPERWEAPON (nuke / weather machine) ---
+  else if (ev.type === 'superweaponSite') {
+    burst(6, PAL.relay, 70, 0.4);
+    popups.push({ x: ev.x, y: ev.y - 24, text: ev.kind === 'weather' ? 'WEATHER DEVICE' : 'MISSILE SILO', life: 1.0, max: 1.0, color: '#7fd7ff' });
+  }
+  else if (ev.type === 'buildSuperweapon') {
+    ring(56, '#7fd7ff', 0.7, 3); burst(16, '#7fd7ff', 150, 0.6);
+    popups.push({ screen: true, x: 0, y: 0, text: ev.kind === 'weather' ? 'WEATHER MACHINE ONLINE — CHARGING' : 'NUCLEAR SILO ONLINE — CHARGING', life: 3.0, max: 3.0, color: '#7fd7ff', size: 22 });
+  }
+  else if (ev.type === 'superweaponReady') {
+    ring(80, PAL.lythGold, 0.9, 3.5); burst(20, PAL.lythGold, 200, 0.7);
+    shake = Math.max(shake, 4);
+    popups.push({ screen: true, x: 0, y: 0, text: ev.kind === 'weather' ? 'WEATHER CONTROL READY' : 'NUCLEAR MISSILE READY', life: 3.0, max: 3.0, color: PAL.lythGold, size: 24 });
+  }
+  else if (ev.type === 'superweaponFired') {
+    popups.push({ screen: true, x: 0, y: 0, text: ev.kind === 'weather' ? 'LIGHTNING STORM INBOUND' : 'NUCLEAR LAUNCH', life: 2.6, max: 2.6, color: ev.kind === 'weather' ? '#9fd0ff' : '#ffae5a', size: 24 });
+  }
+  else if (ev.type === 'superweaponDown') {
+    burst(18, '#8d8672', 180, 0.6); burst(8, PAL.ember, 120, 0.5);
+    shake = Math.max(shake, 5);
+    popups.push({ x: ev.x, y: ev.y - 26, text: 'SILO DESTROYED', life: 1.6, max: 1.6, color: PAL.red });
+  }
+  else if (ev.type === 'nukeStrike') {
+    // launch telegraph: a target reticle ring marks where the warhead will land
+    ring((ev.radius ?? TILE * 4.5), '#ff6a4a', 1.0, 3);
+    ring((ev.radius ?? TILE * 4.5) * 0.66, '#ffae5a', 1.0, 2);
+  }
+  else if (ev.type === 'stormStart') {
+    ring((ev.radius ?? TILE * 5), '#9fd0ff', 1.2, 3);
+    burst(16, '#bfe2ff', 130, 0.7);
+    popups.push({ x: ev.x, y: ev.y - 30, text: 'STORM FORMING', life: 1.4, max: 1.4, color: '#9fd0ff' });
+  }
+  else if (ev.type === 'lightningStrike') {
+    // a single bolt: a sharp white flash, a thin scorch ring, a violet-white spray
+    lightningT = Math.max(lightningT, 0.25);
+    flashes.push({ x: ev.x, y: ev.y, life: 0.12, who: 'p' });
+    ring((ev.radius ?? TILE) * 1.1, '#bfe2ff', 0.3, 2.5);
+    burst(8, '#dff0ff', 200, 0.4); burst(4, '#9fd0ff', 150, 0.35);
+    shake = Math.max(shake, 3);
+  }
   else if (ev.type === 'spawn') burst(10, PAL.relay, 120, 0.5);
   else if (ev.type === 'spawnEnemy') { burst(8, PAL.glitch, 110, 0.45); burst(3, PAL.eye, 60, 0.25); }
   else if (ev.type === 'alert') popups.push({ x: ev.x, y: ev.y - 26, text: '!', life: 0.6, max: 0.6, color: PAL.eye });
@@ -5603,6 +5643,154 @@ function drawMusicMount(ctx, m, t, lights, allDone) {
   });
 }
 
+// ENEMY STRONGHOLD: a ground decal that reads the keep as hostile territory —
+// a faint blood-red ring at the wall radius plus a slow banner pulse at the
+// center. The wall segments + the garrison draw through the normal build/enemy
+// pipelines; this is purely the "this is an enemy keep" overlay. A cleared keep
+// fades to a spent grey scorch. Drawn on the ground, beneath every entity.
+function drawStronghold(ctx, sh, t, lights) {
+  const { x, y } = sh;
+  const rPx = ((sh.r ?? 2) + 0.5) * TILE;
+  const cleared = !!sh.cleared;
+  const pulse = 0.5 + 0.5 * Math.sin(t * 1.6 + (x + y) * 0.01);
+  ctx.save();
+  // perimeter ring at the wall radius
+  ctx.strokeStyle = cleared ? 'rgba(90,74,74,0.30)' : `rgba(224,88,76,${0.22 + 0.14 * pulse})`;
+  ctx.lineWidth = 2;
+  ctx.setLineDash([10, 8]);
+  ctx.lineDashOffset = (t * 12) % 18;
+  ctx.beginPath();
+  ctx.arc(x, y, rPx, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  // central scorch / banner pad
+  const cg = ctx.createRadialGradient(x, y, 0, x, y, 22);
+  cg.addColorStop(0, cleared ? 'rgba(60,52,52,0.35)' : `rgba(176,40,32,${0.28 + 0.10 * pulse})`);
+  cg.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = cg;
+  ctx.beginPath(); ctx.arc(x, y, 22, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+  if (!cleared) {
+    lights.push({ x, y, r: 26 + 6 * pulse, rgb: '224,88,76', a: 0.05 + 0.03 * pulse });
+  }
+}
+
+// RELIC SUPERWEAPON device: an RA2-style silo/spire that shows its lifecycle —
+// a build-progress arc while assembling, a shrinking charge ring + countdown
+// while charging, a gold pulse + "READY" when armed, and dull wreckage once
+// spent/destroyed. Nuke reads orange (a warhead silo), weather reads blue (a
+// storm spire). Gated on snap.superweapon, so it never draws in other modes.
+function drawSuperweapon(ctx, sw, t, lights) {
+  const { x, y } = sw;
+  const weather = sw.type === 'weather';
+  const col = weather ? '#9fd0ff' : '#ffae5a';
+  const rgb = weather ? '159,208,255' : '255,174,90';
+  const spent = sw.state === 'spent' || sw.state === 'wrecked';
+  ctx.save();
+  // base pad
+  ctx.fillStyle = 'rgba(20,22,30,0.85)';
+  ctx.beginPath(); ctx.arc(x, y, 16, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = spent ? 'rgba(120,110,100,0.6)' : col;
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(x, y, 16, 0, Math.PI * 2); ctx.stroke();
+  // the silo body / storm spire
+  if (!spent) {
+    ctx.fillStyle = weather ? 'rgba(90,140,200,0.9)' : 'rgba(160,90,40,0.9)';
+    ctx.beginPath();
+    ctx.moveTo(x - 7, y + 8); ctx.lineTo(x - 4, y - 14); ctx.lineTo(x + 4, y - 14); ctx.lineTo(x + 7, y + 8);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.stroke();
+    // tip glyph: a warhead cone (nuke) or a storm fork (weather)
+    ctx.fillStyle = col;
+    if (weather) { ctx.fillRect(x - 1, y - 22, 2, 8); ctx.fillRect(x - 5, y - 18, 4, 2); ctx.fillRect(x + 1, y - 16, 4, 2); }
+    else { ctx.beginPath(); ctx.moveTo(x, y - 22); ctx.lineTo(x - 4, y - 14); ctx.lineTo(x + 4, y - 14); ctx.closePath(); ctx.fill(); }
+  } else {
+    // wreckage: a tilted, dimmed stub with a thin smoke wisp
+    ctx.strokeStyle = 'rgba(140,130,120,0.7)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(x - 6, y + 8); ctx.lineTo(x + 2, y - 6); ctx.stroke();
+  }
+  // device hp pips while it can still be destroyed (building/charging)
+  if ((sw.state === 'building' || sw.state === 'charging') && sw.maxHp) {
+    const frac = Math.max(0, (sw.hp || 0) / sw.maxHp);
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(x - 14, y + 18, 28, 4);
+    ctx.fillStyle = frac > 0.4 ? '#7ee0a8' : '#ff7a6a'; ctx.fillRect(x - 14, y + 18, 28 * frac, 4);
+  }
+  if (sw.state === 'building') {
+    // build-progress arc (sweeps to full as the channel completes)
+    const p = Math.max(0, Math.min(1, (sw.buildT || 0) / (sw.buildTime || 6)));
+    ctx.strokeStyle = col; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(x, y, 22, -Math.PI / 2, -Math.PI / 2 + p * Math.PI * 2); ctx.stroke();
+  } else if (sw.state === 'charging') {
+    // charge ring DRAINS as the countdown runs; a live MM:SS readout above it
+    const frac = Math.max(0, Math.min(1, (sw.chargeT || 0) / (sw.chargeMax || 60)));
+    ctx.strokeStyle = 'rgba(120,120,130,0.4)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(x, y, 22, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = col; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(x, y, 22, -Math.PI / 2, -Math.PI / 2 + (1 - frac) * Math.PI * 2); ctx.stroke();
+    const secs = Math.ceil(sw.chargeT || 0);
+    ctx.fillStyle = col; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center';
+    ctx.fillText(`${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`, x, y - 28);
+    lights.push({ x, y, r: 30, rgb, a: 0.06 });
+  } else if (sw.state === 'ready') {
+    const pulse = 0.5 + 0.5 * Math.sin(t * 5);
+    ctx.strokeStyle = `rgba(240,201,76,${0.6 + 0.4 * pulse})`; ctx.lineWidth = 2 + 2 * pulse;
+    ctx.shadowColor = '#F0C94C'; ctx.shadowBlur = 8 + 6 * pulse;
+    ctx.beginPath(); ctx.arc(x, y, 24, 0, Math.PI * 2); ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#F0C94C'; ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center';
+    ctx.fillText('READY', x, y - 30);
+    lights.push({ x, y, r: 36 + 8 * pulse, rgb: '240,201,76', a: 0.08 + 0.05 * pulse });
+  }
+  ctx.restore();
+}
+
+// RELIC SUPERWEAPON hazard fields: the nuke flight telegraph (a falling reticle),
+// the lingering radiation crater (a sickly green pool that fades with ttl), and
+// the weather storm (a churning blue cloud, lighter during its warning window).
+// Gated on snap.hazards, so untouched modes never reach here.
+function drawHazardField(ctx, hz, t, lights) {
+  const { x, y } = hz;
+  const r = hz.radius ?? TILE;
+  ctx.save();
+  if (hz.kind === 'nukeFlight') {
+    // incoming warhead: a tightening reticle + a growing impact shadow
+    const k = Math.max(0, Math.min(1, 1 - (hz.ttl ?? 0)));
+    ctx.strokeStyle = `rgba(255,90,60,${0.4 + 0.4 * k})`; ctx.lineWidth = 2.5;
+    ctx.setLineDash([8, 6]); ctx.lineDashOffset = (t * 24) % 14;
+    ctx.beginPath(); ctx.arc(x, y, r * (1 - 0.4 * k), 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.beginPath(); ctx.moveTo(x - 12, y); ctx.lineTo(x + 12, y); ctx.moveTo(x, y - 12); ctx.lineTo(x, y + 12); ctx.stroke();
+  } else if (hz.kind === 'radiation') {
+    const fade = Math.max(0, Math.min(1, (hz.ttl ?? 0) / 8));
+    const pulse = 0.5 + 0.5 * Math.sin(t * 3 + x * 0.02);
+    const cg = ctx.createRadialGradient(x, y, 0, x, y, r);
+    cg.addColorStop(0, `rgba(150,230,90,${0.30 * fade})`);
+    cg.addColorStop(0.7, `rgba(110,200,70,${0.18 * fade})`);
+    cg.addColorStop(1, 'rgba(70,150,40,0)');
+    ctx.fillStyle = cg; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = `rgba(170,240,100,${(0.2 + 0.2 * pulse) * fade})`; ctx.lineWidth = 1.5;
+    ctx.setLineDash([6, 8]); ctx.lineDashOffset = (t * 8) % 14;
+    ctx.beginPath(); ctx.arc(x, y, r * 0.92, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+    lights.push({ x, y, r: r * 0.8, rgb: '150,230,90', a: 0.06 * fade });
+  } else if (hz.kind === 'storm') {
+    const warning = (hz.warnT ?? 0) > 0;
+    const a = warning ? 0.12 : 0.22;
+    const pulse = 0.5 + 0.5 * Math.sin(t * 4 + x * 0.01);
+    const cg = ctx.createRadialGradient(x, y, 0, x, y, r);
+    cg.addColorStop(0, `rgba(120,160,210,${a + 0.08 * pulse})`);
+    cg.addColorStop(1, 'rgba(60,90,140,0)');
+    ctx.fillStyle = cg; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = warning ? `rgba(159,208,255,${0.3 + 0.2 * pulse})` : `rgba(200,225,255,${0.4 + 0.3 * pulse})`;
+    ctx.lineWidth = 2; ctx.setLineDash([12, 10]); ctx.lineDashOffset = (t * 18) % 22;
+    ctx.beginPath(); ctx.arc(x, y, r * 0.95, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+    if (warning) { ctx.fillStyle = '#9fd0ff'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center'; ctx.fillText('STORM', x, y - r - 6); }
+    lights.push({ x, y, r: r * 0.7, rgb: '159,208,255', a: 0.05 + 0.04 * pulse });
+  }
+  ctx.restore();
+}
+
 // Doors: closed bulkheads read as walls (they block movement, sight, shots).
 // Open ones slide their two panels apart along the door's long axis.
 function drawDoor(ctx, d, t, dt, lights) {
@@ -7504,6 +7692,38 @@ function drawRelicHud(ctx, VW, horde, t) {
   ctx.restore();
 }
 
+// RELIC SUPERWEAPON HUD: the publicly-visible charge countdown / ready banner
+// (RA2's silo timer, shown to the whole squad). Drawn only while a device is
+// charging or armed — once it fires (spent/wrecked) the panel drops away.
+function drawSuperweaponHud(ctx, VW, sw, t) {
+  if (!sw || (sw.state !== 'charging' && sw.state !== 'ready' && sw.state !== 'building')) return;
+  const weather = sw.type === 'weather';
+  const col = weather ? '#9fd0ff' : '#ffae5a';
+  ctx.save();
+  ctx.textAlign = 'center';
+  const w = 230, h = 44, x = VW / 2 - w / 2, y = 200;
+  ctx.fillStyle = 'rgba(8,12,20,0.82)';
+  ctx.strokeStyle = sw.state === 'ready' ? `rgba(240,201,76,${0.6 + 0.4 * Math.sin(t * 6)})` : `rgba(${weather ? '159,208,255' : '255,174,90'},0.5)`;
+  ctx.lineWidth = 1.5;
+  ctx.fillRect(x, y, w, h); ctx.strokeRect(x, y, w, h);
+  ctx.font = 'bold 11px monospace'; ctx.fillStyle = col;
+  ctx.fillText(weather ? 'WEATHER CONTROL DEVICE' : 'NUCLEAR MISSILE SILO', VW / 2, y + 15);
+  if (sw.state === 'ready') {
+    ctx.font = 'bold 18px monospace';
+    ctx.shadowColor = '#F0C94C'; ctx.shadowBlur = 10;
+    ctx.fillStyle = '#F0C94C';
+    ctx.fillText('READY — SELECT TARGET', VW / 2, y + 36);
+  } else if (sw.state === 'charging') {
+    const secs = Math.ceil(sw.chargeT ?? 0);
+    ctx.font = 'bold 20px monospace'; ctx.fillStyle = col;
+    ctx.fillText(`${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`, VW / 2, y + 37);
+  } else {
+    ctx.font = 'bold 12px monospace'; ctx.fillStyle = col;
+    ctx.fillText('ASSEMBLING…', VW / 2, y + 36);
+  }
+  ctx.restore();
+}
+
 // Beacon pips: stronghold beacon-defense HUD — one monolith pip per beacon,
 // gold while lit, cracked violet-grey while dark. Lose only if ALL go dark.
 function drawBeaconPips(ctx, VW, cores, t) {
@@ -8012,6 +8232,21 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
     const acx = (sx / exitCols.length) * TILE;
     const acy = (sy / exitCols.length) * TILE;
     if (inView(acx, acy, 220)) drawAnchor(ctx, acx, acy + 14, gate, t, lights);
+  }
+
+  // --- ENEMY STRONGHOLDS: the hostile-keep ground decal, drawn UNDER the wall
+  // builds + garrison (which render through the normal pipelines below) ---
+  for (const sh of snap.strongholds ?? []) {
+    if (inView(sh.x, sh.y, ((sh.r ?? 2) + 2) * TILE)) drawStronghold(ctx, sh, t, lights);
+  }
+
+  // --- RELIC SUPERWEAPON: the lingering hazard fields (radiation crater / storm
+  // cloud) as GROUND decals beneath the entities, then the device itself ---
+  for (const hz of snap.hazards ?? []) {
+    if (inView(hz.x, hz.y, (hz.radius ?? TILE) + TILE * 2)) drawHazardField(ctx, hz, t, lights);
+  }
+  if (snap.superweapon && inView(snap.superweapon.x, snap.superweapon.y, 160)) {
+    drawSuperweapon(ctx, snap.superweapon, t, lights);
   }
 
   // --- LYTH crystals, build sites, shard drops, stranded NPCs ---
@@ -9077,6 +9312,7 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
 
     // RELIC AWAKENING HUD: the wave timer + the live bonus, center-top
     if (snap.horde && snap.horde.active) drawRelicHud(ctx, VW, snap.horde, t);
+    if (snap.superweapon) drawSuperweaponHud(ctx, VW, snap.superweapon, t);
 
     // big blinking countdown (wave inbound / zone shrink / sudden death)
     drawCountdownBanner(ctx, VW, snap, t);
@@ -9240,6 +9476,7 @@ function drawGlobalScreenFx(ctx, snap, t, VW, VH) {
   }
   ctx.globalAlpha = 1;
   if (snap.horde && snap.horde.active) drawRelicHud(ctx, VW, snap.horde, t);
+  if (snap.superweapon) drawSuperweaponHud(ctx, VW, snap.superweapon, t);
   drawCountdownBanner(ctx, VW, snap, t);
   const cores = snap.cores ?? [];
   if (cores.length > 1) drawBeaconPips(ctx, VW, cores, t);
@@ -9410,6 +9647,18 @@ export function renderMinimap(ctx, snap, focusPids) {
       if (!f.placed && f.carrier == null && seenAt(f.x, f.y)) dot(f.x, f.y, '#be78ff', 2.5);
     }
   }
+  // ENEMY STRONGHOLDS: a hostile-red objective ping at each keep (always shown
+  // like the core/flags), dimming to a spent grey once the garrison falls.
+  for (const sh of snap.strongholds ?? []) {
+    dot(sh.x, sh.y, sh.cleared ? '#5A4A4A' : '#E0584C', sh.cleared ? 2.6 : 3.4);
+  }
+  // RELIC SUPERWEAPON: the device is un-shrouded for everyone (RA2: you can't
+  // hide a charging silo) — always pinged, gold once ready, dimmed when spent.
+  if (snap.superweapon) {
+    const sw = snap.superweapon;
+    const spent = sw.state === 'spent' || sw.state === 'wrecked';
+    dot(sw.x, sw.y, spent ? '#6A6258' : sw.state === 'ready' ? '#F0C94C' : (sw.type === 'weather' ? '#9fd0ff' : '#ffae5a'), 3.2);
+  }
   for (const p of snap.players) if (p.state === 'active') dot(p.x, p.y, focus.has(p.pid) ? '#ffffff' : PAL.relay, 3);
   // camera viewport rectangle
   ctx.strokeStyle = 'rgba(191,208,232,0.5)';
@@ -9573,6 +9822,14 @@ export function drawFullMap(ctx, snap, mask, focus, opts = {}) {
     ctx.lineTo(px(f.x) + ds * 1.4, py(f.y) - ds * 0.8);
     ctx.lineTo(px(f.x), py(f.y));
     ctx.closePath(); ctx.fill();
+  }
+  // enemy strongholds: a hostile keep glyph, labeled, dimming once cleared
+  for (const sh of snap.strongholds ?? []) {
+    const cleared = !!sh.cleared;
+    ctx.fillStyle = cleared ? '#5A4A4A' : '#E0584C';
+    ctx.fillRect(px(sh.x) - ds, py(sh.y) - ds, ds * 2, ds * 2);
+    ctx.fillStyle = cleared ? 'rgba(154,143,150,0.9)' : '#E0584C';
+    ctx.fillText(cleared ? 'KEEP*' : 'KEEP', px(sh.x), py(sh.y) - ds - 4);
   }
   if (snap.ship) {
     dot(snap.ship.x, snap.ship.y, PAL.anchor, 1.2);

@@ -1931,6 +1931,10 @@ class LocalSession {
       { label: `Instant Build: ${onState(c.instantBuild)}`, onPick: () => { c.instantBuild = !c.instantBuild; if (c.instantBuild) dirty(); reopen(); } },
       { label: 'Kill All Enemies', onPick: () => { dirty(); this.cheatKillAll(); reopen(); } },
       { label: 'Equip / Awaken Relic', onPick: () => { dirty(); this.cheatAwakenRelic(); reopen(); } },
+      { label: 'Build Nuke Silo', onPick: () => { dirty(); this.cheatBuildSuperweapon('nuke', me); reopen(); } },
+      { label: 'Build Weather Device', onPick: () => { dirty(); this.cheatBuildSuperweapon('weather', me); reopen(); } },
+      ...(g.superweapon && g.superweapon.state === 'charging'
+        ? [{ label: 'Charge Superweapon Now', onPick: () => { dirty(); g.superweapon.chargeT = 0; reopen(); } }] : []),
       { label: 'Select Character', onPick: () => { dirty(); this.cheatPickCharacter(me); } },
       { label: 'Back', ghost: true, onPick: () => { this.openPauseRoot(); } },
     ];
@@ -1972,6 +1976,22 @@ class LocalSession {
     if (mb.mounts) for (const m of mb.mounts) m.filled = true;
     mb.assembled = (mb.fragments?.length) || 4;
     mb.complete = true;
+  }
+  // Build Superweapon (solo dev tool): unlock the relic superweapon and drop a
+  // charging device at the local seat's tile. Mirrors the sim's build-complete
+  // state (charging, ~60s timer) so the charge/ready/fire path is demoable
+  // without surviving the awakening first. The targeting + fire still run
+  // through the normal input contract (mouse aim -> superFire) once it's ready.
+  cheatBuildSuperweapon(kind, me) {
+    const g = this.game;
+    if (!g || !me) return;
+    g.superweaponUnlocked = true;
+    const cx = (Math.floor(me.x / TILE) + 0.5) * TILE;
+    const cy = (Math.floor(me.y / TILE) + 0.5) * TILE;
+    g.superweapon = {
+      type: kind, state: 'charging', buildT: 6, chargeT: 60, used: false,
+      x: cx, y: cy, ownerPid: me.pid, hp: 8, maxHp: 8,
+    };
   }
   // Select Character: cycle the local seat's operative through the full roster.
   // A quick picker via the pause dialog — each FIRE advances to the next char,

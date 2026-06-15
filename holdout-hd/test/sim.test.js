@@ -54,6 +54,24 @@ function aimAtNearest(g, p) {
   };
 }
 
+// A faithful-enough enemy entity for the sim's damage/kill paths (mirrors the
+// fields makeEnemy mints). hp matches ENEMY_STATS so the boss reads hp24, etc.
+const ENEMY_HP_FOR_TEST = { g: 2, a: 1, r: 3, s: 5, m: 5, n: 2, w: 1, b: 24 };
+function makeEnemyForTest(g, letter, x, y) {
+  const hp = ENEMY_HP_FOR_TEST[letter] ?? 2;
+  const kindMap = { g: 'grunt', a: 'archer', r: 'charger', s: 'bulwark', m: 'spawner', n: 'sniper', w: 'skitter', b: 'boss' };
+  return {
+    id: g.nextEnemyId++, letter, kind: kindMap[letter] || 'grunt', x, y,
+    // speed 0 pins the staged garrison in place (the AoE under test doesn't care
+    // about movement, and the relic test map is small enough to auto-wake) so
+    // nothing wanders out of the blast/storm zone and the asserts stay stable.
+    hp, maxHp: hp, speed: 0, range: 0, aggro: 9 * TILE, cool: 0, spawnCool: 0,
+    score: 100, fx: 0, fy: 1, hurt: 0, state: 'idle', aimT: 0, aimX: x, aimY: y,
+    awake: false, repathT: 0, path: null, pathI: 0, homeX: x, homeY: y,
+    returning: false, hitCool: 0,
+  };
+}
+
 function testLevelsParse() {
   const classics = levels.filter(l => l.category === 'classic');
   assert.equal(classics.length, 10, 'classic campaign keeps exactly its 10 missions');
@@ -592,6 +610,309 @@ function testRelicAwakeningHorde() {
 // above, which read the penalties off the live event so only the base is fixed).
 const HORDE_BASE_BONUS_FOR_TEST = 5000;
 
+// --- RELIC SUPERWEAPON (RA2-style nuke / weather machine) ------------------
+// Unlocked by surviving the music-box awakening; then a player BUILDS a one-shot
+// device (a 6s channel), which on completion starts a ~60s charge AND spawns a
+// tiny punish wave; once ready the owner fires it ONCE at a target cell — the
+// nuke clears everything in its blast (so it wipes a stronghold garrison) and
+// the weather machine storms a zone over a few seconds. Entirely gated on the
+// unlock flag, so every other mode stays byte-identical.
+
+// Drive the awakening to a SURVIVED finish so g.superweaponUnlocked flips true.
+// Reuses the startedAt rewind trick to walk the clock to the end in one step.
+function unlockSuperweapon(g) {
+  completeRelic(g);
+  g.players[0].invuln = 1e9;
+  step(g, { 0: {} }, 1 / 30); // latch g.horde
+  g.horde.startedAt = g.elapsed - g.horde.dur - 1; // past the finish
+  step(g, { 0: {} }, 1 / 30); // SURVIVED -> unlock
+  assert.ok(g.horde.ended && g.horde.result === 'survived', 'awakening survived');
+  assert.ok(g.superweaponUnlocked === true, 'surviving the awakening unlocks the superweapon');
+}
+
+// First open floor cell that is a legal build site (clear of wall/extract/spawn).
+function findSuperSite(g) {
+  for (let ty = 1; ty < g.h - 1; ty++) {
+    for (let tx = 1; tx < g.w - 1; tx++) {
+      const x = (tx + 0.5) * TILE, y = (ty + 0.5) * TILE;
+      // mirror canBuildSuperweaponAt: '.' floor, >=1 tile off #/o, >=4 off E/P,
+      // free of enemies/structures (the test maps have neither in the interior).
+      if (g.grid[ty][tx] !== '.') continue;
+      let wallNear = false;
+      for (let dy = -1; dy <= 1 && !wallNear; dy++)
+        for (let dx = -1; dx <= 1; dx++) {
+          const c = g.grid[ty + dy]?.[tx + dx];
+          if (c === '#' || c === 'o') { wallNear = true; break; }
+        }
+      if (wallNear) continue;
+      let exitNear = false;
+      for (let yy = 0; yy < g.h && !exitNear; yy++)
+        for (let xx = 0; xx < g.w; xx++) {
+          const t = g.grid[yy][xx];
+          if (t !== 'E' && t !== 'P') continue;
+          if ((((xx + 0.5) * TILE) - x) ** 2 + (((yy + 0.5) * TILE) - y) ** 2 < (4 * TILE) ** 2) { exitNear = true; break; }
+        }
+      if (exitNear) continue;
+      return { x, y };
+    }
+  }
+  return null;
+}
+
+// Move the seat onto a site and channel the build to completion. Returns the
+// device. Keeps the operative invulnerable so the spawned mini-wave can't down it.
+function buildSuperweaponAt(g, kind, site) {
+  const p = g.players[0];
+  p.x = site.x; p.y = site.y; p.invuln = 1e9; g.graceT = 0;
+  step(g, { 0: { superBuild: kind } }, 1 / 30); // edge: start the channel
+  assert.ok(g.superweapon && g.superweapon.state === 'building', `${kind} device starts building`);
+  // channel ~6s of standing still (drop superBuild so it's a clean edge later)
+  run(g, () => { g.players[0].x = site.x; g.players[0].y = site.y; g.players[0].invuln = 1e9; return { 0: {} }; }, 6.5, 1 / 30);
+  return g.superweapon;
+}
+
+function testSuperweaponLockedUntilSurvived() {
+  // LOCKED: a fresh relic level (music box present, never survived) refuses to
+  // build, and the snapshot never carries the unlock/device keys.
+  const g = createGame(relicStoryDef(4), [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  assert.equal(g.superweaponUnlocked, false, 'superweapon starts locked');
+  assert.equal(g.superweapon, null, 'no device before unlock');
+  const site = findSuperSite(g);
+  assert.ok(site, 'the test map has a legal build site');
+  const p = g.players[0];
+  p.x = site.x; p.y = site.y; p.invuln = 1e9; g.graceT = 0;
+  step(g, { 0: { superBuild: 'nuke' } }, 1 / 30);
+  assert.equal(g.superweapon, null, 'a locked superweapon cannot be built');
+  const snap = snapshot(g);
+  assert.ok(!('superweaponUnlocked' in snap), 'locked snapshot never gains the unlock key');
+  assert.ok(!('superweapon' in snap), 'locked snapshot never gains the device key');
+  assert.ok(!('hazards' in snap), 'locked snapshot never gains the hazards key');
+}
+
+function testSuperweaponBuildChargeAndTinyWave() {
+  const g = createGame(relicStoryDef(4), [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  unlockSuperweapon(g);
+  // leave the map's sleeping enemies in place (an empty field would auto-clear
+  // this story level); measure the tiny wave as the delta from this baseline.
+  const before = g.enemies.filter(e => !e.dead).length;
+
+  const site = findSuperSite(g);
+  const sw = buildSuperweaponAt(g, 'nuke', site);
+  // BUILD COMPLETE: charge started at ~60s, and the tiny wave showed up.
+  assert.equal(sw.state, 'charging', 'a finished build enters the charge state');
+  assert.ok(sw.chargeT > 55 && sw.chargeT <= 60, `charge timer is ~60s (saw ${sw.chargeT})`);
+  const after = g.enemies.filter(e => !e.dead).length;
+  assert.ok(after - before >= 3 && after - before <= 4, `build completion spawns a TINY wave (saw +${after - before})`);
+  assert.ok(after - before < 8, 'the tiny wave is far smaller than a real horde');
+  // snapshot carries the device + countdown for the HUD
+  const snap = snapshot(g);
+  assert.ok(snap.superweaponUnlocked, 'snapshot ships the unlock flag once earned');
+  assert.equal(snap.superweapon.state, 'charging', 'snapshot ships the charging device');
+  assert.ok(snap.superweapon.chargeT > 0, 'snapshot ships the live charge countdown');
+
+  // NOT USABLE BEFORE CHARGE: a fire attempt while charging does nothing.
+  g.players[0].x = site.x + TILE; g.players[0].y = site.y;
+  step(g, { 0: { superFire: true, aimX: site.x, aimY: site.y } }, 1 / 30);
+  assert.equal(g.superweapon.state, 'charging', 'a charging device cannot fire');
+  assert.equal(g.hazards.length, 0, 'no strike lands before the device is ready');
+
+  // CONTROL: let the charge run out — the device flips to ready.
+  g.superweapon.chargeT = 0.1;
+  run(g, () => { g.players[0].invuln = 1e9; return { 0: {} }; }, 0.5, 1 / 30);
+  assert.equal(g.superweapon.state, 'ready', 'the device goes live when the charge elapses');
+}
+
+function testSuperweaponNukeClearsStronghold() {
+  const g = createGame(relicStoryDef(4), [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  unlockSuperweapon(g);
+
+  const site = findSuperSite(g);
+  const sw = buildSuperweaponAt(g, 'nuke', site);
+  sw.chargeT = 0; // skip the wait
+  run(g, () => { g.players[0].invuln = 1e9; return { 0: {} }; }, 0.2, 1 / 30);
+  assert.equal(g.superweapon.state, 'ready', 'device ready to fire');
+
+  // a CONTROL enemy parked far from the target proves the blast is local.
+  const cx = (3 + 0.5) * TILE, cy = (11 + 0.5) * TILE; // far corner
+  const control = makeEnemyForTest(g, 'g', cx, cy);
+  g.enemies.push(control);
+
+  // pile a dense "stronghold garrison" (incl. a boss hp24) at a target cell
+  // well away from the control, the spawn and the device.
+  const tx = (16 + 0.5) * TILE, ty = (11 + 0.5) * TILE;
+  const cluster = ['b', 'm', 'm', 's', 's', 'g', 'g', 'r', 'a'];
+  const garrisonIds = [];
+  for (let i = 0; i < cluster.length; i++) {
+    const ang = (i / cluster.length) * Math.PI * 2;
+    const ex = tx + Math.cos(ang) * TILE, ey = ty + Math.sin(ang) * TILE;
+    const made = makeEnemyForTest(g, cluster[i], ex, ey);
+    g.enemies.push(made);
+    garrisonIds.push(made.id);
+  }
+  assert.ok(garrisonIds.length >= 9, 'a dense garrison is staged');
+
+  // FIRE: owner commits the target. The strike is telegraphed (flight delay),
+  // then the blast resolves and wipes the cluster.
+  g.players[0].x = site.x; g.players[0].y = site.y; // owner near the device
+  step(g, { 0: { superFire: true, aimX: tx, aimY: ty } }, 1 / 30);
+  assert.equal(g.superweapon.state, 'spent', 'firing consumes the one use');
+  assert.equal(g.superweapon.used, true, 'the device is marked used');
+  // the flight is in the air now (one-shot: a second fire does nothing)
+  step(g, { 0: { superFire: true, aimX: site.x, aimY: site.y } }, 1 / 30);
+  // walk past the flight delay so the blast lands
+  run(g, () => { g.players[0].invuln = 1e9; return { 0: {} }; }, 1.5, 1 / 30);
+  const survivors = g.enemies.filter(e => !e.dead && garrisonIds.includes(e.id)).length;
+  assert.equal(survivors, 0, 'the nuke clears every enemy in the blast (stronghold garrison wiped)');
+  // CONTROL: the far-off enemy outside the radius survives the same blast.
+  assert.ok(g.enemies.some(e => !e.dead && e.id === control.id), 'an enemy far outside the blast is untouched');
+  // AFTERMATH: a radiation pool lingers on the crater.
+  assert.ok(g.hazards.some(h => h.kind === 'radiation'), 'the blast leaves a radiation crater');
+  const radSnap = snapshot(g);
+  assert.ok((radSnap.hazards || []).some(h => h.kind === 'radiation'), 'snapshot ships the radiation field');
+}
+
+// Stage a weather strike on a packed cluster and run the storm out; returns the
+// staged-cluster ids and how many survived (used twice to prove determinism).
+function runWeatherStorm() {
+  const g = createGame(relicStoryDef(4), [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  unlockSuperweapon(g);
+  const site = findSuperSite(g);
+  const sw = buildSuperweaponAt(g, 'weather', site);
+  sw.chargeT = 0;
+  run(g, () => { g.players[0].invuln = 1e9; return { 0: {} }; }, 0.2, 1 / 30);
+  assert.equal(g.superweapon.state, 'ready', 'weather device ready');
+
+  // a packed cluster of hp1-3 enemies (a "stronghold garrison") near the storm
+  // center, away from the spawn / device / the map's sleeper. The center-biased
+  // bolt scatter devastates a packed base over the duration.
+  const tx = (10 + 0.5) * TILE, ty = (10 + 0.5) * TILE;
+  const ids = [];
+  for (let i = 0; i < 12; i++) {
+    const ang = (i / 12) * Math.PI * 2, rr = TILE * (0.4 + (i % 4) * 0.5);
+    const e = makeEnemyForTest(g, 'g', tx + Math.cos(ang) * rr, ty + Math.sin(ang) * rr);
+    g.enemies.push(e); ids.push(e.id);
+  }
+
+  // FIRE: a lightning storm field is scheduled (no instant blast).
+  g.players[0].x = site.x; g.players[0].y = site.y;
+  step(g, { 0: { superFire: true, aimX: tx, aimY: ty } }, 1 / 30);
+  assert.equal(g.superweapon.state, 'spent', 'firing consumes the one use');
+  assert.ok(g.hazards.some(h => h.kind === 'storm'), 'a storm field is scheduled');
+
+  // WARNING DELAY: during the LightningDeferment window NO bolt has struck yet.
+  const aliveAtWarn = g.enemies.filter(e => !e.dead && ids.includes(e.id)).length;
+  assert.equal(aliveAtWarn, ids.length, 'no damage during the storm warning delay');
+
+  // DAMAGE OVER TIME: across the storm duration bolts repeatedly strike and the
+  // packed cluster is shredded (not a single instant hit — it takes the window).
+  run(g, () => { g.players[0].invuln = 1e9; return { 0: {} }; }, 9, 1 / 30);
+  const aliveAfter = g.enemies.filter(e => !e.dead && ids.includes(e.id)).length;
+  assert.ok(aliveAfter <= 3, `the storm devastates the packed cluster over its duration (${ids.length} -> ${aliveAfter})`);
+  assert.ok(!g.hazards.some(h => h.kind === 'storm'), 'the storm clears when its duration ends');
+  return { staged: ids.length, aliveAfter };
+}
+
+function testSuperweaponWeatherStormsOverTime() {
+  const a = runWeatherStorm();
+  // determinism: a second identical run reaches the same survivor count (the
+  // bolt scatter is a seeded LCG, so the spread is reproducible).
+  const b = runWeatherStorm();
+  assert.equal(b.aliveAfter, a.aliveAfter, 'the storm scatter is deterministic (same survivors twice)');
+
+  // CONTROL: the SAME packed cluster, with the storm NEVER fired, is untouched
+  // over the same elapsed window — proving the kills come from the storm, not
+  // some incidental field effect.
+  const g = createGame(relicStoryDef(4), [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  unlockSuperweapon(g);
+  const tx = (10 + 0.5) * TILE, ty = (10 + 0.5) * TILE;
+  const ids = [];
+  for (let i = 0; i < 12; i++) {
+    const ang = (i / 12) * Math.PI * 2, rr = TILE * (0.4 + (i % 4) * 0.5);
+    const e = makeEnemyForTest(g, 'g', tx + Math.cos(ang) * rr, ty + Math.sin(ang) * rr);
+    g.enemies.push(e); ids.push(e.id);
+  }
+  run(g, () => { g.players[0].invuln = 1e9; return { 0: {} }; }, 9, 1 / 30);
+  const aliveControl = g.enemies.filter(e => !e.dead && ids.includes(e.id)).length;
+  assert.equal(aliveControl, ids.length, 'without a storm the cluster takes no damage (control)');
+  assert.ok(a.aliveAfter < aliveControl, 'the storm kills strictly more than the un-triggered baseline');
+}
+
+// --- relic awakening freezes the day/night clock --------------------------
+// When the relic completes in a bastion run, the awakening horde forces darkness
+// + thunder for the whole wave. The day/night clock MUST pause for the duration
+// so a normal dusk/dawn never fires mid-event (no daytime/darkness transition
+// fighting the forced-dark wave). It must resume EXACTLY where it left off once
+// the wave ends. Drive a real bastion (cycle + corner-mount relic), latch the
+// horde, and assert cy.t holds dead-still across ticks while live, then ticks
+// again after the wave — with a control proving identical ticks advance the
+// clock once the freeze lifts.
+function testRelicFreezesDayNightCycle() {
+  // long day/night so neither dusk nor dawn fires during the scripted window;
+  // the relic completion alone latches the horde we want to time the clock by.
+  const def = bastionDef({ nights: 5, dayLen: 9000, nightLen: 9000, bloodMoons: [] });
+  const g = createGame(def, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
+  assert.ok(g.cycle, 'bastion seeds a day/night cycle');
+  assert.equal(g.cycle.phase, 'day', 'cycle opens on the day phase');
+  assert.ok(g.musicBox.enabled && g.musicBox.mounts && g.musicBox.mounts.length === 4,
+    'bastion seeds the relic with four corner mounts');
+
+  // complete the relic: carry each shard to an unfilled mount (mirrors the
+  // stronghold-mounts deposit path). Keep the operative invulnerable + ungraced.
+  const p = g.players[0];
+  p.invuln = 1e9; g.graceT = 0;
+  for (let i = 0; i < 4; i++) {
+    const fr = g.musicBox.fragments[i];
+    p.x = fr.x; p.y = fr.y;
+    step(g, { 0: {} }, 1 / 30); // scoop
+    const target = g.musicBox.mounts.find(m => !m.filled);
+    p.x = target.x; p.y = target.y;
+    step(g, { 0: {} }, 1 / 30); // lock in
+  }
+  assert.ok(g.musicBox.complete, 'relic completes at 4/4 mounts');
+
+  // one more step latches the horde (rising edge of complete) AND, this same
+  // tick, stepCycle should ALREADY refuse to advance (stepHorde runs first).
+  const tBeforeLatch = g.cycle.t;
+  p.x = g.musicBox.altar.x; p.y = g.musicBox.altar.y; // park away from any spawn
+  step(g, { 0: {} }, 1 / 30);
+  assert.ok(g.horde && !g.horde.ended, 'completing the relic latches a live horde');
+  assert.equal(g.cycle.t, tBeforeLatch, 'the clock does not advance on the latch tick');
+
+  // FREEZE: across many ticks while the wave is live, cy.t must hold dead-still.
+  const frozenAt = g.cycle.t;
+  const FREEZE_TICKS = 30;
+  for (let i = 0; i < FREEZE_TICKS; i++) {
+    p.invuln = 1e9; // never let the squad fall (a wipe would end the horde early)
+    step(g, { 0: {} }, 1 / 30);
+    assert.ok(g.horde && !g.horde.ended, `horde still live on freeze tick ${i}`);
+    assert.equal(g.cycle.t, frozenAt, `cycle clock frozen on tick ${i} (stayed ${frozenAt})`);
+  }
+  // no phase flip and no day events leaked through the freeze
+  assert.equal(g.cycle.phase, 'day', 'still day — no dusk slipped through the wave');
+  assert.ok(!g.events.some(e => e.type === 'dusk' || e.type === 'dawn'),
+    'no dusk/dawn transition fired while the awakening wave ran');
+
+  // END the wave: shove the start clock back so the song has played out, then
+  // step once to finish it. World restores; the horde marks ended.
+  g.horde.startedAt = g.elapsed - g.horde.dur - 1;
+  p.invuln = 1e9;
+  step(g, { 0: {} }, 1 / 30);
+  assert.ok(g.horde.ended && g.horde.result === 'survived', 'the wave plays out and survives');
+
+  // RESUME (control): the SAME tick size that left the clock untouched during
+  // the freeze must now advance it — proving the freeze was load-bearing, not a
+  // coincidence of a stopped clock.
+  const tAtResume = g.cycle.t;
+  step(g, { 0: {} }, 1 / 30);
+  assert.ok(g.cycle.t < tAtResume, 'the clock advances again once the wave ends');
+  assert.ok(Math.abs((tAtResume - g.cycle.t) - 1 / 30) < 1e-9,
+    'it resumes at exactly the normal tick rate (one dt per step)');
+  // and it picks up where it left off — never skipped the wave's worth of time:
+  // the resumed value is within a couple ticks of where it froze, NOT dur lower.
+  assert.ok(frozenAt - g.cycle.t < g.horde.dur,
+    'the cycle resumed where it paused — the wave duration was never burned off');
+}
+
 function testScriptedBotClearsLevelOne() {
   const party = startingRoster.map((id, i) => ({ pid: i, name: id, charId: id }));
   const g = createGame(levels[0], party, charMap, startingRoster);
@@ -995,6 +1316,83 @@ function testLeashReturnAndResleep() {
   assert.ok(sawReturning, 'leashed enemy entered the returning state');
   assert.equal(e.awake, false, 'returned enemy fell back into ambush sleep');
   assert.ok(Math.hypot(e.x - hx, e.y - hy) < TILE, 'enemy is back at its post');
+}
+
+// --- ENEMY STRONGHOLDS: fortified keep, garrison aggro/leash, gating ---------
+function testEnemyStronghold() {
+  // a big map with an authored keep at tile (34,16), far from the (1,2) spawn.
+  const level = bigEmptyLevel([[2, '#P' + '.'.repeat(36) + '#']]);
+  level.enemyStrongholds = [{ at: [34, 16], garrison: 'gggg', ring: 2,
+    aggro: 6, leash: 11 }];
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  g.graceT = 0;
+  g.players[0].invuln = 999;
+
+  // --- placement: keep seeded, walls ringed, garrison stationed ---
+  assert.ok(g.strongholds && g.strongholds.length === 1, 'one stronghold seeds');
+  const sh = g.strongholds[0];
+  const kx = (34 + 0.5) * TILE, ky = (16 + 0.5) * TILE;
+  assert.ok(Math.hypot(sh.x - kx, sh.y - ky) < TILE, 'keep sits at the authored tile');
+  const garrison = g.enemies.filter(e => e.fort === sh.id);
+  assert.equal(garrison.length, 4, 'four garrison enemies stationed');
+  assert.ok(garrison.every(e => e.homeX === sh.x && e.homeY === sh.y), 'garrison homes on the keep');
+  assert.ok(garrison.every(e => e.group === garrison[0].group), 'garrison shares one group');
+  const walls = g.builds.filter(b => b.fort === sh.id && b.kind === 'wall' && b.built);
+  assert.ok(walls.length >= 1, 'a prebuilt wall ring fortifies the keep');
+  // the keep is away from the base (deterministic placement away from spawn)
+  assert.ok(Math.hypot(sh.x - g.players[0].x, sh.y - g.players[0].y) > 18 * TILE,
+    'keep is placed well away from the player spawn');
+
+  // --- control: a distant player NEVER wakes the garrison ---
+  const spots = garrison.map(e => ({ x: e.x, y: e.y }));
+  run(g, () => ({ 0: {} }), 4);
+  assert.ok(garrison.every(e => !e.awake), 'distant garrison stays asleep (control)');
+  assert.ok(garrison.every(e => Math.hypot(e.x - e.homeX, e.y - e.homeY) <= (sh.r + 1.5) * TILE),
+    'idle garrison holds inside the keep footprint');
+  assert.ok(garrison.every((e, i) => e.x === spots[i].x && e.y === spots[i].y),
+    'idle garrison does not drift from its post');
+
+  // --- aggro: a player crossing the aggro radius wakes the garrison ---
+  g.players[0].x = sh.x - TILE * 4; // inside the 6-tile aggro radius
+  g.players[0].y = sh.y;
+  run(g, () => ({ 0: {} }), 1.5);
+  assert.ok(garrison.some(e => e.awake), 'garrison wakes when a player enters aggro');
+  // ... and chases: at least one guard left its post toward the player
+  assert.ok(garrison.some(e => Math.hypot(e.x - e.homeX, e.y - e.homeY) > TILE * 0.6),
+    'an aggroed guard chases off its post');
+
+  // --- leash: walk the player far past the keep leash radius; garrison returns ---
+  g.players[0].x = TILE * 2;
+  g.players[0].y = TILE * 2; // back at the base, far beyond the 11-tile leash
+  let sawReturning = false;
+  run(g, () => { if (garrison.some(e => e.returning)) sawReturning = true; return { 0: {} }; }, 24);
+  assert.ok(sawReturning, 'leashed garrison entered the returning state');
+  assert.ok(garrison.every(e => !e.awake), 'garrison fell back into ambush sleep');
+  assert.ok(garrison.every(e => Math.hypot(e.x - e.homeX, e.y - e.homeY) < TILE * 2),
+    'returned garrison is back guarding the keep');
+
+  // --- snapshot gating + cleared flag ---
+  const snap = snapshot(g, false);
+  assert.ok(snap.strongholds && snap.strongholds.length === 1, 'snapshot ships the keep');
+  assert.equal(snap.strongholds[0].cleared, false, 'a garrisoned keep is not cleared');
+  assert.ok(Number.isFinite(snap.strongholds[0].x) && Number.isFinite(snap.strongholds[0].y),
+    'keep exposes a target position');
+  for (const e of garrison) { e.dead = true; e.hp = 0; }
+  assert.equal(snapshot(g, false).strongholds[0].cleared, true, 'keep clears when the garrison falls');
+
+  // --- gating: a level WITHOUT enemyStrongholds never gains the key ---
+  const plain = bigEmptyLevel([[17, '#' + '.'.repeat(35) + 'g..#']]);
+  const pg = createGame(plain, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  assert.ok(!pg.strongholds, 'no enemyStrongholds: no g.strongholds');
+  assert.ok(!snapshot(pg, false).strongholds, 'no enemyStrongholds: snapshot stays byte-stable');
+
+  // --- auto placement (corner-scan) seeds away from the base too ---
+  const autoLvl = bigEmptyLevel([[2, '#P' + '.'.repeat(36) + '#']]);
+  autoLvl.enemyStrongholds = { count: 1, garrison: 'gg' };
+  const ag = createGame(autoLvl, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  assert.ok(ag.strongholds && ag.strongholds.length === 1, 'auto-count seeds one keep');
+  assert.ok(Math.hypot(ag.strongholds[0].x - ag.players[0].x, ag.strongholds[0].y - ag.players[0].y) > 18 * TILE,
+    'auto-placed keep lands far from the base');
 }
 
 // --- shard economy: kills drop pickups that magnetize and join the pool ---
@@ -1452,6 +1850,11 @@ testMusicBoxOnAllStoryAndStronghold();
 testStrongholdCornerMounts();
 testDevCheats();
 testRelicAwakeningHorde();
+testRelicFreezesDayNightCycle();
+testSuperweaponLockedUntilSurvived();
+testSuperweaponBuildChargeAndTinyWave();
+testSuperweaponNukeClearsStronghold();
+testSuperweaponWeatherStormsOverTime();
 testScriptedBotClearsLevelOne();
 testAggroSleep();
 testSmallMapsStayArcade();
@@ -1464,6 +1867,7 @@ testEnemiesShootAcrossWater();
 testPickupOwnerPidZeroNotStolen();
 testRespawnNearTeammateOnBigMap();
 testLeashReturnAndResleep();
+testEnemyStronghold();
 testShardDropMagnetPickup();
 testPylonOpensGateAndGatesExtraction();
 testNpcTalkAndGift();
@@ -3401,10 +3805,13 @@ function forceTurret(b, ttype) {
   b.ttype = ttype;
 }
 
-// --- prism turrets: 2/1.2s beams, +1 dmg per OTHER built prism within 4 tiles (cap +3) ---
+// --- prism turrets (RA2 rebalance): 1/1.2s base beam (NOT an instant kill), and
+// LINKED prisms pick ONE firing master while the rest hold fire and feed it
+// (+1/feeder, cap +3). A control case asserts the master beam is stronger AND
+// that supporters stay silent. ---
 function testPrismTurretAdjacency() {
   const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
-  // lone prism: base damage only
+  // lone prism: base damage only — and the nerfed base is just 1 (was 2)
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(put(r, 2, 'P'), 10, 'B'), 15, 'g');
   let level = bigEmptyLevel([[5, r]]);
@@ -3416,11 +3823,12 @@ function testPrismTurretAdjacency() {
   g.enemies[0].awake = true;
   g.enemies[0].hp = 99;
   step(g, { 0: {} }, 1 / 30);
-  let beam = g.events.find(ev => ev.type === 'prismBeam');
-  assert.ok(beam, 'a lone prism fires its beam');
-  assert.equal(beam.dmg, 2, 'lone level-1 prism deals 2');
-  assert.equal(g.enemies[0].hp, 97, 'the beam damage landed instantly');
-  // five prisms in a row: the firing one links 4 neighbors but caps at +3
+  let beams = g.events.filter(ev => ev.type === 'prismBeam');
+  assert.equal(beams.length, 1, 'a lone prism fires exactly one beam');
+  assert.equal(beams[0].dmg, 1, 'lone level-1 prism deals 1 (nerfed from 2: no instant kill)');
+  assert.equal(g.enemies[0].hp, 98, 'the beam damage landed instantly');
+  // five prisms in a row: ONE master fires, the four supporters HOLD FIRE and
+  // feed (+1 each, capped at +3) → a single 1+3=4 beam, never five beams
   r = '#' + '.'.repeat(38) + '#';
   r = put(put(put(put(put(put(put(r, 2, 'P'), 10, 'B'), 11, 'B'), 12, 'B'), 13, 'B'), 14, 'B'), 18, 'g');
   level = bigEmptyLevel([[5, r]]);
@@ -3432,10 +3840,63 @@ function testPrismTurretAdjacency() {
   g.enemies[0].awake = true;
   g.enemies[0].hp = 99;
   step(g, { 0: {} }, 1 / 30);
-  beam = g.events.find(ev => ev.type === 'prismBeam');
-  assert.ok(beam, 'the array fires');
-  assert.equal(beam.dmg, 5, 'four feeders cap at +3: 2 base + 3');
+  beams = g.events.filter(ev => ev.type === 'prismBeam');
+  assert.equal(beams.length, 1, 'the link group fires ONE master beam, supporters hold fire');
+  assert.equal(beams[0].dmg, 4, 'four feeders cap at +3: 1 base + 3');
+  assert.equal(beams[0].linked, 3, 'the master reports its three feeders');
   assert.ok(g.events.filter(ev => ev.type === 'prismFeed').length >= 3, 'feeder flashes fired');
+  // CONTROL: the linked master out-damages a lone prism (and only one fired)
+  assert.ok(beams[0].dmg > 1, 'linked beam is strictly stronger than the lone base beam');
+}
+
+// --- prism fragility (RA2 nerf): a confirmed prism stands on a ~2-hit HP track,
+// far below the 10-hp gun/tesla/toxin turret. Driven through the real carousel
+// (the supported confirm path) so the HP re-clamp on confirm is exercised. ---
+function testPrismFragile() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  // a far, asleep grunt keeps the mission in play (an empty field extracts)
+  let r = '#' + '.'.repeat(38) + '#';
+  r = put(put(put(r, 4, 'P'), 10, 'B'), 35, 'g');
+  const level = bigEmptyLevel([[5, r]]);
+  level.builds = [{ kind: 'turret', cost: 5 }];
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
+  const p = g.players[0];
+  const b = g.builds[0];
+  p.invuln = 999;
+  g.graceT = 1e9;
+  g.shards = 10;
+  // build the turret with an act-hold (mirrors testTurretTypeSelectCarousel)
+  p.x = b.x - TILE; p.y = b.y;
+  run(g, () => ({ 0: { act: !b.built } }), 5);
+  assert.ok(b.built && b.typeSelect, 'turret built and waiting in typeSelect');
+  // CONTROL: a confirmed GUN keeps the generic 10-hp turret track
+  step(g, { 0: {} }, 1 / 30);
+  step(g, { 0: { act: true } }, 1 / 30);       // engage carousel
+  step(g, { 0: { act: true, fire: true } }, 1 / 30); // fire confirms 'gun' (idx 0)
+  assert.equal(b.ttype, 'gun', 'default confirm is the gun');
+  assert.equal(b.maxHp, 10, 'a gun turret keeps the generic 10-hp track (control)');
+  // a second turret, this time confirmed as a PRISM, lands on the fragile track
+  const g2 = createGame(level, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
+  const p2 = g2.players[0];
+  const b2 = g2.builds[0];
+  p2.invuln = 999;
+  g2.graceT = 1e9;
+  g2.shards = 10;
+  p2.x = b2.x - TILE; p2.y = b2.y;
+  run(g2, () => ({ 0: { act: !b2.built } }), 5);
+  assert.ok(b2.built && b2.typeSelect, 'second turret waits in typeSelect');
+  step(g2, { 0: {} }, 1 / 30);
+  step(g2, { 0: { act: true } }, 1 / 30);            // engage carousel
+  step(g2, { 0: { act: true, right: true } }, 1 / 30); // right: gun -> prism
+  step(g2, { 0: { act: true } }, 1 / 30);            // release right (clean edge)
+  step(g2, { 0: { act: true, fire: true } }, 1 / 30);  // fire confirms prism
+  assert.equal(b2.ttype, 'prism', 'the carousel confirmed a prism');
+  assert.equal(b2.maxHp, 2, 'a confirmed L1 prism re-clamps to a 2-hp (2-hit) track');
+  assert.ok(b2.hp <= 2 && b2.hp > 0, 'its current hp clamps to the fragile cap');
+  // two enemy gnaw bites (1 dmg each) destroy it — ~2 hits to kill
+  b2.hp = 2;
+  b2.hp -= 1; assert.ok(b2.hp > 0, 'one hit leaves the prism standing');
+  b2.hp -= 1; assert.ok(b2.hp <= 0, 'the second hit drops it to zero — 2 hits to destroy');
 }
 
 // --- tesla turrets: 1.5s chain-zap, up to 3 targets for 2/1/1, each stunned ---
@@ -5461,6 +5922,168 @@ function testWallsAndPrebuilt() {
   assert.equal(w2.hp, 35, 'upgrade completes at full hp');
 }
 
+// --- inventory: buying a placeable (turret/wall) lands it in the per-player
+// inventory (NOT the item slot), and inp.invSel cycles the selection. ---
+function testBuyPlaceableToInventory() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  let r = '#' + '.'.repeat(38) + '#';
+  r = put(put(put(r, 4, 'P'), 10, 'S'), 35, 'g');
+  const level = bigEmptyLevel([[5, r]]);
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
+  // stock the stall with two placeable offers (a custom offer list)
+  g.shopOffers = [
+    { what: 'turret', cost: 8, place: true },
+    { what: 'wall', cost: 5, amount: 3, place: true },
+    { what: 'medkit', cost: 10, amount: 1 },
+  ];
+  const p = g.players[0];
+  const shop = g.shops[0];
+  p.invuln = 999;
+  g.shards = 50;
+  p.x = shop.x + TILE; p.y = shop.y;
+  assert.equal(p.inventory, undefined, 'no inventory key before any placeable is bought');
+  // buy the turret (offer 0) — fire on open buys idx 0
+  run(g, () => ({ 0: { act: true } }), 0.4);
+  assert.equal(p.shopping, true, 'stall open');
+  step(g, { 0: { act: true, fire: true } }, 1 / 30);
+  assert.deepEqual(p.inventory, [{ kind: 'turret', count: 1 }], 'the turret went to inventory, not the item slot');
+  assert.equal(p.item ?? null, null, 'the item slot stays empty');
+  assert.equal(g.shards, 42, 'turret costs 8');
+  // cycle to the wall offer and buy 3
+  step(g, { 0: { act: true } }, 1 / 30);
+  step(g, { 0: { act: true, right: true } }, 1 / 30);
+  assert.equal(p.shopIdx, 1, 'cycled to the wall offer');
+  step(g, { 0: { act: true } }, 1 / 30);
+  step(g, { 0: { act: true, fire: true } }, 1 / 30);
+  assert.deepEqual(p.inventory, [{ kind: 'turret', count: 1 }, { kind: 'wall', count: 3 }], 'wall stacks 3 into a new slot');
+  assert.equal(g.shards, 37, 'a wall pack costs 5');
+  // inventory cycle: inp.invSel edge steps the selection, wrapping
+  assert.equal(p.invIdx, 0, 'selection starts on the first slot');
+  step(g, { 0: {} }, 1 / 30); // close the stall
+  step(g, { 0: { invSel: true } }, 1 / 30);
+  assert.equal(p.invIdx, 1, 'invSel advances the selection');
+  step(g, { 0: {} }, 1 / 30);
+  step(g, { 0: { invSel: true } }, 1 / 30);
+  assert.equal(p.invIdx, 0, 'selection wraps back to the first slot');
+  // snapshot ships inventory + selection only for a seat that carries them
+  const snap = snapshot(g, false);
+  assert.deepEqual(snap.players[0].inventory, [{ kind: 'turret', count: 1 }, { kind: 'wall', count: 3 }], 'snapshot mirrors the inventory');
+  assert.equal(snap.players[0].invIdx, 0, 'snapshot carries the selection index');
+}
+
+// --- placement mode: choosing Place freezes the operative, a tile-snapped ghost
+// follows the arrows, cancel exits WITHOUT consuming, confirm drops the
+// structure and consumes exactly one. ---
+function testPlacementModeFreezesAndConsumes() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  let r = '#' + '.'.repeat(38) + '#';
+  r = put(put(r, 10, 'P'), 35, 'g');
+  const level = bigEmptyLevel([[5, r]]);
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
+  const p = g.players[0];
+  p.invuln = 999;
+  g.graceT = 1e9;
+  // two turrets in inventory (placement consumes one per drop)
+  p.inventory = [{ kind: 'turret', count: 2 }];
+  p.invIdx = 0;
+  const x0 = p.x, y0 = p.y;
+  const builds0 = g.builds.length;
+  // enter placement mode (inp.place edge); the ghost seeds on the player's tile
+  step(g, { 0: { place: true } }, 1 / 30);
+  assert.equal(p.placing, 'turret', 'place entered placement mode for the selected item');
+  assert.ok(p.ghostX !== undefined && p.ghostY !== undefined, 'a ghost cursor appeared');
+  // CONTROL/FREEZE: arrow input moves the GHOST one tile, never the character
+  const ghostX0 = p.ghostX;
+  step(g, { 0: {} }, 1 / 30); // clear the all-held arrow guard
+  step(g, { 0: { right: true } }, 1 / 30);
+  assert.equal(p.ghostX, ghostX0 + TILE, 'right steps the ghost one tile east');
+  assert.equal(p.x, x0, 'the operative does NOT move while placing (x frozen)');
+  assert.equal(p.y, y0, 'the operative does NOT move while placing (y frozen)');
+  // cancel (special) exits WITHOUT consuming or placing anything
+  step(g, { 0: { special: true } }, 1 / 30);
+  assert.equal(p.placing, undefined, 'special cancels placement');
+  assert.equal(p.inventory[0].count, 2, 'cancel consumed nothing');
+  assert.equal(g.builds.length, builds0, 'cancel placed nothing');
+  // re-enter and CONFIRM (fire) — drops the turret, consumes one
+  step(g, { 0: {} }, 1 / 30);
+  step(g, { 0: { place: true } }, 1 / 30);
+  step(g, { 0: {} }, 1 / 30); // clear arrow/place guards
+  step(g, { 0: { right: true } }, 1 / 30); // nudge the ghost off the player's own tile
+  const gx = p.ghostX, gy = p.ghostY;
+  step(g, { 0: { fire: true } }, 1 / 30);
+  assert.equal(g.builds.length, builds0 + 1, 'confirm placed one structure');
+  const placed = g.builds[g.builds.length - 1];
+  assert.equal(placed.kind, 'turret', 'a turret was laid');
+  assert.equal(placed.built, true, 'the placed turret stands immediately');
+  assert.equal(placed.x, gx, 'the turret landed on the ghost tile (x)');
+  assert.equal(placed.y, gy, 'the turret landed on the ghost tile (y)');
+  assert.equal(p.inventory[0].count, 1, 'confirm consumed exactly one');
+  assert.equal(p.placing, 'turret', 'still placing — a second turret remains');
+  // place the second: the stack empties and placement auto-exits
+  step(g, { 0: {} }, 1 / 30);
+  step(g, { 0: { right: true } }, 1 / 30); // move ghost to a fresh tile
+  step(g, { 0: { right: true, fire: false } }, 1 / 30);
+  step(g, { 0: { fire: true } }, 1 / 30);
+  assert.equal(g.builds.length, builds0 + 2, 'the second turret placed too');
+  assert.equal(p.inventory, undefined, 'inventory emptied and cleared');
+  assert.equal(p.placing, undefined, 'placement auto-exits once the stack is gone');
+}
+
+// --- RA2 walls: drag-to-line. The first confirm sets the anchor, dragging the
+// ghost previews a line, the second confirm lays a connected run of wall
+// segments (one per inventory count) that block movement. ---
+function testWallDragLine() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  let r = '#' + '.'.repeat(38) + '#';
+  r = put(put(r, 6, 'P'), 35, 'g');
+  const level = bigEmptyLevel([[5, r]]);
+  const g = createGame(level, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
+  const p = g.players[0];
+  p.invuln = 999;
+  g.graceT = 1e9;
+  p.inventory = [{ kind: 'wall', count: 4 }];
+  p.invIdx = 0;
+  const builds0 = g.builds.length;
+  // enter placement: the ghost seeds on the player's tile
+  step(g, { 0: { place: true } }, 1 / 30);
+  assert.equal(p.placing, 'wall', 'placing a wall');
+  // first confirm drops the drag anchor (no wall laid yet)
+  step(g, { 0: {} }, 1 / 30);
+  step(g, { 0: { fire: true } }, 1 / 30);
+  assert.ok(p.wallAnchorX !== undefined, 'the first confirm set the drag anchor');
+  assert.equal(g.builds.length, builds0, 'no wall laid by the anchor press alone');
+  const anchorX = p.wallAnchorX, anchorY = p.wallAnchorY;
+  // drag the ghost three tiles east, then confirm to lay the line
+  step(g, { 0: {} }, 1 / 30);
+  step(g, { 0: { right: true } }, 1 / 30);
+  step(g, { 0: {} }, 1 / 30);
+  step(g, { 0: { right: true } }, 1 / 30);
+  step(g, { 0: {} }, 1 / 30);
+  step(g, { 0: { right: true } }, 1 / 30);
+  step(g, { 0: {} }, 1 / 30);
+  step(g, { 0: { fire: true } }, 1 / 30);
+  const laid = g.builds.slice(builds0);
+  assert.equal(laid.length, 4, 'a connected line of 4 wall tiles laid (anchor + 3 drag tiles)');
+  assert.ok(laid.every(b => b.kind === 'wall' && b.built), 'every segment is a standing wall');
+  // the run is connected: contiguous tile centers one TILE apart along a row
+  const xs = laid.map(b => b.x).sort((a, b) => a - b);
+  for (let i = 1; i < xs.length; i++) {
+    assert.equal(xs[i] - xs[i - 1], TILE, 'segments are adjacent (RA2 connected line)');
+  }
+  assert.ok(laid.every(b => b.y === anchorY), 'the line stays on the anchor row');
+  assert.equal(xs[0], anchorX, 'the line starts at the anchor tile');
+  // out of wall: placement auto-exits
+  assert.equal(p.inventory, undefined, 'all four wall segments consumed');
+  assert.equal(p.placing, undefined, 'placement exits when the wall stock empties');
+  // CONTROL: the laid walls block movement — an operative cannot cross the line
+  const wall = laid[2];
+  p.x = wall.x - TILE; p.y = wall.y;
+  const px0 = p.x;
+  run(g, () => ({ 0: { right: true } }), 1);
+  assert.ok(p.x < wall.x - 14, 'the drag-laid wall blocks the walk (movement + collision)');
+  assert.ok(p.x <= px0 + 2 || p.x < wall.x - 14, 'the wall line is a real barrier');
+}
+
 // --- fortified walls: player DIRECT shots demolish own structures — the
 // official shoot-your-way-out self-rescue. Pylons/beacons immune, splash
 // immune, ownerless (turret) fire immune. ---
@@ -6189,6 +6812,9 @@ function testDeterministicBeaconsRun() {
 
 testStrongholdDefIntegrity();
 testWallsAndPrebuilt();
+testBuyPlaceableToInventory();
+testPlacementModeFreezesAndConsumes();
+testWallDragLine();
 testShootYourWayOut();
 testBeaconSiegeDarkRelightAndLoss();
 testBeaconFinalDawnWin();
@@ -6255,6 +6881,7 @@ testBurnSpreadChainAndGroundPatches();
 testToxinSlowAndSpread();
 testStunHaltsEnemies();
 testPrismTurretAdjacency();
+testPrismFragile();
 testTeslaChainAndStun();
 testToxinTurretPools();
 testTurretTypeSelectCarousel();

@@ -89,6 +89,37 @@ function hordeDur(g) {
   return MUSIC_DURATIONS[`${g.musicBox.mode}-${g.musicBox.stem}`] || RELIC_WAVE_FALLBACK;
 }
 
+// --- RELIC SUPERWEAPON (RA2-style nuke / weather machine) ------------------
+// One-shot, single-use structure superweapon, UNLOCKED by surviving the relic
+// awakening horde (g.superweaponUnlocked). The whole system is a no-op unless
+// that flag is set AND a player actively builds one, so every untouched mode /
+// snapshot stays byte-identical. All values are HOLDOUT-scaled (TILE px, 1-24
+// enemy hp) from the RA2 spec; everything below is fully deterministic — the
+// only "randomness" is the seeded LCG used for the weather storm's bolt
+// scatter (seeded off the device id + a monotonic strike counter).
+const SUPER_KINDS = new Set(['nuke', 'weather']);
+const SUPER_BUILD_TIME = 6;      // s of standing-still channel to assemble
+const SUPER_CHARGE_SECONDS = 60; // ~1 minute charge before it goes live
+const SUPER_DEVICE_HP = 8;       // enemies can attack + destroy it mid-charge
+const SUPER_SITE_WALL_MIN = 1;   // tiles clear of wall '#' / cover 'o'
+const SUPER_SITE_EXIT_MIN = 4;   // tiles clear of an extract / spawn
+// NUKE: a single deterministic flatten + a lingering radiation crater.
+const NUKE_FLIGHT_DELAY = 1.0;   // s telegraph between launch and impact
+const NUKE_RADIUS = 4.5;         // tiles: outer blast (full damage inside 3)
+const NUKE_FULL_RADIUS = 3.0;    // tiles: full-damage core
+const NUKE_DAMAGE = 50;          // one-shots every enemy incl. the hp24 boss
+const NUKE_FALLOFF_DAMAGE = 25;  // edge damage (still lethal to all)
+const RAD_RADIUS = 3.0;          // tiles: radiation pool radius
+const RAD_TTL = 8;               // s the pool lingers before it fades
+const RAD_ENEMY_TICK = 0.5;      // s between 1-dmg chip ticks on enemies
+// WEATHER: a lightning storm — spread, probabilistic anti-base area denial.
+const STORM_WARNING_DELAY = 2.0; // s LightningDeferment before the first bolt
+const STORM_DURATION = 6;        // s the storm strikes
+const STORM_RADIUS = 5.0;        // tiles: storm footprint
+const STORM_STRIKE_INTERVAL = 0.4; // s between bolts (~15 over the storm)
+const STORM_BOLT_DAMAGE = 8;     // per bolt (3 bolts down the hp24 boss)
+const STORM_BOLT_RADIUS = 1.5;   // tiles: per-bolt area-ish splash
+
 // Maps at or below this tile count play arcade-style: every enemy is awake
 // from the start, exactly like the original single-screen levels.
 const ARCADE_MAP_TILES = 600;
@@ -112,6 +143,19 @@ const MAGNET_RANGE = 2.5; // tiles
 const MAGNET_SPEED = 6; // tiles/sec
 const BUILD_RADIUS = 18; // px, built structures block movement in this circle
 const BUILD_REACH = 1.5; // tiles, act range for building and talking
+// --- inventory + placement mode (RA2-style buy-then-place) ------------------
+// A bought placeable lands in the per-player inventory; choosing Place freezes
+// the operative and drives a tile-snapped ghost cursor with arrows/stick/mouse,
+// then confirm drops the structure (consuming one) or cancel exits free. The
+// cursor (placementCursor) is generic so the superweapon phase reuses it for
+// map targeting. PLACEABLES: inventory kind -> the g.builds structure it lays.
+const PLACEABLES = {
+  turret: { build: 'turret', cost: 8 },
+  wall: { build: 'wall', cost: 5, drag: true }, // drag-to-line, per-segment cost
+  barricade: { build: 'barricade', cost: 4 },
+};
+const PLACE_REACH = 6; // tiles: how far from the operative a ghost may roam
+const WALL_LINE_MAX = 12; // tiles: longest single drag-laid wall line
 const CRYSTAL_R = 16;
 const MELEE_KINDS = new Set(['grunt', 'skitter', 'charger', 'bulwark', 'boss', 'husk', 'alpha', 'stalker', 'beetle',
   // nightmare melee kinds (relic event); ghost/hellhound/spider/reaper/zombie all close and maul
@@ -234,10 +278,18 @@ const SIEGE_TOWER_R = TILE * 0.55;      // collision radius for player shots
 const SIEGE_CORE_R = TILE * 0.9;
 const TURRET_TYPES = ['gun', 'prism', 'tesla', 'toxin'];
 const TYPE_SELECT_T = 8; // seconds before an unattended carousel confirms 'gun'
-const PRISM_DMG = [2, 3, 4]; // beam damage by turret level
+// RA2 rebalance: a prism is a glass cannon — fragile (dies in ~2 hits) and its
+// raw per-shot beam is no longer an instant kill. Reach/cadence unchanged.
+const PRISM_DMG = [1, 2, 3]; // beam damage by turret level (was 2/3/4: too lethal)
+const PRISM_HP = [2, 3, 4]; // fragile prism: ~2 hits to destroy at L1 (vs turret 10)
 const PRISM_RANGE = [7, 7.5, 8]; // tiles
 const PRISM_PERIOD = 1.2;
-const PRISM_LINK_R = 4; // tiles: each OTHER built prism inside feeds +1 dmg (cap +3)
+const PRISM_LINK_R = 4; // tiles: prisms inside link into one firing master
+// RA2 Prism Tower linking: a group of nearby prisms picks ONE master to fire;
+// the rest HOLD FIRE and feed it. Each feeder adds PRISM_FEED_DMG to the beam,
+// capped at PRISM_FEED_CAP feeders (diminishing returns past the cap).
+const PRISM_FEED_DMG = 1; // beam damage added per feeding supporter
+const PRISM_FEED_CAP = 3; // max supporters that can feed one master
 const TESLA_DMG = [[2, 1, 1], [3, 2, 1], [4, 2, 2]]; // chain damage by level
 const TESLA_RANGE = [4, 4.5, 5]; // tiles
 const TESLA_PERIOD = 1.5;
@@ -364,6 +416,21 @@ const SNOW_SLOW = 0.92;
 const PATROL_SPEED = 0.6;
 const SPOTTER_RANGE = 8; // tiles
 const SPOTTER_BONUS = 4; // tiles of aggro granted by the spotter
+// --- ENEMY STRONGHOLDS: fortified hostile outposts seeded onto big maps ------
+// A stronghold is a walled ring (prebuilt wall builds) cornered by stationary
+// defenders, GARRISONED with a cluster of melee guards that idle at home. The
+// garrison shares the stronghold as its leash anchor: a player crossing the
+// aggro radius wakes the whole garrison (existing wakeEnemy/alertGroup), and
+// the garrison chases until the player drifts past the leash radius — measured
+// from the STRONGHOLD, not each enemy — at which point they walk home and idle
+// again (the existing returning state machine, re-homed to the keep). The
+// feature is gated entirely on def.enemyStrongholds: untouched modes never seed
+// one, so their snapshots stay byte-identical.
+const STRONGHOLD_AGGRO = 11;   // tiles: garrison wakes when a player crosses in
+const STRONGHOLD_LEASH = 18;   // tiles: garrison leashes home past this (from keep)
+const STRONGHOLD_RING = 2;     // tiles: wall ring radius around the keep center
+const STRONGHOLD_AWAY = 18;    // tiles: minimum keep distance from any spawn
+const STRONGHOLD_GARRISON = 'ggrsa'; // default garrison letters (guards + defenders)
 // Toxic air (def.modifiers.toxicAir {until}): unmasked operatives bleed
 // 0.5 hp per 4s until the deadline. The mask item is persistent once worn.
 const TOXIC_AIR_TICK = 4;
@@ -523,7 +590,10 @@ export function parseLevel(def) {
           // full) — stronghold base perimeters are prebuilt wall segments.
           // An optional bd.level (leveled kinds only) pre-upgrades it.
           const lvl0 = STRUCT_HP[bd.kind] ? Math.min(3, Math.max(1, bd.level || 1)) : undefined;
-          const maxHp = lvl0 !== undefined ? STRUCT_HP[bd.kind][lvl0 - 1] : buildMaxHp(bd.kind);
+          // a prebuilt prism turret ships on its fragile HP track (RA2 nerf)
+          const prebuiltPrism = bd.prebuilt && bd.kind === 'turret' && bd.ttype === 'prism';
+          const maxHp = prebuiltPrism ? turretMaxHp('prism', lvl0 || 1)
+            : lvl0 !== undefined ? STRUCT_HP[bd.kind][lvl0 - 1] : buildMaxHp(bd.kind);
           builds.push({
             x: px, y: py, kind: bd.kind, cost: bd.cost,
             progress: bd.prebuilt ? 1 : 0,
@@ -914,6 +984,13 @@ export function createGame(def, party, charMap, roster) {
     combo: 1,
     comboT: 0,
     lowTimeSent: false,
+    // RELIC SUPERWEAPON: unlocked only by surviving the awakening horde; the
+    // device + hazard fields stay absent/empty otherwise so snapshots for every
+    // untouched mode are byte-identical. (superweapon stays null until built;
+    // hazards stays empty until a nuke/storm lands.)
+    superweaponUnlocked: false,
+    superweapon: null,
+    hazards: [],
   };
   // CTF deploys every operative on their team stand's spawn ring (16 seats
   // per stand, deterministic offsets, see ctfStandSpot) instead of the
@@ -958,6 +1035,11 @@ export function createGame(def, party, charMap, roster) {
   // four corner fragments and one base-side altar straight off the tilemap, so
   // every client and the server agree without exchanging any extra setup.
   placeStags(g, def);
+  // Enemy strongholds: fortified hostile keeps + garrison, gated on
+  // def.enemyStrongholds (untouched modes never seed one). Runs BEFORE the
+  // music box so a keep's wall ring is on the map when fragments scan for open
+  // tiles — fragments simply route around the new structures, deterministically.
+  setupStrongholds(g, def);
   setupMusicBox(g, def);
   return g;
 }
@@ -1044,6 +1126,140 @@ function placeStags(g, def) {
     }
   }
   g.vehicles = others.concat(keep);
+}
+
+// --- ENEMY STRONGHOLDS -----------------------------------------------------
+// Seed fortified hostile outposts onto the map, deterministically, when the def
+// opts in via def.enemyStrongholds. Accepted forms:
+//   def.enemyStrongholds: true | <count>            (auto-place N keeps, N=1)
+//   def.enemyStrongholds: { count, garrison, aggro, leash, ring, hpMult }
+//   def.enemyStrongholds: [ {at:[tx,ty], garrison, ...}, ... ]  (authored keeps)
+// Auto placement walks the four map corners (cornerOpenTile, the same inward
+// scan the relic mounts use) in a fixed order, skipping any keep site that would
+// land inside STRONGHOLD_AWAY tiles of a player spawn. Every keep gets a
+// prebuilt wall ring (with cardinal gaps so the garrison can sortie) and a
+// garrison of fresh enemies whose home/leash anchor is the keep center, sharing
+// a group id so they wake as one. g.strongholds exposes each keep's center and
+// radii for the renderer/minimap and the superweapon phase. Untouched modes
+// (no def.enemyStrongholds) never call any of this and stay byte-identical.
+function setupStrongholds(g, def) {
+  const cfg = def.enemyStrongholds;
+  if (!cfg) return; // gated: classic/story/ctf/etc. never seed a keep
+  // Strongholds only make sense on non-arcade (big-map survival) layouts where
+  // the aggro/leash machinery runs; arcade auto-wakes everything.
+  if (g.arcade) return;
+  const opts = (cfg && typeof cfg === 'object' && !Array.isArray(cfg)) ? cfg : {};
+  const aggro = (opts.aggro || STRONGHOLD_AGGRO);
+  const leash = (opts.leash || STRONGHOLD_LEASH);
+  const ring = Math.max(1, Math.round(opts.ring || STRONGHOLD_RING));
+  const garrisonLetters = String(opts.garrison || STRONGHOLD_GARRISON);
+  const shHpMult = opts.hpMult || 1;
+  const sp = g.spawns.length ? g.spawns : [{ x: g.w * TILE / 2, y: g.h * TILE / 2 }];
+  const awayPx = STRONGHOLD_AWAY * TILE;
+  const farFromSpawn = (x, y) => sp.every(s => Math.hypot(x - s.x, y - s.y) >= awayPx);
+  // Resolve keep CENTERS in a fixed deterministic order.
+  let sites;
+  if (Array.isArray(cfg)) {
+    sites = cfg.map(s => {
+      const tx = s.at ? s.at[0] : Math.floor(g.w / 2);
+      const ty = s.at ? s.at[1] : Math.floor(g.h / 2);
+      return { x: (tx + 0.5) * TILE, y: (ty + 0.5) * TILE, def: s };
+    });
+  } else {
+    // count: opts.count wins; a bare number cfg is the count; cfg===true means 1.
+    const rawCount = opts.count ?? (typeof cfg === 'number' ? cfg : 1);
+    const want = Math.max(1, Math.min(4, Math.round(Number(rawCount)) || 1));
+    // far corners first: order the four corners by distance from the spawn
+    // centroid (descending) so a single keep lands opposite the base.
+    let cx = 0, cy = 0; for (const s of sp) { cx += s.x; cy += s.y; } cx /= sp.length; cy /= sp.length;
+    const corners = [[0, 0], [g.w - 1, 0], [0, g.h - 1], [g.w - 1, g.h - 1]]
+      .map(([tx, ty]) => ({ tx, ty, d: Math.hypot((tx + 0.5) * TILE - cx, (ty + 0.5) * TILE - cy) }))
+      .sort((a, b) => b.d - a.d || a.tx - b.tx || a.ty - b.ty);
+    sites = [];
+    for (const c of corners) {
+      if (sites.length >= want) break;
+      const spot = cornerOpenTile(g, c.tx, c.ty);
+      if (!farFromSpawn(spot.x, spot.y)) continue; // never seed atop the base
+      sites.push({ x: spot.x, y: spot.y, def: opts });
+    }
+    // fall back to the farthest corner even if every corner is "near" (tiny
+    // maps): a requested keep still seeds rather than silently vanishing.
+    if (!sites.length && corners.length) {
+      const c = corners[0];
+      const spot = cornerOpenTile(g, c.tx, c.ty);
+      sites.push({ x: spot.x, y: spot.y, def: opts });
+    }
+  }
+  g.strongholds = [];
+  let nextId = g.nextEnemyId || 1000;
+  sites.forEach((site, i) => {
+    const sd = site.def || {};
+    const cAggro = (sd.aggro || aggro);
+    const cLeash = (sd.leash || leash);
+    const cRing = Math.max(1, Math.round(sd.ring || ring));
+    const cHp = sd.hpMult || shHpMult;
+    // per-site garrison letters: an authored keep names its own roster, else the
+    // shared default; the count derives from the roster length unless overridden.
+    const cLetters = String(sd.garrison || garrisonLetters);
+    const ctx = Math.round(site.x / TILE - 0.5);
+    const cty = Math.round(site.y / TILE - 0.5);
+    const cx = (ctx + 0.5) * TILE, cy = (cty + 0.5) * TILE;
+    const group = (g._strongholdGroupBase = (g._strongholdGroupBase || 1000) + 1);
+    const fortId = 'fort' + i;
+    // WALL RING: a square shell of prebuilt walls at Chebyshev distance cRing,
+    // with the four cardinal mid-tiles left OPEN as sally gates so the garrison
+    // can pour out (and the player can breach in). Skip the keep's own footprint.
+    for (let dx = -cRing; dx <= cRing; dx++) {
+      for (let dy = -cRing; dy <= cRing; dy++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== cRing) continue; // shell only
+        if ((dx === 0 || dy === 0) && Math.abs(dx) + Math.abs(dy) === cRing) continue; // cardinal gates
+        const wtx = ctx + dx, wty = cty + dy;
+        if (wtx < 1 || wty < 1 || wtx >= g.w - 1 || wty >= g.h - 1) continue;
+        const c = g.grid[wty][wtx];
+        if (blocksMove(c) || c === '!') continue; // don't stack on terrain blockers
+        const wx = (wtx + 0.5) * TILE, wy = (wty + 0.5) * TILE;
+        if (collides(g, wx, wy, PLAYER_R)) continue; // skip occupied cells
+        g.builds.push({
+          x: wx, y: wy, kind: 'wall', cost: 0, progress: 1, paid: 0, built: true,
+          hp: STRUCT_HP.wall[0], maxHp: STRUCT_HP.wall[0], cool: 0, evT: 0, level: 1,
+          fort: fortId,
+        });
+      }
+    }
+    // GARRISON: a cluster seeded on open tiles around the keep, deterministic
+    // ring scan (openTileNear, seeded by the keep index). Letter j picks a
+    // garrison kind round-robin; the first stationary kind anchors the keep
+    // center as its defender, the rest ring it. Every member is re-homed to the
+    // keep so the leash measures from the stronghold (see stepEnemy).
+    const garrison = [];
+    const count = Math.max(1, Math.round(sd.garrisonCount ?? cLetters.length));
+    for (let j = 0; j < count; j++) {
+      const letter = cLetters[j % cLetters.length] || 'g';
+      let spot;
+      if (j === 0) spot = { x: cx, y: cy }; // the anchor sits dead-center
+      else spot = openTileNear(g, cx, cy, 1, cRing + 1, (i * 7 + j) % 16);
+      if (!spot) spot = { x: cx, y: cy };
+      const e = makeEnemy(letter, spot.x, spot.y, nextId++);
+      // re-home to the keep: home is the keep center, leash measures from here
+      e.homeX = cx; e.homeY = cy;
+      e.fort = fortId;
+      e.aggro = cAggro * TILE;        // stronghold aggro radius (overrides def aggro)
+      e.leashR = cLeash * TILE;       // stronghold leash radius (measured from keep)
+      e.group = group;                // wake/alert as one garrison
+      if (cHp > 1) scaleEnemyHp(cHp, e);
+      g.enemies.push(e);
+      garrison.push(e.id);
+    }
+    g.nextEnemyId = nextId;
+    g.strongholds.push({
+      id: fortId, x: cx, y: cy,
+      r: cRing,                        // wall-ring radius (tiles)
+      aggro: cAggro, leash: cLeash,    // tiles
+      garrison,                        // enemy ids stationed here
+      cleared: false,
+    });
+  });
+  if (!g.strongholds.length) delete g.strongholds; // nothing seeded: stay byte-stable
 }
 
 function setupMusicBox(g, def) {
@@ -1171,6 +1387,13 @@ function collides(g, x, y, r) {
       const rr = BUILD_RADIUS + r;
       if (dx * dx + dy * dy < rr * rr) return true;
     }
+  }
+  // A live relic superweapon (building/charging/ready) is a solid obstacle —
+  // gated on g.superweapon, so every untouched mode short-circuits here.
+  const sw = g.superweapon;
+  if (sw && sw.state !== 'spent' && sw.state !== 'wrecked') {
+    const dx = x - sw.x, dy = y - sw.y, rr = BUILD_RADIUS + r;
+    if (dx * dx + dy * dy < rr * rr) return true;
   }
   return false;
 }
@@ -1942,6 +2165,7 @@ function dropFieldWeapon(g, p) {
 // Going down vacates whatever the player held: mount, watchtower, flag, shop.
 function releaseHoldings(g, p) {
   p.shopping = false;
+  if (p.placing) exitPlacement(p); // a downed operative drops out of placement
   dropFieldWeapon(g, p); // downed (and extracted) operatives drop theirs
   if (p.riding) {
     const v = g.vehicles.find(v => v.id === p.riding);
@@ -2821,6 +3045,14 @@ function structMaxHp(kind, level) {
   return t ? t[level - 1] : buildMaxHp(kind);
 }
 
+// Turret HP is type-aware: prisms are deliberately fragile (PRISM_HP, ~2 hits)
+// while every other turret type keeps the generic turret HP track. Used wherever
+// a turret's maxHp is (re)computed so repair/upgrade respect the prism nerf.
+function turretMaxHp(ttype, level) {
+  if (ttype === 'prism') return PRISM_HP[Math.min(PRISM_HP.length, Math.max(1, level || 1)) - 1];
+  return structMaxHp('turret', level);
+}
+
 // A destroyed watchtower throws its gunner out and loses its upgrades.
 function towerDown(g, t) {
   for (const p of g.players) {
@@ -3127,11 +3359,29 @@ function stepConverted(g, e, dt) {
 }
 
 // Confirm a turret's chosen type (player fire, or the 8s unattended default).
+// Does prism `o` have a valid (awake, in-range, line-of-sight) enemy target?
+// Used to elect the firing master of a link group: only a prism that could
+// actually fire may claim mastership over a higher-index linked prism.
+function prismHasTarget(g, o) {
+  const range2 = (TILE * PRISM_RANGE[(o.level || 1) - 1]) ** 2;
+  for (const e of g.enemies) {
+    if (e.dead || !e.awake || e.convertedT > 0) continue;
+    if (dist2(o, e) < range2 && hasLoS(g, o.x, o.y, e.x, e.y, blocksSight)) return true;
+  }
+  return false;
+}
+
 function confirmTurretType(g, b) {
   b.typeSelect = false;
   b.ttype = TURRET_TYPES[b.tsIdx || 0];
   b.selT = 0;
   b.cool = 0;
+  // RA2 prism nerf: a confirmed prism re-clamps to its fragile HP track; every
+  // other type keeps the generic turret HP it was built with (byte-stable).
+  if (b.ttype === 'prism') {
+    b.maxHp = turretMaxHp('prism', b.level || 1);
+    b.hp = Math.min(b.hp, b.maxHp);
+  }
   g.events.push({ type: 'turretType', x: b.x, y: b.y, ttype: b.ttype });
 }
 
@@ -3238,14 +3488,22 @@ function stepEnemy(g, e, dt) {
   // an awake enemy whose nearest target drifts beyond aggro*1.8 disengages.
   // Mobile kinds walk back to their post and fall asleep there; stationary
   // kinds simply go back to ambush sleep on the spot.
+  //
+  // STRONGHOLD GARRISON (e.leashR set): the leash is measured by the player's
+  // distance from the KEEP (home), not enemy-to-target — so a garrison chases
+  // a runner only while that runner stays near the stronghold, then peels off
+  // and walks home the instant the player clears the keep's leash radius. The
+  // re-aggro test mirrors it: a player back inside the keep aggro re-engages.
   if (!g.arcade) {
-    const leash = aggro * LEASH_MULT;
-    if (!e.returning && best > leash * leash) {
+    const garrison = e.leashR > 0;
+    const homeBest = garrison ? dist2(tgt, { x: e.homeX, y: e.homeY }) : best;
+    const leash = garrison ? e.leashR : aggro * LEASH_MULT;
+    if (!e.returning && homeBest > leash * leash) {
       if (STATIONARY_KINDS.has(e.kind)) { e.aimT = 0; e.awake = false; return; }
       e.returning = true;
     }
     if (e.returning) {
-      if ((best < aggro * aggro && canSee(g, e, tgt)) || best < (TILE * 2.2) ** 2) {
+      if ((homeBest < aggro * aggro && canSee(g, e, tgt)) || best < (TILE * 2.2) ** 2) {
         e.returning = false;
       } else {
         if (Math.hypot(e.homeX - e.x, e.homeY - e.y) < TILE * 0.6) {
@@ -3641,6 +3899,9 @@ function stepHorde(g, dt) {
     const score = Math.max(HORDE_FLOOR_BONUS, base - penalty);
     g.score += score;
     h.result = 'survived';
+    // SUPERWEAPON UNLOCK: clearing the music-box awakening earns the squad the
+    // right to build the one-shot relic superweapon (nuke / weather machine).
+    g.superweaponUnlocked = true;
     g.events.push({
       type: 'relicSurvived', x: g.musicBox.altar.x, y: g.musicBox.altar.y,
       score, base, hits: h.hits, deaths: h.deaths,
@@ -3692,6 +3953,266 @@ function stepHorde(g, dt) {
     }
     h.tick++;
     if (spawned) g.events.push({ type: 'hordeBurst', tick: h.tick, progress, count: spawned });
+  }
+}
+
+// --- RELIC SUPERWEAPON ------------------------------------------------------
+// The whole module is GATED: it never touches g unless a relic superweapon has
+// been built (g.superweapon) or a hazard field is live (g.hazards.length), so
+// every other mode / snapshot is byte-identical.
+
+// A superweapon may be ASSEMBLED on an open floor tile that is clear of walls /
+// cover and well away from extracts and spawns (mirrors the RA2 build-site
+// rule, HOLDOUT-scaled to tiles). Pure grid math — fully deterministic.
+function canBuildSuperweaponAt(g, x, y) {
+  const c = tileAt(g, x, y);
+  if (c !== '.') return false; // floor only
+  const tx = Math.floor(x / TILE), ty = Math.floor(y / TILE);
+  for (let dy = -SUPER_SITE_WALL_MIN; dy <= SUPER_SITE_WALL_MIN; dy++) {
+    for (let dx = -SUPER_SITE_WALL_MIN; dx <= SUPER_SITE_WALL_MIN; dx++) {
+      const nx = tx + dx, ny = ty + dy;
+      if (ny < 0 || nx < 0 || ny >= g.h || nx >= g.w) continue;
+      const t = g.grid[ny][nx];
+      if (t === '#' || t === 'o') return false; // 1 tile clear of wall/cover
+    }
+  }
+  const exitR2 = (SUPER_SITE_EXIT_MIN * TILE) ** 2;
+  for (let yy = 0; yy < g.h; yy++) {
+    for (let xx = 0; xx < g.w; xx++) {
+      const t = g.grid[yy][xx];
+      if (t !== 'E' && t !== 'P') continue;
+      const cx = (xx + 0.5) * TILE, cy = (yy + 0.5) * TILE;
+      if ((cx - x) ** 2 + (cy - y) ** 2 < exitR2) return false; // 4 tiles off E/P
+    }
+  }
+  if (collides(g, x, y, BUILD_RADIUS)) return false; // free of other structures
+  return true;
+}
+
+// Player input drives the relic superweapon lifecycle. Called per active seat
+// from the player loop. inp.superBuild ('nuke'|'weather') asks to assemble on
+// the seat's tile; inp.superFire (with inp.aimX/aimY) commits a target once the
+// device is ready. Both are no-ops until g.superweaponUnlocked is true.
+function stepSuperweaponInput(g, p, inp) {
+  if (!g.superweaponUnlocked) return;
+  const sw = g.superweapon;
+  // BUILD: one device per run. A fresh edge of inp.superBuild on a valid site
+  // starts a 6s standing channel (channelT) — interruptible by moving/downing.
+  if (!sw && SUPER_KINDS.has(inp.superBuild) && !p.superBuildPrev) {
+    const c = tileCenter(p.x, p.y);
+    if (canBuildSuperweaponAt(g, c.x, c.y)) {
+      g.superweapon = {
+        type: inp.superBuild, state: 'building',
+        buildT: 0, chargeT: SUPER_CHARGE_SECONDS, used: false,
+        x: c.x, y: c.y, ownerPid: p.pid, hp: SUPER_DEVICE_HP, maxHp: SUPER_DEVICE_HP,
+      };
+      g.events.push({ type: 'superweaponSite', x: c.x, y: c.y, kind: inp.superBuild, pid: p.pid });
+    }
+  }
+  p.superBuildPrev = SUPER_KINDS.has(inp.superBuild);
+  // FIRE: when the device is ready the OWNER commits a target cell. The fire
+  // edge + an aim point (inp.aimX/aimY) resolve the one shot.
+  const fw = g.superweapon;
+  if (fw && fw.state === 'ready' && !fw.used && p.pid === fw.ownerPid
+      && inp.superFire && !p.superFirePrev
+      && inp.aimX !== undefined && inp.aimY !== undefined) {
+    fireSuperweapon(g, fw, inp.aimX, inp.aimY);
+  }
+  p.superFirePrev = !!inp.superFire;
+}
+
+// Per-step device clock: BUILD channel -> CHARGE -> READY. Called once per step
+// (a no-op when no device exists). The owner must keep standing on the device's
+// tile to channel it up; walking off / going down pauses the build channel.
+function stepSuperweapon(g, dt) {
+  const sw = g.superweapon;
+  if (!sw) return;
+  // ENEMY ATTACK: while it is still being built or charging the device is a
+  // gnawable target (1 dmg per 0.9s of melee contact, like a structure). At 0
+  // hp it is DESTROYED — and since the relic weapon is one-use, it's gone for
+  // good (mirrors RA2 "destroying the silo resets the timer", harsher here).
+  if (sw.state === 'building' || sw.state === 'charging') {
+    const rr = (BUILD_RADIUS + ENEMY_R + 3) ** 2;
+    for (const e of g.enemies) {
+      if (e.dead || !MELEE_KINDS.has(e.kind) || e.hitCool > 0) continue;
+      if ((e.x - sw.x) ** 2 + (e.y - sw.y) ** 2 >= rr) continue;
+      e.hitCool = 0.9;
+      sw.hp -= 1;
+      g.events.push({ type: 'buildHit', x: sw.x, y: sw.y });
+      if (sw.hp <= 0) {
+        sw.hp = 0;
+        sw.state = 'wrecked';
+        g.events.push({ type: 'superweaponDown', x: sw.x, y: sw.y, kind: sw.type });
+        break;
+      }
+    }
+    if (sw.state === 'wrecked') return;
+  }
+  if (sw.state === 'building') {
+    const owner = g.players.find(q => q.pid === sw.ownerPid);
+    const here = owner && owner.state === 'active'
+      && Math.hypot(owner.x - sw.x, owner.y - sw.y) <= TILE * BUILD_REACH;
+    if (here) {
+      sw.buildT += dt;
+      if (sw.buildT >= SUPER_BUILD_TIME) {
+        // CONSTRUCTION COMPLETE: start the ~60s charge AND spawn the tiny
+        // punish wave so the squad must defend the new device.
+        sw.state = 'charging';
+        sw.buildT = SUPER_BUILD_TIME;
+        sw.chargeT = SUPER_CHARGE_SECONDS;
+        g.events.push({ type: 'buildSuperweapon', x: sw.x, y: sw.y, kind: sw.type });
+        spawnSuperweaponMiniWave(g, sw);
+      }
+    }
+    return;
+  }
+  if (sw.state === 'charging') {
+    sw.chargeT -= dt;
+    if (sw.chargeT <= 0) {
+      sw.chargeT = 0;
+      sw.state = 'ready';
+      g.events.push({ type: 'superweaponReady', x: sw.x, y: sw.y, kind: sw.type });
+    }
+  }
+}
+
+// A TINY response wave near a finished device: a 4-enemy poke (a fraction of a
+// real 15-30 wave), each aimed at the device. Deterministic open-cell ring scan
+// (openTileNear, the same the relic altar uses), seeded by the device tile.
+function spawnSuperweaponMiniWave(g, sw) {
+  const roster = sw.type === 'weather' ? ['g', 'g', 'w', 'w'] : ['g', 'g', 'g', 'r'];
+  const baseSeed = (Math.floor(sw.x / TILE) * 31 + Math.floor(sw.y / TILE) * 7) | 0;
+  for (let i = 0; i < roster.length; i++) {
+    const spot = openTileNear(g, sw.x, sw.y, 3, 4, baseSeed + i * 5);
+    if (!spot) continue;
+    const e = makeEnemy(roster[i], spot.x, spot.y, g.nextEnemyId++);
+    e.awake = true;
+    e.aggro *= 100; // hunters: march on the device / nearest player
+    const dx = sw.x - spot.x, dy = sw.y - spot.y, d = Math.hypot(dx, dy) || 1;
+    e.fx = dx / d; e.fy = dy / d;
+    scaleEnemyHp(g.hpMult, e);
+    g.enemies.push(e);
+    g.events.push({ type: 'spawnEnemy', x: spot.x, y: spot.y, kind: e.kind });
+  }
+}
+
+// FIRE: the one shot. Marks the device spent (no recharge) and resolves the
+// payoff — the nuke schedules a delayed instant flatten + radiation crater; the
+// weather machine schedules a lightning storm DoT field over the target.
+function fireSuperweapon(g, sw, ax, ay) {
+  const c = tileCenter(ax, ay);
+  sw.used = true;
+  sw.state = 'spent';
+  sw.targetX = c.x;
+  sw.targetY = c.y;
+  if (sw.type === 'nuke') {
+    g.events.push({ type: 'nukeStrike', x: c.x, y: c.y, radius: NUKE_RADIUS * TILE });
+    // launch arc telegraph: the blast resolves after a short flight (so anyone
+    // inside the circle, friendly included, has a beat to flee).
+    g.hazards.push({ kind: 'nukeFlight', x: c.x, y: c.y, radius: NUKE_RADIUS * TILE, ttl: NUKE_FLIGHT_DELAY });
+  } else {
+    g.events.push({ type: 'stormStart', x: c.x, y: c.y, radius: STORM_RADIUS * TILE });
+    g.hazards.push({
+      kind: 'storm', x: c.x, y: c.y, radius: STORM_RADIUS * TILE,
+      ttl: STORM_DURATION + STORM_WARNING_DELAY, warnT: STORM_WARNING_DELAY,
+      strikeT: STORM_WARNING_DELAY, strikes: 0, ownerPid: sw.ownerPid,
+    });
+  }
+  g.events.push({ type: 'superweaponFired', x: c.x, y: c.y, kind: sw.type });
+}
+
+// Detonate the nuke: instant AoE that one-shots everything in the circle (full
+// damage in the 3-tile core, lethal falloff out to 4.5), downs any caught
+// player without invuln (telegraphed, so it's avoidable), and leaves a
+// lingering radiation pool. No friendly-fire immunity — the RA2 flavor.
+function nukeDetonate(g, x, y) {
+  const r = NUKE_RADIUS * TILE, full = NUKE_FULL_RADIUS * TILE;
+  const r2 = r * r, full2 = full * full;
+  g.events.push({ type: 'explode', x, y, radius: r, who: 'p' });
+  for (const e of g.enemies) {
+    if (e.dead) continue;
+    const d2 = (e.x - x) ** 2 + (e.y - y) ** 2;
+    if (d2 > r2) continue;
+    damageEnemy(g, e, d2 <= full2 ? NUKE_DAMAGE : NUKE_FALLOFF_DAMAGE, e.x, e.y, 'nuke');
+  }
+  for (const p of g.players) {
+    if (p.state !== 'active' || p.invuln > 0) continue;
+    if ((p.x - x) ** 2 + (p.y - y) ** 2 <= r2) downPlayer(g, p);
+  }
+  g.hazards.push({ kind: 'radiation', x, y, radius: RAD_RADIUS * TILE, ttl: RAD_TTL, tick: 0 });
+}
+
+// Tick every live hazard field: the nuke's flight telegraph detonates at 0,
+// radiation chip-kills enemies / downs players inside it, and the storm scatters
+// lightning bolts across its footprint for its duration. Drops expired fields.
+// A no-op (and never allocates) when g.hazards is empty.
+function stepHazards(g, dt) {
+  if (!g.hazards.length) return;
+  for (const hz of g.hazards) {
+    if (hz.kind === 'nukeFlight') {
+      hz.ttl -= dt;
+      if (hz.ttl <= 0) { nukeDetonate(g, hz.x, hz.y); hz.done = true; }
+    } else if (hz.kind === 'radiation') {
+      hz.ttl -= dt;
+      // players: standing in the pool downs them (lethal, RA2 flavor)
+      for (const p of g.players) {
+        if (p.state !== 'active' || p.invuln > 0) continue;
+        if ((p.x - hz.x) ** 2 + (p.y - hz.y) ** 2 <= hz.radius * hz.radius) downPlayer(g, p);
+      }
+      // enemies: 1 dmg every RAD_ENEMY_TICK s (serious ongoing area denial)
+      hz.tick = (hz.tick || 0) + dt;
+      while (hz.tick >= RAD_ENEMY_TICK) {
+        hz.tick -= RAD_ENEMY_TICK;
+        for (const e of g.enemies) {
+          if (e.dead) continue;
+          if ((e.x - hz.x) ** 2 + (e.y - hz.y) ** 2 <= hz.radius * hz.radius) {
+            damageEnemy(g, e, 1, e.x, e.y, 'radiation');
+          }
+        }
+      }
+      if (hz.ttl <= 0) hz.done = true;
+    } else if (hz.kind === 'storm') {
+      hz.ttl -= dt;
+      if (hz.warnT > 0) hz.warnT -= dt;
+      else {
+        hz.strikeT -= dt;
+        while (hz.strikeT <= 0) {
+          hz.strikeT += STORM_STRIKE_INTERVAL;
+          stormBolt(g, hz);
+        }
+      }
+      if (hz.ttl <= 0) hz.done = true;
+    }
+  }
+  g.hazards = g.hazards.filter(hz => !hz.done);
+}
+
+// One lightning bolt: a seeded-random cell inside the storm footprint takes a
+// powerful area-ish strike (LightningWarhead). The scatter is a deterministic
+// LCG seeded off the storm origin + a monotonic strike counter (same family as
+// the shard-placement LCG), so it's spread/probabilistic yet fully reproducible
+// — a packed stronghold gets shredded over the duration while a lone fast
+// enemy can slip between strikes. A direct hit downs a player.
+function stormBolt(g, hz) {
+  hz.strikes++;
+  let seed = ((Math.floor(hz.x / TILE) * 73856093) ^ (Math.floor(hz.y / TILE) * 19349663) ^ (hz.strikes * 83492791)) >>> 0;
+  const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+  // polar sample with a CENTER bias (r = R * rnd^0.7): strikes scatter across the
+  // whole footprint but cluster inward, so a packed base in the AoE is devastated
+  // over the duration while a straggler at the rim can slip a few bolts.
+  const ang = rnd() * Math.PI * 2;
+  const rad = hz.radius * Math.pow(rnd(), 0.7);
+  const bx = hz.x + Math.cos(ang) * rad;
+  const by = hz.y + Math.sin(ang) * rad;
+  const br = STORM_BOLT_RADIUS * TILE, br2 = br * br;
+  g.events.push({ type: 'lightningStrike', x: bx, y: by, radius: br });
+  for (const e of g.enemies) {
+    if (e.dead) continue;
+    if ((e.x - bx) ** 2 + (e.y - by) ** 2 <= br2) damageEnemy(g, e, STORM_BOLT_DAMAGE, e.x, e.y, 'storm');
+  }
+  for (const p of g.players) {
+    if (p.state !== 'active' || p.invuln > 0) continue;
+    if ((p.x - bx) ** 2 + (p.y - by) ** 2 <= br2) downPlayer(g, p);
   }
 }
 
@@ -3827,6 +4348,16 @@ function spawnNightWave(g, off = 0) {
 function stepCycle(g, dt) {
   const cy = g.cycle;
   if (!cy) return;
+  // RELIC AWAKENING FREEZE: while the awakening horde is live (g.horde latched
+  // and not yet ended — stepHorde ran just before us this tick), the day/night
+  // clock is PAUSED. stepHorde forces darkness + thunder for the whole wave, so
+  // advancing cy.t here could fire a normal dusk/dawn (a daytime or darkness
+  // transition) mid-event and fight the forced look. Freezing means cy.t does
+  // not tick down, no day events/blood warnings/phase flips run, and the cycle
+  // resumes EXACTLY where it left off when endHorde clears the wave. Gated: this
+  // is a no-op unless a relic completed (story/bastion only), so every other
+  // run stays byte-identical.
+  if (g.horde && !g.horde.ended) return;
   // Endless: no fixed night count — blood moons recur every 3rd night from the
   // 3rd, and dawn never declares victory (the run ends only when the base falls).
   const endless = !!(g.bastion && g.bastion.endless);
@@ -4174,7 +4705,8 @@ function holdStructure(g, s, kind, holders, dt, payer) {
       if (s.upProgress >= 1 - 1e-9) {
         s.upProgress = 0;
         s.level = level + 1;
-        s.maxHp = structMaxHp(kind, s.level);
+        // a prism stays on its fragile HP track through upgrades (RA2 nerf)
+        s.maxHp = kind === 'turret' && s.ttype === 'prism' ? turretMaxHp('prism', s.level) : structMaxHp(kind, s.level);
         s.hp = s.maxHp;
         s.invested = (s.invested ?? s.cost ?? 0) + cost;
         g.events.push({ type: 'built', x: s.x, y: s.y, kind, level: s.level });
@@ -4219,12 +4751,210 @@ function typeSelectNear(g, p) {
   return sel;
 }
 
+// --- inventory + placement mode --------------------------------------------
+// Inventory and placement state are GATED: a player gains p.inventory only once
+// they buy a placeable, and p.placing only while a ghost is up. Snapshots emit
+// these keys only when present, so every classic snapshot stays byte-stable.
+
+// Add `count` of a placeable kind to a player's inventory (stacking same kind).
+function addToInventory(p, kind, count = 1) {
+  if (!PLACEABLES[kind]) return;
+  if (!p.inventory) p.inventory = [];
+  const slot = p.inventory.find(s => s.kind === kind);
+  if (slot) slot.count += count;
+  else p.inventory.push({ kind, count });
+  if (p.invIdx === undefined) p.invIdx = 0;
+}
+
+function inventoryCount(p, kind) {
+  if (!p.inventory) return 0;
+  const slot = p.inventory.find(s => s.kind === kind);
+  return slot ? slot.count : 0;
+}
+
+// Consume one of a placeable kind; drops emptied slots and keeps invIdx sane.
+function consumeInventory(p, kind) {
+  if (!p.inventory) return false;
+  const i = p.inventory.findIndex(s => s.kind === kind);
+  if (i < 0 || p.inventory[i].count <= 0) return false;
+  if (--p.inventory[i].count <= 0) p.inventory.splice(i, 1);
+  if (p.inventory.length === 0) { p.inventory = undefined; p.invIdx = undefined; }
+  else if (p.invIdx >= p.inventory.length) p.invIdx = p.inventory.length - 1;
+  return true;
+}
+
+// Snap a world point to its tile center.
+function tileCenter(wx, wy) {
+  return { x: (Math.floor(wx / TILE) + 0.5) * TILE, y: (Math.floor(wy / TILE) + 0.5) * TILE };
+}
+
+// REUSABLE targeting cursor (the superweapon phase calls this for map
+// targeting too). Drives a tile-snapped {x,y} cursor from an anchor: a mouse
+// world point (inp.aimX/aimY) places it absolutely, else arrow/stick EDGES step
+// it one tile per press. The cursor is clamped to the map and to `reach` tiles
+// of the anchor. Edge state lives on `prev` (caller owns it). Returns the new
+// cursor; never mutates the player's own position.
+export function placementCursor(cur, inp, prev, anchor, w, h, reach) {
+  let cx = cur.x, cy = cur.y;
+  if (inp.aimX !== undefined && inp.aimY !== undefined) {
+    const c = tileCenter(inp.aimX, inp.aimY);
+    cx = c.x; cy = c.y;
+  } else {
+    // edge-stepped: one tile per fresh press, deterministic and frame-rate free
+    const eR = !!inp.right && !prev.right, eL = !!inp.left && !prev.left;
+    const eD = !!inp.down && !prev.down, eU = !!inp.up && !prev.up;
+    if (eR) cx += TILE;
+    if (eL) cx -= TILE;
+    if (eD) cy += TILE;
+    if (eU) cy -= TILE;
+  }
+  prev.right = !!inp.right; prev.left = !!inp.left;
+  prev.down = !!inp.down; prev.up = !!inp.up;
+  // clamp inside the map AND inside reach tiles of the anchor (tile-snapped)
+  cx = Math.max(TILE * 0.5, Math.min((w - 0.5) * TILE, cx));
+  cy = Math.max(TILE * 0.5, Math.min((h - 0.5) * TILE, cy));
+  const r = reach * TILE;
+  const dx = cx - anchor.x, dy = cy - anchor.y;
+  if (dx * dx + dy * dy > r * r) {
+    const d = Math.hypot(dx, dy) || 1;
+    const c = tileCenter(anchor.x + (dx / d) * r, anchor.y + (dy / d) * r);
+    cx = c.x; cy = c.y;
+  }
+  return { x: cx, y: cy };
+}
+
+// A ghost tile is plottable when it sits on open ground (no wall/water/void),
+// is free of other built structures and the map core, and is clear of enemies.
+function canPlaceAt(g, x, y) {
+  const t = tileAt(g, x, y);
+  if (blocksMove(t)) return false;
+  const rr = BUILD_RADIUS * 2;
+  for (const b of g.builds) {
+    if (dist2({ x, y }, b) < rr * rr) return false;
+  }
+  if (g.core && dist2({ x, y }, g.core) < (CORE_R + BUILD_RADIUS) ** 2) return false;
+  for (const e of g.enemies) {
+    if (!e.dead && dist2({ x, y }, e) < (ENEMY_R + BUILD_RADIUS) ** 2) return false;
+  }
+  return true;
+}
+
+// Lay one placeable structure (already paid via inventory) at a tile center.
+// Returns the new build, already standing, or null if the tile is blocked.
+function layStructure(g, p, placeKind, x, y) {
+  const def = PLACEABLES[placeKind];
+  if (!def || !canPlaceAt(g, x, y)) return null;
+  const kind = def.build;
+  const level = 1;
+  const maxHp = kind === 'turret' ? structMaxHp('turret', level) : structMaxHp(kind, level) || buildMaxHp(kind);
+  const b = {
+    x, y, kind, cost: def.cost,
+    progress: 1, paid: def.cost, built: true,
+    hp: maxHp, maxHp, cool: 0, evT: 0,
+    invested: def.cost,
+    ...(STRUCT_HP[kind] ? { level } : {}),
+    team: p.team,
+  };
+  if (kind === 'turret') {
+    // a placed turret enters the same RA2 carousel a built one does
+    b.typeSelect = true; b.tsIdx = 0; b.selT = 0; b.attended = false;
+  }
+  g.builds.push(b);
+  g.buildEpoch = (g.buildEpoch || 0) + 1;
+  g.events.push({ type: 'placed', x, y, kind });
+  return b;
+}
+
+// The set of tile centers along an RA2 wall drag: a straight line from anchor
+// to the cursor, snapped to whichever axis (row/col) the drag favors, capped at
+// WALL_LINE_MAX tiles. Deterministic, inclusive of both ends.
+function wallLineTiles(anchor, cursor) {
+  const ax = Math.floor(anchor.x / TILE), ay = Math.floor(anchor.y / TILE);
+  const cxT = Math.floor(cursor.x / TILE), cyT = Math.floor(cursor.y / TILE);
+  const ddx = cxT - ax, ddy = cyT - ay;
+  // favor the longer axis: RA2 lays a straight horizontal or vertical run
+  const horiz = Math.abs(ddx) >= Math.abs(ddy);
+  const len = Math.min(WALL_LINE_MAX - 1, horiz ? Math.abs(ddx) : Math.abs(ddy));
+  const step = horiz ? Math.sign(ddx) : Math.sign(ddy);
+  const tiles = [];
+  for (let i = 0; i <= len; i++) {
+    const tx = horiz ? ax + step * i : ax;
+    const ty = horiz ? ay : ay + step * i;
+    tiles.push({ x: (tx + 0.5) * TILE, y: (ty + 0.5) * TILE });
+  }
+  return tiles;
+}
+
+// Exit placement mode, clearing all transient placement state.
+function exitPlacement(p) {
+  p.placing = undefined;
+  p.ghostX = undefined; p.ghostY = undefined;
+  p.ghostPrev = undefined;
+  p.wallAnchorX = undefined; p.wallAnchorY = undefined;
+  p.placeFirePrev = undefined; p.placeActPrev = undefined; p.placeCancelPrev = undefined;
+}
+
+// One tick of an active placement (the operative is frozen by the caller). The
+// ghost cursor follows arrows/stick/mouse; cancel (special, edge) exits free;
+// confirm (fire or act, edge) drops the structure, consuming one from
+// inventory. Walls are RA2 drag-to-line: the first confirm drops the anchor,
+// the second lays the whole previewed line (one segment per inventory count).
+function stepPlacement(g, p, inp) {
+  const placeKind = p.placing;
+  const pdef = PLACEABLES[placeKind];
+  // the bought item vanished (consumed elsewhere) or kind unknown: bail out
+  if (!pdef || inventoryCount(p, placeKind) <= 0) { exitPlacement(p); return; }
+
+  if (!p.ghostPrev) p.ghostPrev = { up: false, down: false, left: false, right: false };
+  const cur = placementCursor(
+    { x: p.ghostX, y: p.ghostY }, inp, p.ghostPrev, p, g.w, g.h, PLACE_REACH);
+  p.ghostX = cur.x; p.ghostY = cur.y;
+
+  const cancelEdge = !!inp.special && !p.placeCancelPrev;
+  p.placeCancelPrev = !!inp.special;
+  if (cancelEdge) { exitPlacement(p); return; }
+
+  const confirmEdge = (!!inp.fire && !p.placeFirePrev) || (!!inp.act && !p.placeActPrev);
+  p.placeFirePrev = !!inp.fire;
+  p.placeActPrev = !!inp.act;
+  if (!confirmEdge) return;
+
+  if (pdef.drag) {
+    // RA2 wall drag: first confirm sets the anchor; second lays the line
+    if (p.wallAnchorX === undefined) {
+      if (!canPlaceAt(g, p.ghostX, p.ghostY)) return; // a bad anchor is ignored
+      p.wallAnchorX = p.ghostX; p.wallAnchorY = p.ghostY;
+      return;
+    }
+    const tiles = wallLineTiles({ x: p.wallAnchorX, y: p.wallAnchorY }, cur);
+    for (const t of tiles) {
+      if (inventoryCount(p, placeKind) <= 0) break;
+      if (!canPlaceAt(g, t.x, t.y)) continue; // skip blocked tiles, lay the rest
+      if (layStructure(g, p, placeKind, t.x, t.y)) consumeInventory(p, placeKind);
+    }
+    p.wallAnchorX = undefined; p.wallAnchorY = undefined;
+    // out of wall, or none left: leave placement; otherwise keep laying lines
+    if (inventoryCount(p, placeKind) <= 0) exitPlacement(p);
+    return;
+  }
+
+  // single-tile placeable: drop it, consume one, exit when the stack empties
+  if (canPlaceAt(g, p.ghostX, p.ghostY) && layStructure(g, p, placeKind, p.ghostX, p.ghostY)) {
+    consumeInventory(p, placeKind);
+    if (inventoryCount(p, placeKind) <= 0) exitPlacement(p);
+  }
+}
+
 function buyOffer(g, p) {
   // toxic-air levels stock a mask offer beyond the standard five
   const offers = g.shopOffers || SHOP_OFFERS;
   const o = offers[p.shopIdx || 0];
   if (!o || getShards(g, p) < o.cost) return;
-  if (o.what === 'token') {
+  if (o.place && PLACEABLES[o.what]) {
+    // placeables (turret/wall/barricade) land in the inventory, NOT the item
+    // slot — the operative cycles inventory and enters placement mode to drop
+    addToInventory(p, o.what, o.amount || 1);
+  } else if (o.what === 'token') {
     if ((p.dmgBonus || 0) >= 2) return; // tokens cap at +2 — never waste shards
     p.dmgBonus = (p.dmgBonus || 0) + 1;
   } else if (o.what === 'shield') {
@@ -4468,6 +5198,7 @@ export function step(g, inputs, dt) {
   }
   stepWaves(g);
   stepHorde(g, dt); // RELIC AWAKENING horde (no-op unless g.musicBox completed)
+  stepSuperweapon(g, dt); // relic superweapon build/charge clock (no-op until built)
   stepCycle(g, dt); // bastion day/night clock (final dawn can clear here)
   if (g.status !== 'play') return;
   // Anchor Siege: minion waves march the lanes, towers cover them (no-ops off-mode)
@@ -4582,6 +5313,51 @@ export function step(g, inputs, dt) {
     const tower = p.towerId != null ? g.towers[p.towerId] : null;
     if (tower) { p.x = tower.x; p.y = tower.y; }
     const vehicle = p.riding ? g.vehicles.find(v => v.id === p.riding) : null;
+
+    // --- inventory cycle (edge): inp.invSel steps the selected placeable. Only
+    // engages when the operative actually carries placeables; gated so seats
+    // that never buy one never gain inventory keys. ---
+    {
+      const invEdge = !!inp.invSel && !p.invPrev;
+      p.invPrev = !!inp.invSel;
+      if (invEdge && p.inventory && p.inventory.length) {
+        p.invIdx = ((p.invIdx || 0) + 1) % p.inventory.length;
+      }
+    }
+
+    // --- RELIC SUPERWEAPON (RA2-style nuke / weather machine): inp.superBuild
+    // asks to assemble the one-shot device on this seat's tile (once unlocked);
+    // inp.superFire + inp.aimX/aimY commits a target once it is ready. A no-op
+    // until the awakening horde was survived, so untouched modes never run it. ---
+    stepSuperweaponInput(g, p, inp);
+
+    // --- placement mode (RA2 buy-then-place): inp.place toggles it on for the
+    // selected inventory item. While placing, the operative is FROZEN: a
+    // tile-snapped ghost follows arrows/stick/mouse, confirm (fire/act) drops
+    // the structure (consuming one) and cancel (special) exits free. Walls drag
+    // a connected line; everything else drops a single tile. The whole block
+    // owns the tick and continues past movement/fire/act below. ---
+    if (!p.placing && !tower && !vehicle && !p.shopping && !p.selecting
+        && inp.place && !p.placePrev && p.inventory && p.inventory.length) {
+      const sel = p.inventory[p.invIdx || 0];
+      if (sel) {
+        p.placing = sel.kind;
+        const c = tileCenter(p.x, p.y);
+        p.ghostX = c.x; p.ghostY = c.y;
+        p.ghostPrev = { up: !!inp.up, down: !!inp.down, left: !!inp.left, right: !!inp.right };
+        p.placeFirePrev = !!inp.fire;
+        p.placeActPrev = !!inp.act;
+        p.placeCancelPrev = !!inp.special;
+        p.wallAnchorX = undefined; p.wallAnchorY = undefined;
+      }
+    }
+    p.placePrev = !!inp.place;
+    if (p.placing) {
+      stepPlacement(g, p, inp);
+      // movement, fire, act, special are all suppressed: the operative is frozen
+      p.mvX = 0; p.mvY = 0;
+      continue;
+    }
 
     // --- turret type carousel (RA2 homage): a freshly built turret idles in
     // typeSelect; holding act within build reach drives the carousel —
@@ -5513,22 +6289,42 @@ export function step(g, inputs, dt) {
         b.cool = TURRET_PERIOD;
       }
     } else if (ttype === 'prism') {
+      // RA2 Prism Tower linking: of all prisms within link radius of each other,
+      // exactly ONE is the MASTER and fires; the rest are SUPPORTERS that HOLD
+      // FIRE and feed it. Each feeder adds PRISM_FEED_DMG, capped at
+      // PRISM_FEED_CAP feeders (diminishing returns past the cap). The master is
+      // the lowest build-index linked prism THAT HAS A TARGET — a deterministic
+      // pick that never silences the group just because the lowest-index prism
+      // is out of range. A lone prism with a target simply fires its base beam.
       const tgt = pick(PRISM_RANGE[lvl - 1], true);
       if (tgt) {
-        // every OTHER built prism within 4 tiles feeds +1 beam damage (cap +3)
-        let feed = 0;
         const link2 = (TILE * PRISM_LINK_R) ** 2;
-        for (const o of g.builds) {
+        const myIdx = g.builds.indexOf(b);
+        const linkedPrisms = [];
+        let supporter = false;
+        for (let oi = 0; oi < g.builds.length; oi++) {
+          const o = g.builds[oi];
           if (o === b || !o.built || o.kind !== 'turret' || o.ttype !== 'prism' || o.typeSelect) continue;
-          if (dist2(b, o) < link2 && feed < 3) {
+          if (dist2(b, o) >= link2) continue;
+          linkedPrisms.push(o);
+          // a lower-index linked prism that ALSO has a target outranks me as
+          // master, so I become a supporter and hold fire this group
+          if (oi < myIdx && prismHasTarget(g, o)) supporter = true;
+        }
+        if (supporter) {
+          b.cool = PRISM_PERIOD; // feed the master; clock drains on schedule
+        } else {
+          let feed = 0;
+          for (const o of linkedPrisms) {
+            if (feed >= PRISM_FEED_CAP) break;
             feed++;
             g.events.push({ type: 'prismFeed', x: o.x, y: o.y, tx: b.x, ty: b.y });
           }
+          const dmg = PRISM_DMG[lvl - 1] + feed * PRISM_FEED_DMG;
+          g.events.push({ type: 'prismBeam', x: b.x, y: b.y, tx: tgt.x, ty: tgt.y, dmg, ...(feed ? { linked: feed } : {}) });
+          damageEnemy(g, tgt, dmg, tgt.x, tgt.y, 'prism');
+          b.cool = PRISM_PERIOD;
         }
-        const dmg = PRISM_DMG[lvl - 1] + feed;
-        g.events.push({ type: 'prismBeam', x: b.x, y: b.y, tx: tgt.x, ty: tgt.y, dmg });
-        damageEnemy(g, tgt, dmg, tgt.x, tgt.y, 'prism');
-        b.cool = PRISM_PERIOD;
       }
     } else if (ttype === 'tesla') {
       const first = pick(TESLA_RANGE[lvl - 1], true);
@@ -5658,6 +6454,7 @@ export function step(g, inputs, dt) {
   stepStatuses(g, dt);
   stepPatches(g, dt);
   stepFollowers(g, dt);
+  stepHazards(g, dt); // relic superweapon hazard fields (no-op until one lands)
 
   // --- shots ---
   for (let i = g.shots.length - 1; i >= 0; i--) {
@@ -6190,6 +6987,15 @@ export function snapshot(g, full = true) {
       ...(p.towerId != null ? { towerId: p.towerId } : {}),
       ...(p.shopping ? { shop: { idx: p.shopIdx || 0 } } : {}),
       ...(p.selecting ? { selecting: true } : {}),
+      // inventory + placement (RA2 buy-then-place): both ship only when present,
+      // so seats that never bought a placeable keep byte-stable snapshots. The
+      // placing seat ships its tile-snapped ghost (and any wall-drag anchor) so
+      // every client draws the same ghost/line preview.
+      ...(p.inventory ? { inventory: p.inventory.map(s => ({ kind: s.kind, count: s.count })), invIdx: p.invIdx || 0 } : {}),
+      ...(p.placing ? {
+        placing: p.placing, ghostX: qi(p.ghostX), ghostY: qi(p.ghostY),
+        ...(p.wallAnchorX !== undefined ? { wallAnchorX: qi(p.wallAnchorX), wallAnchorY: qi(p.wallAnchorY) } : {}),
+      } : {}),
       ...(p.dmgBonus ? { dmgBonus: p.dmgBonus } : {}),
       ...(p.fieldWeapon ? { fieldWeapon: { kind: p.fieldWeapon.kind, ammo: p.fieldWeapon.ammo } } : {}),
       ...(p.stunT > 0 ? { stunT: q1(p.stunT) } : {}),
@@ -6230,6 +7036,20 @@ export function snapshot(g, full = true) {
       ...(e.convertedT > 0 ? { convertedT: q1(e.convertedT) } : {}),
     })),
     captives: g.captives.map(c => ({ charId: c.charId, x: qi(c.x), y: qi(c.y), owner: c.owner, fromPlayer: c.fromPlayer })),
+    // ENEMY STRONGHOLDS: shipped only when the map seeded one (gated, so every
+    // other mode's snapshot is byte-stable). The renderer pings each keep on the
+    // minimap and ring-draws its wall radius; the superweapon phase reads x/y as
+    // its natural target. `cleared` is computed live from garrison liveness:
+    // true once every stationed enemy is dead, so the HUD can mark a fallen keep.
+    ...(g.strongholds && g.strongholds.length ? {
+      strongholds: g.strongholds.map(sh => ({
+        id: sh.id, x: sh.x, y: sh.y, r: sh.r, aggro: sh.aggro, leash: sh.leash,
+        cleared: sh.garrison.every(id => {
+          const e = g.enemies.find(en => en.id === id);
+          return !e || e.dead;
+        }),
+      })),
+    } : {}),
     // Music Box easter egg: shipped only when enabled (story/stronghold), so
     // every other mode's snapshot is byte-stable. The client reads mode+stem
     // to load the level's track, fragments/altar to draw + ping, assembled +
@@ -6258,6 +7078,25 @@ export function snapshot(g, full = true) {
         bonus: Math.max(HORDE_FLOOR_BONUS, HORDE_BASE_BONUS - g.horde.hits * HORDE_HIT_PENALTY - g.horde.deaths * HORDE_DEATH_PENALTY),
         ...(g.horde.result ? { result: g.horde.result } : {}),
       },
+    } : {}),
+    // RELIC SUPERWEAPON: the unlock flag rides only once earned, the device only
+    // once built, and the hazard fields only while one is live — every untouched
+    // mode's snapshot stays byte-stable (no key appears). The client draws the
+    // device (building/charging countdown/ready), the targeting reticle, and the
+    // nuke/storm/radiation FX off these. chargeT/buildT are quantized for the HUD.
+    ...(g.superweaponUnlocked ? { superweaponUnlocked: true } : {}),
+    ...(g.superweapon ? {
+      superweapon: {
+        type: g.superweapon.type, state: g.superweapon.state,
+        x: qi(g.superweapon.x), y: qi(g.superweapon.y),
+        hp: g.superweapon.hp, maxHp: g.superweapon.maxHp, ownerPid: g.superweapon.ownerPid,
+        ...(g.superweapon.state === 'building' ? { buildT: q1(g.superweapon.buildT), buildTime: SUPER_BUILD_TIME } : {}),
+        ...(g.superweapon.state === 'charging' ? { chargeT: q1(g.superweapon.chargeT), chargeMax: SUPER_CHARGE_SECONDS } : {}),
+        ...(g.superweapon.targetX !== undefined ? { targetX: qi(g.superweapon.targetX), targetY: qi(g.superweapon.targetY) } : {}),
+      },
+    } : {}),
+    ...(g.hazards.length ? {
+      hazards: g.hazards.map(hz => ({ kind: hz.kind, x: qi(hz.x), y: qi(hz.y), radius: hz.radius, ttl: q1(hz.ttl), ...(hz.warnT > 0 ? { warnT: q1(hz.warnT) } : {}) })),
     } : {}),
     // ownerPid lets the renderer dress player shots in their seat's evolution.
     // id rides so the render-side interpolator can match a shot frame-to-frame

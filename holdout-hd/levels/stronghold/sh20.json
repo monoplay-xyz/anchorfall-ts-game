@@ -14,6 +14,14 @@
     "wavesPerNight": 2,
     "waveMult": 2.27
   },
+  "enemyStrongholds": {
+    "count": 3,
+    "garrison": "ggrsan",
+    "aggro": 12,
+    "leash": 19,
+    "ring": 2,
+    "hpMult": 1.6
+  },
   "stronghold": {
     "level": 20,
     "name": "Selkie Deep",
