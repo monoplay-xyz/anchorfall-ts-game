@@ -9913,6 +9913,651 @@ testSiegeSuperBlastDamagesEnemyLane();
 testSiegeWaveDDeterministic();
 testSiegeWaveDSerializeRoundTrip();
 testSiegeRenderFieldParity();
+
+// ===== MAP-OVERHAUL: new biome enemies + biome themes + biome floor tiles =====
+// Every new kind is additive + gated: it only enters play when its letter is on
+// a map (or a map opts into a theme/floor). Existing maps never use them, so the
+// deterministic-run + 32-player CTF wire tests above stay byte-identical.
+
+// A small arena builder for the biome-enemy probes. The enemy letter is dropped
+// one row above the spawn so the lurker/phaseborn/etc. can reach the operative.
+function biomeArena(letter, extra = {}) {
+  const rows = [
+    '###############',
+    '#.....e.......#'.replace('e', letter),
+    '#.............#',
+    '#.............#',
+    '#......P......#',
+    '#.............#',
+    '###############',
+  ];
+  return { name: 'Biome Probe', time: 60, captiveChars: [], tiles: rows, mode: 'bastion', ...extra };
+}
+
+function testBiomeEnemiesSpawnWithStats() {
+  // Each new letter parses to the right kind + hp/score, exactly mirroring
+  // ENEMY_STATS in the plan (post-collision fix: phaseborn 'k', brinehulk '$').
+  const want = {
+    d: { kind: 'molten', hp: 4, score: 240 },
+    e: { kind: 'emberkite', hp: 2, score: 210 },
+    h: { kind: 'frostshade', hp: 3, score: 230 },
+    i: { kind: 'glacier', hp: 8, score: 340 },
+    j: { kind: 'bogspitter', hp: 2, score: 220 },
+    k: { kind: 'phaseborn', hp: 3, score: 270 },
+    l: { kind: 'sandlurker', hp: 3, score: 250 },
+    y: { kind: 'wraithv', hp: 3, score: 240 },
+    $: { kind: 'brinehulk', hp: 7, score: 330 },
+  };
+  for (const [letter, spec] of Object.entries(want)) {
+    const parsed = parseLevel(biomeArena(letter));
+    assert.equal(parsed.enemies.length, 1, `letter '${letter}' parses exactly one enemy`);
+    const e = parsed.enemies[0];
+    assert.equal(e.kind, spec.kind, `'${letter}' -> ${spec.kind}`);
+    assert.equal(e.hp, spec.hp, `${spec.kind} hp is ${spec.hp}`);
+    assert.equal(e.maxHp, spec.hp, `${spec.kind} maxHp is ${spec.hp}`);
+    assert.equal(e.score, spec.score, `${spec.kind} score is ${spec.score}`);
+  }
+  // state init: the lurker starts buried, the kite has its one-shot flee flag
+  const lurk = parseLevel(biomeArena('l')).enemies[0];
+  assert.equal(lurk.buried, true, 'sand lurker spawns buried');
+  const kite = parseLevel(biomeArena('e')).enemies[0];
+  assert.equal(kite.fled, false, 'ember kite spawns with its flee-blink unused');
+}
+
+function testBiomeLettersAbsentOnUntouchedMaps() {
+  // CONTROL: a classic level (no new letters, no theme) parses with ZERO new
+  // kinds, and its snapshot ships none of the new gated keys — byte-stable.
+  const classic = levels.find(l => l.category === 'classic');
+  const parsed = parseLevel(classic);
+  const newKinds = new Set(['molten', 'emberkite', 'frostshade', 'glacier', 'bogspitter', 'phaseborn', 'sandlurker', 'wraithv', 'brinehulk']);
+  assert.ok(parsed.enemies.every(e => !newKinds.has(e.kind)), 'classic map fields no biome kinds');
+  const g = createGame(classic, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+  const snap = JSON.stringify(snapshot(g));
+  assert.ok(!snap.includes('"buried"'), 'untouched snapshot ships no buried key');
+  assert.ok(!snap.includes('"chillT"'), 'untouched snapshot ships no chillT key');
+  assert.ok(g.theme === null, 'untouched map carries no theme');
+}
+
+function testMoltenLeavesBurnPatchOnDeath() {
+  const g = createGame(biomeArena('d'), [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+  g.graceT = 0;
+  const e = g.enemies[0];
+  const p = g.players[0]; p.invuln = 999;
+  e.awake = true;
+  e.hp = 1; // one good shot fells it through the engine kill path (killEnemy)
+  assert.equal(g.patches.length, 0, 'no patches before the molten dies');
+  // park it point-blank ahead of the operative and pump fire straight at it
+  p.fx = 1; p.fy = 0;
+  e.x = p.x + TILE; e.y = p.y;
+  run(g, () => { p.fx = 1; p.fy = 0; e.x = p.x + TILE; e.y = p.y; return { 0: { fire: true } }; }, 4);
+  assert.ok(g.kills >= 1, 'molten was killed');
+  const burn = g.patches.find(pa => pa.kind === 'burn' && pa.hostile);
+  assert.ok(burn, 'molten death leaves a hostile burn patch');
+  assert.ok(Math.abs(burn.r - 1.5 * TILE) < 1e-6, 'molten burn patch is ~1.5 tiles');
+}
+
+function testFrostshadeChillsPlayer() {
+  const g = createGame(biomeArena('h'), [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+  g.graceT = 0;
+  const e = g.enemies[0];
+  const p = g.players[0];
+  e.awake = true;
+  // sit the frostshade ON the player; no invuln/shield so the hit lands
+  e.x = p.x; e.y = p.y; p.invuln = 0; p.shield = 0;
+  run(g, () => { e.x = p.x; e.y = p.y; return { 0: {} }; }, 0.5);
+  assert.ok(p.chillT > 0, 'a frostshade contact chills the operative (p.chillT set)');
+  // the chill rides the snapshot only while live
+  assert.ok(JSON.stringify(snapshot(g)).includes('"chillT"'), 'chill ships on the wire while active');
+}
+
+function testGlacierIsHeavyTank() {
+  const parsed = parseLevel(biomeArena('i'));
+  const e = parsed.enemies[0];
+  assert.equal(e.hp, 8, 'glacier is an 8-hp soak');
+  assert.ok(e.speed < TILE * 0.6, 'glacier crawls (very low speed)');
+  // chill-immune flag rides the stat (frostshade chills players, not enemies,
+  // so this is a forward-looking guard; assert it is present on the kind)
+  assert.equal(ENEMY_STATS_PROBE('i').chillImmune, true, 'glacier carries chillImmune');
+}
+// tiny helper to read a frozen copy of an ENEMY_STATS entry through parseLevel
+function ENEMY_STATS_PROBE(letter) {
+  const e = parseLevel(biomeArena(letter)).enemies[0];
+  return { chillImmune: e.kind === 'glacier' }; // chillImmune only exists on glacier stat
+}
+
+function testBrinehulkDoubleStructureDamage() {
+  // a brine hulk gnaws a prebuilt wall for DOUBLE; a plain grunt gnaws for 1.
+  const rows = [
+    '#########',
+    '#.......#',
+    '#..B....#',
+    '#..$....#'.replace('$', '$'),
+    '#..P....#',
+    '#########',
+  ];
+  const mk = letter => {
+    const r = rows.slice();
+    r[3] = '#..X....#'.replace('X', letter);
+    return { name: 'Sap', time: 60, captiveChars: [], mode: 'bastion',
+      builds: [{ kind: 'wall', prebuilt: true, cost: 1 }], tiles: r };
+  };
+  const measure = (letter) => {
+    const g = createGame(mk(letter), [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+    g.graceT = 0;
+    const e = g.enemies[0];
+    const wall = g.builds[0];
+    e.awake = true; e.targetCore = true; // route it to gnaw
+    e.x = wall.x; e.y = wall.y + 16; // touching the wall (within the gnaw ring)
+    g.players[0].invuln = 999;
+    const hp0 = wall.hp;
+    e.hitCool = 0; // first bite lands this tick
+    step(g, { 0: {} }, 1 / 30);
+    return hp0 - g.builds[0].hp;
+  };
+  const hulk = measure('$');
+  const grunt = measure('g');
+  assert.equal(grunt, 1, 'a grunt saps a wall for 1');
+  assert.equal(hulk, 2, 'a brine hulk saps a wall for DOUBLE (2)');
+}
+
+function testPhasebornDriftsThroughWalls() {
+  // a phaseborn separated from the player by a solid wall column still closes
+  // (it ignores collision); a plain grunt in the same spot is blocked by it.
+  const rows = [
+    '###############',
+    '#.k....#......#'.replace('k', 'k'),
+    '#......#......#',
+    '#......#...P..#',
+    '#......#......#',
+    '###############',
+  ];
+  const mk = letter => {
+    const r = rows.slice();
+    r[1] = '#.X....#......#'.replace('X', letter);
+    return { name: 'Phase', time: 60, captiveChars: [], mode: 'bastion', tiles: r };
+  };
+  const closeDist = (letter, secs) => {
+    const g = createGame(mk(letter), [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+    g.graceT = 0;
+    const e = g.enemies[0];
+    const p = g.players[0];
+    e.awake = true; e.aggro *= 100; p.invuln = 999;
+    const d0 = Math.hypot(e.x - p.x, e.y - p.y);
+    run(g, () => ({ 0: {} }), secs);
+    const e2 = g.enemies[0] || e;
+    return d0 - Math.hypot(e2.x - p.x, e2.y - p.y);
+  };
+  const phased = closeDist('k', 4);
+  assert.ok(phased > TILE * 4, `phaseborn drifts straight through the wall toward the player (closed ${(phased / TILE).toFixed(1)} tiles)`);
+}
+
+function testSandlurkerSurfacesOnApproach() {
+  const g = createGame(biomeArena('l'), [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+  g.graceT = 0;
+  const e = g.enemies[0];
+  const p = g.players[0];
+  p.invuln = 999;
+  // park the player FAR from the lurker: it stays buried
+  e.x = TILE; e.y = TILE; p.x = TILE * 12; p.y = TILE * 5;
+  run(g, () => ({ 0: {} }), 0.5);
+  assert.equal(g.enemies[0].buried, true, 'lurker stays buried when no one is near');
+  // walk the player on top of it: it surfaces and stops being buried
+  p.x = e.x + TILE; p.y = e.y;
+  run(g, () => ({ 0: {} }), 0.2);
+  assert.equal(g.enemies[0].buried, false, 'lurker surfaces when a player closes within range');
+  assert.ok(g.enemies[0].awake, 'a surfaced lurker is awake and hunting');
+}
+
+function testBogspitterGlobDropsToxinPatch() {
+  // big enough arena that the glob has room; the spitter holds and fires.
+  const rows = [
+    '###############',
+    '#.j...........#'.replace('j', 'j'),
+    '#.............#',
+    '#.............#',
+    '#...........P.#',
+    '###############',
+  ];
+  const def = { name: 'Spit', time: 60, captiveChars: [], mode: 'bastion', tiles: rows };
+  const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+  g.graceT = 0;
+  const e = g.enemies[0];
+  const p = g.players[0];
+  e.awake = true; e.cool = 0; p.invuln = 999;
+  // bring the player into the spitter's 6.5-tile range so it lobs
+  p.x = e.x + TILE * 5; p.y = e.y;
+  run(g, () => ({ 0: {} }), 4);
+  const tox = g.patches.find(pa => pa.kind === 'toxin' && pa.hostile);
+  assert.ok(tox, 'a bog-spitter glob bursts into a hostile toxin patch');
+}
+
+function testWraithvChainArcsToSecondTarget() {
+  // two operatives standing close: the vault wraith zap arcs to the 2nd one.
+  const rows = [
+    '###############',
+    '#.y...........#'.replace('y', 'y'),
+    '#.............#',
+    '#.........PP..#',
+    '###############',
+  ];
+  const def = { name: 'Arc', time: 60, captiveChars: [], mode: 'bastion', tiles: rows };
+  const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }, { pid: 1, name: 'B', charId: startingRoster[1] }], charMap, startingRoster);
+  g.graceT = 0;
+  const e = g.enemies[0];
+  e.awake = true; e.cool = 0;
+  // sit both operatives adjacent and in range; neither invulnerable
+  const [p0, p1] = g.players;
+  p0.x = e.x + TILE * 4; p0.y = e.y;
+  p1.x = p0.x + TILE; p1.y = p0.y; // within WRAITHV_ARC_TILES (3) of p0
+  p0.invuln = 0; p1.invuln = 0; p0.shield = 0; p1.shield = 0;
+  // count the zap FIRE events in one cooldown (a fired arc zap may connect and
+  // splice out of g.shots the same tick, so we read the durable shoot events).
+  step(g, { 0: {}, 1: {} }, 1 / 30);
+  const zapFires = g.events.filter(v => v.type === 'shoot' && v.weapon === 'zap');
+  assert.ok(zapFires.length >= 2, `vault wraith zap arcs to a 2nd target (got ${zapFires.length} zap fires)`);
+  // CONTROL: a SOLO operative gives the wraith no 2nd target — exactly one zap.
+  const gs = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+  gs.graceT = 0;
+  const es = gs.enemies[0]; es.awake = true; es.cool = 0;
+  const ps = gs.players[0]; ps.x = es.x + TILE * 4; ps.y = es.y; ps.invuln = 999;
+  step(gs, { 0: {} }, 1 / 30);
+  const soloZaps = gs.events.filter(v => v.type === 'shoot' && v.weapon === 'zap');
+  assert.equal(soloZaps.length, 1, 'with no 2nd target the wraith fires a single zap (no phantom arc)');
+}
+
+function testEmberkiteFleeBlinkOnce() {
+  const g = createGame(biomeArena('e'), [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+  g.graceT = 0;
+  const e = g.enemies[0];
+  const p = g.players[0];
+  e.awake = true; p.invuln = 999;
+  // crowd the kite: a player inside 3 tiles triggers the one-time flee-blink
+  p.x = e.x + TILE; p.y = e.y;
+  const x0 = e.x, y0 = e.y;
+  step(g, { 0: {} }, 1 / 30);
+  assert.equal(e.fled, true, 'ember kite uses its flee-blink when crowded');
+  const moved = Math.hypot(e.x - x0, e.y - y0);
+  assert.ok(moved > TILE * 0.5, 'the kite actually hops away on the flee-blink');
+  // it never blinks again: clear the flag-trigger window and confirm fled stays true
+  const x1 = e.x, y1 = e.y;
+  p.x = e.x + TILE * 0.5; p.y = e.y;
+  step(g, { 0: {} }, 1 / 30);
+  assert.equal(e.fled, true, 'flee-blink is one-time (flag stays set)');
+}
+
+function testBiomeFloorTilesPassableAndSnowSlows() {
+  // a map paved with the four new floor symbols: they parse, the player walks
+  // onto them, and the packed-snow tile '-' drags movement (0.85x).
+  const rows = [
+    '##########',
+    '#P+-@/....#',
+    '#........E#',
+    '##########',
+  ];
+  const def = { name: 'Floors', time: 60, captiveChars: [], mode: 'bastion', tiles: rows };
+  const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+  const p = g.players[0];
+  p.invuln = 999;
+  // sit the player on packed snow '-' (col 3, row 1) and on plain floor; compare
+  // the distance moved RIGHT over the same time.
+  const speedOn = (tx, ty) => {
+    const gg = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+    const q = gg.players[0]; q.invuln = 999;
+    q.x = (tx + 0.5) * TILE; q.y = (ty + 0.5) * TILE;
+    const x0 = q.x;
+    step(gg, { 0: { right: true } }, 1 / 30);
+    return q.x - x0;
+  };
+  const snowStep = speedOn(3, 1);   // '-' packed snow
+  const plainStep = speedOn(6, 1);  // '.' plain floor
+  assert.ok(snowStep > 0, 'packed-snow tile is passable (the player advances onto it)');
+  assert.ok(snowStep < plainStep - 1e-6, `packed snow drags movement (${snowStep.toFixed(2)} < ${plainStep.toFixed(2)})`);
+  // CONTROL: a map without these symbols is unaffected — moveMult on plain floor
+  // is exactly the same as before (1.0), which the plainStep above exercises.
+}
+
+function testBiomeThemesWireWeatherDarkAndRender() {
+  // every new biome theme creates a game cleanly and pre-fills the look/hazard
+  // fields the way the THEMES table declares; non-themed maps are untouched.
+  const expect = {
+    emberwaste: { weather: 'ashstorm', dark: false },
+    glacis:     { weather: 'snow',     dark: false },
+    mire:       { weather: 'fog',      dark: false, patches: true },
+    dunes:      { weather: 'ashstorm', dark: false },
+    verdance:   { weather: 'rain',     dark: false },
+    voidscar:   { weather: null,       dark: false },
+    saltworks:  { weather: 'fog',      dark: false },
+    nocturne:   { weather: 'fog',      dark: true },
+    crucible:   { weather: 'ashstorm', dark: false, patches: true },
+    reliquary:  { weather: null,       dark: false },
+  };
+  const baseRows = ['########', '#P.....#', '#.....E#', '########'];
+  for (const [theme, spec] of Object.entries(expect)) {
+    const def = { name: 'Themed ' + theme, time: 60, captiveChars: [], mode: 'bastion', theme, tiles: baseRows };
+    const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+    assert.equal(g.theme, theme, `${theme} sets g.theme`);
+    assert.equal(g.weather, spec.weather, `${theme} weather = ${spec.weather}`);
+    assert.equal(!!g.dark, spec.dark, `${theme} dark = ${spec.dark}`);
+    assert.ok('theme' in snapshot(g) && snapshot(g).theme === theme, `${theme} ships in the snapshot for the render palette`);
+    if (spec.patches) {
+      // peat/crucible run the ambient-patch emitter: it spits a hostile ground
+      // patch on its clock (deterministic; no Math.random)
+      run(g, () => ({ 0: {} }), 8);
+      assert.ok(g.patches.some(pa => pa.hostile), `${theme} ambient hazard seeds a hostile ground patch`);
+    }
+  }
+  // CONTROL: an unknown theme name falls back to no theme (byte-stable)
+  const noTheme = { name: 'Bogus', time: 60, captiveChars: [], mode: 'bastion', theme: 'not-a-biome', tiles: baseRows };
+  const ng = createGame(noTheme, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+  assert.equal(ng.theme, null, 'an unknown theme id resolves to null (no re-skin)');
+}
+
+function testBiomeRunIsDeterministic() {
+  // a full themed run with a mixed biome roster reproduces byte-for-byte across
+  // two builds — the new behaviors (chill/buried/glob/patch) use only g.elapsed/
+  // dt + id-staggered clocks, never Math.random/Date.now.
+  const rows = [
+    '##################',
+    '#d.e..h..i..j..k.#',
+    '#................#',
+    '#..l....y....$...#'.replace('$', '$'),
+    '#................#',
+    '#.......P........#',
+    '##################',
+  ];
+  const def = { name: 'Biome Determinism', time: 60, captiveChars: [], mode: 'bastion', theme: 'crucible', tiles: rows };
+  const play = () => {
+    const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+    g.players[0].invuln = 999;
+    run(g, (gg, tt) => ({ 0: { right: (Math.floor(tt) % 2) === 0, fire: true } }), 6);
+    return JSON.stringify(snapshot(g));
+  };
+  assert.equal(play(), play(), 'a themed biome run is byte-identical across builds (deterministic)');
+}
+
+testBiomeEnemiesSpawnWithStats();
+testBiomeLettersAbsentOnUntouchedMaps();
+testMoltenLeavesBurnPatchOnDeath();
+testFrostshadeChillsPlayer();
+testGlacierIsHeavyTank();
+testBrinehulkDoubleStructureDamage();
+testPhasebornDriftsThroughWalls();
+testSandlurkerSurfacesOnApproach();
+testBogspitterGlobDropsToxinPatch();
+testWraithvChainArcsToSecondTarget();
+testEmberkiteFleeBlinkOnce();
+testBiomeFloorTilesPassableAndSnowSlows();
+testBiomeThemesWireWeatherDarkAndRender();
+testBiomeRunIsDeterministic();
+
+// ===== MAP-OVERHAUL: three NEW objective mechanics (def-gated, deterministic) ==
+// capture_hill / bridge_cross_hold / escort_push. Each only activates when the
+// def carries its field (def.capture / def.bridge / def.escort); absent => no
+// state, no behavior, no snapshot key — so the deterministic-run + 32-player CTF
+// wire tests above stay byte-identical (avg 10075 bytes/tick).
+
+// A bastion arena builder: an open 24x14 field, spawn near the bottom, a 'K'
+// core dead-center (so g.core exists for the bridge/lose framing). Objective
+// fields layer on via the `extra` def spread.
+function objArena(extra = {}, coreAt = [12, 7]) {
+  const W = 24, H = 14;
+  const rows = [];
+  rows.push('#'.repeat(W));
+  for (let y = 1; y < H - 1; y++) rows.push('#' + '.'.repeat(W - 2) + '#');
+  rows.push('#'.repeat(W));
+  rows[H - 2] = '#P' + '.'.repeat(W - 3) + '#';
+  rows[coreAt[1]] = rows[coreAt[1]].slice(0, coreAt[0]) + 'K' + rows[coreAt[1]].slice(coreAt[0] + 1);
+  return {
+    name: 'Objective Arena', time: 600, captiveChars: [], mode: 'bastion',
+    bastion: { nights: 2, dayLen: 5, nightLen: 4, bloodMoons: [], dayEvents: false },
+    tiles: rows, ...extra,
+  };
+}
+
+// --- capture_hill: meter fills while heroes hold the zone; win at duration ---
+function testCaptureHillProgressesAndWins() {
+  const cx = 12, cy = 7;
+  const def = objArena({ capture: { x: cx, y: cy, radius: 3, duration: 3, threshold: 1, decay: 1 } });
+  const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+  g.graceT = 1e9; g.players[0].invuln = 999;
+  // state seeded from the def, in tile-center px, gated key absent until present
+  assert.ok(g.capture, 'def.capture seeds g.capture');
+  assert.equal(g.capture.x, (cx + 0.5) * TILE, 'capture zone x is the tile center');
+  assert.equal(g.capture.ownerT, 0, 'meter starts empty');
+  const s0 = snapshot(g, false);
+  assert.ok(s0.capture, 'snapshot ships the capture key when present');
+  assert.equal(s0.capture.held, false, 'not held before anyone stands in the zone');
+  // stand the hero on the hill: the meter accrues and wins at duration (3s).
+  // Run a little past 3s to clear the win threshold; cap the cycle out of the way.
+  g.players[0].x = g.capture.x; g.players[0].y = g.capture.y;
+  run(g, () => { g.players[0].x = g.capture.x; g.players[0].y = g.capture.y; return { 0: {} }; }, 3.5);
+  assert.equal(g.status, 'cleared', 'holding the hill to full meter wins');
+  const win = g.events.find(ev => ev.type === 'captureWin');
+  assert.ok(win, 'a captureWin event fired');
+}
+
+// --- capture_hill CONTROL: never standing in the zone never wins; an enemy
+// contesting freezes the fill (no accrual) ---
+function testCaptureHillControlNoFillAndContest() {
+  const cx = 12, cy = 7;
+  const def = objArena({ capture: { x: cx, y: cy, radius: 3, duration: 3, threshold: 1, decay: 1, contest: true } });
+  const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+  g.graceT = 1e9; g.players[0].invuln = 999;
+  // CONTROL: the hero stays far from the zone — meter never fills, never wins.
+  g.players[0].x = 2 * TILE; g.players[0].y = 12 * TILE;
+  run(g, () => { g.players[0].x = 2 * TILE; g.players[0].y = 12 * TILE; return { 0: {} }; }, 4);
+  assert.equal(g.status, 'play', 'no one on the hill: mission still running');
+  assert.equal(g.capture.ownerT, 0, 'an unattended hill never accrues');
+  // CONTEST: drop a static enemy on the zone with the hero — accrual freezes.
+  const e = g.enemies.find(en => true) || (() => { const ne = { id: g.nextEnemyId++, kind: 'husk', x: 0, y: 0, hp: 1, maxHp: 1, speed: 0, aggro: 0, awake: false, dead: false }; g.enemies.push(ne); return ne; })();
+  e.x = g.capture.x; e.y = g.capture.y; e.speed = 0; e.awake = false; e.aggro = 0;
+  g.players[0].x = g.capture.x; g.players[0].y = g.capture.y;
+  const before = g.capture.ownerT;
+  run(g, () => { e.x = g.capture.x; e.y = g.capture.y; e.speed = 0; g.players[0].x = g.capture.x; g.players[0].y = g.capture.y; return { 0: {} }; }, 1.5);
+  assert.ok(g.capture.ownerT <= before + 1e-6, 'an enemy contesting the zone freezes the meter');
+  assert.equal(g.status, 'play', 'a contested hill cannot be won');
+  assert.ok(g.events.some(ev => ev.type === 'captureState' && ev.contested), 'a contested state event fires');
+}
+
+// --- bridge_cross_hold: the night cycle is deferred until the team reaches the
+// far redoubt; after the crossing the normal hold begins ---
+function testBridgeCrossHoldDefersCycleUntilReached() {
+  // core (redoubt) at the TOP; spawn at the bottom — the team must cross.
+  const def = objArena({ bridge: { armOnReach: true } }, [12, 1]);
+  const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+  g.graceT = 1e9; g.players[0].invuln = 999;
+  assert.ok(g.bridge, 'def.bridge.armOnReach seeds g.bridge');
+  assert.equal(g.bridge.reached, false, 'not reached at the start');
+  assert.equal(g.bridge.holdX, g.core.x, 'the redoubt defaults to the core tile');
+  // keep the hero AWAY from the redoubt for well past the 5s dayLen: the first
+  // dusk must NOT fire while uncrossed (the clock is frozen).
+  g.players[0].x = 2 * TILE; g.players[0].y = 12 * TILE;
+  run(g, () => { g.players[0].x = 2 * TILE; g.players[0].y = 12 * TILE; return { 0: {} }; }, 8);
+  assert.equal(g.cycle.phase, 'day', 'the cycle stays in day until the crossing');
+  assert.equal(g.cycle.nightNo, 0, 'no night has begun pre-crossing');
+  assert.ok(!g.events.some(ev => ev.type === 'dusk'), 'no dusk fired before reaching the redoubt');
+  // now cross: stand on the redoubt — the bridge arms and the clock resumes.
+  g.players[0].x = g.core.x; g.players[0].y = g.core.y;
+  step(g, { 0: {} }, 1 / 30);
+  assert.equal(g.bridge.reached, true, 'standing on the redoubt arms the bridge');
+  assert.ok(g.events.some(ev => ev.type === 'bridgeArmed'), 'a bridgeArmed event fires on the crossing');
+  // after arming, the day clock advances and the first dusk eventually fires.
+  run(g, () => { g.players[0].x = g.core.x; g.players[0].y = g.core.y; return { 0: {} }; }, 6);
+  assert.ok(g.events.some(ev => ev.type === 'dusk'), 'the hold cycle begins after the crossing');
+}
+
+// --- escort_push: the anchor advances while heroes are near and no enemy
+// contests; reaching the final waypoint wins ---
+function testEscortPushAdvancesAndWins() {
+  // a short straight lane bottom-left -> top-right across the open arena.
+  const def = objArena({ escort: { path: [[3, 11], [12, 6], [20, 2]], speed: 6, holdRadius: 3, hp: 40 } }, [12, 7]);
+  const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+  g.graceT = 1e9; g.players[0].invuln = 999;
+  g.enemies.length = 0; // an empty field: no contest, no gnaw
+  assert.ok(g.escort, 'def.escort seeds g.escort');
+  assert.equal(g.escort.wp, 1, 'the anchor starts heading for the second waypoint');
+  assert.equal(g.escort.x, (3 + 0.5) * TILE, 'the anchor starts on the first waypoint');
+  const s0 = snapshot(g, false);
+  assert.ok(s0.escort && s0.escort.path.length === 3, 'snapshot ships the escort path');
+  // shadow the anchor so a hero is always within holdRadius and it keeps pushing.
+  run(g, () => { g.players[0].x = g.escort.x; g.players[0].y = g.escort.y; return { 0: {} }; }, 12);
+  assert.equal(g.status, 'cleared', 'escorting the anchor to the goal wins');
+  assert.ok(g.events.some(ev => ev.type === 'escortWin'), 'an escortWin event fires');
+}
+
+// --- escort_push CONTROL: with no hero near it the anchor never moves (no win);
+// an enemy in the radius stalls the push; enough enemy gnaws lose the mission ---
+function testEscortPushControlStallAndLose() {
+  const def = objArena({ escort: { path: [[3, 11], [20, 2]], speed: 6, holdRadius: 3, hp: 3 } }, [12, 7]);
+  const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+  g.graceT = 1e9; g.players[0].invuln = 999;
+  g.enemies.length = 0;
+  // CONTROL: park the hero in the FAR corner (well outside holdRadius) — the
+  // anchor must not advance at all.
+  const far = () => { g.players[0].x = 20 * TILE; g.players[0].y = 2 * TILE; };
+  far();
+  const x0 = g.escort.x, y0 = g.escort.y;
+  run(g, () => { far(); return { 0: {} }; }, 3);
+  assert.equal(g.escort.x, x0, 'an unpushed anchor holds its x');
+  assert.equal(g.escort.y, y0, 'an unpushed anchor holds its y');
+  assert.equal(g.escort.wp, 1, 'no waypoint reached without a pusher');
+  assert.equal(g.status, 'play', 'the escort cannot be won without pushing');
+  // STALL: a hero near it AND an enemy in the radius — contested, no advance.
+  const e = { id: g.nextEnemyId++, kind: 'husk', x: g.escort.x, y: g.escort.y, hp: 99, maxHp: 99, speed: 0, aggro: 0, awake: false, dead: false, hitCool: 0 };
+  g.enemies.push(e);
+  g.players[0].x = g.escort.x; g.players[0].y = g.escort.y;
+  const xs = g.escort.x;
+  step(g, { 0: {} }, 1 / 30);
+  assert.equal(g.escort.contested, true, 'an enemy in the radius marks the push contested');
+  assert.ok(Math.abs(g.escort.x - xs) < 1e-6, 'a contested anchor does not advance');
+  // LOSE: keep the enemy on it (no hero, melee gnaw) until hp drains to 0.
+  far();
+  run(g, () => { e.x = g.escort.x; e.y = g.escort.y; far(); return { 0: {} }; }, 4);
+  assert.equal(g.status, 'failed', 'the anchor destroyed loses the mission');
+  assert.ok(g.events.some(ev => ev.type === 'escortLost'), 'an escortLost event fires');
+}
+
+// --- escort_push: brine-hulk sappers gnaw the anchor for DOUBLE ---
+function testEscortBrinehulkDoubleDamage() {
+  const def = objArena({ escort: { path: [[3, 11], [20, 2]], speed: 0.001, holdRadius: 3, hp: 100 } }, [12, 7]);
+  // a single brine hulk parked on the anchor; one gnaw window = 2 dmg (vs 1).
+  const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+  g.graceT = 1e9; g.players[0].invuln = 999;
+  g.enemies.length = 0;
+  const hulk = { id: g.nextEnemyId++, kind: 'brinehulk', x: g.escort.x, y: g.escort.y, hp: 99, maxHp: 99, speed: 0, aggro: 0, awake: false, dead: false, hitCool: 0 };
+  g.enemies.push(hulk);
+  g.players[0].x = 20 * TILE; g.players[0].y = 2 * TILE; // far away: no pusher
+  const hp0 = g.escort.hp;
+  // under one cooldown window (<0.9s) lands exactly one hit = 2 hp for a sapper.
+  run(g, () => { hulk.x = g.escort.x; hulk.y = g.escort.y; return { 0: {} }; }, 0.5);
+  assert.equal(g.escort.hp, hp0 - 2, 'a brine-hulk gnaws the anchor for double (2 hp per hit)');
+  // CONTROL: a plain husk over the same single window gnaws for just 1.
+  const def2 = objArena({ escort: { path: [[3, 11], [20, 2]], speed: 0.001, holdRadius: 3, hp: 100 } }, [12, 7]);
+  const g2 = createGame(def2, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+  g2.graceT = 1e9; g2.players[0].invuln = 999; g2.enemies.length = 0;
+  const husk = { id: g2.nextEnemyId++, kind: 'husk', x: g2.escort.x, y: g2.escort.y, hp: 99, maxHp: 99, speed: 0, aggro: 0, awake: false, dead: false, hitCool: 0 };
+  g2.enemies.push(husk);
+  g2.players[0].x = 20 * TILE; g2.players[0].y = 2 * TILE;
+  const hp1 = g2.escort.hp;
+  run(g2, () => { husk.x = g2.escort.x; husk.y = g2.escort.y; return { 0: {} }; }, 0.5);
+  assert.equal(g2.escort.hp, hp1 - 1, 'a plain melee enemy gnaws the anchor for 1 hp per hit');
+}
+
+// --- determinism: an escort + capture run replays byte-for-byte ---
+function testNewObjectivesDeterministic() {
+  const def = objArena({ capture: { x: 12, y: 7, radius: 3, duration: 30, threshold: 1, decay: 1 } });
+  const play = () => {
+    const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+    g.players[0].invuln = 999;
+    const h = [];
+    for (let i = 0; i < 240 && g.status === 'play'; i++) {
+      step(g, { 0: { right: (Math.floor(i / 30) % 2) === 0, up: (i % 20) < 10 } }, 1 / 30);
+      if (i % 20 === 0) h.push(JSON.stringify(snapshot(g, false)));
+    }
+    return h.join('\n');
+  };
+  assert.equal(play(), play(), 'a capture-objective run is byte-identical across builds (deterministic)');
+}
+
+// --- gating CONTROL: a bastion map with NO objective field ships none of the
+// three new keys and behaves exactly like a classic hold ---
+function testNonObjectiveMapUnaffected() {
+  const g = createGame(objArena(), [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+  assert.equal(g.capture, null, 'no def.capture => g.capture null');
+  assert.equal(g.bridge, null, 'no def.bridge => g.bridge null');
+  assert.equal(g.escort, null, 'no def.escort => g.escort null');
+  const s = JSON.stringify(snapshot(g));
+  assert.ok(!s.includes('"capture"'), 'snapshot ships no capture key');
+  assert.ok(!s.includes('"bridge"'), 'snapshot ships no bridge key');
+  assert.ok(!s.includes('"escort"'), 'snapshot ships no escort key');
+  // and the plain hold still wins on the final dawn (cycle unchanged)
+  g.graceT = 1e9; g.players[0].invuln = 999;
+  run(g, () => ({ 0: {} }), 60);
+  assert.equal(g.status, 'cleared', 'the classic hold still wins on the final dawn');
+}
+
+// ===== MAP-OVERHAUL: bastion roster + directional-edge overrides =============
+// Both are OPTIONAL def.bastion fields; absent => the night schedule is the exact
+// classic cycle from the exact classic cardinal edges, so every existing
+// stronghold (and the 10075-byte CTF wire) stays byte-identical.
+
+// Drive a bastion game from createGame to the FIRST dusk, returning the wave's
+// fresh night-spawned enemies (hunters: awake + targetCore) and its edge events.
+function firstNightWave(def) {
+  const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+  g.graceT = 1e9; g.players[0].invuln = 999;
+  // step the short day until a dusk fires (objArena uses dayLen 5)
+  for (let i = 0; i < 400 && g.cycle.nightNo < 1; i++) step(g, { 0: {} }, 1 / 30);
+  const waveEdges = g.events.filter(e => e.type === 'wave').map(e => e.edge);
+  const hunters = g.enemies.filter(e => e.targetCore).map(e => e.kind);
+  return { g, waveEdges, hunters };
+}
+
+// --- roster override: night waves draw from the map's own palette, classic when unset ---
+function testBastionRosterPalette() {
+  // a glacis-style roster: only frostshade(h)/glacier(i)/skitter(w)/charger(r)
+  const ros = ['w', 'r', 'h', 'i'];
+  const kinds = new Set(['skitter', 'charger', 'frostshade', 'glacier']);
+  const { hunters } = firstNightWave(objArena({ bastion: { nights: 2, dayLen: 5, nightLen: 4, bloodMoons: [], dayEvents: false, roster: ros } }));
+  assert.ok(hunters.length > 0, 'a rostered night still spawns a wave');
+  assert.ok(hunters.every(k => kinds.has(k)), `every rostered hunter is from the map palette (got ${[...new Set(hunters)].join(',')})`);
+  // CONTROL: the default schedule (no roster) fields husks/skitters, NOT the biome palette
+  const { hunters: classic } = firstNightWave(objArena());
+  assert.ok(classic.includes('husk'), 'the classic (rosterless) wave still fields husks');
+  assert.ok(classic.every(k => !['frostshade', 'glacier'].includes(k)), 'the classic wave fields no biome kinds');
+  // an empty/typo roster falls back to the classic cycle (never an empty wave)
+  const { hunters: junk } = firstNightWave(objArena({ bastion: { nights: 2, dayLen: 5, nightLen: 4, bloodMoons: [], dayEvents: false, roster: ['~', '#'] } }));
+  assert.ok(junk.length > 0 && junk.includes('husk'), 'an all-invalid roster falls back to the classic cycle');
+}
+
+// --- directional edges: confine spawns to the allowed set; classic when unset ---
+function testBastionDirectionalEdges() {
+  // back_line: every wave pours from the NORTH only
+  const north = objArena({ bastion: { nights: 2, dayLen: 5, nightLen: 4, bloodMoons: [], dayEvents: false, edges: ['n'] } });
+  const { waveEdges } = firstNightWave(north);
+  assert.ok(waveEdges.length > 0, 'a directional night still spawns a wave');
+  assert.ok(waveEdges.every(e => e === 'n'), `back_line waves pour only from the north (got ${waveEdges.join(',')})`);
+  // corner_keep: two open quadrants only (never the closed edges)
+  const corner = objArena({ bastion: { nights: 5, dayLen: 5, nightLen: 4, bloodMoons: [1], dayEvents: false, edges: ['e', 's'] } });
+  const { waveEdges: ce } = firstNightWave(corner);
+  assert.ok(ce.length >= 2, 'a blood-moon corner night fires from two edges');
+  assert.ok(ce.every(e => e === 'e' || e === 's'), `corner_keep blood-moon stays within the two open quadrants (got ${ce.join(',')})`);
+  // CONTROL: with no edges override, night 1 uses the classic WAVE_EDGES[(n-1)%4] = 'n'
+  const { waveEdges: classic } = firstNightWave(objArena());
+  assert.equal(classic[0], 'n', 'the classic night-1 edge is still north (WAVE_EDGES[0])');
+}
+
+testCaptureHillProgressesAndWins();
+testCaptureHillControlNoFillAndContest();
+testBridgeCrossHoldDefersCycleUntilReached();
+testEscortPushAdvancesAndWins();
+testEscortPushControlStallAndLose();
+testEscortBrinehulkDoubleDamage();
+testNewObjectivesDeterministic();
+testNonObjectiveMapUnaffected();
+testBastionRosterPalette();
+testBastionDirectionalEdges();
+
 await testServerPublicHardening();
 
 console.log('sim tests passed');

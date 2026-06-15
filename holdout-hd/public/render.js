@@ -83,6 +83,20 @@ const THEME_PAL = {
   nuclear: { skyFill: '#101404', washRgb: '180,230,70', vignetteRgb: '60,72,12',  ambient: 'fallout' },
   storm:   { skyFill: '#0A0C16', washRgb: '90,120,200', vignetteRgb: '14,18,40',  ambient: 'rain' },
   ice:     { skyFill: '#0E1622', washRgb: '170,210,255', vignetteRgb: '40,70,110', ambient: 'snow' },
+  // --- MAP-OVERHAUL biomes (10). Palette = sky backdrop + additive world wash +
+  // edge vignette tint + an ambient particle kind (the weather layer the theme
+  // implies is drawn separately). 'void' is a NEW ambient (drifting starfield
+  // motes for the void biomes); the rest reuse ember/fog/snow/rain/null.
+  emberwaste: { skyFill: '#1E0E07', washRgb: '255,110,40',  vignetteRgb: '110,38,12', ambient: 'ember' },
+  glacis:     { skyFill: '#0E1A26', washRgb: '180,222,255', vignetteRgb: '44,78,118', ambient: 'snow' },
+  mire:       { skyFill: '#0B130C', washRgb: '120,190,90',  vignetteRgb: '26,56,24',  ambient: 'fog' },
+  dunes:      { skyFill: '#241A0C', washRgb: '240,206,130', vignetteRgb: '108,82,36', ambient: 'ember' },
+  verdance:   { skyFill: '#0C1810', washRgb: '150,210,120', vignetteRgb: '26,54,30',  ambient: 'rain' },
+  voidscar:   { skyFill: '#08060F', washRgb: '170,140,235', vignetteRgb: '46,28,86',  ambient: 'void' },
+  saltworks:  { skyFill: '#0E1414', washRgb: '150,200,200', vignetteRgb: '34,64,64',  ambient: 'fog' },
+  nocturne:   { skyFill: '#0A0A12', washRgb: '150,160,210', vignetteRgb: '20,22,44',  ambient: 'fog' },
+  crucible:   { skyFill: '#160604', washRgb: '255,90,40',   vignetteRgb: '120,22,8',  ambient: 'ember' },
+  reliquary:  { skyFill: '#12100A', washRgb: '230,206,140', vignetteRgb: '70,58,24',  ambient: null },
 };
 function themePal(snap) {
   return (snap && typeof snap.theme === 'string') ? (THEME_PAL[snap.theme] || null) : null;
@@ -636,6 +650,121 @@ function bakeIce(seed) {
   }, seed);
 }
 
+// '+' CINDER-CRUST (Emberwaste/Crucible) — crusted lava-flat plaza: dark basalt
+// crust with faint orange seam-glow in the cracks (no damage, just a hot look).
+function bakeCinder(seed) {
+  return bake(TILE, TILE, (ctx, rnd) => {
+    ctx.fillStyle = '#1C1410';
+    ctx.fillRect(0, 0, TILE, TILE);
+    // crust plates
+    for (let i = 0; i < 4; i++) {
+      ctx.fillStyle = mix('#241915', '#2E201A', rnd());
+      ctx.beginPath();
+      ctx.ellipse(rnd() * TILE, rnd() * TILE, 7 + rnd() * 9, 6 + rnd() * 7, rnd() * 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // glowing seam cracks
+    ctx.lineCap = 'round';
+    for (let i = 0; i < 2; i++) {
+      ctx.strokeStyle = i === 0 ? 'rgba(255,150,60,0.85)' : 'rgba(220,90,30,0.7)';
+      ctx.shadowColor = '#FF7A2A';
+      ctx.shadowBlur = 4;
+      ctx.lineWidth = 1.4;
+      let x = rnd() * TILE, y = rnd() * TILE;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      for (let k = 0; k < 3; k++) { x += (rnd() - 0.5) * 20; y += (rnd() - 0.5) * 20; ctx.lineTo(x, y); }
+      ctx.stroke();
+    }
+    ctx.shadowBlur = 0;
+    for (let i = 0; i < 4; i++) { ctx.fillStyle = rnd() < 0.5 ? '#5A3A24' : '#3A2A20'; ctx.fillRect(rnd() * TILE, rnd() * TILE, 1.2, 1.2); }
+  }, seed);
+}
+
+// '-' PACKED-SNOW (Glacis) — pale wind-packed drift bank; subtle ripple ridges.
+function bakeSnowpack(seed) {
+  return bake(TILE, TILE, (ctx, rnd) => {
+    ctx.fillStyle = '#C7D6E6';
+    ctx.fillRect(0, 0, TILE, TILE);
+    for (let i = 0; i < 4; i++) {
+      ctx.fillStyle = rnd() < 0.5 ? '#D8E4F0' : '#B6C7DA';
+      ctx.beginPath();
+      ctx.ellipse(rnd() * TILE, rnd() * TILE, 9 + rnd() * 12, 5 + rnd() * 7, rnd() * 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // wind ripple ridges (faint shadow lines)
+    ctx.strokeStyle = 'rgba(140,160,184,0.4)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 3; i++) {
+      const y = rnd() * TILE;
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.quadraticCurveTo(TILE * 0.5, y + (rnd() - 0.5) * 8, TILE, y + (rnd() - 0.5) * 6);
+      ctx.stroke();
+    }
+    for (let i = 0; i < 4; i++) { ctx.fillStyle = '#FFFFFF'; ctx.fillRect(rnd() * TILE, rnd() * TILE, 1, 1); }
+  }, seed);
+}
+
+// '@' PEAT-BOG (Sunken Mire) — soggy dark peat with sickly green seep pools.
+function bakePeat(seed) {
+  return bake(TILE, TILE, (ctx, rnd) => {
+    ctx.fillStyle = '#1C1A12';
+    ctx.fillRect(0, 0, TILE, TILE);
+    for (let i = 0; i < 3; i++) {
+      ctx.fillStyle = mix('#241F14', '#2A2618', rnd());
+      ctx.beginPath();
+      ctx.ellipse(rnd() * TILE, rnd() * TILE, 8 + rnd() * 10, 6 + rnd() * 7, rnd() * 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // toxic seep pools
+    for (let i = 0; i < 2; i++) {
+      const x = rnd() * TILE, y = rnd() * TILE;
+      ctx.fillStyle = 'rgba(90,140,50,0.5)';
+      ctx.beginPath();
+      ctx.ellipse(x, y, 4 + rnd() * 5, 3 + rnd() * 4, rnd() * 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(150,200,90,0.5)';
+      ctx.fillRect(x - 1, y - 1, 2, 2);
+    }
+    for (let i = 0; i < 4; i++) { ctx.fillStyle = '#4E5A30'; ctx.fillRect(rnd() * TILE, rnd() * TILE, 1, 1); }
+  }, seed);
+}
+
+// '/' UNSTABLE-SLAB (Voidscar) — cracked stone shelf rimmed by a faint void glow.
+function bakeSlab(seed) {
+  return bake(TILE, TILE, (ctx, rnd) => {
+    // base cracked stone (slate)
+    ctx.fillStyle = '#2A2C3A';
+    ctx.fillRect(0, 0, TILE, TILE);
+    for (let i = 0; i < 3; i++) {
+      ctx.fillStyle = mix('#23253160', '#30334408', rnd());
+      ctx.fillRect(rnd() * TILE, rnd() * TILE, 8 + rnd() * 14, 8 + rnd() * 14);
+    }
+    // a void rim creeping in from one edge (violet glow)
+    const edge = Math.floor(rnd() * 4);
+    const grd = edge === 0 ? ctx.createLinearGradient(0, 0, 0, TILE)
+      : edge === 1 ? ctx.createLinearGradient(0, TILE, 0, 0)
+      : edge === 2 ? ctx.createLinearGradient(0, 0, TILE, 0)
+      : ctx.createLinearGradient(TILE, 0, 0, 0);
+    grd.addColorStop(0, 'rgba(80,40,130,0.55)');
+    grd.addColorStop(0.4, 'rgba(50,28,90,0.18)');
+    grd.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, TILE, TILE);
+    // fracture lines
+    ctx.strokeStyle = 'rgba(150,120,210,0.4)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 2; i++) {
+      let x = rnd() * TILE, y = rnd() * TILE;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      for (let k = 0; k < 3; k++) { x += (rnd() - 0.5) * 24; y += (rnd() - 0.5) * 24; ctx.lineTo(x, y); }
+      ctx.stroke();
+    }
+  }, seed);
+}
+
 const BAKERS = {
   meadow0: () => bakeMeadow(301), meadow1: () => bakeMeadow(302), meadow2: () => bakeMeadow(303),
   meadow3: () => bakeMeadow(304), meadow4: () => bakeMeadow(305), meadow5: () => bakeMeadow(306),
@@ -651,6 +780,11 @@ const BAKERS = {
   sand0: () => bakeSand(401), sand1: () => bakeSand(402), sand2: () => bakeSand(403),
   lava0: () => bakeLava(411), lava1: () => bakeLava(412), lava2: () => bakeLava(413),
   ice0: () => bakeIce(421), ice1: () => bakeIce(422), ice2: () => bakeIce(423),
+  // map-overhaul biome floor tiles ('+' cinder, '-' snowpack, '@' peat, '/' slab)
+  cinder0: () => bakeCinder(431), cinder1: () => bakeCinder(432), cinder2: () => bakeCinder(433),
+  snowpack0: () => bakeSnowpack(441), snowpack1: () => bakeSnowpack(442), snowpack2: () => bakeSnowpack(443),
+  peat0: () => bakePeat(451), peat1: () => bakePeat(452), peat2: () => bakePeat(453),
+  slab0: () => bakeSlab(461), slab1: () => bakeSlab(462), slab2: () => bakeSlab(463),
 };
 
 // floor letter -> [texture base name, variant count]
@@ -662,6 +796,12 @@ const FLOOR_TEX = {
   '_': ['ash', 4],
   '=': ['sand', 3],
   '^': ['ice', 3],
+  // map-overhaul biome floors (passable terrain): cinder-crust, packed-snow,
+  // peat-bog, unstable-slab. Authors set these in tile rows on themed maps.
+  '+': ['cinder', 3],
+  '-': ['snowpack', 3],
+  '@': ['peat', 3],
+  '/': ['slab', 3],
 };
 
 // Unknown letters fall back to meadow so classic maps (and future letters)
@@ -2370,6 +2510,9 @@ function drawCaptive(ctx, c, color, t) {
 const KIND_R = { grunt: 13, archer: 10, charger: 16, bulwark: 13, spawner: 13, sniper: 9, skitter: 7, boss: 26 };
 // RELIC AWAKENING nightmares (relic event only) — draw/glow radii.
 Object.assign(KIND_R, { spider: 8, ghost: 13, reaper: 16, skeleton: 10, zombie: 11, hellhound: 12, banshee: 12 });
+// MAP-OVERHAUL biome roster — draw/glow radii (tanks read big, kites small).
+Object.assign(KIND_R, { molten: 14, emberkite: 11, frostshade: 12, glacier: 17, bogspitter: 12,
+  phaseborn: 12, sandlurker: 13, wraithv: 12, brinehulk: 16 });
 
 // Frontier III kinds (letters z f q v x u) may ship under a few names while
 // the sim wave lands; normalize for drawing and register their radii.
@@ -3406,6 +3549,400 @@ function drawEnemy(ctx, e, t, dt) {
     return;
   }
 
+  // ============== MAP-OVERHAUL biome roster (9 new draws) ==============
+  if (e.kind === 'molten') {
+    // MOLTEN — a hunched magma golem: black basalt crust with glowing orange
+    // seam-cracks that pulse, molten drips, a heat-shimmer halo.
+    const pulse = 0.5 + 0.5 * Math.sin(t * 4 + e.id);
+    shadowBlob(ctx, e.x, e.y + 9, 14, 5.5);
+    ctx.save();
+    // heat-shimmer halo
+    const hg = ctx.createRadialGradient(e.x, e.y, 4, e.x, e.y, 20);
+    hg.addColorStop(0, `rgba(255,120,40,${0.18 + pulse * 0.12})`);
+    hg.addColorStop(1, 'rgba(255,90,20,0)');
+    ctx.fillStyle = hg;
+    ctx.beginPath(); ctx.arc(e.x, e.y, 20, 0, Math.PI * 2); ctx.fill();
+    ctx.translate(e.x, e.y);
+    // crusted polygon body
+    ctx.fillStyle = '#1A120E';
+    ctx.beginPath();
+    ctx.moveTo(-11, 8); ctx.lineTo(-12, -4); ctx.lineTo(-5, -12); ctx.lineTo(6, -11);
+    ctx.lineTo(12, -2); ctx.lineTo(10, 9); ctx.closePath(); ctx.fill();
+    // additive glowing seams
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = `rgba(255,150,50,${0.7 + pulse * 0.3})`;
+    ctx.shadowColor = '#FF7A2A'; ctx.shadowBlur = 6; ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(-8, 6); ctx.lineTo(-3, -2); ctx.lineTo(2, 4); ctx.lineTo(7, -6);
+    ctx.moveTo(-2, 8); ctx.lineTo(0, -10);
+    ctx.stroke();
+    ctx.restore();
+    // falling ember drips
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 3; i++) {
+      const dy = ((t * 22 + i * 9 + e.id * 3) % 16);
+      ctx.fillStyle = `rgba(255,${130 + i * 30},40,${0.8 - dy / 20})`;
+      ctx.fillRect(e.x - 7 + i * 7, e.y + 2 + dy, 1.6, 2.4);
+    }
+    ctx.restore();
+    drawEye(ctx, e.x + e.fx * 6, e.y + e.fy * 6, 2);
+    return;
+  }
+
+  if (e.kind === 'emberkite') {
+    // EMBER KITE — a floating tattered fire-kite: a diamond flame membrane on
+    // charred spars, flapping via skew, trailing ember sparks, a dark core eye.
+    const bob = Math.sin(t * 2.5 + e.id) * 2.5;
+    const flap = Math.sin(t * 6 + e.id) * 0.18;
+    ctx.save();
+    ctx.globalAlpha *= 0.6;
+    shadowBlob(ctx, e.x, e.y + 12, 9, 3.5);
+    ctx.restore();
+    ctx.save();
+    ctx.translate(e.x, e.y + bob);
+    ctx.transform(1, flap, 0, 1, 0, 0); // flapping skew
+    // kite membrane (additive flame gradient)
+    ctx.globalCompositeOperation = 'lighter';
+    const kg = ctx.createLinearGradient(0, -13, 0, 13);
+    kg.addColorStop(0, 'rgba(255,180,60,0.85)');
+    kg.addColorStop(0.5, 'rgba(255,90,30,0.55)');
+    kg.addColorStop(1, 'rgba(150,30,10,0.2)');
+    ctx.fillStyle = kg;
+    ctx.beginPath();
+    ctx.moveTo(0, -13); ctx.lineTo(10, 0); ctx.lineTo(0, 13); ctx.lineTo(-10, 0); ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+    // charred spars
+    ctx.save();
+    ctx.translate(e.x, e.y + bob);
+    ctx.strokeStyle = '#1A0E08'; ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.moveTo(0, -13); ctx.lineTo(0, 13); ctx.moveTo(-10, 0); ctx.lineTo(10, 0); ctx.stroke();
+    // dark core eye
+    ctx.fillStyle = '#160806';
+    ctx.beginPath(); ctx.arc(0, 0, 2.6, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    // spark trail (rising)
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 4; i++) {
+      const sy = ((t * 26 + i * 7 + e.id * 4) % 18);
+      ctx.fillStyle = `rgba(255,${150 + i * 20},60,${0.7 - sy / 24})`;
+      ctx.fillRect(e.x - 2 + Math.sin(t * 3 + i) * 4, e.y + bob - sy, 1.4, 1.4);
+    }
+    ctx.restore();
+    return;
+  }
+
+  if (e.kind === 'frostshade') {
+    // FROSTSHADE — a drifting frost wraith: a pale-cyan translucent robe, no
+    // legs (hovers), trailing snow-crystal motes, hollow white eye-slits.
+    const bob = Math.sin(t * 2 + e.id) * 2.4;
+    ctx.save();
+    ctx.globalAlpha *= 0.55;
+    shadowBlob(ctx, e.x, e.y + 11, 8, 3.2);
+    ctx.translate(e.x, e.y + bob);
+    // cyan inner glow
+    const cg = ctx.createRadialGradient(0, -2, 2, 0, 2, 16);
+    cg.addColorStop(0, 'rgba(190,245,255,0.85)');
+    cg.addColorStop(1, 'rgba(90,170,210,0.05)');
+    ctx.fillStyle = cg;
+    ctx.beginPath();
+    ctx.moveTo(0, -15);
+    ctx.bezierCurveTo(11, -9, 10, 4, 9, 7);
+    for (let i = 3; i >= -3; i--) ctx.lineTo(i * 3, 9 + Math.sin(t * 4 + i + e.id) * 3);
+    ctx.bezierCurveTo(-10, 4, -11, -9, 0, -15);
+    ctx.fill();
+    ctx.restore();
+    // crystal flecks
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 4; i++) {
+      const fx2 = Math.sin(t * 1.5 + i * 1.7 + e.id) * 12;
+      const fy2 = ((t * 10 + i * 6 + e.id * 3) % 18) - 9;
+      ctx.fillStyle = `rgba(220,250,255,${0.6 - Math.abs(fy2) / 22})`;
+      ctx.fillRect(e.x + fx2, e.y + bob + fy2, 1.4, 1.4);
+    }
+    ctx.restore();
+    // hollow white eye-slits
+    ctx.save();
+    ctx.fillStyle = '#EAFBFF'; ctx.shadowColor = '#BFF0FF'; ctx.shadowBlur = 6;
+    const px = -e.fy, py = e.fx;
+    for (const s of [-1, 1]) {
+      ctx.fillRect(e.x + e.fx * 4 + px * 2.4 * s - 1, e.y + bob - 4 + py * 2.4 * s - 0.6, 2, 1.4);
+    }
+    ctx.restore();
+    return;
+  }
+
+  if (e.kind === 'glacier') {
+    // GLACIER — a walking iceberg: faceted translucent blue-white block with
+    // internal refraction lines and frozen debris suspended inside.
+    const sway = Math.sin(t * 1.2 + e.id) * 1.2;
+    shadowBlob(ctx, e.x, e.y + 12, 17, 6.5);
+    ctx.save();
+    ctx.translate(e.x + sway, e.y);
+    // stacked facets (dark-to-light blue)
+    const facets = [
+      ['#3A5A78', [-14, 10, -15, -6, -4, -13, -2, 8]],
+      ['#5A85A8', [-2, 8, -4, -13, 8, -10, 10, 6]],
+      ['#88BEDC', [-2, 8, 10, 6, 8, 13, -6, 12]],
+    ];
+    for (const [col, pts] of facets) {
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.moveTo(pts[0], pts[1]);
+      for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
+      ctx.closePath(); ctx.fill();
+    }
+    // white rim highlights
+    ctx.strokeStyle = 'rgba(230,248,255,0.7)'; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(-4, -13); ctx.lineTo(8, -10); ctx.lineTo(10, 6); ctx.stroke();
+    // internal refraction lines + suspended debris
+    ctx.strokeStyle = 'rgba(190,225,245,0.4)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(-8, -2); ctx.lineTo(2, 4); ctx.moveTo(0, -8); ctx.lineTo(-3, 6); ctx.stroke();
+    ctx.fillStyle = 'rgba(60,90,110,0.6)';
+    ctx.fillRect(-3, -2, 2, 2); ctx.fillRect(3, 2, 1.6, 1.6);
+    // faint sparkle
+    ctx.fillStyle = `rgba(255,255,255,${0.4 + 0.4 * Math.sin(t * 3 + e.id)})`;
+    ctx.fillRect(5, -7, 1.4, 1.4);
+    ctx.restore();
+    return;
+  }
+
+  if (e.kind === 'bogspitter') {
+    // BOG SPITTER — a bloated swamp toad: warty olive sac body, a glowing green
+    // throat that inflates before a spit (scale on cooldown), a drippy maw.
+    const inflate = 1 + 0.25 * Math.max(0, Math.sin(t * 3 + e.id)); // throat pulse
+    shadowBlob(ctx, e.x, e.y + 8, 13, 5);
+    ctx.save();
+    ctx.translate(e.x, e.y);
+    // squat sac body
+    ctx.fillStyle = '#3A4A1E';
+    ctx.beginPath(); ctx.ellipse(0, 2, 12, 9, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#46591F';
+    ctx.beginPath(); ctx.ellipse(0, 4, 11, 7, 0, 0, Math.PI * 2); ctx.fill();
+    // warts
+    ctx.fillStyle = '#2C3A16';
+    for (const [wx, wy] of [[-6, -1], [5, 0], [-2, 5], [7, 5], [-8, 4]]) {
+      ctx.beginPath(); ctx.arc(wx, wy, 1.5, 0, Math.PI * 2); ctx.fill();
+    }
+    // glowing throat
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const tg = ctx.createRadialGradient(0, 6, 1, 0, 6, 7 * inflate);
+    tg.addColorStop(0, 'rgba(160,230,80,0.9)');
+    tg.addColorStop(1, 'rgba(90,170,40,0)');
+    ctx.fillStyle = tg;
+    ctx.beginPath(); ctx.ellipse(0, 6, 6 * inflate, 4.5 * inflate, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    // drippy maw
+    ctx.fillStyle = '#1C2A0E';
+    ctx.beginPath(); ctx.ellipse(e.fx * 6, e.fy * 4 - 1, 2.4, 1.6, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    // drip particle
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const dy = ((t * 16 + e.id * 5) % 12);
+    ctx.fillStyle = `rgba(150,210,70,${0.7 - dy / 16})`;
+    ctx.fillRect(e.x + e.fx * 6, e.y + 6 + dy, 1.4, 2);
+    ctx.restore();
+    drawEye(ctx, e.x - e.fx * 2 - e.fy * 4, e.y - e.fy * 2 + e.fx * 4, 1.6, 0.9);
+    drawEye(ctx, e.x - e.fx * 2 + e.fy * 4, e.y - e.fy * 2 - e.fx * 4, 1.6, 0.9);
+    return;
+  }
+
+  if (e.kind === 'phaseborn') {
+    // PHASEBORN — a semi-transparent violet revenant with a starfield-filled
+    // silhouette and a trailing after-image (2 ghost copies at fading alpha);
+    // white pinpoint eyes. Drifts through walls (sim handles movement).
+    const bob = Math.sin(t * 2.2 + e.id) * 2;
+    // 3 offset silhouette passes (after-image), back-to-front
+    for (let pass = 2; pass >= 0; pass--) {
+      const off = pass * 4;
+      const al = pass === 0 ? 0.55 : 0.55 * (0.4 / pass);
+      ctx.save();
+      ctx.globalAlpha *= al;
+      ctx.translate(e.x - e.fx * off, e.y - e.fy * off + bob);
+      // void-noise filled body
+      const vg = ctx.createRadialGradient(0, -2, 2, 0, 2, 15);
+      vg.addColorStop(0, 'rgba(150,110,220,0.9)');
+      vg.addColorStop(1, 'rgba(40,16,80,0.1)');
+      ctx.fillStyle = vg;
+      ctx.beginPath();
+      ctx.moveTo(0, -14);
+      ctx.quadraticCurveTo(9, -7, 8, 6);
+      ctx.lineTo(5, 12); ctx.lineTo(-5, 12); ctx.lineTo(-8, 6);
+      ctx.quadraticCurveTo(-9, -7, 0, -14);
+      ctx.fill();
+      // starfield specks inside (deterministic per pass)
+      if (pass === 0) {
+        ctx.globalCompositeOperation = 'lighter';
+        for (let i = 0; i < 5; i++) {
+          const sx = Math.sin(i * 2.3 + e.id) * 6;
+          const sy = -8 + ((i * 4 + t * 6) % 18);
+          ctx.fillStyle = `rgba(230,225,255,${0.5 + 0.4 * Math.sin(t * 3 + i)})`;
+          ctx.fillRect(sx, sy, 1, 1);
+        }
+      }
+      ctx.restore();
+    }
+    // white pinpoint eyes (additive)
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = '#FFFFFF'; ctx.shadowColor = '#E0D8FF'; ctx.shadowBlur = 7;
+    const px = -e.fy, py = e.fx;
+    for (const s of [-1, 1]) {
+      ctx.beginPath();
+      ctx.arc(e.x + e.fx * 4 + px * 2.2 * s, e.y + bob - 4 + py * 2.2 * s, 1.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+    return;
+  }
+
+  if (e.kind === 'sandlurker') {
+    if (e.buried) {
+      // BURIED — a low rippling sand mound with two faint eye-glints + dust.
+      ctx.save();
+      shadowBlob(ctx, e.x, e.y + 5, 14, 4);
+      ctx.fillStyle = 'rgba(196,168,110,0.85)';
+      ctx.beginPath(); ctx.ellipse(e.x, e.y + 2, 13, 5, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(160,134,80,0.6)';
+      ctx.beginPath(); ctx.ellipse(e.x, e.y + 3, 9, 3, 0, 0, Math.PI * 2); ctx.fill();
+      // drifting dust
+      ctx.globalCompositeOperation = 'lighter';
+      for (let i = 0; i < 3; i++) {
+        const dx = Math.sin(t * 1.3 + i * 2 + e.id) * 10;
+        ctx.fillStyle = 'rgba(210,188,140,0.35)';
+        ctx.fillRect(e.x + dx, e.y - 1 - (i % 2), 1.4, 1);
+      }
+      ctx.restore();
+      // two eye-glints
+      ctx.save();
+      ctx.fillStyle = 'rgba(60,40,20,0.8)';
+      ctx.fillRect(e.x - 3, e.y + 1, 1.4, 1); ctx.fillRect(e.x + 2, e.y + 1, 1.4, 1);
+      ctx.restore();
+      return;
+    }
+    // SURFACED — a chitinous tan burrower with mandibles + segmented back.
+    shadowBlob(ctx, e.x, e.y + 8, 13, 5);
+    ctx.save();
+    ctx.translate(e.x, e.y);
+    ctx.rotate(a);
+    // segmented back
+    ctx.fillStyle = '#A8895A';
+    ctx.beginPath(); ctx.ellipse(-2, 0, 12, 8, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#8A6E40';
+    for (let i = -1; i <= 1; i++) {
+      ctx.beginPath(); ctx.ellipse(-2 + i * 5, 0, 3.5, 7, 0, 0, Math.PI * 2); ctx.fill();
+    }
+    // head + mandibles
+    ctx.fillStyle = '#7A5E34';
+    ctx.beginPath(); ctx.ellipse(9, 0, 5, 5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#4A3818'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+    const gnash = Math.abs(Math.sin(t * 8 + e.id)) * 2.5;
+    ctx.beginPath();
+    ctx.moveTo(12, -2); ctx.lineTo(17, -3 - gnash);
+    ctx.moveTo(12, 2); ctx.lineTo(17, 3 + gnash);
+    ctx.stroke();
+    ctx.restore();
+    drawEye(ctx, e.x + e.fx * 9, e.y + e.fy * 9, 1.6);
+    return;
+  }
+
+  if (e.kind === 'wraithv') {
+    // VAULT WRAITH — a hooded arcane sentinel: deep-indigo robe, a glowing lapis
+    // sigil ring orbiting its head, lightning filaments crackling on cooldown.
+    const bob = Math.sin(t * 1.8 + e.id) * 1.8;
+    const charging = (e.aimT || 0) > 0 || (e.cool !== undefined && e.cool < 0.5);
+    ctx.save();
+    ctx.globalAlpha *= 0.85;
+    shadowBlob(ctx, e.x, e.y + 10, 9, 3.6);
+    ctx.translate(e.x, e.y + bob);
+    // robe
+    ctx.fillStyle = '#161038';
+    ctx.beginPath();
+    ctx.moveTo(0, -15);
+    ctx.bezierCurveTo(9, -8, 9, 6, 8, 9);
+    ctx.lineTo(-8, 9);
+    ctx.bezierCurveTo(-9, 6, -9, -8, 0, -15);
+    ctx.fill();
+    // hood shadow
+    ctx.fillStyle = '#0C0826';
+    ctx.beginPath(); ctx.ellipse(0, -10, 4.5, 5.5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    // orbiting lapis sigil ring
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = 'rgba(80,130,255,0.7)'; ctx.lineWidth = 1.4;
+    ctx.shadowColor = '#4A78FF'; ctx.shadowBlur = 6;
+    const ringA = t * 1.5 + e.id;
+    ctx.save();
+    ctx.translate(e.x, e.y - 11 + bob);
+    ctx.scale(1, 0.4); ctx.rotate(ringA);
+    ctx.beginPath(); ctx.arc(0, 0, 7, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+    // 3 sigil nodes on the ring
+    for (let i = 0; i < 3; i++) {
+      const aa = ringA + i * (Math.PI * 2 / 3);
+      ctx.fillStyle = 'rgba(150,190,255,0.9)';
+      ctx.fillRect(e.x + Math.cos(aa) * 7 - 1, e.y - 11 + bob + Math.sin(aa) * 2.8 - 1, 2, 2);
+    }
+    ctx.restore();
+    // electric filaments between raised hands on cooldown
+    if (charging) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.strokeStyle = `rgba(140,180,255,${0.5 + 0.4 * Math.sin(t * 30)})`;
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      let lx = e.x - 7, ly = e.y + 2 + bob;
+      ctx.moveTo(lx, ly);
+      for (let k = 0; k < 4; k++) { lx += 3.5; ly += (Math.sin(t * 40 + k) ) * 3; ctx.lineTo(lx, ly); }
+      ctx.stroke();
+      ctx.restore();
+    }
+    return;
+  }
+
+  if (e.kind === 'brinehulk') {
+    // BRINE HULK — a barnacle-crusted colossus: teal-grey hide caked with salt
+    // and shells, dripping brine, oversized crushing forearms, a heavy sway.
+    const sway = Math.sin(t * 1.4 + e.id) * 2;
+    shadowBlob(ctx, e.x, e.y + 12, 16, 6);
+    ctx.save();
+    ctx.translate(e.x + sway, e.y);
+    ctx.rotate(a + Math.PI / 2);
+    // heavy shoulder mass + torso
+    ctx.fillStyle = '#3A5650';
+    ctx.beginPath(); ctx.ellipse(0, -2, 13, 11, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#46645C';
+    ctx.beginPath(); ctx.ellipse(0, 0, 11, 9, 0, 0, Math.PI * 2); ctx.fill();
+    // oversized crushing forearms
+    ctx.fillStyle = '#2E4842';
+    for (const sx of [-1, 1]) {
+      ctx.beginPath(); ctx.ellipse(sx * 12, 6, 4.5, 7, sx * 0.3, 0, Math.PI * 2); ctx.fill();
+    }
+    // shell/salt speckle
+    ctx.fillStyle = '#CFE0D6';
+    for (const [px2, py2] of [[-6, -5], [4, -7], [-2, 3], [7, 1], [-8, 2], [2, 7]]) {
+      ctx.beginPath(); ctx.arc(px2, py2, 1.4, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.fillStyle = '#9BB8A8';
+    for (const [px2, py2] of [[-4, -2], [6, 4]]) { ctx.beginPath(); ctx.arc(px2, py2, 1, 0, Math.PI * 2); ctx.fill(); }
+    ctx.restore();
+    // brine drip
+    ctx.save();
+    const dy = ((t * 14 + e.id * 6) % 14);
+    ctx.fillStyle = `rgba(120,170,160,${0.7 - dy / 18})`;
+    ctx.fillRect(e.x + sway - 5, e.y + 8 + dy, 1.4, 2.4);
+    ctx.fillRect(e.x + sway + 4, e.y + 6 + (dy + 5) % 14, 1.4, 2.2);
+    ctx.restore();
+    drawEye(ctx, e.x + sway + e.fx * 5, e.y + e.fy * 5, 1.8);
+    return;
+  }
+
   // BOSS: ANCHOR EATER — colossal devourer armored in eaten Anchor fragments
   const phase2 = e.hp <= (e.maxHp || 1) * 0.5;
   const flare = phase2 ? 0.5 + 0.5 * Math.sin(t * 6) : 0.25 + 0.25 * Math.sin(t * 2);
@@ -4415,6 +4952,125 @@ function drawSiegeEnemyAnchor(ctx, camera, cores, siege, localTeams, t) {
 }
 
 // 'K' — the base core: a monolith heart of warm LYTH. Lose it, lose the night.
+// --- NEW objective render (map-overhaul): light FX, gated by the caller -----
+// capture_hill: a control ring around the contested zone + a fill arc that
+// sweeps with the meter. Cyan held, amber idle, red contested. Pure canvas.
+function drawCaptureZone(ctx, cap, t, lights) {
+  const R = (cap.radius || 3) * TILE;
+  const frac = cap.duration > 0 ? Math.max(0, Math.min(1, (cap.ownerT || 0) / cap.duration)) : 0;
+  const col = cap.contested ? PAL.red : cap.held ? PAL.relay : PAL.lythAmber;
+  ctx.save();
+  // ground ring
+  ctx.globalAlpha = 0.35 + 0.15 * Math.sin(t * 2);
+  ctx.strokeStyle = col;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(cap.x, cap.y, R, 0, Math.PI * 2);
+  ctx.stroke();
+  // soft fill wash
+  ctx.globalAlpha = 0.08 + 0.05 * frac;
+  ctx.fillStyle = col;
+  ctx.beginPath();
+  ctx.arc(cap.x, cap.y, R, 0, Math.PI * 2);
+  ctx.fill();
+  // progress arc (clockwise from top)
+  ctx.globalAlpha = 0.9;
+  ctx.strokeStyle = col;
+  ctx.lineWidth = 4;
+  ctx.shadowColor = col; ctx.shadowBlur = 10;
+  ctx.beginPath();
+  ctx.arc(cap.x, cap.y, R - 6, -Math.PI / 2, -Math.PI / 2 + frac * Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+  if (lights) lights.push({ x: cap.x, y: cap.y, r: R + 40, rgb: hexRgb(col), a: 0.06 + 0.08 * frac });
+}
+
+// escort_push: a dotted lane to the goal + the anchor body with an hp bar. A
+// green pulse when pushing, amber when idle, red while contested.
+function drawEscort(ctx, es, t, inView, lights) {
+  const path = es.path || [];
+  ctx.save();
+  // dotted path
+  ctx.strokeStyle = 'rgba(111,216,242,0.45)';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([6, 8]);
+  ctx.beginPath();
+  for (let i = 0; i < path.length; i++) {
+    const [px, py] = path[i];
+    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+  // goal marker (final waypoint)
+  if (path.length) {
+    const [gx, gy] = path[path.length - 1];
+    ctx.strokeStyle = PAL.lythAmber;
+    ctx.lineWidth = 2;
+    ctx.globalAlpha = 0.6 + 0.3 * Math.sin(t * 3);
+    ctx.beginPath();
+    ctx.arc(gx, gy, 14, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+  ctx.restore();
+  if (!inView || inView(es.x, es.y, 60)) {
+    const col = es.contested ? PAL.red : es.moving ? PAL.teal : PAL.lythAmber;
+    shadowBlob(ctx, es.x + 2, es.y + 8, 16, 6);
+    ctx.save();
+    // anchor body: a chunky rig hex
+    ctx.translate(es.x, es.y);
+    ctx.rotate(t * (es.moving ? 0.6 : 0.15));
+    ctx.fillStyle = PAL.graphPlate;
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 2.4;
+    ctx.shadowColor = col; ctx.shadowBlur = 10;
+    ctx.beginPath();
+    for (let k = 0; k < 6; k++) {
+      const a = (k / 6) * Math.PI * 2;
+      const rx = Math.cos(a) * 16, ry = Math.sin(a) * 16;
+      if (k === 0) ctx.moveTo(rx, ry); else ctx.lineTo(rx, ry);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.arc(0, 0, 5, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    // hp bar
+    const frac = es.maxHp > 0 ? Math.max(0, Math.min(1, es.hp / es.maxHp)) : 0;
+    ctx.save();
+    ctx.fillStyle = 'rgba(13,8,18,0.8)';
+    ctx.fillRect(es.x - 18, es.y - 30, 36, 5);
+    ctx.fillStyle = frac > 0.5 ? PAL.teal : frac > 0.25 ? PAL.lythAmber : PAL.red;
+    ctx.fillRect(es.x - 17, es.y - 29, 34 * frac, 3);
+    ctx.restore();
+    if (lights) lights.push({ x: es.x, y: es.y, r: 80, rgb: hexRgb(col), a: 0.12 });
+  }
+}
+
+// bridge_cross_hold: a pulsing "CROSS" beacon at the far redoubt until reached.
+function drawBridgeMark(ctx, br, t) {
+  ctx.save();
+  ctx.globalAlpha = 0.5 + 0.4 * Math.sin(t * 3.5);
+  ctx.strokeStyle = PAL.lythAmber;
+  ctx.lineWidth = 2.4;
+  ctx.shadowColor = PAL.lythAmber; ctx.shadowBlur = 12;
+  ctx.beginPath();
+  ctx.arc(br.x, br.y, 22, 0, Math.PI * 2);
+  ctx.stroke();
+  // inward chevrons
+  ctx.beginPath();
+  ctx.moveTo(br.x - 8, br.y + 8); ctx.lineTo(br.x, br.y); ctx.lineTo(br.x + 8, br.y + 8);
+  ctx.moveTo(br.x - 8, br.y + 2); ctx.lineTo(br.x, br.y - 6); ctx.lineTo(br.x + 8, br.y + 2);
+  ctx.stroke();
+  ctx.globalAlpha = 0.9;
+  ctx.fillStyle = PAL.lythAmber;
+  ctx.font = 'bold 9px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('CROSS', br.x, br.y - 30);
+  ctx.restore();
+}
+
 function drawCore(ctx, core, t, lights) {
   const { x, y } = core;
   const frac = Math.max(0, Math.min(1, (core.hp ?? 30) / (core.maxHp || 30)));
@@ -8157,6 +8813,21 @@ function drawHazardAmbient(ctx, snap, t, VW, VH, tpal) {
       ctx.fillStyle = bg2;
       ctx.fillRect(px2 - rr, py2 - rr, rr * 2, rr * 2);
     }
+  } else if (kind === 'void') {
+    // Voidscar starfield: a faint drifting field of cold white/violet pinpricks
+    // that twinkle on a deterministic clock — cosmic-dread vertigo. Additive so
+    // it reads as starlight over the dark void backdrop.
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 70; i++) {
+      const rx = flick(i * 7.7 + 3), ry = flick(i * 13.1 + 9);
+      const px2 = ((rx * VW + Math.sin(t * 0.15 + i) * 10) % (VW + 12) + VW + 12) % (VW + 12) - 6;
+      const py2 = ((ry * VH - t * (6 + ry * 8)) % (VH + 12) + VH + 12) % (VH + 12) - 6;
+      const tw = 0.35 + 0.65 * Math.abs(Math.sin(t * 1.4 + i * 0.9));
+      const violet = (i % 3) === 0;
+      ctx.fillStyle = violet ? `rgba(190,150,255,${0.5 * tw})` : `rgba(220,230,255,${0.5 * tw})`;
+      const s = i % 5 === 0 ? 1.8 : 1;
+      ctx.fillRect(px2, py2, s, s);
+    }
   }
   ctx.restore();
 }
@@ -8192,6 +8863,55 @@ function drawCountdownBanner(ctx, VW, snap, t) {
   ctx.shadowBlur = 16;
   ctx.fillStyle = col;
   ctx.fillText(`${label} ${n}`, VW / 2, 116);
+  ctx.restore();
+}
+
+// NEW OBJECTIVE HUD (map-overhaul): a compact center-top readout for the three
+// new win-gates. Gated entirely on the snapshot keys (capture/escort/bridge), so
+// it never paints on a classic/CTF/BR/plain-bastion frame. One bar at a time.
+function drawObjectiveHud(ctx, VW, snap, t) {
+  let label = null, frac = 0, col = PAL.relay, sub = '';
+  if (snap.capture) {
+    const c = snap.capture;
+    frac = c.duration > 0 ? Math.max(0, Math.min(1, (c.ownerT || 0) / c.duration)) : 0;
+    col = c.contested ? PAL.red : c.held ? PAL.relay : PAL.lythAmber;
+    label = 'CAPTURE THE HILL';
+    sub = c.contested ? 'CONTESTED' : c.held ? 'HOLDING' : 'SEIZE IT';
+  } else if (snap.escort) {
+    const e = snap.escort;
+    frac = e.total > 1 ? Math.max(0, Math.min(1, (e.wp - 1) / (e.total - 1))) : 0;
+    col = e.contested ? PAL.red : e.moving ? PAL.teal : PAL.lythAmber;
+    label = 'ESCORT THE ANCHOR';
+    sub = e.contested ? 'CONTESTED' : e.moving ? 'PUSHING' : 'GET CLOSE';
+  } else if (snap.bridge && !snap.bridge.reached) {
+    col = PAL.lythAmber;
+    label = 'CROSS TO THE REDOUBT';
+    sub = 'REACH THE FAR KEEP';
+    frac = 0;
+  } else {
+    return;
+  }
+  const w = 230, h = 40, x = VW / 2 - w / 2, y = 150;
+  ctx.save();
+  ctx.fillStyle = 'rgba(13,8,18,0.8)';
+  ctx.strokeStyle = col;
+  ctx.lineWidth = 1.6;
+  ctx.fillRect(x, y, w, h);
+  ctx.strokeRect(x, y, w, h);
+  ctx.font = 'bold 12px monospace';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = col;
+  ctx.fillText(label, x + 10, y + 16);
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#9A8FC0';
+  ctx.fillText(sub, x + w - 10, y + 16);
+  // progress bar
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.fillRect(x + 10, y + 24, w - 20, 8);
+  ctx.fillStyle = col;
+  ctx.shadowColor = col; ctx.shadowBlur = 8;
+  ctx.fillRect(x + 10, y + 24, (w - 20) * frac, 8);
   ctx.restore();
 }
 
@@ -8954,6 +9674,13 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
       ctx.fillText('DARK', c2.x, c2.y - 50);
       ctx.restore();
     }
+  }
+  // --- NEW objectives (map-overhaul): capture zone, escort anchor, bridge mark.
+  // Each is gated on its snapshot key, so unobjected maps draw nothing extra.
+  if (snap.capture) drawCaptureZone(ctx, snap.capture, t, lights);
+  if (snap.escort) drawEscort(ctx, snap.escort, t, inView, lights);
+  if (snap.bridge && snap.bridge.x != null && !snap.bridge.reached) {
+    drawBridgeMark(ctx, snap.bridge, t);
   }
   // --- anchor siege (MOBA): towers, minions, and a vulnerable-core pulse ---
   if (snap.mode === 'siege' && snap.siege) {
@@ -9998,6 +10725,9 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
     // big blinking countdown (wave inbound / zone shrink / sudden death)
     drawCountdownBanner(ctx, VW, snap, t);
 
+    // NEW objective HUD (capture / escort / bridge) — gated inside the fn
+    drawObjectiveHud(ctx, VW, snap, t);
+
     // power-up effect timers (FIRE SALE / FREE SPRINT) — gated inside the fn
     drawPowerupTimers(ctx, VW, snap, t);
 
@@ -10185,6 +10915,7 @@ function drawGlobalScreenFx(ctx, snap, t, VW, VH) {
   if (snap.superweapon) drawSuperweaponHud(ctx, VW, snap.superweapon, t);
   else if (snap.superweaponUnlocked) drawSuperweaponBuildHint(ctx, VW, t);
   drawCountdownBanner(ctx, VW, snap, t);
+  drawObjectiveHud(ctx, VW, snap, t);
   drawPowerupTimers(ctx, VW, snap, t);
   const cores = snap.cores ?? [];
   if (cores.length > 1) drawBeaconPips(ctx, VW, cores, t);
@@ -10223,6 +10954,8 @@ const MM_TILE = {
   '.': '#1c242b', ',': '#221C22', ':': '#2A2820', ';': '#272b38', '_': '#15121a',
   '#': '#343A48', 'T': '#23392b', '~': '#101A2E', 'o': '#4A4232', '*': '#F0A93C',
   '=': '#3E3829', '!': '#5A2210', '^': '#243648', '%': '#04040A', 'K': '#3A3F4E',
+  // map-overhaul biome floors: cinder '+', packed-snow '-', peat '@', slab '/'
+  '+': '#241915', '-': '#B6C7DA', '@': '#1F1D14', '/': '#2A2C3A',
 };
 let mmCache = { key: null, canvas: null };
 export function renderMinimap(ctx, snap, focusPids) {
@@ -10335,6 +11068,23 @@ export function renderMinimap(ctx, snap, focusPids) {
   for (const f of snap.flags ?? []) dot(f.x, f.y, TEAM_COL[(f.team ?? 0) % 2], 3);
   if (snap.core) dot(snap.core.x, snap.core.y, PAL.lythAmber, 3.5);
   for (const c2 of snap.cores ?? []) dot(c2.x, c2.y, (c2.hp ?? 0) > 0 ? PAL.lythAmber : '#4A3A5A', 3);
+  // NEW objectives on the minimap (gated): the capture zone (ring), the escort
+  // anchor (moving dot, hp-tinted), and the unreached bridge redoubt.
+  if (snap.capture) {
+    const cc = snap.capture;
+    dot(cc.x, cc.y, cc.contested ? PAL.red : cc.held ? PAL.relay : PAL.lythAmber, 3);
+    ctx.strokeStyle = 'rgba(111,216,242,0.7)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(cc.x * sx, cc.y * sy, (cc.radius * TILE) * sx, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  if (snap.escort) {
+    const e = snap.escort;
+    const frac = e.maxHp > 0 ? e.hp / e.maxHp : 0;
+    dot(e.x, e.y, frac > 0.5 ? PAL.teal : frac > 0.25 ? PAL.lythAmber : PAL.red, 3.2);
+  }
+  if (snap.bridge && snap.bridge.x != null && !snap.bridge.reached) dot(snap.bridge.x, snap.bridge.y, PAL.lythAmber, 3.2);
   if (snap.ship) dot(snap.ship.x, snap.ship.y, PAL.anchor, 3.2);
   if (snap.zone?.r) {
     ctx.strokeStyle = 'rgba(111,216,242,0.8)';

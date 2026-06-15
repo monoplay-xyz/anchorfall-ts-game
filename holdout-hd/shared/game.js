@@ -45,6 +45,40 @@ const ENEMY_STATS = {
   // u Pyre Beetle: the Swarm Carrier urnback — the urn cracks on death into a
   // burning ground patch plus a 1-damage blast.
   u: { kind: 'beetle', hp: 2, speed: 1.4, score: 130, aggro: 9 },
+  // --- BIOME ROSTER (map-overhaul): nine new kinds keyed to the new themes.
+  // Every behavior is a small, deterministic extension of an existing chassis
+  // (see stepEnemy). Letters were collision-checked against parseLevel tiles +
+  // the existing/nightmare enemy letters: 'p' (siege prism) and 't' (siege
+  // trap) are tile-reserved, so phaseborn moved to 'k' and brinehulk to '$'.
+  // d Molten: magma bruiser — melee like the husk chassis; on death it leaves a
+  // hostile burn patch (reuses the Pyre Beetle urn-crack hazard, no blast).
+  d: { kind: 'molten', hp: 4, speed: 0.9, score: 240, aggro: 9.5 },
+  // e Ember Kite: a floating fire-glider — stationary ranged that lobs a fire
+  // bolt; when a player closes inside 3 tiles it does a ONE-TIME flee-blink
+  // (stalker blink cadence, but away from the prey).
+  e: { kind: 'emberkite', hp: 2, speed: 0.6, range: 8, cool: 1.6, score: 210, aggro: 10 },
+  // h Frostshade: a drifting frost wraith — melee that CHILLS on contact
+  // (p.chillT: 0.7x speed for 1.2s).
+  h: { kind: 'frostshade', hp: 3, speed: 1.15, score: 230, aggro: 10 },
+  // i Glacier: a walking iceberg — heavy bulwark-class tank, very slow, immune
+  // to chill (chillImmune); no special offense beyond soaking damage.
+  i: { kind: 'glacier', hp: 8, speed: 0.5, score: 340, aggro: 8.5, chillImmune: true },
+  // j Bog Spitter: a bloated toad — stationary ranged that lobs a toxin glob
+  // which drops a small hostile toxin patch where it lands.
+  j: { kind: 'bogspitter', hp: 2, speed: 0.8, range: 6.5, cool: 2.0, score: 220, aggro: 9.5 },
+  // k Phaseborn: a void revenant — melee that DRIFTS THROUGH WALLS (the ghost
+  // wall-ignore movement, now available to normal waves).
+  k: { kind: 'phaseborn', hp: 3, speed: 1.1, score: 270, aggro: 10.5 },
+  // l Sand Lurker: an ambusher — stays BURIED (low aggro, untargetable) until a
+  // player comes within SANDLURKER_SURFACE tiles, then surfaces and charges fast.
+  l: { kind: 'sandlurker', hp: 3, speed: 1.6, score: 250, aggro: 10 },
+  // y Vault Wraith: an arcane sentinel — ranged chain-zap (the Volt Wraith zap)
+  // that also arcs to a SECOND nearby target for half damage.
+  y: { kind: 'wraithv', hp: 3, speed: 1.0, range: 7, cool: 2.2, score: 240, aggro: 10 },
+  // $ Brine Hulk: a barnacled colossus — heavy melee that deals DOUBLE damage
+  // to built structures (sapper). 't' was its planned letter but that is the
+  // siege-trap tile, so it took the free '$' symbol.
+  '$': { kind: 'brinehulk', hp: 7, speed: 0.65, score: 330, aggro: 8.5 },
   // --- NIGHTMARE roster: the RELIC AWAKENING horde event ONLY ----------------
   // These use FRESH letters (capitals + '&') that NO level tilemap ever uses
   // (parseLevel's tiles are all lowercase/special), so they can never appear in
@@ -153,6 +187,9 @@ const ENEMY_LETTERS = new Set(Object.keys(ENEMY_STATS));
 const SHARD_DROPS = {
   grunt: 1, archer: 1, skitter: 1, charger: 2, sniper: 2, bulwark: 2, spawner: 3, boss: 12,
   husk: 1, alpha: 2, acolyte: 2, wraith: 2, stalker: 3, beetle: 1,
+  // biome roster drops (map-overhaul): tanks pay more, fodder less
+  molten: 2, emberkite: 1, frostshade: 2, glacier: 4, bogspitter: 1,
+  phaseborn: 3, sandlurker: 2, wraithv: 2, brinehulk: 4,
   // nightmare horde drops (relic event only)
   spider: 1, ghost: 2, reaper: 4, skeleton: 1, zombie: 1, hellhound: 1, banshee: 2,
 };
@@ -201,10 +238,15 @@ const PLACE_REACH = 6; // tiles: how far from the operative a ghost may roam
 const WALL_LINE_MAX = 12; // tiles: longest single drag-laid wall line
 const CRYSTAL_R = 16;
 const MELEE_KINDS = new Set(['grunt', 'skitter', 'charger', 'bulwark', 'boss', 'husk', 'alpha', 'stalker', 'beetle',
+  // biome melee kinds (map-overhaul): molten/frostshade/glacier/phaseborn/
+  // sandlurker/brinehulk all close and maul (each with its own twist below)
+  'molten', 'frostshade', 'glacier', 'phaseborn', 'sandlurker', 'brinehulk',
   // nightmare melee kinds (relic event); ghost/hellhound/spider/reaper/zombie all close and maul
   'spider', 'ghost', 'reaper', 'zombie', 'hellhound']);
-// skeleton (bone-thrower) and banshee (wailing bolts) hold and fire like archers
-const STATIONARY_KINDS = new Set(['archer', 'sniper', 'spawner', 'skeleton', 'banshee']);
+// skeleton (bone-thrower) and banshee (wailing bolts) hold and fire like archers;
+// emberkite/bogspitter/wraithv (biome roster) likewise hold and lob from range
+const STATIONARY_KINDS = new Set(['archer', 'sniper', 'spawner', 'skeleton', 'banshee',
+  'emberkite', 'bogspitter', 'wraithv']);
 const LEASH_MULT = 1.8;
 const TURRET_WEAPON = { kind: 'turret', damage: 1, projSpeed: 10, range: 6, count: 1 };
 
@@ -233,6 +275,27 @@ const FARM_GROW_T = 25; // seconds per stage (15 with a hired farmer)
 const FARM_GROW_FAST = 15;
 const BASTION_DEFAULTS = { nights: 5, dayLen: 120, nightLen: 60, bloodMoons: [3, 5] };
 const BLOOD_WARN_LEAD = 30; // seconds before a blood-moon dusk
+
+// --- MAP-OVERHAUL objective mechanics (all def-gated + deterministic) -------
+// Three new mission win-gates, each activated ONLY when the def carries its
+// field (def.capture / def.bridge / def.escort). Absent => the state object is
+// null, the step is an early-return no-op, and the snapshot ships no key — so
+// every existing map (and CTF/BR/classic) stays byte-identical on the wire.
+const CAPTURE_DEFAULTS = {
+  radius: 3,      // tiles, the contested zone radius
+  duration: 20,   // seconds of controlled hold to fill the meter -> win
+  threshold: 1,   // own active heroes required inside the zone to accrue
+  decay: 1,       // seconds of meter lost per second uncontrolled (x decay)
+  contest: true,  // an enemy inside the zone freezes accrual (no fill while contested)
+};
+const ESCORT_DEFAULTS = {
+  speed: 1.4,     // tiles/sec the anchor crawls toward the next waypoint
+  holdRadius: 3,  // tiles, heroes within push / enemies within stall
+  hp: 40,         // anchor health; enemies gnaw it, hp<=0 loses the mission
+};
+const ESCORT_R = TILE * 0.7;   // px, anchor body radius (contact + render)
+const ESCORT_HIT_COOL = 0.9;   // seconds between an enemy's anchor-gnaws (matches core)
+const ESCORT_HIT_DMG = 1;      // damage per enemy gnaw (brinehulk sappers double it)
 
 // --- Daily Challenge -------------------------------------------------------
 // A deterministic daily siege: the same UTC date yields the same stronghold map
@@ -443,6 +506,22 @@ const WRAITH_STUN = 0.3; // seconds an unshielded operative is rooted by a zap
 const STALKER_BLINK_T = 3.5; // seconds between Phase Stalker blinks
 const STALKER_BLINK_TILES = 3; // tiles per blink, toward its target
 const BEETLE_BURST_R = 1.2; // tiles: Pyre Beetle death patch + 1 dmg AoE
+// --- BIOME ROSTER tuning (map-overhaul); all deterministic ------------------
+const MOLTEN_PATCH_R = 1.5;     // tiles: the burn patch a Molten leaves on death
+const MOLTEN_PATCH_TTL = 4;     // seconds the molten death patch lingers
+const EMBERKITE_BOLT = { kind: 'firebolt', damage: 1, projSpeed: 5, range: 8.5, cooldown: 0, count: 1, overWalls: true, ignite: true };
+const EMBERKITE_FLEE_TILES = 3; // tiles: a player this close triggers the kite's flee-blink
+const EMBERKITE_BLINK_TILES = 2; // tiles the kite hops away from the closer
+const CHILL_T = 1.2;            // seconds a Frostshade hit chills an operative
+const CHILL_SLOW = 0.7;         // player speed multiplier while chilled
+const BOGSPIT_GLOB = { kind: 'toxinglob', damage: 1, projSpeed: 5.5, range: 7, cooldown: 0, count: 1, overWalls: true };
+const BOGSPIT_PATCH_R = 1;      // tiles: toxin patch the glob drops on impact
+const BOGSPIT_PATCH_TTL = 3;    // seconds the glob's toxin patch lingers
+const SANDLURKER_SURFACE = 4;   // tiles: a player this close surfaces a buried lurker
+const SANDLURKER_BURIED_AGGRO = 0.5; // aggro multiplier while buried (half-aggro)
+const WRAITHV_ARC_TILES = 3;    // tiles: the Vault Wraith zap arcs to a 2nd target within this
+const WRAITHV_ARC_FRAC = 0.5;   // fraction of damage the arc deals the 2nd target
+const BRINEHULK_SAP = 2;        // structure damage multiplier on a Brine Hulk gnaw
 // Field weapon pickups (letter 'A'): self-contained weapon defs. They replace
 // the carrier's main FIRE outright — no evolutions, their own cooldown; shop
 // dmgBonus still rides via fireWeapon. `ammo` is the full-load default.
@@ -513,6 +592,7 @@ const DROP_TILES = [8, 14];       // supply chest landing band
 // Terrain: '=' sand drags, '^' ice skates and drifts, '!' lava sears,
 // '%' void blocks everything (move, sight, shots).
 const SAND_SLOW = 0.85;
+const PACKED_SNOW_SLOW = 0.85; // '-' Glacis drift-bank floor: drags like sand
 const ICE_FAST = 1.05;
 const ICE_DRIFT = 0.6; // fraction of last tick's movement carried as drift
 const LAVA_PLAYER_TICK = 0.8; // seconds per 1 hp standing in lava (players)
@@ -576,6 +656,24 @@ const THEMES = {
   storm:   { weather: 'rain', dark: true,  ambientHazard: null },
   fire:    { weather: null,   dark: false, ambientHazard: { kind: 'fire',      tick: TOXIC_AIR_TICK, dmg: 0.5, immuneItem: 'mask' } },
   ice:     { weather: 'snow', dark: false, ambientHazard: null },
+  // --- MAP-OVERHAUL biomes (10). Each is built from existing weather + the
+  // shared ambient systems; the distinctive LOOK comes from THEME_PAL in
+  // render.js + the author-placed terrain tiles ('!' lava, '~' water, '%' void,
+  // the new floor symbols). Hazards reuse existing rules: lava/void edges are
+  // author-placed tiles (no passive bleed), peat/crucible seep ground patches
+  // via ambientPatches, nocturne goes dark. No new weather code needed.
+  emberwaste: { weather: 'ashstorm', dark: false, ambientHazard: null },
+  glacis:     { weather: 'snow',     dark: false, ambientHazard: null },
+  mire:       { weather: 'fog',      dark: false, ambientHazard: null,
+                ambientPatches: { kind: 'toxin', everySec: 6, r: 1, ttl: 3, cap: 3 } }, // peat seeps toxin
+  dunes:      { weather: 'ashstorm', dark: false, ambientHazard: null }, // sandstorm reskin
+  verdance:   { weather: 'rain',     dark: false, ambientHazard: null },
+  voidscar:   { weather: null,       dark: false, ambientHazard: null }, // eerie clear
+  saltworks:  { weather: 'fog',      dark: false, ambientHazard: null }, // coastal haze
+  nocturne:   { weather: 'fog',      dark: true,  ambientHazard: null }, // moonlit dark
+  crucible:   { weather: 'ashstorm', dark: false, ambientHazard: null,
+                ambientPatches: { kind: 'fire', everySec: 5, r: 1.2, ttl: 4, cap: 4 } }, // shrinking safe shelves
+  reliquary:  { weather: null,       dark: false, ambientHazard: null }, // sacred, clear
 };
 
 function buildMaxHp(kind) {
@@ -639,6 +737,10 @@ function makeEnemy(letter, x, y, id) {
     hitCool: 0,
     // Phase Stalker blink clock: staggered by id, like cool — deterministic.
     ...(def.kind === 'stalker' ? { blinkT: STALKER_BLINK_T + (id % 4) * 0.35 } : {}),
+    // Sand Lurker starts BURIED (low aggro, untargetable) until a player nears.
+    ...(def.kind === 'sandlurker' ? { buried: true } : {}),
+    // Ember Kite gets one flee-blink the first time a player crowds it.
+    ...(def.kind === 'emberkite' ? { fled: false } : {}),
   };
 }
 
@@ -992,6 +1094,48 @@ export function createGame(def, party, charMap, roster) {
   const shopOffers = (stockMask ? SHOP_OFFERS.concat([MASK_OFFER]) : SHOP_OFFERS)
     .concat(stockPlaceables ? PLACEABLE_OFFERS : []);
 
+  // --- NEW OBJECTIVE STATE (map-overhaul, all def-gated) ----------------------
+  // tile-center px from a point in TILE indices. Authors may write either
+  // { x, y } or [x, y] (both accepted) — the engine normalizes to pixel center.
+  const toTilePx = pt => {
+    const tx = Array.isArray(pt) ? pt[0] : pt.x;
+    const ty = Array.isArray(pt) ? pt[1] : pt.y;
+    return { x: (tx + 0.5) * TILE, y: (ty + 0.5) * TILE };
+  };
+  // capture_hill: a King-of-the-Hill zone. Null unless def.capture is present.
+  const capture = def.capture ? (() => {
+    const c = { ...CAPTURE_DEFAULTS, ...def.capture };
+    const px = toTilePx(c);
+    return {
+      x: px.x, y: px.y, radius: c.radius, duration: c.duration,
+      threshold: Math.max(1, c.threshold | 0), decay: c.decay, contest: !!c.contest,
+      ownerT: 0, contested: false, held: false,
+    };
+  })() : null;
+  // bridge_cross_hold: defer the day/night cycle until the team reaches the far
+  // redoubt. Null unless def.bridge.armOnReach. holdAt (TILE coords) is the reach
+  // point; defaults to the core when omitted (the K already sits in the redoubt).
+  const bridge = (def.bridge && def.bridge.armOnReach) ? (() => {
+    const at = def.bridge.holdAt ? toTilePx(def.bridge.holdAt)
+      : (lvl.core ? { x: lvl.core.x, y: lvl.core.y } : null);
+    return {
+      armOnReach: true, reached: false,
+      holdX: at ? at.x : null, holdY: at ? at.y : null,
+      reachRadius: (def.bridge.reachRadius || BUILD_REACH),
+    };
+  })() : null;
+  // escort_push: a mobile anchor that crawls a lane. Null unless def.escort with
+  // a path of >=2 waypoints. The anchor starts on the first waypoint.
+  const escort = (def.escort && Array.isArray(def.escort.path) && def.escort.path.length >= 2) ? (() => {
+    const e = { ...ESCORT_DEFAULTS, ...def.escort };
+    const path = e.path.map(toTilePx);
+    return {
+      path, wp: 1, x: path[0].x, y: path[0].y,
+      speed: e.speed, holdRadius: e.holdRadius, hp: e.hp, maxHp: e.hp,
+      hitCool: 0, moving: false, contested: false,
+    };
+  })() : null;
+
   const g = {
     name: def.name || 'Untitled',
     objective: def.objective || '',
@@ -1121,6 +1265,13 @@ export function createGame(def, party, charMap, roster) {
     mode: def.mode || null,
     bastion,
     cycle: bastion ? { phase: 'day', nightNo: 0, t: bastion.dayLen, bloodMoon: false, warned: false, waveN: 0, dayE: 0, hornT: 0, probeDone: false, dropDone: false } : null,
+    // NEW objective state — each null unless its def field opts in, so every
+    // existing map keeps a byte-identical snapshot (the snapshot ships the key
+    // only when the state is non-null; stepCapture/stepBridge/stepEscort all
+    // early-return on null).
+    capture,
+    bridge,
+    escort,
     // CTF score and BR shrink zone. Null on every other mode (snapshot omits).
     caps: def.mode === 'ctf' ? [0, 0] : null,
     // CTF per-team shard pools; null everywhere else (g.shards rules there —
@@ -1607,6 +1758,10 @@ function moveMult(g, x, y) {
   const t = tileAt(g, x, y);
   if (t === '=') m *= SAND_SLOW;
   else if (t === '^') m *= ICE_FAST;
+  // '-' PACKED SNOW (Glacis biome): a passable drift bank that channels
+  // movement by dragging everyone to 0.85x — same shape as sand. Cinder '+',
+  // peat '@' and unstable-slab '/' are plain passable floors (no speed hook).
+  else if (t === '-') m *= PACKED_SNOW_SLOW;
   return m;
 }
 
@@ -2595,6 +2750,29 @@ function toxEnemy(g, e, owner) {
   e.toxT = Math.max(e.toxT || 0, TOX_T);
 }
 
+// Vault Wraith chain-zap: it zaps the primary target like a Volt Wraith (1 dmg
+// + a root), then ARCS a second, half-damage zap to the nearest OTHER active
+// operative within WRAITHV_ARC_TILES of that primary. The arc is a fresh shot
+// fired FROM the primary's position toward the 2nd target, so it travels and
+// resolves through the normal enemy-shot path (shield-soak, walls, etc.). Fully
+// deterministic (nearest-by-id scan, no Math.random); a solo player simply
+// never has a 2nd target and the arc is skipped.
+function fireVaultZap(g, e, tgt) {
+  fireWeapon(g, e, enemyWeapon('wraith'), 'e', tgt);
+  if (tgt.nonPlayer) return;
+  let arc = null, bestA = (TILE * WRAITHV_ARC_TILES) ** 2;
+  for (const p of g.players) {
+    if (p === tgt || p.state !== 'active') continue;
+    const dd = dist2(tgt, p);
+    if (dd < bestA) { bestA = dd; arc = p; }
+  }
+  if (!arc) return;
+  const zap = enemyWeapon('wraith');
+  // half damage on the arc; fire it from the primary's spot (the chain jump)
+  fireWeapon(g, { ...e, x: tgt.x, y: tgt.y, fx: e.fx, fy: e.fy },
+    { ...zap, damage: Math.max(1, Math.round(zap.damage * WRAITHV_ARC_FRAC)) }, 'e', arc);
+}
+
 function enemyWeapon(kind) {
   if (kind === 'sniper') return { kind: 'sniper', damage: 1, projSpeed: 12, range: 11, cooldown: 0, count: 1 };
   // volt wraith chain-zap: 1 dmg + a 0.3s root on ONE operative; a shield
@@ -3340,6 +3518,14 @@ function killEnemy(g, e, ownerPid) {
     splitSpawn(g, e, 0);
     splitSpawn(g, e, 1);
   }
+  // Molten (biome roster): the crust shatters on death and leaves a hostile
+  // burn patch where it fell (a wider, longer pool than the beetle's, but NO
+  // instant blast). Reuses the same hostile-patch system the beetle does.
+  if (e.kind === 'molten') {
+    const r = TILE * MOLTEN_PATCH_R;
+    g.patches.push({ x: e.x, y: e.y, kind: 'burn', r, ttl: MOLTEN_PATCH_TTL, hostile: true });
+    g.events.push({ type: 'patch', x: e.x, y: e.y, kind: 'burn', r, hostile: true });
+  }
   // Pyre Beetle: the urn cracks — 1 dmg AoE to players plus a hostile burn
   // patch (hostile patches sear players and pass over enemies; see stepPatches).
   if (e.kind === 'beetle') {
@@ -3512,6 +3698,10 @@ function nearestTarget(g, e) {
       }
     } else if (g.core && g.core.hp > 0) {
       coreGoal = g.core;
+    } else if (g.escort && g.escort.hp > 0) {
+      // escort_push: with no fixed core, night-wave marchers home on the mobile
+      // anchor (it moves, so the chase stays live). Gated on g.escort.
+      coreGoal = g.escort;
     }
   }
   if (coreGoal) {
@@ -3649,6 +3839,33 @@ function contactNightmare(g, e, best, tgt) {
   if (best < rr) damagePlayer(g, tgt, ENEMY_STATS[e.letter]?.meleeDmg || 1);
 }
 
+// Frostshade melee contact: a normal 1-dmg blow that ALSO chills the struck
+// operative (CHILL_SLOW speed for CHILL_T seconds via p.chillT). The chill
+// only lands when damage actually connects (the invuln guard inside
+// damagePlayer throttles repeats), so it can't be stacked off a single touch.
+// Followers/non-players are untouched (no chill field). Gated entirely on the
+// frostshade kind, so no other path ever sets p.chillT.
+function contactChill(g, e, best, tgt) {
+  if (!tgt) return;
+  const rr = (PLAYER_R + ENEMY_R) ** 2;
+  if (tgt.nonPlayer) {
+    for (const p of g.players) {
+      if (p.state === 'active' && p.invuln <= 0 && dist2(e, p) < rr) {
+        damagePlayer(g, p);
+        if (p.maxHp !== undefined) p.chillT = Math.max(p.chillT || 0, CHILL_T);
+        return;
+      }
+    }
+    return;
+  }
+  if (best < rr && tgt.invuln <= 0) {
+    const before = tgt.invuln;
+    damagePlayer(g, tgt);
+    // chill only on a landed hit (arcade 1-hit players have no chill field)
+    if (tgt.maxHp !== undefined && before <= 0) tgt.chillT = Math.max(tgt.chillT || 0, CHILL_T);
+  }
+}
+
 function spawnSkitter(g, e, tgt) {
   const angles = [0, Math.PI / 2, Math.PI, Math.PI * 1.5, Math.PI / 4, -Math.PI / 4];
   for (const a of angles) {
@@ -3699,6 +3916,10 @@ function towerDown(g, t) {
 }
 
 function attackBuilds(g, e, dt) {
+  // Phaseborn drift THROUGH walls — they never stop to gnaw a structure, they
+  // phase past it toward the player/core (which is what makes wall-turtling
+  // weak against them). So they are exempt from the build-gnaw entirely.
+  if (e.kind === 'phaseborn') return false;
   if (!MELEE_KINDS.has(e.kind) || (!g.builds.length && !g.towers.length)) return false;
   let touching = null;
   let tower = null;
@@ -3717,7 +3938,9 @@ function attackBuilds(g, e, dt) {
   if (e.hitCool <= 0) {
     e.hitCool = 0.9;
     const s = touching || tower;
-    s.hp -= 1;
+    // Brine Hulk sapper: it crushes built structures for DOUBLE damage,
+    // punishing static walls and rewarding active repair.
+    s.hp -= e.kind === 'brinehulk' ? BRINEHULK_SAP : 1;
     g.events.push({ type: 'buildHit', x: s.x, y: s.y });
     if (s.hp <= 0) {
       if (tower) {
@@ -4104,6 +4327,21 @@ function stepEnemy(g, e, dt) {
     return;
   }
   if (e.stunT > 0) return;
+  // Sand Lurker: while BURIED it lies dormant under the sand — no chase, no
+  // attack — until an active player crosses SANDLURKER_SURFACE tiles, then it
+  // erupts and chases at full speed (the ambush). Deterministic distance gate,
+  // no Math.random. Once surfaced it never re-buries this level.
+  if (e.buried) {
+    const sr2 = (TILE * SANDLURKER_SURFACE) ** 2;
+    let near = false;
+    for (const p of g.players) {
+      if (p.state === 'active' && dist2(e, p) < sr2) { near = true; break; }
+    }
+    if (!near) return; // stays submerged, untargetable (see nearestTarget)
+    e.buried = false;
+    wakeEnemy(g, e);
+    g.events.push({ type: 'surface', x: e.x, y: e.y, kind: e.kind });
+  }
   // Permanently-unreachable enemies (3 consecutive failed searches — see
   // moveToward / the gnaw scan) stand DORMANT: no target scan, no pathing,
   // no march. They stir again when the world changes (a build completes or
@@ -4230,6 +4468,18 @@ function stepEnemy(g, e, dt) {
   if (attackBuilds(g, e, dt)) return;
   if (attackCore(g, e, dt)) return;
 
+  // Phaseborn (biome roster): a void revenant that DRIFTS THROUGH WALLS — the
+  // ghost's straight-bearing, no-collision glide, but available to normal waves
+  // and dealing a normal 1-dmg melee blow (not the nightmare reaper's heavy
+  // hit). It phases past structures (attackBuilds skips it) straight at the
+  // player/core. attackCore above still lets it gnaw the core it reaches.
+  if (e.kind === 'phaseborn') {
+    e.x += e.fx * e.speed * dt;
+    e.y += e.fy * e.speed * dt;
+    contactPlayer(g, e, dist2(e, tgt), tgt);
+    return;
+  }
+
   // --- NIGHTMARE melee (relic event only): spider/zombie/hellhound chase like
   // the classic chassis; the ghost glides STRAIGHT THROUGH walls (no collision)
   // and the reaper lands a heavy 2-damage blow. All deterministic.
@@ -4262,10 +4512,73 @@ function stepEnemy(g, e, dt) {
     return;
   }
 
+  // Ember Kite (biome roster): a floating fire-glider. It holds and lobs an
+  // arcing fire bolt like an archer; but the FIRST time a player crowds it
+  // inside EMBERKITE_FLEE_TILES it does a one-time flee-blink AWAY (the stalker
+  // blink shape, reversed) to keep its distance. Deterministic.
+  if (e.kind === 'emberkite') {
+    e.cool -= dt;
+    if (!e.fled && d < TILE * EMBERKITE_FLEE_TILES && !tgt.nonPlayer) {
+      e.fled = true;
+      const hop = EMBERKITE_BLINK_TILES * TILE;
+      for (let r = hop; r >= TILE; r -= TILE * 0.5) {
+        const nx = e.x - e.fx * r, ny = e.y - e.fy * r; // away from the prey
+        if (!collides(g, nx, ny, ENEMY_R)) {
+          g.events.push({ type: 'blink', x: e.x, y: e.y, tx: nx, ty: ny, kind: e.kind });
+          e.x = nx; e.y = ny; e.path = null; e.repathT = 0;
+          break;
+        }
+      }
+    }
+    if (e.cool <= 0 && d < e.range && (g.arcade || canSee(g, e, tgt)) && !tgt.nonPlayer) {
+      fireWeapon(g, e, EMBERKITE_BOLT, 'e', tgt);
+      e.cool = 1.6 + (e.id % 3) * 0.2;
+    } else if (d >= e.range) {
+      moveToward(g, e, tgt, dt); // glacial drift to keep prey in reach
+    }
+    return;
+  }
+
+  // Bog Spitter (biome roster): a bloated toad that lobs an arcing toxin glob
+  // (overWalls); on impact the glob drops a small hostile toxin patch (handled
+  // where the shot dies). Holds at range like an archer otherwise.
+  if (e.kind === 'bogspitter') {
+    e.cool -= dt;
+    if (e.cool <= 0 && d < e.range && (g.arcade || canSee(g, e, tgt)) && !tgt.nonPlayer) {
+      fireWeapon(g, e, BOGSPIT_GLOB, 'e', tgt);
+      e.cool = 2.0 + (e.id % 3) * 0.2;
+    } else if (d >= e.range) {
+      moveToward(g, e, tgt, dt);
+    }
+    return;
+  }
+
+  // Vault Wraith (biome roster): an arcane sentinel that extends the Volt
+  // Wraith chain-zap — its zap roots one operative AND arcs to a SECOND nearby
+  // target for half damage (resolved in fireVaultZap). Slow-leaning caster.
+  if (e.kind === 'wraithv') {
+    e.cool -= dt;
+    if (d < e.range && (g.arcade || canSee(g, e, tgt)) && !tgt.nonPlayer) {
+      if (e.cool <= 0) {
+        fireVaultZap(g, e, tgt);
+        e.cool = WRAITH_COOL;
+      }
+    } else {
+      moveToward(g, e, tgt, dt);
+    }
+    return;
+  }
+
   // husk/alpha/beetle melee exactly like the classic chassis; the stalker
-  // shares it after resolving its blink below
+  // shares it after resolving its blink below. The biome melee kinds
+  // (molten/glacier/sandlurker/frostshade/brinehulk) ride the same chassis —
+  // their twists live elsewhere (molten death patch in killEnemy, brinehulk
+  // sapper in attackBuilds, frostshade chill in contactChill, glacier is a
+  // plain slow tank, the sandlurker surfaces above before reaching here).
   if (e.kind === 'grunt' || e.kind === 'skitter' || e.kind === 'bulwark'
-      || e.kind === 'husk' || e.kind === 'alpha' || e.kind === 'beetle' || e.kind === 'stalker') {
+      || e.kind === 'husk' || e.kind === 'alpha' || e.kind === 'beetle' || e.kind === 'stalker'
+      || e.kind === 'molten' || e.kind === 'glacier' || e.kind === 'sandlurker'
+      || e.kind === 'frostshade' || e.kind === 'brinehulk') {
     // Phase Stalker: on its per-id cadence it blinks up to 3 tiles toward the
     // target (never closer than a tile out, never onto blocked ground — the
     // first open landing along the line wins; walls don't stop a phase).
@@ -4288,12 +4601,15 @@ function stepEnemy(g, e, dt) {
         }
       }
     }
+    // Frostshade chills on contact (0.7x speed, 1.2s); every other melee kind
+    // lands the plain 1-dmg blow.
+    const contact = e.kind === 'frostshade' ? contactChill : contactPlayer;
     if (g.arcade) {
       moveCircle(g, e, e.fx * e.speed * dt, e.fy * e.speed * dt, ENEMY_R);
-      contactPlayer(g, e, best, tgt);
+      contact(g, e, best, tgt);
     } else {
       moveToward(g, e, tgt, dt);
-      contactPlayer(g, e, dist2(e, tgt), tgt);
+      contact(g, e, dist2(e, tgt), tgt);
     }
     return;
   }
@@ -4964,22 +5280,47 @@ function stormBolt(g, hz) {
 // solo, 1.0x duo, 1.4x for a full couch. The global 90 cap still rules.
 // `mult` is the stronghold wave-size multiplier (def.bastion.waveMult,
 // 1.0..2.6 across the arc); 1 keeps the classic bastion sizes exactly.
-function bastionWaveLetters(n, players = 1, mult = 1, endless = false) {
+// `roster` (def.bastion.roster, an OPTIONAL array/string of enemy letters) lets
+// a map draw its night waves from its OWN palette so each biome feels rostered
+// instead of always pouring the shared husk/skitter cycle. When set, the night's
+// cycle (z z w … etc.) and the bulwark/wraith/stalker/f/q special slots are all
+// remapped onto the roster by index (cycle[i] -> roster[i % roster.length]),
+// preserving the SAME night-scaled SIZE and cadence so difficulty pacing is
+// unchanged — only the creatures differ. Undefined roster => byte-identical to
+// the classic schedule, so every untouched stronghold plays exactly as before.
+function bastionWaveLetters(n, players = 1, mult = 1, endless = false, roster = null) {
   // Endless keeps the count climbing past the night-5 plateau (to a 30 base);
   // the global 90-on-field cap still rules, so it never floods. Campaign defs
   // (endless=false) keep the exact 14 cap — every stronghold plays unchanged.
   const base = Math.min(endless ? 30 : 14, 4 + n * 2);
   const size = Math.max(1, Math.ceil(base * (0.6 + 0.2 * players) * mult));
   const cycle = n >= 3 ? 'zgwur' : n >= 2 ? 'zzwu' : 'zzw';
+  // A roster remaps the default schedule's letters onto the map's palette while
+  // keeping the staple/special STRUCTURE (which slot is the heavy, which is the
+  // caster, etc.). pool is the cleaned roster (valid enemy letters only); if a
+  // map's roster is empty/all-invalid we fall back to the classic cycle so a
+  // typo can never produce an empty wave.
+  const pool = roster
+    ? (Array.isArray(roster) ? roster.join('') : String(roster)).split('').filter(c => ENEMY_LETTERS.has(c))
+    : null;
+  const usePool = pool && pool.length ? pool : null;
+  // Map a default schedule letter to the rostered equivalent by its position in
+  // the default cycle; specials (x/v/s/f/q) take the LAST roster slots so a
+  // rostered wave still reads "fodder up front, elites trailing".
+  const remap = (c, i) => {
+    if (!usePool) return c;
+    return usePool[i % usePool.length];
+  };
+  const remapSpecial = (back) => usePool ? usePool[(usePool.length - 1 - back + usePool.length * 8) % usePool.length] : null;
   const letters = [];
   for (let i = 0; i < size; i++) {
-    if (n >= 5 && i % 7 === 6) letters.push('x');
-    else if (n >= 4 && i % 6 === 5) letters.push('v');
-    else if (n >= 4 && i % 5 === 4) letters.push('s');
-    else letters.push(cycle[i % cycle.length]);
+    if (n >= 5 && i % 7 === 6) letters.push(usePool ? remapSpecial(0) : 'x');
+    else if (n >= 4 && i % 6 === 5) letters.push(usePool ? remapSpecial(1) : 'v');
+    else if (n >= 4 && i % 5 === 4) letters.push(usePool ? remapSpecial(2) : 's');
+    else letters.push(remap(cycle[i % cycle.length], i));
   }
-  if (n >= 2 && size >= 2) letters[size - 1] = 'f';
-  if (n >= 3 && size >= 4) letters[size - 2] = 'q';
+  if (n >= 2 && size >= 2) letters[size - 1] = usePool ? remapSpecial(3) : 'f';
+  if (n >= 3 && size >= 4) letters[size - 2] = usePool ? remapSpecial(4) : 'q';
   return letters.join('');
 }
 
@@ -5002,10 +5343,23 @@ function applyMutation(e, mut) {
 function spawnNightWave(g, off = 0) {
   const n = g.cycle.nightNo;
   const endless = !!(g.bastion && g.bastion.endless);
-  const letters = bastionWaveLetters(n, g.players.length, (g.bastion && g.bastion.waveMult) || 1, endless);
+  const letters = bastionWaveLetters(n, g.players.length, (g.bastion && g.bastion.waveMult) || 1, endless,
+    (g.bastion && g.bastion.roster) || null);
+  // Directional spawn: def.bastion.edges (a subset of ['n','e','s','w']) confines
+  // every wave to those edges, so back_line maps pour from one edge, corner_keep
+  // from the two open quadrants, etc. Waves rotate WITHIN the allowed set by night
+  // index; a blood moon picks two distinct allowed edges (or doubles the single
+  // allowed edge when only one is open). Unset => the classic full cardinal
+  // rotation, so every untouched stronghold spawns from the exact same edges.
+  const allowed = (g.bastion && Array.isArray(g.bastion.edges)
+    && g.bastion.edges.filter(e => WAVE_EDGES.includes(e)).length)
+    ? g.bastion.edges.filter(e => WAVE_EDGES.includes(e))
+    : WAVE_EDGES;
+  const e1 = allowed[(n - 1) % allowed.length];
+  const e2 = allowed.length > 1 ? allowed[(n) % allowed.length] : e1;
   const edges = g.cycle.bloodMoon
-    ? [WAVE_EDGES[(n - 1) % 4], WAVE_EDGES[(n + 1) % 4]]
-    : [WAVE_EDGES[(n - 1) % 4]];
+    ? (allowed === WAVE_EDGES ? [WAVE_EDGES[(n - 1) % 4], WAVE_EDGES[(n + 1) % 4]] : [e1, e2])
+    : [allowed === WAVE_EDGES ? WAVE_EDGES[(n - 1) % 4] : e1];
   // Finale bosses: def.bastion.bossNights [6,8,10] marches exactly ONE
   // Entropy boss at the head of each listed night's FIRST wave (first edge
   // only, so a blood-moon double edge never doubles the boss). Def-gated:
@@ -5075,6 +5429,145 @@ function spawnNightWave(g, off = 0) {
   }
 }
 
+// --- NEW OBJECTIVE STATE MACHINES (map-overhaul) ---------------------------
+// All three are deterministic (player/enemy positions are simulated; timers ride
+// g.elapsed/dt only — no Math.random/Date.now), gated on the state being present
+// (a no-op early-return otherwise so untouched maps stay byte-identical), and
+// run only while g.status === 'play' (the step() caller already guards this).
+// Each emits events for FX/HUD and sets g.status on win/lose.
+
+// capture_hill (King-of-the-Hill): fill a control meter while own heroes hold
+// the zone uncontested. Win when ownerT >= duration. On a bastion map the
+// day/night cycle still runs alongside (core/party loss is judged elsewhere) —
+// capture is the WIN gate, survival is the framing. Decays when not controlled.
+function stepCapture(g, dt) {
+  const cap = g.capture;
+  if (!cap) return;
+  const r2 = (cap.radius * TILE) ** 2;
+  let heroes = 0;
+  for (const p of g.players) {
+    if (p.state !== 'active') continue;
+    if ((p.x - cap.x) ** 2 + (p.y - cap.y) ** 2 <= r2) heroes++;
+  }
+  let foe = false;
+  if (cap.contest) {
+    for (const e of g.enemies) {
+      if (e.dead) continue;
+      if ((e.x - cap.x) ** 2 + (e.y - cap.y) ** 2 <= r2) { foe = true; break; }
+    }
+  }
+  const controlled = heroes >= cap.threshold && !foe;
+  const contested = foe && heroes >= cap.threshold; // both inside: a live contest
+  if (controlled) {
+    cap.ownerT = Math.min(cap.duration, cap.ownerT + dt);
+  } else {
+    cap.ownerT = Math.max(0, cap.ownerT - dt * cap.decay);
+  }
+  // emit on EITHER a held-flip or a contest-flip so the HUD/FX can react to a
+  // takeover or a freeze (deterministic: a pure function of zone occupancy).
+  if (controlled !== cap.held || contested !== cap.contested) {
+    cap.held = controlled;
+    cap.contested = contested;
+    g.events.push({ type: 'captureState', held: controlled, contested, x: cap.x, y: cap.y });
+  }
+  if (cap.ownerT >= cap.duration) {
+    g.status = 'cleared';
+    g.events.push({ type: 'captureWin', x: cap.x, y: cap.y });
+    g.events.push({ type: 'clear', x: cap.x, y: cap.y, points: Math.round(g.score) });
+  }
+}
+
+// bridge_cross_hold: a one-time reach trigger at the far redoubt. Until any
+// active hero stands within reachRadius of (holdX,holdY), the day clock is held
+// (stepCycle never reaches its first dusk — see the gate there). Once reached,
+// it arms a normal hold and emits bridgeArmed so the HUD swaps to the hold readout.
+function stepBridge(g, dt) {
+  const br = g.bridge;
+  if (!br || br.reached) return;
+  if (br.holdX == null) { br.reached = true; return; } // no redoubt: arm immediately
+  const r2 = (br.reachRadius * TILE) ** 2;
+  for (const p of g.players) {
+    if (p.state !== 'active') continue;
+    if ((p.x - br.holdX) ** 2 + (p.y - br.holdY) ** 2 <= r2) {
+      br.reached = true;
+      // re-arm the night cadence cleanly from the moment of crossing so the
+      // first night doesn't fire mid-step on a stale day timer
+      if (g.cycle && g.cycle.phase === 'day') {
+        g.cycle.t = g.bastion ? g.bastion.dayLen : g.cycle.t;
+        g.cycle.dayE = 0;
+      }
+      g.events.push({ type: 'bridgeArmed', x: br.holdX, y: br.holdY });
+      return;
+    }
+  }
+}
+
+// escort_push: the anchor crawls toward its next waypoint ONLY while >=1 active
+// hero is within holdRadius and no enemy is within it (a foe in the radius
+// stalls the push — contested). Enemies that reach the anchor gnaw it
+// (brinehulk sappers double); hp<=0 loses. Reaching the final waypoint wins.
+function stepEscort(g, dt) {
+  const es = g.escort;
+  if (!es || es.hp <= 0) return;
+  const r2 = (es.holdRadius * TILE) ** 2;
+  let heroes = 0;
+  for (const p of g.players) {
+    if (p.state !== 'active') continue;
+    if ((p.x - es.x) ** 2 + (p.y - es.y) ** 2 <= r2) heroes++;
+  }
+  let foe = false;
+  for (const e of g.enemies) {
+    if (e.dead) continue;
+    if ((e.x - es.x) ** 2 + (e.y - es.y) ** 2 <= r2) { foe = true; break; }
+  }
+  es.contested = foe;
+  const pushing = heroes >= 1 && !foe;
+  es.moving = pushing;
+  if (pushing && es.wp < es.path.length) {
+    const tgt = es.path[es.wp];
+    const dx = tgt.x - es.x, dy = tgt.y - es.y;
+    const d = Math.hypot(dx, dy);
+    const step = es.speed * TILE * dt;
+    if (d <= step) {
+      es.x = tgt.x; es.y = tgt.y;
+      es.wp++;
+      g.events.push({ type: 'escortWaypoint', wp: es.wp, total: es.path.length, x: es.x, y: es.y });
+    } else {
+      es.x += (dx / d) * step;
+      es.y += (dy / d) * step;
+    }
+  }
+  // enemy gnaw: any active melee enemy in contact subtracts hp on its own cool.
+  // We tick a single shared anchor cool (mirrors the core-gnaw cadence) and let
+  // the first in-contact enemy each cooldown window land the hit — deterministic
+  // (enemy array order), no per-enemy timer needed for the objective.
+  if (es.hitCool > 0) es.hitCool -= dt;
+  if (es.hitCool <= 0) {
+    const hr2 = (ESCORT_R + ENEMY_R + 3) ** 2;
+    for (const e of g.enemies) {
+      if (e.dead || !MELEE_KINDS.has(e.kind)) continue;
+      if ((e.x - es.x) ** 2 + (e.y - es.y) ** 2 <= hr2) {
+        const dmg = e.kind === 'brinehulk' ? ESCORT_HIT_DMG * 2 : ESCORT_HIT_DMG;
+        es.hp = Math.max(0, es.hp - dmg);
+        es.hitCool = ESCORT_HIT_COOL;
+        g.events.push({ type: 'escortHit', x: es.x, y: es.y, hp: es.hp });
+        break;
+      }
+    }
+  }
+  if (es.wp >= es.path.length) {
+    g.status = 'cleared';
+    g.events.push({ type: 'escortWin', x: es.x, y: es.y });
+    g.events.push({ type: 'clear', x: es.x, y: es.y, points: Math.round(g.score) });
+    return;
+  }
+  if (es.hp <= 0) {
+    g.status = 'failed';
+    g.events.push({ type: 'escortLost', x: es.x, y: es.y });
+    g.events.push({ type: 'fail', x: es.x, y: es.y });
+  }
+}
+
 // Day/night clock. Dusk flips to night, numbers it (1-based), spawns its
 // wave; dawn after the final night wins the mission outright (no gate, no
 // extraction). A blood-moon warning sounds 30s before its dusk.
@@ -5098,6 +5591,14 @@ function stepCycle(g, dt) {
   const isBloodNight = k => endless ? (bloodEvery > 0 && k % bloodEvery === 0) : g.bastion.bloodMoons.includes(k);
   const evX = g.core ? g.core.x : g.w * TILE / 2;
   const evY = g.core ? g.core.y : g.h * TILE / 2;
+  // bridge_cross_hold: the FIRST dusk is deferred until the team crosses to the
+  // far redoubt. Until g.bridge.reached, the opening day clock is frozen (no
+  // dusk, no day-event beats, no blood warning) so the hold only starts after
+  // the crossing. Gated entirely on g.bridge being present + still unreached
+  // during the opening day, so every other map ticks the clock exactly as before.
+  if (g.bridge && g.bridge.armOnReach && !g.bridge.reached && cy.phase === 'day' && cy.nightNo === 0) {
+    return;
+  }
   cy.t -= dt;
   if (cy.phase === 'day') {
     const nextNight = cy.nightNo + 1;
@@ -5950,7 +6451,15 @@ export function step(g, inputs, dt) {
     stepWaves(g);
     stepHorde(g, dt); // RELIC AWAKENING horde (no-op unless g.musicBox completed)
     stepSuperweapon(g, dt); // relic superweapon build/charge clock (no-op until built)
+    // bridge_cross_hold: the reach check runs BEFORE the cycle so a crossing
+    // this tick arms the night cadence cleanly (no-op unless def.bridge).
+    stepBridge(g, dt);
     stepCycle(g, dt); // bastion day/night clock (final dawn can clear here)
+    if (g.status !== 'play') return;
+    // capture_hill + escort_push win/lose gates (no-ops unless their def opts in).
+    stepCapture(g, dt);
+    if (g.status !== 'play') return;
+    stepEscort(g, dt);
     if (g.status !== 'play') return;
     // Anchor Siege: minion waves march the lanes, towers cover them (no-ops off-mode)
     stepSiegeWaves(g, dt);
@@ -6061,6 +6570,7 @@ export function step(g, inputs, dt) {
     if (p.specialCool > 0) p.specialCool -= dt;
     if (p.stimT > 0) p.stimT -= dt;
     if (p.stunT > 0) p.stunT -= dt; // volt zap root: blocks movement and fire
+    if (p.chillT > 0) p.chillT -= dt; // frostshade chill: x0.7 speed decays out
     if (g.siege && p.siegeSlowT > 0) p.siegeSlowT -= dt; // tank-aura slow decays (siege only)
     const inp = inputs[p.pid] || {};
     const ch = g.charMap[p.charId];
@@ -6375,6 +6885,7 @@ export function step(g, inputs, dt) {
         if (g.siege && !vehicle) v *= SIEGE_HERO_SPEED; // MOBA: deliberate hero movement
         if (g.siege && p.siegeSlowT > 0) v *= p.siegeSlow; // tank cannon: a slowed hero crawls
         v *= moveMult(g, p.x, p.y); // sand drags, ice skates, snowfall slows
+        if (p.chillT > 0) v *= CHILL_SLOW; // frostshade chill slows the legs
         if (g.flags.length && g.flags.some(f => f.carrier === p.pid)) v *= CARRY_SLOW;
         if (!vehicle && onWater) v *= SWIM_SLOW; // swimmers paddle slower
         // toxin pools slow EVERYONE wading through — patches carry no team
@@ -7653,6 +8164,14 @@ export function step(g, inputs, dt) {
     }
     if (dead) {
       if (s.aoeRadius) explode(g, s);
+      // Bog Spitter glob: wherever it dies (a player, a wall, or fizzling out at
+      // range), it bursts into a small hostile toxin patch — the toxin slows AND
+      // sears any operative standing in it (hostile patch + toxin slow rule).
+      if (s.kind === 'toxinglob') {
+        const r = TILE * BOGSPIT_PATCH_R;
+        g.patches.push({ x: s.x, y: s.y, kind: 'toxin', r, ttl: BOGSPIT_PATCH_TTL, hostile: true });
+        g.events.push({ type: 'patch', x: s.x, y: s.y, kind: 'toxin', r, hostile: true });
+      }
       g.shots.splice(i, 1);
     }
   }
@@ -7864,6 +8383,24 @@ export function snapshot(g, full = true) {
     // a key (downstream reads all use ?? / optional chaining).
     ...(g.mode ? { mode: g.mode } : {}),
     ...(g.core ? { core: { x: g.core.x, y: g.core.y, hp: g.core.hp, maxHp: g.core.maxHp } } : {}),
+    // NEW objectives — shipped only when their def opted in, so every other map
+    // (and CTF/BR/classic) keeps a byte-identical snapshot. The client draws the
+    // zone ring / bridge marker / anchor+path off these and reads the HUD progress.
+    ...(g.capture ? { capture: {
+      x: g.capture.x, y: g.capture.y, radius: g.capture.radius,
+      ownerT: q1(g.capture.ownerT), duration: g.capture.duration,
+      held: g.capture.held, contested: g.capture.contested,
+    } } : {}),
+    ...(g.bridge ? { bridge: {
+      reached: g.bridge.reached,
+      ...(g.bridge.holdX != null ? { x: g.bridge.holdX, y: g.bridge.holdY } : {}),
+    } } : {}),
+    ...(g.escort ? { escort: {
+      x: qi(g.escort.x), y: qi(g.escort.y), hp: g.escort.hp, maxHp: g.escort.maxHp,
+      wp: g.escort.wp, total: g.escort.path.length,
+      moving: g.escort.moving, contested: g.escort.contested,
+      path: g.escort.path.map(w => [w.x, w.y]),
+    } } : {}),
     // beacon-defense: the four monoliths with HUD-ready lit flags, plus the
     // landed Anchorcraft once the all-lit night feat earns it
     ...(g.cores ? { cores: g.cores.map(c => ({ x: c.x, y: c.y, hp: c.hp, maxHp: c.maxHp, lit: c.lit, ...(c.team != null ? { team: c.team } : {}) })) } : {}),
@@ -7949,6 +8486,9 @@ export function snapshot(g, full = true) {
       ...(p.dmgBonus ? { dmgBonus: p.dmgBonus } : {}),
       ...(p.fieldWeapon ? { fieldWeapon: { kind: p.fieldWeapon.kind, ammo: p.fieldWeapon.ammo } } : {}),
       ...(p.stunT > 0 ? { stunT: q1(p.stunT) } : {}),
+      // frostshade chill: ships only while active so the client can tint the
+      // chilled operative; absent on every map without a frostshade (byte-stable)
+      ...(p.chillT > 0 ? { chillT: q1(p.chillT) } : {}),
       // lythseal carrier (own field, never the item slot): opens sealLock
       // doors on touch; the renderer drops Classical Phantom transparency
       // within 6 tiles of this seat and rings the bearer in checkpoint gold
@@ -7979,6 +8519,7 @@ export function snapshot(g, full = true) {
       returning: e.returning,
       ...(e.mutation ? { mutation: e.mutation } : {}),
       ...(e.shielded ? { shielded: true } : {}), // acolyte ward, one absorb
+      ...(e.buried ? { buried: true } : {}), // sand lurker submerged: render as a faint mound
       // status clocks ship as short floats only while live (lite by default)
       ...(e.stunT > 0 ? { stunT: q1(e.stunT) } : {}),
       ...(e.burnT > 0 ? { burnT: q1(e.burnT) } : {}),
