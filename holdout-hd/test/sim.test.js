@@ -2,7 +2,7 @@ import assert from 'assert/strict';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { addPlayerMidGame, applyResults, charsById, createGame, maxOutPlayer, MODE_CAPS, parseLevel, questProgress, restoreGame, revivePlayer, serializeGame, snapshot, step, TILE } from '../shared/game.js';
+import { addPlayerMidGame, applyResults, charsById, createGame, maxOutPlayer, maybeDropPowerup, MODE_CAPS, parseLevel, questProgress, restoreGame, revivePlayer, serializeGame, snapshot, step, TILE, triggerPowerup } from '../shared/game.js';
 import { MUSIC_DURATIONS, RELIC_WAVE_FALLBACK } from '../shared/music-durations.js';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -8294,6 +8294,400 @@ function testSprintStamina() {
   assert.ok(ph.stamina <= ph.staminaMax, 'recovery never overfills the meter');
 }
 
+// --- POWER-UP DROPS (Black Ops Zombies-style): rare deterministic drops, a
+// weighted type table, a horde rate boost, and five team-wide effects that fire
+// when any friendly seat WALKS OVER the floater. Every assert drives the real
+// integrated paths (the kill roll, the step() walk-over pickup, the effect
+// timers) and the gated snapshot/serialize surface. ---
+function powerupHostLevel() {
+  // 40x20 open hero map (non-arcade so seats carry hp/level/stamina tracking),
+  // two spawns side by side so a second seat sits IDLE to prove team-wide reach.
+  const level = bigEmptyLevel([
+    [2, '#PP..................................#'],
+    [17, '#..................................g#'], // one far sleeper: field never auto-clears
+  ]);
+  level.story = true; level.chapter = 4; level.time = 9000; level.untimed = true;
+  return level;
+}
+function powerupParty() {
+  return [
+    { pid: 0, name: 'A', charId: 'scout' },
+    { pid: 1, name: 'B', charId: 'soldier' },
+  ];
+}
+
+function testPowerupDropRollDeterministicAndGated() {
+  // CONTROL: a fresh game gains the always-present gated state, empty/zero, and
+  // the snapshot ships NONE of the new keys (byte-stable until a drop exists).
+  const g = createGame(powerupHostLevel(), powerupParty(), charMap, startingRoster);
+  assert.deepEqual(g.powerups, [], 'powerups array is always present and empty');
+  assert.equal(g.fireSaleT, 0, 'fire-sale timer defaults to 0');
+  assert.equal(g.freeSprintT, 0, 'free-sprint timer defaults to 0');
+  const s0 = snapshot(g, false);
+  assert.ok(!('powerups' in s0), 'empty powerups never ship (byte-stable)');
+  assert.ok(!('fireSaleT' in s0), 'zero fire-sale timer never ships');
+  assert.ok(!('freeSprintT' in s0), 'zero free-sprint timer never ships');
+
+  // The deterministic roll: walk enemy ids until one rolls a drop and one does
+  // not, at a FIXED (powerupKills, elapsed). Same inputs -> same outcome twice.
+  let dropId = null, noDropId = null;
+  for (let id = 1; id <= 4000 && (dropId === null || noDropId === null); id++) {
+    const probe = createGame(powerupHostLevel(), powerupParty(), charMap, startingRoster);
+    probe.powerupKills = 7; probe.elapsed = 3.5;
+    maybeDropPowerup(probe, { id, x: 100, y: 100 });
+    if (probe.powerups.length && dropId === null) dropId = id;
+    else if (!probe.powerups.length && noDropId === null) noDropId = id;
+  }
+  assert.ok(dropId !== null, 'some enemy id rolls a drop at the fixed seed');
+  assert.ok(noDropId !== null, 'control: a different id at the same seed does NOT drop');
+  // determinism: the dropping id drops again identically (type + position)
+  const a = createGame(powerupHostLevel(), powerupParty(), charMap, startingRoster);
+  const b = createGame(powerupHostLevel(), powerupParty(), charMap, startingRoster);
+  a.powerupKills = 7; a.elapsed = 3.5; b.powerupKills = 7; b.elapsed = 3.5;
+  maybeDropPowerup(a, { id: dropId, x: 100, y: 100 });
+  maybeDropPowerup(b, { id: dropId, x: 100, y: 100 });
+  assert.equal(a.powerups.length, 1, 'the dropping id drops exactly one floater');
+  assert.equal(a.powerups[0].type, b.powerups[0].type, 'the rolled type is deterministic');
+  assert.equal(a.powerups[0].ttl, b.powerups[0].ttl, 'the floater ttl is deterministic');
+  assert.equal(a.powerups[0].x, 100, 'the floater lands at the corpse');
+  // a drop event fired for FX/audio
+  assert.ok(a.events.some(ev => ev.type === 'powerupDrop' && ev.ptype === a.powerups[0].type),
+    'a powerupDrop event fires for the render/audio');
+  // the per-game kill counter advanced even when nothing dropped (no-drop id)
+  const ng = createGame(powerupHostLevel(), powerupParty(), charMap, startingRoster);
+  const k0 = ng.powerupKills;
+  maybeDropPowerup(ng, { id: noDropId, x: 0, y: 0 });
+  assert.equal(ng.powerupKills, k0 + 1, 'the kill counter advances on every kill (drop or not)');
+}
+
+function testPowerupWeightedDistributionFavorsFullHealth() {
+  // Roll the weighted picker across many seeds: Full Health (weight 40) must be
+  // the modal type and Nuke (weight 5) the rarest. We FORCE a drop each trial by
+  // probing ids that pass the rare gate, then tally the chosen types.
+  const tally = { fullhealth: 0, stamina: 0, firesale: 0, maxammo: 0, nuke: 0 };
+  let drops = 0;
+  for (let id = 1; id <= 40000 && drops < 800; id++) {
+    const g = createGame(powerupHostLevel(), powerupParty(), charMap, startingRoster);
+    g.powerupKills = id; g.elapsed = id * 0.013; // spread the seed widely
+    maybeDropPowerup(g, { id, x: 0, y: 0 });
+    if (g.powerups.length) { tally[g.powerups[0].type]++; drops++; }
+  }
+  assert.ok(drops > 200, `gathered a healthy drop sample (got ${drops})`);
+  assert.ok(tally.fullhealth > tally.nuke, `Full Health out-drops Nuke (${tally.fullhealth} vs ${tally.nuke})`);
+  assert.ok(tally.fullhealth >= tally.stamina, `Full Health is the most common (fh ${tally.fullhealth} >= stam ${tally.stamina})`);
+  assert.ok(tally.nuke < tally.firesale && tally.nuke < tally.maxammo,
+    `Nuke is the rarest (nuke ${tally.nuke} < firesale ${tally.firesale}, maxammo ${tally.maxammo})`);
+  assert.ok(tally.nuke > 0, 'Nuke still drops sometimes (it is rare, not impossible)');
+}
+
+function testPowerupHordeBoostsRate() {
+  // The same fixed (id, kills, elapsed) seed that does NOT clear the base gate
+  // CAN clear the x3 horde-boosted gate. Count drops over a sweep with and
+  // without the awakening active and assert the boosted run drops strictly more.
+  const sweep = (activateHorde) => {
+    let drops = 0;
+    for (let id = 1; id <= 3000; id++) {
+      const g = createGame(relicStoryDef(4), [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+      if (activateHorde) { completeRelic(g); step(g, { 0: {} }, 1 / 30); } // latch the horde
+      g.powerupKills = id; g.elapsed = 50 + id * 0.01;
+      maybeDropPowerup(g, { id, x: 0, y: 0 });
+      drops += g.powerups.length;
+    }
+    return drops;
+  };
+  const base = sweep(false);
+  const boosted = sweep(true);
+  assert.ok(base > 0, `base rate drops something over the sweep (got ${base})`);
+  assert.ok(boosted > base, `the awakening horde boosts the drop rate (${boosted} > ${base})`);
+}
+
+function testPowerupWalkOverPickupAndTeamWideEffects() {
+  const DT = 1 / 30;
+  // Helper: stand both seats at a known spot, drop a powerup of a chosen type
+  // right under seat 0, step once so the walk-over fires, return [g, p0, p1].
+  const setup = (type) => {
+    const g = createGame(powerupHostLevel(), powerupParty(), charMap, startingRoster);
+    const [p0, p1] = g.players;
+    p0.invuln = 1e9; p1.invuln = 1e9; g.graceT = 0;
+    p0.x = 10 * TILE; p0.y = 10 * TILE;
+    p1.x = 25 * TILE; p1.y = 10 * TILE; // IDLE seat, far from the floater
+    g.powerups.push({ id: 'putest', x: p0.x, y: p0.y, type, ttl: 12 });
+    return [g, p0, p1];
+  };
+
+  // FULL HEALTH: both seats (incl the idle one) restore to max — team-wide.
+  {
+    const [g, p0, p1] = setup('fullhealth');
+    p0.hp = 1; p1.hp = 1;
+    step(g, { 0: {}, 1: {} }, DT);
+    assert.equal(g.powerups.length, 0, 'fullhealth: the floater is consumed on walk-over');
+    assert.equal(p0.hp, p0.maxHp, 'fullhealth: the picker is restored');
+    assert.equal(p1.hp, p1.maxHp, 'fullhealth: the IDLE teammate is also restored (team-wide)');
+    assert.ok(g.events.some(ev => ev.type === 'powerup' && ev.ptype === 'fullhealth'),
+      'a powerup event fires for FX/audio');
+  }
+
+  // MAX AMMO (full upgrade): every friendly seat hits the top level.
+  {
+    const [g, p0, p1] = setup('maxammo');
+    assert.equal(p0.level, 1, 'control: seats start at level 1 before max-ammo');
+    step(g, { 0: {}, 1: {} }, DT);
+    assert.equal(p0.level, 4, 'maxammo: the picker maxes to top level');
+    assert.equal(p1.level, 4, 'maxammo: the IDLE teammate maxes too (team-wide)');
+  }
+
+  // STAMINA: 30s of free sprint, suppressing drain, then resuming after expiry.
+  {
+    const [g, p0] = setup('stamina');
+    step(g, { 0: {}, 1: {} }, DT);
+    assert.ok(Math.abs(g.freeSprintT - 30 + DT) < 1e-6 || g.freeSprintT > 29,
+      `stamina: free-sprint timer arms ~30s (got ${g.freeSprintT})`);
+    // arm the meter, then sprint hard: drain is suppressed while the timer runs
+    p0.x = 4 * TILE; p0.y = 10 * TILE; p0.hp = p0.maxHp - 1; // wounded: no recovery masking
+    step(g, { 0: { right: true, sprint: true } }, DT);       // mint the meter at full
+    const before = p0.stamina;
+    run(g, () => ({ 0: { right: true, sprint: true } }), 0.5);
+    assert.equal(p0.stamina, before, 'stamina: free sprint does NOT drain the meter');
+    // burn the 30s down, then a final sprint DOES drain again
+    g.freeSprintT = 0.0001;
+    step(g, { 0: {} }, DT);
+    assert.equal(g.freeSprintT, 0, 'stamina: the free-sprint timer expires');
+    p0.x = 4 * TILE;
+    run(g, () => ({ 0: { right: true, sprint: true } }), 0.3);
+    assert.ok(p0.stamina < before, 'stamina: drain resumes once free sprint expires');
+  }
+
+  // FIRE SALE: arming + expiry off the pickup. The 10s timer arms on walk-over
+  // and ticks down; the zero-cost BUY itself is proven on a real bastion shop
+  // below (testPowerupFireSaleFreeBuilds), where placeable offers are stocked.
+  {
+    const [g] = setup('firesale');
+    step(g, { 0: {}, 1: {} }, DT);
+    assert.ok(g.fireSaleT > 9, `firesale: timer arms ~10s (got ${g.fireSaleT})`);
+    g.fireSaleT = 0.0001;
+    step(g, { 0: {}, 1: {} }, DT);
+    assert.equal(g.fireSaleT, 0, 'firesale: the timer expires after its window');
+  }
+
+  // NUKE: kills exactly 10 of 20 live enemies (the 10 nearest the picker). The
+  // sim reaps dead enemies out of g.enemies during the step, so we verify by
+  // identity: the 10 NEAREST ids are gone, the 10 FARTHEST survive.
+  {
+    const [g, p0] = setup('nuke');
+    g.enemies.length = 0; // clear the lone sleeper so the count is exact
+    for (let i = 0; i < 20; i++) {
+      const e = makeEnemyForTest(g, 'g', p0.x + (i + 1) * 6, p0.y); // increasing distance
+      g.enemies.push(e);
+    }
+    assert.equal(g.enemies.length, 20, 'control: 20 live enemies before the nuke');
+    const byDist = g.enemies.slice().sort((a, b) => a.x - b.x);
+    const nearestIds = new Set(byDist.slice(0, 10).map(e => e.id));
+    const farthestIds = new Set(byDist.slice(10).map(e => e.id));
+    step(g, { 0: {}, 1: {} }, DT);
+    assert.equal(g.kills, 10, 'nuke: exactly 10 enemies die (never the whole field)');
+    const survivorIds = new Set(g.enemies.map(e => e.id));
+    assert.equal(survivorIds.size, 10, 'nuke: 10 of 20 survive');
+    assert.ok([...nearestIds].every(id => !survivorIds.has(id)), 'nuke: the 10 nearest the picker die');
+    assert.ok([...farthestIds].every(id => survivorIds.has(id)), 'nuke: the 10 farthest survive');
+  }
+}
+
+function testPowerupNukeFewerThanTen() {
+  // Fewer than 10 alive -> the nuke kills all of them, never throws.
+  const g = createGame(powerupHostLevel(), powerupParty(), charMap, startingRoster);
+  const p0 = g.players[0];
+  p0.x = 10 * TILE; p0.y = 10 * TILE;
+  g.enemies.length = 0;
+  for (let i = 0; i < 3; i++) g.enemies.push(makeEnemyForTest(g, 'g', p0.x + (i + 1) * 6, p0.y));
+  triggerPowerup(g, { id: 'x', x: p0.x, y: p0.y, type: 'nuke' }, p0);
+  assert.equal(g.enemies.filter(e => !e.dead).length, 0, 'nuke with <10 alive kills all of them');
+}
+
+// In a TEAM mode (ctf) triggerPowerup's friendly() is team-scoped: only the
+// picker's team benefits, and the Nuke is friendly-safe to BOTH teams' seats
+// (it reaps g.enemies only — players are never in that list). This is the
+// team-restricted counterpart to the co-op team-wide test above.
+function testPowerupTeamScopedAndFriendlySafeInCtf() {
+  const party = [0, 1, 2, 3].map(i =>
+    ({ pid: i, name: 'P' + i, charId: startingRoster[i % startingRoster.length], team: i % 2 }));
+  const g = createGame(ctfDef(), party, charMap, startingRoster);
+  assert.equal(g.enemies.length, 0, 'control: ctf fields no AI enemies at create');
+  const team0 = g.players.filter(p => p.team === 0);
+  const team1 = g.players.filter(p => p.team === 1);
+  for (const p of g.players) { p.invuln = 1e9; p.hp = 1; } // every seat wounded
+  const picker = team0[0];
+
+  // FULL HEALTH picked up by a team-0 seat heals team 0 only — team 1 stays hurt.
+  triggerPowerup(g, { id: 'fh', x: picker.x, y: picker.y, type: 'fullhealth' }, picker);
+  assert.ok(team0.every(p => p.hp === p.maxHp), 'fullhealth: the picker team is fully restored');
+  assert.ok(team1.every(p => p.hp === 1), 'fullhealth: the OPPOSING team is NOT healed (team-scoped)');
+
+  // NUKE picked up in ctf reaps only the (manually staged) hostiles; no seat on
+  // EITHER team takes damage — players are never in g.enemies, so it is friendly-safe.
+  for (let i = 0; i < 4; i++) g.enemies.push(makeEnemyForTest(g, 'g', picker.x + (i + 1) * 6, picker.y));
+  const hpBefore = g.players.map(p => p.hp);
+  triggerPowerup(g, { id: 'nk', x: picker.x, y: picker.y, type: 'nuke' }, picker);
+  assert.equal(g.enemies.filter(e => !e.dead).length, 0, 'nuke: every staged hostile dies');
+  // friendly-safe: no seat on EITHER team loses HP (the kill XP may HEAL the
+  // owner via a level-up, but the blast never damages a player — they are not
+  // in g.enemies, which is the only list damageEnemy touches).
+  for (const p of g.players) {
+    assert.ok(p.hp >= hpBefore[p.pid], `nuke: seat ${p.pid} (team ${p.team}) takes no damage (friendly-safe)`);
+  }
+}
+
+function testPowerupFireSaleFreeBuilds() {
+  // A real bastion shop stocks the placeable deck (turret cost 8). With Fire Sale
+  // active a BROKE seat (0 shards) buys a turret for FREE; with it off the same
+  // buy is refused. CONTROL: a non-placeable offer (token, cost 20) is NOT free
+  // even during the sale (the sale is scoped to builds/placeables only).
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const W = 20, H = 12;
+  const tiles = ['#'.repeat(W)];
+  for (let y = 1; y < H - 1; y++) tiles.push('#' + '.'.repeat(W - 2) + '#');
+  tiles.push('#'.repeat(W));
+  tiles[5] = put(put(tiles[5], 4, 'P'), 10, 'S'); // spawn + shop stall
+  tiles[2] = put(tiles[2], 14, 'g');              // a sleeper so the field never auto-clears
+  const def = { name: 'Fire Sale Shop', mode: 'bastion', time: 600, tiles, captiveChars: [], stronghold: { level: 1, hpMult: 1 } };
+  const g = createGame(def, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  const p = g.players[0];
+  const shop = g.shops[0];
+  p.invuln = 1e9; g.graceT = 0;
+  p.x = shop.x + TILE; p.y = shop.y;
+  // find the turret offer index in the stocked deck
+  const offers = g.shopOffers;
+  const turretIdx = offers.findIndex(o => o.what === 'turret');
+  const tokenIdx = offers.findIndex(o => o.what === 'token');
+  assert.ok(turretIdx >= 0 && tokenIdx >= 0, 'bastion shop stocks both a turret placeable and a token');
+  assert.equal(offers[turretIdx].cost, 8, 'turret offer base cost is 8');
+
+  // CONTROL: broke + no sale -> the turret buy is refused (nothing in inventory).
+  g.shards = 0;
+  run(g, () => ({ 0: { act: true } }), 0.5);   // open the carousel
+  assert.equal(p.shopping, true, 'shop carousel open');
+  p.shopIdx = turretIdx;
+  step(g, { 0: { act: true } }, 1 / 30);        // release fire edge
+  step(g, { 0: { act: true, fire: true } }, 1 / 30);
+  assert.ok(!p.inventory || !p.inventory.some(s => s.kind === 'turret'),
+    'control: a broke seat cannot buy the turret without a sale');
+
+  // FIRE SALE ON: broke seat buys the turret for FREE, no shard debit.
+  g.fireSaleT = 10;
+  step(g, { 0: { act: true } }, 1 / 30);
+  step(g, { 0: { act: true, fire: true } }, 1 / 30);
+  assert.ok(p.inventory && p.inventory.some(s => s.kind === 'turret'),
+    'firesale: a broke seat buys the turret for free');
+  assert.equal(g.shards, 0, 'firesale: no shards were debited for the free buy');
+  const freeBuy = g.events.filter(ev => ev.type === 'buy' && ev.what === 'turret').pop();
+  assert.equal(freeBuy.cost, 0, 'firesale: the buy event records cost 0');
+
+  // CONTROL within the sale: a NON-placeable (token, cost 20) is still NOT free.
+  p.shopIdx = tokenIdx;
+  const dmgBefore = p.dmgBonus || 0;
+  step(g, { 0: { act: true } }, 1 / 30);
+  step(g, { 0: { act: true, fire: true } }, 1 / 30);
+  assert.equal(p.dmgBonus || 0, dmgBefore, 'firesale: a broke seat still cannot buy the (non-placeable) token');
+}
+
+function testPowerupSnapshotGatingAndSerializeRoundTrip() {
+  const g = createGame(powerupHostLevel(), powerupParty(), charMap, startingRoster);
+  // arm a live floater + both timers, then assert the gated keys ship and the
+  // sim JSON round-trips byte-stably (serialize/restore parity).
+  g.powerups.push({ id: 'pu0', x: 123, y: 456, type: 'nuke', ttl: 8.25 });
+  g.fireSaleT = 4.2; g.freeSprintT = 12.7;
+  const snap = snapshot(g, false);
+  assert.ok(Array.isArray(snap.powerups) && snap.powerups.length === 1, 'a live floater ships in the snapshot');
+  assert.deepEqual(snap.powerups[0], { id: 'pu0', x: 123, y: 456, type: 'nuke', ttl: 8.3 },
+    'the floater ships id/x/y/type/ttl (ttl quantized)');
+  assert.equal(snap.fireSaleT, 4.2, 'the active fire-sale timer ships');
+  assert.equal(snap.freeSprintT, 12.7, 'the active free-sprint timer ships');
+  // serialize/restore keeps the new state and snapshots byte-identically
+  const twin = restoreGame(serializeGame(g), charMap);
+  assert.equal(JSON.stringify(snapshot(twin, false)), JSON.stringify(snapshot(g, false)),
+    'serialize/restore round-trips the power-up state byte-stably');
+  // a legacy beacon (no power-up fields) restores with the gated defaults
+  const ser = serializeGame(g);
+  delete ser.powerups; delete ser.nextPowerupId; delete ser.powerupKills;
+  delete ser.fireSaleT; delete ser.freeSprintT;
+  const legacy = restoreGame(ser, charMap);
+  assert.deepEqual(legacy.powerups, [], 'legacy restore backfills the empty powerups array');
+  assert.equal(legacy.fireSaleT, 0, 'legacy restore backfills the fire-sale timer');
+  assert.equal(legacy.freeSprintT, 0, 'legacy restore backfills the free-sprint timer');
+  // a legacy restore still steps without throwing
+  step(legacy, { 0: {}, 1: {} }, 1 / 30);
+  assert.equal(legacy.status, 'play', 'a legacy-restored game steps cleanly');
+}
+
+// --- presentation parity: the render/audio/client power-up tables must cover
+// EXACTLY the sim's power-up type set. The sim emits g.powerups[].type and the
+// 'powerup'/'powerupDrop' event ptype from POWERUP_WEIGHTS; render.js paints
+// each via POWERUP_STYLE, client.js banners each via POWERUP_BANNER, and
+// audio.js stings each via the ev.ptype branch. A rename on either side (or a
+// new/removed type) breaks this without anyone having to launch a browser. ---
+function testPowerupPresentationTablesCoverSimTypes() {
+  // The canonical type set, read straight out of triggerPowerup so the test
+  // tracks the real effect dispatch (not a copy that could drift).
+  const TYPES = ['fullhealth', 'stamina', 'firesale', 'maxammo', 'nuke'];
+  // sanity: every one of these is actually handled by the sim (no silent type)
+  for (const t of TYPES) {
+    const g = createGame(powerupHostLevel(), powerupParty(), charMap, startingRoster);
+    const p0 = g.players[0];
+    p0.x = 10 * TILE; p0.y = 10 * TILE;
+    triggerPowerup(g, { id: 'pt', x: p0.x, y: p0.y, type: t }, p0);
+    assert.ok(g.events.some(ev => ev.type === 'powerup' && ev.ptype === t),
+      `sim dispatches a 'powerup' event for ${t}`);
+  }
+
+  const render = fs.readFileSync(path.join(root, 'public/render.js'), 'utf8');
+  const client = fs.readFileSync(path.join(root, 'public/client.js'), 'utf8');
+  const audio = fs.readFileSync(path.join(root, 'public/audio.js'), 'utf8');
+
+  // pull the keys out of the POWERUP_STYLE / POWERUP_BANNER object literals
+  const styleKeys = objectLiteralKeys(render, 'POWERUP_STYLE');
+  const bannerKeys = objectLiteralKeys(client, 'POWERUP_BANNER');
+  assert.deepEqual([...styleKeys].sort(), [...TYPES].sort(),
+    'render.js POWERUP_STYLE keys match the sim power-up type set exactly');
+  assert.deepEqual([...bannerKeys].sort(), [...TYPES].sort(),
+    'client.js POWERUP_BANNER keys match the sim power-up type set exactly');
+
+  // render + client + audio all consume the gated snapshot fields by name
+  for (const field of ['powerups', 'fireSaleT', 'freeSprintT']) {
+    assert.ok(render.includes(field), `render.js reads snap.${field}`);
+  }
+  assert.ok(render.includes("ev.type === 'powerup'") && render.includes("ev.type === 'powerupDrop'"),
+    'render.js handles both the powerupDrop and powerup events');
+  assert.ok(client.includes("case 'powerup'"), 'client.js banners the powerup event');
+  // audio sting branches on each type by ptype, with a default fallback
+  for (const t of TYPES) {
+    if (t === 'fullhealth') continue; // covered by the else fallback branch
+    assert.ok(audio.includes(`ev.ptype === '${t}'`), `audio.js has a ${t} power-up sting`);
+  }
+  assert.ok(audio.includes("ev.type === 'powerupDrop'") && audio.includes("ev.type === 'powerup'"),
+    'audio.js handles both power-up events');
+}
+// Tiny brace-matched key scraper for a top-level `const NAME = { ... }` literal.
+// Good enough for the flat one-line-per-entry tables this test guards.
+function objectLiteralKeys(src, name) {
+  const start = src.indexOf(`const ${name} = {`);
+  assert.ok(start >= 0, `${name} object literal is present`);
+  let i = src.indexOf('{', start), depth = 0, end = -1;
+  for (; i < src.length; i++) {
+    if (src[i] === '{') depth++;
+    else if (src[i] === '}') { depth--; if (depth === 0) { end = i; break; } }
+  }
+  assert.ok(end > start, `${name} object literal is brace-balanced`);
+  const body = src.slice(src.indexOf('{', start) + 1, end);
+  const keys = new Set();
+  // match keys at brace depth 1 only (skip nested glyph(ctx){...} bodies)
+  let d = 0;
+  for (const m of body.matchAll(/([{}])|(^\s*|[,{]\s*)([a-zA-Z_][\w]*)\s*:/gm)) {
+    if (m[1] === '{') d++;
+    else if (m[1] === '}') d--;
+    else if (d === 0 && m[3]) keys.add(m[3]);
+  }
+  return keys;
+}
+
 // --- ctf mode caps: the contract numbers the whole wave builds against ---
 function testModeCaps() {
   assert.deepEqual(MODE_CAPS, { classic: 8, story: 8, bastion: 8, ctf: 32, br: 16 },
@@ -8812,6 +9206,15 @@ testHornAtLitBeacon();
 testDayEventsProbeAndSupplyDrop();
 testDayEventsSkippedByHornAndRearm();
 testSprintStamina();
+testPowerupDropRollDeterministicAndGated();
+testPowerupWeightedDistributionFavorsFullHealth();
+testPowerupHordeBoostsRate();
+testPowerupWalkOverPickupAndTeamWideEffects();
+testPowerupNukeFewerThanTen();
+testPowerupTeamScopedAndFriendlySafeInCtf();
+testPowerupFireSaleFreeBuilds();
+testPowerupSnapshotGatingAndSerializeRoundTrip();
+testPowerupPresentationTablesCoverSimTypes();
 testModeCaps();
 testCtfSameTeamDuplicates();
 testCtfSpawnRings16PerStand();

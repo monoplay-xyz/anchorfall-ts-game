@@ -1473,6 +1473,40 @@ export function playEvent(ev) {
     setTimeout(() => tone(98, 1.0, 'sawtooth', 0.1, 0.4), 300);
     setTimeout(() => playUi('fail'), 500);
   }
+  // --- POWER-UP DROPS (Black Ops Zombies-style) ---
+  else if (ev.type === 'powerupDrop') {
+    // a rare token materializes: a bright, beckoning two-note shimmer
+    tone(1320, 0.07, 'sine', 0.06, 1.3);
+    setTimeout(() => tone(1980, 0.1, 'sine', 0.05, 1.2), 60);
+  }
+  else if (ev.type === 'powerup') {
+    // a friendly grabbed it: a short announcer-style sting, colored per type
+    if (ev.ptype === 'nuke') {
+      // ominous low boom into a rising whoosh
+      tone(60, 0.35, 'sawtooth', 0.18, 0.5);
+      noise(0.4, 0.1, 320);
+      setTimeout(() => tone(110, 0.5, 'sawtooth', 0.1, 1.8), 180);
+    } else if (ev.ptype === 'maxammo') {
+      // bright ascending rank-up triad
+      tone(523.25, 0.09, 'triangle', 0.09, 1.05);
+      setTimeout(() => tone(659.25, 0.09, 'triangle', 0.09, 1.05), 80);
+      setTimeout(() => tone(1046.5, 0.18, 'triangle', 0.08, 1.0), 160);
+    } else if (ev.ptype === 'firesale') {
+      // playful coin-cascade flourish
+      tone(880, 0.06, 'square', 0.06, 1.2);
+      setTimeout(() => tone(1175, 0.06, 'square', 0.06, 1.2), 70);
+      setTimeout(() => tone(1568, 0.12, 'square', 0.05, 1.1), 140);
+    } else if (ev.ptype === 'stamina') {
+      // quick energetic zip
+      tone(440, 0.07, 'triangle', 0.07, 1.6);
+      noise(0.12, 0.05, 1600);
+      setTimeout(() => tone(880, 0.12, 'triangle', 0.06, 1.2), 70);
+    } else {
+      // full health (and any fallback): a warm healing chime
+      tone(659.25, 0.1, 'sine', 0.08, 1.1);
+      setTimeout(() => tone(987.77, 0.16, 'sine', 0.07, 1.05), 90);
+    }
+  }
   // unknown event types stay silent, never throw
 }
 

@@ -574,9 +574,20 @@ function bannerFor(ev) {
     // bastion day events: the horn call and the supply drop
     case 'horn': return { text: `THE HORN SOUNDS — NIGHT ${ev.nightNo ?? '?'} COMES EARLY` };
     case 'supplyDrop': return { text: 'SUPPLY DROP INBOUND' };
+    // POWER-UP pickup (Black Ops Zombies-style): a big typed team-wide banner.
+    // ev.ptype matches the sim's power-up type strings.
+    case 'powerup': return { text: POWERUP_BANNER[ev.ptype] ?? 'POWER-UP!', blood: ev.ptype === 'nuke' };
   }
   return null;
 }
+// Banner text per power-up type — keyed by the sim event's ptype.
+const POWERUP_BANNER = {
+  fullhealth: 'FULL HEALTH!',
+  stamina: 'STAMINA!',
+  firesale: 'FIRE SALE!',
+  maxammo: 'MAX AMMO!',
+  nuke: 'NUKE!',
+};
 const EDGE_NAME = { n: 'NORTH', e: 'EAST', s: 'SOUTH', w: 'WEST' };
 // One funnel for sim events: FX + audio + banners + the DOM dialogue box.
 function handleEvent(ev) {

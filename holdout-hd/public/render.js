@@ -94,6 +94,39 @@ const SIEGE_TEAM_DIM = ['#2a4e8c', '#8c3a32']; // muted body fill / shadow facet
 function siegeTeamCol(team) { return SIEGE_TEAM[(team | 0) % 2]; }
 function siegeTeamDim(team) { return SIEGE_TEAM_DIM[(team | 0) % 2]; }
 
+// --- POWER-UP DROPS (Black Ops Zombies-style) ------------------------------
+// One style row per sim power-up type (shared/game.js POWERUP_WEIGHTS): the
+// glow color, the rgb pair used for additive lights/glow, the on-screen banner
+// text, and a `glyph` painter that draws the icon centered at the origin (the
+// caller has already translated + scaled). Keyed by the snapshot's `type`/event
+// `ptype` strings exactly. Anything not in here renders as a neutral diamond.
+const POWERUP_STYLE = {
+  fullhealth: { color: '#4FE08A', rgb: '79,224,138',  banner: 'FULL HEALTH!',
+    glyph(ctx) { ctx.fillStyle = '#0B1A10'; ctx.fillRect(-2, -6, 4, 12); ctx.fillRect(-6, -2, 12, 4); } },
+  stamina:    { color: '#5FB8FF', rgb: '95,184,255',  banner: 'STAMINA!',
+    glyph(ctx) { // lightning bolt
+      ctx.fillStyle = '#08101C'; ctx.beginPath();
+      ctx.moveTo(1, -7); ctx.lineTo(-4, 1); ctx.lineTo(-0.5, 1);
+      ctx.lineTo(-2, 7); ctx.lineTo(5, -2); ctx.lineTo(1, -2); ctx.closePath(); ctx.fill(); } },
+  firesale:   { color: '#FFCB45', rgb: '255,203,69',  banner: 'FIRE SALE!',
+    glyph(ctx) { // coin with a slash through it
+      ctx.fillStyle = '#1C1404'; ctx.beginPath(); ctx.arc(0, 0, 5.5, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#FFCB45'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(0, 0, 5.5, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = '#FFCB45'; ctx.font = 'bold 8px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('$', 0, 0.5); } },
+  maxammo:    { color: '#C77BFF', rgb: '199,123,255',  banner: 'MAX AMMO!',
+    glyph(ctx) { // upward chevrons (rank-up)
+      ctx.strokeStyle = '#1A0E22'; ctx.lineWidth = 1.8; ctx.lineJoin = 'round';
+      for (const oy of [2, -2]) { ctx.beginPath(); ctx.moveTo(-5, oy + 2); ctx.lineTo(0, oy - 3); ctx.lineTo(5, oy + 2); ctx.stroke(); } } },
+  nuke:       { color: '#FF5A4A', rgb: '255,90,74',   banner: 'NUKE!',
+    glyph(ctx) { // skull
+      ctx.fillStyle = '#1A0606'; ctx.beginPath(); ctx.arc(0, -1, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillRect(-3, 2, 6, 4);
+      ctx.fillStyle = '#FF5A4A'; ctx.beginPath();
+      ctx.arc(-2, -1, 1.4, 0, Math.PI * 2); ctx.arc(2, -1, 1.4, 0, Math.PI * 2); ctx.fill();
+      ctx.fillRect(-0.6, 1, 1.2, 2.5); } },
+};
+
 // deterministic RNG so baked textures are stable between loads
 function mulberry32(seed) {
   return function () {
@@ -1601,6 +1634,22 @@ export function addEventFX(ev) {
   else if (ev.type === 'shard') {
     burst(7, PAL.lythGold, 110, 0.5);
     popups.push({ x: ev.x, y: ev.y - 18, text: `+${ev.amount ?? 1}◆`, life: 0.8, max: 0.8, color: PAL.lythGold });
+  }
+  // --- POWER-UP DROPS (Black Ops Zombies-style) ---
+  else if (ev.type === 'powerupDrop') {
+    // a rare token materializes at the corpse: a quick typed-color halo + sparkle
+    const st = POWERUP_STYLE[ev.ptype];
+    const col = st ? st.color : PAL.lythPale;
+    ring(34, col, 0.6, 2.5); burst(10, col, 130, 0.5); burst(4, '#ffffff', 90, 0.35);
+  }
+  else if (ev.type === 'powerup') {
+    // a friendly grabbed it: a bright pickup burst on the spot (the big typed
+    // on-screen banner rides the client's DOM banner path via bannerFor)
+    const st = POWERUP_STYLE[ev.ptype];
+    const col = st ? st.color : PAL.lythPale;
+    ring(60, col, 0.8, 3.5); ring(34, '#ffffff', 0.6, 2.5);
+    burst(24, col, 220, 0.8); burst(10, '#ffffff', 150, 0.5);
+    shake = Math.max(shake, 4);
   }
   else if (ev.type === 'build') burst(3, '#8d8672', 45, 0.35);
   else if (ev.type === 'built') { ring(46, PAL.relay, 0.5); burst(12, PAL.relay, 130, 0.5); flashes.push({ x: ev.x, y: ev.y, life: 0.1, who: 'p' }); }
@@ -3488,6 +3537,53 @@ function drawDrop(ctx, d, t, lights) {
   }
   ctx.restore();
   lights.push({ x: d.x, y, r: 22, rgb: '255,217,138', a: 0.12 * a });
+}
+
+// Floating Black-Ops-Zombies power-up: a bobbing, pulsing, glowing token with a
+// type-specific glyph (POWERUP_STYLE). Blinks in its last ~2s before despawn
+// (pu.ttl, emitted by the sim). All cosmetic — pickup is sim-driven walk-over.
+function drawPowerup(ctx, pu, t, lights) {
+  const st = POWERUP_STYLE[pu.type] || { color: PAL.lythPale, rgb: '255,239,194', glyph: null };
+  const phase = t * 2.2 + (pu.x + pu.y) * 0.05;
+  const bob = Math.sin(phase) * 3;
+  const pulse = 0.6 + 0.4 * (0.5 + 0.5 * Math.sin(t * 5 + (pu.x + pu.y) * 0.03)); // 0.6..1.0
+  const y = pu.y - 9 + bob;
+  let a = 1;
+  if (pu.ttl != null && pu.ttl < 2) a = (pu.ttl % 0.3) < 0.15 ? 0.35 : 1; // expiry blink
+  ctx.save();
+  ctx.globalAlpha *= a;
+  // ground shadow + slow rotating glow base
+  ctx.fillStyle = 'rgba(11,10,20,0.4)';
+  ctx.beginPath(); ctx.ellipse(pu.x, pu.y + 7, 7, 2.5, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.translate(pu.x, y);
+  // soft halo
+  const g = ctx.createRadialGradient(0, 0, 1, 0, 0, 18 * pulse);
+  g.addColorStop(0, `rgba(${st.rgb},${0.5 * pulse})`);
+  g.addColorStop(1, `rgba(${st.rgb},0)`);
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(0, 0, 18 * pulse, 0, Math.PI * 2); ctx.fill();
+  // token disc
+  ctx.fillStyle = st.color;
+  ctx.strokeStyle = `rgba(255,255,255,${0.6 * pulse})`;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(0, 0, 9, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  // glyph (painters draw centered at origin)
+  if (st.glyph) st.glyph(ctx);
+  // sparkle ping every ~1.5s so a drop is findable in the heat of a wave
+  const ph = fract(t / 1.5 + flick(pu.x * 0.11 + pu.y * 0.23));
+  if (ph < 0.12) {
+    const sa = (1 - ph / 0.12) * a;
+    ctx.strokeStyle = `rgba(255,255,255,${sa})`;
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(0, -13); ctx.lineTo(0, -17);
+    ctx.moveTo(13, 0); ctx.lineTo(17, 0);
+    ctx.moveTo(0, 13); ctx.lineTo(0, 17);
+    ctx.moveTo(-13, 0); ctx.lineTo(-17, 0);
+    ctx.stroke();
+  }
+  ctx.restore();
+  lights.push({ x: pu.x, y, r: 30, rgb: st.rgb, a: 0.18 * pulse * a });
 }
 
 // Stranded operator — hooded indigo cloak, lantern, face never shown.
@@ -7890,6 +7986,39 @@ function drawCountdownBanner(ctx, VW, snap, t) {
   ctx.restore();
 }
 
+// POWER-UP EFFECT TIMERS: a small top-right chip stack for the team-wide effects
+// that run on a clock — FIRE SALE (free builds) and STAMINA (free sprint). Gated
+// by the caller (only drawn when a timer is in the snapshot), so classic frames
+// never paint a chip. Pulses in the final 3s.
+function drawPowerupTimers(ctx, VW, snap, t) {
+  const chips = [];
+  if (snap.fireSaleT > 0) chips.push({ label: 'FIRE SALE', secs: snap.fireSaleT, color: POWERUP_STYLE.firesale.color });
+  if (snap.freeSprintT > 0) chips.push({ label: 'FREE SPRINT', secs: snap.freeSprintT, color: POWERUP_STYLE.stamina.color });
+  if (!chips.length) return;
+  ctx.save();
+  ctx.textBaseline = 'middle';
+  const w = 132, h = 22, x = VW - w - 14;
+  let y = 132; // below the relic/superweapon HUD band
+  for (const c of chips) {
+    const near = c.secs <= 3;
+    const pulse = near ? 0.55 + 0.45 * Math.sin(t * 9) : 1;
+    ctx.globalAlpha = pulse;
+    ctx.fillStyle = 'rgba(13,8,18,0.78)';
+    ctx.strokeStyle = c.color;
+    ctx.lineWidth = 1.4;
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeRect(x, y, w, h);
+    ctx.font = 'bold 11px monospace';
+    ctx.fillStyle = c.color;
+    ctx.textAlign = 'left';
+    ctx.fillText(c.label, x + 8, y + h / 2);
+    ctx.textAlign = 'right';
+    ctx.fillText(`${Math.max(1, Math.ceil(c.secs))}s`, x + w - 8, y + h / 2);
+    y += h + 6;
+  }
+  ctx.restore();
+}
+
 // RELIC AWAKENING HUD: a compact center-top readout of the survival timer and
 // the live bonus (which bleeds with hits + deaths). Pulses red near the end.
 function drawRelicHud(ctx, VW, horde, t) {
@@ -8222,6 +8351,7 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
   const builds = snap.builds ?? [];
   const crystals = snap.crystals ?? [];
   const drops = snap.drops ?? [];
+  const powerups = snap.powerups ?? []; // floating BO-zombies power-up tokens (gated: absent until one drops)
   const npcs = snap.npcs ?? [];
   const gate = snap.gate ?? null;
   const chests = snap.chests ?? [];
@@ -8559,6 +8689,7 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
   for (const c of crystals) if (inView(c.x, c.y)) drawCrystal(ctx, c, t, lights);
   for (const b of builds) if (inView(b.x, b.y)) drawBuild(ctx, b, t, snap, lights);
   for (const d of drops) if (inView(d.x, d.y)) drawDrop(ctx, d, t, lights);
+  for (const pu of powerups) if (inView(pu.x, pu.y, 24)) drawPowerup(ctx, pu, t, lights);
   for (const n of npcs) {
     if (!inView(n.x, n.y)) continue;
     drawNpc(ctx, n, t, lights);
@@ -9652,6 +9783,9 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
     // big blinking countdown (wave inbound / zone shrink / sudden death)
     drawCountdownBanner(ctx, VW, snap, t);
 
+    // power-up effect timers (FIRE SALE / FREE SPRINT) — gated inside the fn
+    drawPowerupTimers(ctx, VW, snap, t);
+
     // beacon pips: the four monoliths' state, always on screen
     if (cores.length > 1) drawBeaconPips(ctx, VW, cores, t);
 
@@ -9836,6 +9970,7 @@ function drawGlobalScreenFx(ctx, snap, t, VW, VH) {
   if (snap.superweapon) drawSuperweaponHud(ctx, VW, snap.superweapon, t);
   else if (snap.superweaponUnlocked) drawSuperweaponBuildHint(ctx, VW, t);
   drawCountdownBanner(ctx, VW, snap, t);
+  drawPowerupTimers(ctx, VW, snap, t);
   const cores = snap.cores ?? [];
   if (cores.length > 1) drawBeaconPips(ctx, VW, cores, t);
   if (snap.mode === 'siege' && snap.siege && cores.length) drawSiegeCoreBars(ctx, VW, cores, snap.siege, t);
@@ -9929,6 +10064,8 @@ export function renderMinimap(ctx, snap, focusPids) {
   }
   for (const c of snap.crystals ?? []) if (seenAt(c.x, c.y)) dot(c.x, c.y, PAL.lythAmber, 2);
   for (const d of snap.drops ?? []) if (seenAt(d.x, d.y)) dot(d.x, d.y, PAL.lythGold, 1.5);
+  // power-up tokens: rare + short-lived, so ping them brightly in their type color
+  for (const pu of snap.powerups ?? []) dot(pu.x, pu.y, (POWERUP_STYLE[pu.type] || { color: PAL.lythPale }).color, 2.2);
   for (const b of snap.builds ?? []) {
     if (b.kind === 'wall' && b.built) continue; // already drawn as wall pixels
     if (!seenAt(b.x, b.y)) continue;

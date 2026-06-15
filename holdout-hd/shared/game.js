@@ -159,6 +159,31 @@ const SHARD_DROPS = {
 const DROP_TTL = 25;
 const MAGNET_RANGE = 2.5; // tiles
 const MAGNET_SPEED = 6; // tiles/sec
+// --- POWER-UP DROPS (Black Ops Zombies-style) -------------------------------
+// A kill VERY RARELY drops a floating power-up at the corpse; any friendly seat
+// that walks over it fires a TEAM-WIDE effect. Everything here is deterministic
+// (an FNV/LCG mix of the dying enemy's id + a per-game kill counter + elapsed,
+// the same pattern shard/stronghold/stranded placement uses) so server and
+// client agree on every roll. Untouched modes never roll a drop they keep (the
+// chance is tiny and the fields are gated everywhere), so snapshots stay byte-
+// identical until a power-up actually exists.
+const POWERUP_TTL = 12;             // seconds a floating power-up lingers
+const POWERUP_PICKUP_R = 0.9;       // tiles: walk within this to grab it
+const POWERUP_DROP_CHANCE = 0.015;  // ~1.5% base chance per kill
+const POWERUP_HORDE_MULT = 3;       // boosted x3 while the relic awakening plays
+const POWERUP_FIRESALE_T = 10;      // seconds builds/placeables cost nothing
+const POWERUP_FREESPRINT_T = 30;    // seconds sprint never drains stamina
+const POWERUP_NUKE_KILLS = 10;      // enemies a nuke deletes (fewer if <10 live)
+// Weighted rarity — Full Health most common, Nuke rarest ("one more than the
+// other"). Order fixed so the deterministic weighted pick is stable everywhere.
+const POWERUP_WEIGHTS = [
+  ['fullhealth', 40],
+  ['stamina', 25],
+  ['firesale', 18],
+  ['maxammo', 12],
+  ['nuke', 5],
+];
+const POWERUP_WEIGHT_TOTAL = POWERUP_WEIGHTS.reduce((s, w) => s + w[1], 0);
 const BUILD_RADIUS = 18; // px, built structures block movement in this circle
 const BUILD_REACH = 1.5; // tiles, act range for building and talking
 // --- inventory + placement mode (RA2-style buy-then-place) ------------------
@@ -1031,6 +1056,16 @@ export function createGame(def, party, charMap, roster) {
     winner: undefined,
     lastOut: null,
     drops: [],
+    // POWER-UP DROPS: always present (empty) so step/snapshot/serialize never
+    // branch on existence; snapshot ships the array + the two effect timers only
+    // when populated/non-zero, so every mode that never drops one stays byte-
+    // identical. powerupKills is the per-game kill counter the deterministic drop
+    // roll mixes in (separate from g.kills, which other systems already drive).
+    powerups: [],
+    nextPowerupId: 0,
+    powerupKills: 0,
+    fireSaleT: 0,    // >0: builds/placeables are free
+    freeSprintT: 0,  // >0: sprint never drains stamina
     shards: 0,
     // gate.after: optional time lock — even at full pylon quorum the Anchor
     // only opens once `after` seconds have elapsed (siege missions).
@@ -2985,6 +3020,12 @@ function killEnemy(g, e, ownerPid) {
   }
   // Every kill drops a shard pickup at the corpse. Deterministic, always.
   g.drops.push({ x: e.x, y: e.y, amount: SHARD_DROPS[e.kind] || 1, ttl: DROP_TTL });
+  // POWER-UP DROP: a kill VERY RARELY leaves a floating team-wide power-up at
+  // the corpse (boosted while the relic awakening horde plays). Fully
+  // deterministic so server and client agree on every roll. Gated entirely
+  // inside maybeDropPowerup, so untouched modes that never roll a keeper stay
+  // byte-identical.
+  maybeDropPowerup(g, e);
   // Fork Alpha: the seam parts — it ALWAYS splits into two skitters. The
   // 'split' mutation below stacks its own pair on top when rolled.
   if (e.kind === 'alpha') {
@@ -3014,6 +3055,61 @@ function killEnemy(g, e, ownerPid) {
     splitSpawn(g, e, 0);
     splitSpawn(g, e, 1);
   }
+}
+
+// True while the relic/music-box awakening wave is mid-flight — power-up drops
+// are boosted during it (recon hordeDetect).
+function hordeActive(g) {
+  return !!(g.musicBox && g.musicBox.enabled && g.horde && !g.horde.ended);
+}
+
+// POWER-UP DROP ROLL. Deterministic: an FNV/LCG mix of the dying enemy's id, a
+// per-game kill counter (g.powerupKills) and g.elapsed — the exact seed pattern
+// the shard/stronghold/stranded placement code uses — so the same kill on the
+// same frame rolls identically on the server and every client. Two LCG draws:
+// the first gates the rare drop (boosted x3 during the awakening horde), the
+// second weighted-picks the type (Full Health most common, Nuke rarest).
+// Exported as a test seam (the integrated kill path calls it internally).
+export function maybeDropPowerup(g, e) {
+  const k = g.powerupKills++;            // advance the per-game counter every kill
+  // seed identity from the enemy id + counter + elapsed (quantized to ms so the
+  // float never feeds character-by-character noise into the FNV mix)
+  const nm = 'pu' + (e.id | 0) + ':' + k + ':' + Math.round(g.elapsed * 1000);
+  let seed = 2166136261; for (let i = 0; i < nm.length; i++) { seed ^= nm.charCodeAt(i); seed = (seed * 16777619) >>> 0; }
+  const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+  const chance = POWERUP_DROP_CHANCE * (hordeActive(g) ? POWERUP_HORDE_MULT : 1);
+  if (rnd() >= chance) return;           // no drop: the common case, gated away
+  // weighted type pick — walk the cumulative weights with the second draw
+  let pick = rnd() * POWERUP_WEIGHT_TOTAL, type = POWERUP_WEIGHTS[0][0];
+  for (const [t, w] of POWERUP_WEIGHTS) { if (pick < w) { type = t; break; } pick -= w; }
+  g.powerups.push({ id: 'pu' + g.nextPowerupId++, x: e.x, y: e.y, type, ttl: POWERUP_TTL });
+  g.events.push({ type: 'powerupDrop', x: e.x, y: e.y, ptype: type });
+}
+
+// Apply a TEAM-WIDE power-up effect when a friendly seat walks over it. In co-op
+// every active seat is friendly; in team modes the picker's team benefits. The
+// effect runs entirely off existing deterministic state (no Math.random) so the
+// pickup replays byte-identically. Exported as a test seam (the walk-over pickup
+// path in step() calls it internally).
+export function triggerPowerup(g, pu, picker) {
+  const friendly = p => p.state === 'active'
+    && (picker.team === undefined || p.team === picker.team);
+  if (pu.type === 'firesale') {
+    g.fireSaleT = POWERUP_FIRESALE_T;
+  } else if (pu.type === 'stamina') {
+    g.freeSprintT = POWERUP_FREESPRINT_T;
+  } else if (pu.type === 'fullhealth') {
+    for (const p of g.players) if (friendly(p) && p.maxHp !== undefined) p.hp = p.maxHp;
+  } else if (pu.type === 'maxammo') {
+    for (const p of g.players) if (friendly(p)) maxOutPlayer(g, p.pid);
+  } else if (pu.type === 'nuke') {
+    // delete the N enemies nearest the picker (fewer if fewer are alive) — a
+    // deterministic selection that never wipes the whole field
+    const live = g.enemies.filter(en => !en.dead);
+    live.sort((a, b) => (dist2(picker, a) - dist2(picker, b)) || (a.id - b.id));
+    for (const en of live.slice(0, POWERUP_NUKE_KILLS)) damageEnemy(g, en, en.hp + 999, en.x, en.y, 'nuke', picker.pid);
+  }
+  g.events.push({ type: 'powerup', x: pu.x, y: pu.y, ptype: pu.type });
 }
 
 function damageEnemy(g, e, dmg, x, y, cause, ownerPid) {
@@ -5263,7 +5359,12 @@ function buyOffer(g, p) {
   // toxic-air levels stock a mask offer beyond the standard five
   const offers = g.shopOffers || SHOP_OFFERS;
   const o = offers[p.shopIdx || 0];
-  if (!o || getShards(g, p) < o.cost) return;
+  // FIRE SALE: while the timer runs, placeables (turret/wall/barricade) cost
+  // nothing — every other offer keeps its price. Effective cost gates both the
+  // affordability check and the debit below so the sale is fully free.
+  const free = g.fireSaleT > 0 && o && o.place && PLACEABLES[o.what];
+  const cost = free ? 0 : (o ? o.cost : 0);
+  if (!o || getShards(g, p) < cost) return;
   if (o.place && PLACEABLES[o.what]) {
     // placeables (turret/wall/barricade) land in the inventory, NOT the item
     // slot — the operative cycles inventory and enters placement mode to drop
@@ -5280,8 +5381,8 @@ function buyOffer(g, p) {
     if (p.item && p.item.kind === o.what) p.item.count += o.amount;
     else p.item = { kind: o.what, count: o.amount };
   }
-  addShards(g, p, -o.cost);
-  g.events.push({ type: 'buy', what: o.what, cost: o.cost, pid: p.pid, x: p.x, y: p.y });
+  addShards(g, p, -cost);
+  g.events.push({ type: 'buy', what: o.what, cost, pid: p.pid, x: p.x, y: p.y });
 }
 
 // --- vehicles ---------------------------------------------------------------
@@ -5658,9 +5759,11 @@ export function step(g, inputs, dt) {
       if (p.stamina === undefined) { p.stamina = STAMINA_MAX; p.staminaMax = STAMINA_MAX; }
       const wantsSprint = !!inp.sprint && !tower && !p.shopping && !p.selecting && !(p.stunT > 0);
       const moving = (inp.left || inp.right || inp.up || inp.down) && !(p.stunT > 0);
-      if (wantsSprint && moving && p.stamina > 0) {
+      // STAMINA power-up: free sprint never drains and ignores an empty meter.
+      const freeSprint = g.freeSprintT > 0;
+      if (wantsSprint && moving && (freeSprint || p.stamina > 0)) {
         sprinting = true;
-        p.stamina = Math.max(0, p.stamina - STAMINA_DRAIN * dt);
+        if (!freeSprint) p.stamina = Math.max(0, p.stamina - STAMINA_DRAIN * dt);
       } else if (p.hp >= p.maxHp && p.stamina < p.staminaMax) {
         // recovery gate: only refill when fully healed (the key constraint)
         p.stamina = Math.min(p.staminaMax, p.stamina + STAMINA_REGEN * dt);
@@ -6412,6 +6515,11 @@ export function step(g, inputs, dt) {
       // DEV instant build: finish now, free (no hold timer, no shard cost)
       delta = 1 - b.progress;
       pay = 0;
+    } else if (g.fireSaleT > 0) {
+      // FIRE SALE: keep the normal hold cadence but charge nothing — the
+      // structure builds for free while the timer runs.
+      delta = Math.min((builders * dt) / (b.cost * 0.6), 1 - b.progress);
+      pay = 0;
     } else {
       delta = Math.min((builders * dt) / (b.cost * 0.6), 1 - b.progress);
       pay = Math.min(delta * b.cost, getShards(g, builderArr[0]));
@@ -6650,6 +6758,30 @@ export function step(g, inputs, dt) {
       g.drops.splice(i, 1);
     }
   }
+
+  // --- POWER-UP DROPS: float + pulse (no magnetize — you WALK over them),
+  // despawn after their ttl, and fire a team-wide effect the instant any
+  // friendly seat steps within pickup radius. The whole block no-ops on the
+  // empty array, so untouched modes pay nothing and stay byte-identical. ---
+  for (let i = g.powerups.length - 1; i >= 0; i--) {
+    const pu = g.powerups[i];
+    pu.ttl -= dt;
+    if (pu.ttl <= 0) { g.powerups.splice(i, 1); continue; }
+    const r2 = (TILE * POWERUP_PICKUP_R) ** 2;
+    let picker = null;
+    for (const p of g.players) {
+      if (p.state !== 'active') continue;
+      if (dist2(pu, p) <= r2) { picker = p; break; }
+    }
+    if (picker) {
+      g.powerups.splice(i, 1);     // consume before firing so a nuke can't re-grab
+      triggerPowerup(g, pu, picker);
+    }
+  }
+  // POWER-UP EFFECT TIMERS: tick down each step. fireSaleT zeroes build costs;
+  // freeSprintT suppresses stamina drain (both gated at their use sites).
+  if (g.fireSaleT > 0) g.fireSaleT = Math.max(0, g.fireSaleT - dt);
+  if (g.freeSprintT > 0) g.freeSprintT = Math.max(0, g.freeSprintT - dt);
 
   // --- built turrets: each confirmed type runs its own pattern, level-scaled.
   //   gun:   projectile, dmg 1/2/3, reach 5.5/6/6.5 tiles, every 0.55s
@@ -7290,6 +7422,13 @@ export function serializeGame(g) {
 export function restoreGame(data, charMap) {
   const g = JSON.parse(JSON.stringify(data));
   g.charMap = charMap;
+  // legacy beacons (pre power-up drops) carry none of these fields — backfill the
+  // always-present gated defaults so the step/snapshot paths stay branch-free.
+  if (!g.powerups) g.powerups = [];
+  if (g.nextPowerupId === undefined) g.nextPowerupId = 0;
+  if (g.powerupKills === undefined) g.powerupKills = 0;
+  if (g.fireSaleT === undefined) g.fireSaleT = 0;
+  if (g.freeSprintT === undefined) g.freeSprintT = 0;
   // legacy beacons (pre p.lythseal) parked the seal in the item slot —
   // migrate it to its own field so the restored run can't lose it to loot
   for (const p of g.players || []) {
@@ -7365,6 +7504,13 @@ export function snapshot(g, full = true) {
     ...(g.doors.length ? { doors: g.doors.map(d => ({ id: d.id, x: d.x, y: d.y, w: d.w, h: d.h, open: d.open, ...(d.sealLock ? { sealLock: true } : {}) })) } : {}),
     crystals: g.crystals.map(c => ({ x: c.x, y: c.y, hp: c.hp })),
     drops: g.drops.map(d => ({ x: d.x, y: d.y, amount: d.amount, ttl: d.ttl })),
+    // POWER-UP DROPS + effect timers — shipped only when populated/active so
+    // every mode that never drops one keeps a byte-identical snapshot. The
+    // render pulses each floater by type; the HUD reads the timers for the
+    // Fire Sale / free-sprint banners.
+    ...(g.powerups.length ? { powerups: g.powerups.map(pu => ({ id: pu.id, x: qi(pu.x), y: qi(pu.y), type: pu.type, ttl: q1(pu.ttl) })) } : {}),
+    ...(g.fireSaleT > 0 ? { fireSaleT: q1(g.fireSaleT) } : {}),
+    ...(g.freeSprintT > 0 ? { freeSprintT: q1(g.freeSprintT) } : {}),
     npcs: g.npcs.map(n => ({ id: n.id, name: n.name, x: n.x, y: n.y })),
     // New-mode state ships only when present so classic snapshots never gain
     // a key (downstream reads all use ?? / optional chaining).
