@@ -3558,12 +3558,27 @@ function drawNpc(ctx, n, t, lights) {
 const TEAM_COL = ['#6FD8F2', '#E04848']; // ctf: team 0 relay-cyan, team 1 breach-red
 const TEAM_RGB = ['111,216,242', '224,72,72'];
 
+// Fallback carousel labels for older snapshots that ship no shopOffers (the
+// classic implicit five). Live snapshots drive the panel from snap.shopOffers
+// via shopOfferLabel, so newer stock (toxin/mask/placeables) reads correctly.
 const SHOP_OFFERS = [
   ['WEAPON TOKEN +1', 20],
   ['SHIELD +2', 12],
   ['CRACKER ×2', 8],
   ['MEDKIT', 10],
+  ['TOXIN CANISTER', 10],
 ];
+// Carousel label for one shop offer object {what, cost, amount?, place?}.
+// Placeables read as "PLACE: TURRET ×n" so the buy-then-place flow is legible.
+const SHOP_OFFER_NAMES = {
+  token: 'WEAPON TOKEN +1', shield: 'SHIELD +2', cracker: 'CRACKER', medkit: 'MEDKIT',
+  toxin: 'TOXIN CANISTER', mask: 'BREATHER MASK', turret: 'TURRET', wall: 'WALL', barricade: 'BARRICADE',
+};
+function shopOfferLabel(o) {
+  const base = SHOP_OFFER_NAMES[o.what] ?? String(o.what || '').toUpperCase();
+  const qty = (o.amount && o.amount > 1) ? ` ×${o.amount}` : '';
+  return o.place ? `PLACE: ${base}${qty}` : `${base}${qty}`;
+}
 
 // 'C' — supply cache. Closed: graphite chest with LYTH-gold banding and a
 // winking latch so it reads at range. Opened: lid thrown back, looted dark.
@@ -4208,8 +4223,13 @@ function drawShop(ctx, s, t, snap, lights) {
     if ((p.x - x) ** 2 + (p.y - y) ** 2 < (TILE * 1.5) ** 2) { shopper = p; break; }
   }
   if (!shopper) return;
-  const sel = Math.max(0, Math.min(SHOP_OFFERS.length - 1, shopper.shop.idx ?? 0));
-  const pw = 172, phh = 16 + SHOP_OFFERS.length * 14 + 14;
+  // Live offers ride the snapshot (so toxin/mask/placeables show + cycle right);
+  // older snapshots without the key fall back to the classic implicit list.
+  const offers = (snap.shopOffers && snap.shopOffers.length)
+    ? snap.shopOffers.map(o => [shopOfferLabel(o), o.cost])
+    : SHOP_OFFERS;
+  const sel = Math.max(0, Math.min(offers.length - 1, shopper.shop.idx ?? 0));
+  const pw = 172, phh = 16 + offers.length * 14 + 14;
   const px = x - pw / 2, py = y - 36 - phh;
   ctx.save();
   ctx.fillStyle = 'rgba(13,14,24,0.92)';
@@ -4221,7 +4241,7 @@ function drawShop(ctx, s, t, snap, lights) {
   ctx.textAlign = 'left';
   ctx.fillStyle = PAL.teal;
   ctx.fillText('FRONTIER TRADER', px + 8, py + 11);
-  SHOP_OFFERS.forEach(([label, cost], i) => {
+  offers.forEach(([label, cost], i) => {
     const ry = py + 16 + i * 14;
     if (i === sel) {
       ctx.fillStyle = 'rgba(111,216,242,0.14)';
@@ -7012,6 +7032,125 @@ function drawBuild(ctx, b, t, snap, lights) {
   ctx.restore();
 }
 
+// --- RA2 buy-then-place ghost preview (world space) -------------------------
+// The sim already snaps p.ghostX/ghostY to a tile center and clamps it to reach;
+// here we draw a translucent holo of the placeable plus a valid/invalid tile
+// tint. A lightweight client-side validity check mirrors the sim's canPlaceAt
+// intent (open ground, clear of builds/core/enemies) — purely cosmetic, so a
+// disagreement just mis-tints one frame, never the actual placement.
+const GHOST_BUILD_R = 18, GHOST_CORE_R = 18, GHOST_ENEMY_R = 14;
+function ghostTilePlaceable(snap, x, y) {
+  const gx = Math.floor(x / TILE), gy = Math.floor(y / TILE);
+  const c = snap.grid?.[gy]?.[gx];
+  if (c === undefined || c === '#' || c === 'T' || c === '~' || c === 'o' || c === '%') return false;
+  const rr = (GHOST_BUILD_R * 2) ** 2;
+  for (const b of snap.builds ?? []) if ((b.x - x) ** 2 + (b.y - y) ** 2 < rr) return false;
+  if (snap.core && (snap.core.x - x) ** 2 + (snap.core.y - y) ** 2 < (GHOST_CORE_R + GHOST_BUILD_R) ** 2) return false;
+  const er = (GHOST_ENEMY_R + GHOST_BUILD_R) ** 2;
+  for (const e of snap.enemies ?? []) if (!e.dead && (e.x - x) ** 2 + (e.y - y) ** 2 < er) return false;
+  return true;
+}
+function tintTile(ctx, x, y, ok, t) {
+  const gx = Math.floor(x / TILE) * TILE, gy = Math.floor(y / TILE) * TILE;
+  const pulse = 0.18 + 0.07 * Math.sin(t * 4);
+  ctx.fillStyle = ok ? `rgba(95,210,180,${pulse})` : `rgba(224,90,90,${pulse})`;
+  ctx.fillRect(gx + 2, gy + 2, TILE - 4, TILE - 4);
+  ctx.strokeStyle = ok ? 'rgba(95,210,180,0.85)' : 'rgba(224,90,90,0.85)';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(gx + 2, gy + 2, TILE - 4, TILE - 4);
+}
+function drawGhostHolo(ctx, kind, x, y, ok) {
+  ctx.save();
+  ctx.globalAlpha = 0.5;
+  ctx.strokeStyle = ok ? PAL.pylonBlue : 'rgba(224,90,90,0.9)';
+  ctx.fillStyle = ok ? 'rgba(62,143,224,0.22)' : 'rgba(224,90,90,0.18)';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([4, 3]);
+  holoShape(ctx, kind === 'wall' ? 'wall' : kind === 'turret' ? 'turret' : 'barricade', x, y);
+  ctx.restore();
+}
+// Draw one operative's live placement ghost. `me` is a snapshot player carrying
+// `placing` (+ ghostX/ghostY, and wallAnchorX/Y once a wall anchor is dropped).
+function drawPlacementGhost(ctx, snap, me, t) {
+  if (!me.placing || me.ghostX === undefined || me.ghostY === undefined) return;
+  const kind = me.placing;
+  if (kind === 'wall' && me.wallAnchorX !== undefined) {
+    // RA2 drag-line: preview the connected run from the anchor to the cursor,
+    // favoring the longer axis exactly like the sim's wallLineTiles.
+    const ax = Math.floor(me.wallAnchorX / TILE), ay = Math.floor(me.wallAnchorY / TILE);
+    const cx = Math.floor(me.ghostX / TILE), cy = Math.floor(me.ghostY / TILE);
+    const ddx = cx - ax, ddy = cy - ay;
+    const horiz = Math.abs(ddx) >= Math.abs(ddy);
+    const len = Math.min(11, horiz ? Math.abs(ddx) : Math.abs(ddy)); // WALL_LINE_MAX-1
+    const step = horiz ? Math.sign(ddx) : Math.sign(ddy);
+    for (let i = 0; i <= len; i++) {
+      const tx = horiz ? ax + step * i : ax;
+      const ty = horiz ? ay : ay + step * i;
+      const wx = (tx + 0.5) * TILE, wy = (ty + 0.5) * TILE;
+      const ok = ghostTilePlaceable(snap, wx, wy);
+      tintTile(ctx, wx, wy, ok, t);
+      drawGhostHolo(ctx, 'wall', wx, wy, ok);
+    }
+    return;
+  }
+  const ok = ghostTilePlaceable(snap, me.ghostX, me.ghostY);
+  tintTile(ctx, me.ghostX, me.ghostY, ok, t);
+  drawGhostHolo(ctx, kind, me.ghostX, me.ghostY, ok);
+  // a wall awaiting its anchor drop hints the first-click step
+  if (kind === 'wall' && me.wallAnchorX === undefined) {
+    ctx.save();
+    ctx.font = 'bold 8px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(191,208,232,0.85)';
+    ctx.fillText('ANCHOR', me.ghostX, me.ghostY - 22);
+    ctx.restore();
+  }
+}
+
+// Superweapon KILL RADII (tiles) — mirror the sim's NUKE_RADIUS / STORM_RADIUS so
+// the targeting circle matches the real blast. Render-only; kept local so this
+// stays a client/render change with no sim contract added.
+const SUPER_KILL_TILES = { nuke: 4.5, weather: 5.0 };
+// Targeting reticle + kill-radius ring drawn in WORLD space at the tile the owner
+// is hovering with the mouse. Gated by the caller to a READY device whose owner is
+// a local focus seat, so it never appears for non-owners or spent/charging states.
+// Snaps to tile center exactly like the sim's tileCenter, so the ring shows the
+// true impact footprint. `wx/wy` are world coords (already snapped by the caller).
+function drawSuperTargetReticle(ctx, sw, wx, wy, t) {
+  const weather = sw.type === 'weather';
+  const col = weather ? '#9fd0ff' : '#ffae5a';
+  const r = (SUPER_KILL_TILES[sw.type] ?? 4.5) * TILE;
+  const pulse = 0.5 + 0.5 * Math.sin(t * 5);
+  ctx.save();
+  // kill-radius footprint: a filled-then-stroked danger circle
+  ctx.fillStyle = weather ? 'rgba(159,208,255,0.10)' : 'rgba(255,120,60,0.12)';
+  ctx.beginPath(); ctx.arc(wx, wy, r, 0, Math.PI * 2); ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.setLineDash([8, 6]);
+  ctx.lineDashOffset = -t * 24; // slow rotation of the dashes
+  ctx.strokeStyle = `rgba(${weather ? '159,208,255' : '255,120,60'},${0.55 + 0.35 * pulse})`;
+  ctx.beginPath(); ctx.arc(wx, wy, r, 0, Math.PI * 2); ctx.stroke();
+  ctx.setLineDash([]);
+  // crosshair reticle on the target cell
+  ctx.shadowColor = col; ctx.shadowBlur = 6;
+  ctx.strokeStyle = col;
+  ctx.lineWidth = 1.6;
+  const a = 14, b = 5;
+  ctx.beginPath();
+  ctx.moveTo(wx - a, wy); ctx.lineTo(wx - b, wy);
+  ctx.moveTo(wx + b, wy); ctx.lineTo(wx + a, wy);
+  ctx.moveTo(wx, wy - a); ctx.lineTo(wx, wy - b);
+  ctx.moveTo(wx, wy + b); ctx.lineTo(wx, wy + a);
+  ctx.stroke();
+  ctx.beginPath(); ctx.arc(wx, wy, 4 + pulse, 0, Math.PI * 2); ctx.stroke();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = col; ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center';
+  ctx.fillText(weather ? 'STORM TARGET' : 'NUKE TARGET', wx, wy - r - 6);
+  ctx.fillStyle = 'rgba(240,201,76,0.9)';
+  ctx.fillText('FIRE TO LAUNCH', wx, wy + r + 14);
+  ctx.restore();
+}
+
 // ============================== THE ANCHOR ==============================
 // 2-tile graphite monolith; dormant until the relay quorum is met.
 function drawAnchor(ctx, cx, baseY, gate, t, lights) {
@@ -7308,6 +7447,25 @@ function camInView(camera, x, y, m = 70) {
 
 function camToScreen(camera, x, y) {
   return [(x - camera.x) * camera.z + camera.vw / 2, (y - camera.y) * camera.z + camera.vh / 2];
+}
+
+// Inverse of camToScreen: a canvas-pixel point -> world coords. Used by the
+// client to drive the placement/superweapon aim cursor from the mouse. Reads
+// the SHARED camera, which renderViews keeps warm every frame (single view it
+// IS the active camera; split-screen it tracks the union focus). Returns null
+// until the camera has rendered at least once (vw/vh seeded from the canvas).
+export function screenToWorld(px, py) {
+  if (!cam.vw || !cam.vh) return null;
+  return { x: cam.x + (px - cam.vw / 2) / cam.z, y: cam.y + (py - cam.vh / 2) / cam.z };
+}
+
+// Latest pointer position in CANVAS-pixel space, pushed by the client each frame
+// so the world-space superweapon targeting reticle can be drawn through each
+// view's OWN camera (split-screen safe). Null until the mouse moves / on leave;
+// the reticle then falls back to the device's snapshot target where available.
+let aimScreen = null;
+export function setAimScreen(px, py) {
+  aimScreen = (px == null || py == null) ? null : { x: px, y: py };
 }
 
 // Exit tiles never move; scan the grid once per level.
@@ -7695,6 +7853,23 @@ function drawRelicHud(ctx, VW, horde, t) {
 // RELIC SUPERWEAPON HUD: the publicly-visible charge countdown / ready banner
 // (RA2's silo timer, shown to the whole squad). Drawn only while a device is
 // charging or armed — once it fires (spent/wrecked) the panel drops away.
+// Build-available hint: shown once the awakening was survived (superweaponUnlocked)
+// but no device exists yet — points the player at the pause-menu build entry. A
+// small unobtrusive banner, gated by the caller so classic runs never see it.
+function drawSuperweaponBuildHint(ctx, VW, t) {
+  ctx.save();
+  ctx.textAlign = 'center';
+  const pulse = 0.55 + 0.35 * Math.sin(t * 3);
+  ctx.font = 'bold 11px monospace';
+  ctx.fillStyle = `rgba(240,201,76,${pulse})`;
+  ctx.shadowColor = '#F0C94C'; ctx.shadowBlur = 6;
+  ctx.fillText('RELIC SUPERWEAPON UNLOCKED', VW / 2, 198);
+  ctx.shadowBlur = 0;
+  ctx.font = 'bold 9px monospace';
+  ctx.fillStyle = 'rgba(191,208,232,0.85)';
+  ctx.fillText('PAUSE → BUILD SUPERWEAPON', VW / 2, 212);
+  ctx.restore();
+}
 function drawSuperweaponHud(ctx, VW, sw, t) {
   if (!sw || (sw.state !== 'charging' && sw.state !== 'ready' && sw.state !== 'building')) return;
   const weather = sw.type === 'weather';
@@ -7720,6 +7895,60 @@ function drawSuperweaponHud(ctx, VW, sw, t) {
   } else {
     ctx.font = 'bold 12px monospace'; ctx.fillStyle = col;
     ctx.fillText('ASSEMBLING…', VW / 2, y + 36);
+  }
+  ctx.restore();
+}
+
+// RA2 buy-then-place INVENTORY BAR: one slot per placeable the local operative
+// carries (icon + count), the selected slot (invIdx) ringed gold. While placing,
+// a "FIRE PLACE / SPECIAL CANCEL" hint sits above it. Gated by the caller to a
+// seat that actually has inventory, so classic seats draw nothing. Drawn in this
+// view's screen space (VW/VH are this cell's dims).
+function drawInventoryBar(ctx, VW, VH, me, t) {
+  const inv = me.inventory;
+  if (!inv || !inv.length) return;
+  const sel = me.invIdx || 0;
+  const placing = !!me.placing;
+  const sw = 52, sh = 46, gap = 6;
+  const totalW = inv.length * sw + (inv.length - 1) * gap;
+  const x0 = VW / 2 - totalW / 2;
+  const y0 = VH - 86;
+  ctx.save();
+  ctx.textAlign = 'center';
+  for (let i = 0; i < inv.length; i++) {
+    const slot = inv[i];
+    const x = x0 + i * (sw + gap);
+    const on = i === sel;
+    ctx.fillStyle = 'rgba(8,12,20,0.82)';
+    ctx.fillRect(x, y0, sw, sh);
+    ctx.lineWidth = on ? 2 : 1;
+    ctx.strokeStyle = on ? `rgba(240,201,76,${0.7 + 0.3 * Math.sin(t * 5)})` : 'rgba(111,216,242,0.4)';
+    ctx.strokeRect(x, y0, sw, sh);
+    // tiny holo icon, centered in the slot
+    ctx.save();
+    ctx.translate(x + sw / 2, y0 + 18);
+    ctx.scale(0.7, 0.7);
+    ctx.globalAlpha = on ? 0.95 : 0.7;
+    ctx.strokeStyle = on ? PAL.lythGold : PAL.pylonBlue;
+    ctx.fillStyle = 'rgba(62,143,224,0.18)';
+    ctx.lineWidth = 1.4;
+    holoShape(ctx, slot.kind, 0, 4);
+    ctx.restore();
+    ctx.font = 'bold 10px monospace';
+    ctx.fillStyle = on ? '#F0C94C' : 'rgba(191,208,232,0.9)';
+    ctx.fillText(`${slot.kind.slice(0, 4).toUpperCase()} ${slot.count}`, x + sw / 2, y0 + sh - 6);
+  }
+  ctx.font = 'bold 11px monospace';
+  if (placing) {
+    ctx.fillStyle = `rgba(240,201,76,${0.7 + 0.25 * Math.sin(t * 4)})`;
+    const hint = me.placing === 'wall' && me.wallAnchorX === undefined
+      ? 'FIRE SET ANCHOR   ·   SPECIAL CANCEL'
+      : 'FIRE PLACE   ·   SPECIAL CANCEL';
+    ctx.fillText(hint, VW / 2, y0 - 8);
+  } else {
+    // discoverability for the buy-then-place loop (default binds: C / B / LB / LT)
+    ctx.fillStyle = 'rgba(150,168,196,0.85)';
+    ctx.fillText('[C/LB] CYCLE   ·   [B/LT] PLACE', VW / 2, y0 - 8);
   }
   ctx.restore();
 }
@@ -8590,6 +8819,37 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
     }
   }
 
+  // --- RA2 buy-then-place ghost: each local seat mid-placement previews its
+  // tile-snapped structure (and a wall's drag-line) over the world. Gated by
+  // p.placing, which only the placing seat ever carries, so classic frames and
+  // non-placing seats draw nothing. Drawn for focus seats only: split cells get
+  // their own seat's ghost; the shared view shows the local operative's. ---
+  for (const p of snap.players) {
+    if (!p.placing || !focus.has(p.pid)) continue;
+    drawPlacementGhost(ctx, snap, p, t);
+  }
+
+  // --- SUPERWEAPON TARGETING reticle: when a READY device's owner is a local
+  // focus seat, draw the crosshair + kill-radius ring at the hovered tile. Gated
+  // on snap.superweapon.state === 'ready' and ownership, so non-owners and every
+  // other state (charging/spent/wrecked) draw nothing. The aim point comes from
+  // the shared pointer, run through THIS view's camera so split cells stay true,
+  // and snapped to tile center to match the sim's tileCenter target. ---
+  {
+    const sw = snap.superweapon;
+    if (sw && sw.state === 'ready' && focus.has(sw.ownerPid) && aimScreen) {
+      // inverse of the world transform for this cell (base z, ignoring the brief
+      // punch kick): full-canvas px -> view-local px -> world coords.
+      const sx = aimScreen.x - (clipped ? rect.x : 0);
+      const sy = aimScreen.y - (clipped ? rect.y : 0);
+      const awx = camera.x + (sx - VW / 2) / z;
+      const awy = camera.y + (sy - VH / 2) / z;
+      const tx = (Math.floor(awx / TILE) + 0.5) * TILE;
+      const ty = (Math.floor(awy / TILE) + 0.5) * TILE;
+      drawSuperTargetReticle(ctx, sw, tx, ty, t);
+    }
+  }
+
   // --- BR shrink zone: cyan wall closing in, the outside dimmed ---
   if (zone && (zone.r ?? 0) > 0) {
     const vx0 = (tx0 - 1) * TILE, vy0 = (ty0 - 1) * TILE;
@@ -9313,6 +9573,7 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
     // RELIC AWAKENING HUD: the wave timer + the live bonus, center-top
     if (snap.horde && snap.horde.active) drawRelicHud(ctx, VW, snap.horde, t);
     if (snap.superweapon) drawSuperweaponHud(ctx, VW, snap.superweapon, t);
+    else if (snap.superweaponUnlocked) drawSuperweaponBuildHint(ctx, VW, t);
 
     // big blinking countdown (wave inbound / zone shrink / sudden death)
     drawCountdownBanner(ctx, VW, snap, t);
@@ -9383,6 +9644,17 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
     ctx.fillText(label, VW / 2, y);
     ctx.shadowBlur = 0;
     pickRow++;
+  }
+
+  // --- RA2 buy-then-place INVENTORY BAR: the local operative's placeable deck.
+  // Split cells draw their own seat's bar (view.pid); the shared view picks the
+  // first focus seat that carries inventory. Gated: nothing draws unless that
+  // seat actually has p.inventory, so classic seats keep a clean HUD. ---
+  {
+    const invMe = view.pid != null
+      ? snap.players.find(p => p.pid === view.pid)
+      : snap.players.find(p => focus.has(p.pid) && p.inventory && p.inventory.length);
+    if (invMe && invMe.inventory && invMe.inventory.length) drawInventoryBar(ctx, VW, VH, invMe, t);
   }
 
   // --- seat chip: the cell owner's name + hearts, pinned in-cell ---
@@ -9477,6 +9749,7 @@ function drawGlobalScreenFx(ctx, snap, t, VW, VH) {
   ctx.globalAlpha = 1;
   if (snap.horde && snap.horde.active) drawRelicHud(ctx, VW, snap.horde, t);
   if (snap.superweapon) drawSuperweaponHud(ctx, VW, snap.superweapon, t);
+  else if (snap.superweaponUnlocked) drawSuperweaponBuildHint(ctx, VW, t);
   drawCountdownBanner(ctx, VW, snap, t);
   const cores = snap.cores ?? [];
   if (cores.length > 1) drawBeaconPips(ctx, VW, cores, t);

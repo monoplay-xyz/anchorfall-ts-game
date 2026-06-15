@@ -435,6 +435,18 @@ const STRONGHOLD_GARRISON = 'ggrsa'; // default garrison letters (guards + defen
 // 0.5 hp per 4s until the deadline. The mask item is persistent once worn.
 const TOXIC_AIR_TICK = 4;
 const MASK_OFFER = { what: 'mask', cost: 10, amount: 1 };
+// RA2 buy-then-place stock: defense maps (bastion/stronghold) stall a deck of
+// placeable structures beyond the standard five. `place: true` routes them
+// through addToInventory (see buyOffer) — the operative then cycles inventory
+// (inp.invSel) and enters placement mode (inp.place) to drop them. Costs match
+// PLACEABLES (turret 8, wall 5/segment x3, barricade 4). Appended the same way
+// MASK_OFFER is, so classic/PvP stalls keep the implicit five and stay byte-
+// stable on the wire.
+const PLACEABLE_OFFERS = [
+  { what: 'turret', cost: 8, place: true },
+  { what: 'wall', cost: 5, amount: 3, place: true, drag: true },
+  { what: 'barricade', cost: 4, place: true },
+];
 // --- Map THEMES (def.theme): one named look+hazard preset that re-skins the
 // whole environment so a level reads as "a lava map / a toxic map" etc. A
 // theme pre-fills g.dark, g.weather and the deterministic ambient hazard at
@@ -828,6 +840,12 @@ export function createGame(def, party, charMap, roster) {
     : (tdef && tdef.ambientHazard ? { ...tdef.ambientHazard } : null);
   // any ambient hazard with an immuneItem stocks that item in the stall.
   const stockMask = !!(ambientHazard && ambientHazard.immuneItem === 'mask');
+  // Defense maps (bastion/stronghold) stock the RA2 buy-then-place deck so the
+  // turret/wall/barricade placement loop is reachable in normal play. PvP and
+  // classic survival stalls keep the implicit five (byte-stable on the wire).
+  const stockPlaceables = def.mode === 'bastion';
+  const shopOffers = (stockMask ? SHOP_OFFERS.concat([MASK_OFFER]) : SHOP_OFFERS)
+    .concat(stockPlaceables ? PLACEABLE_OFFERS : []);
 
   const g = {
     name: def.name || 'Untitled',
@@ -892,7 +910,7 @@ export function createGame(def, party, charMap, roster) {
           r: tdef.ambientPatches.r || 1.2, ttl: tdef.ambientPatches.ttl || 4,
           cap: tdef.ambientPatches.cap || 4, patchT: tdef.ambientPatches.everySec || 4, patchN: 0 }
       : null,
-    shopOffers: stockMask ? SHOP_OFFERS.concat([MASK_OFFER]) : SHOP_OFFERS,
+    shopOffers,
     crackers: [],
     // ground patches (burn/toxin) and hired combat followers. Always present;
     // snapshots only ship them when populated, so classics never gain a key.

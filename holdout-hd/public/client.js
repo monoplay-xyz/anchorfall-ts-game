@@ -121,16 +121,70 @@ addEventListener('keydown', e => {
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
 
+// ---------- mouse aim (placement / superweapon targeting) ----------
+// The latest pointer position in CANVAS-pixel space (the logical resolution the
+// camera renders at, not CSS px). Converted to world coords on demand via the
+// renderer's shared camera (renderMod.screenToWorld). Null until the mouse has
+// moved over the canvas, so controller-only couches never feed an aim point and
+// the sim falls back to arrow/stick stepping (placementCursor handles both).
+let mouseCanvas = null;
+function trackMouse(e) {
+  const r = canvas.getBoundingClientRect();
+  if (r.width < 1 || r.height < 1) return;
+  mouseCanvas = {
+    x: (e.clientX - r.left) * (canvas.width / r.width),
+    y: (e.clientY - r.top) * (canvas.height / r.height),
+  };
+}
+canvas.addEventListener('mousemove', trackMouse);
+canvas.addEventListener('mouseleave', () => { mouseCanvas = null; });
+// World-space aim point for the local placement/targeting cursor, or null when
+// no mouse is active. Folded into the per-seat input as inp.aimX/inp.aimY.
+function mouseAimWorld() {
+  if (!mouseCanvas || typeof renderMod.screenToWorld !== 'function') return null;
+  return renderMod.screenToWorld(mouseCanvas.x, mouseCanvas.y);
+}
+// The two relic superweapon kinds the sim accepts on inp.superBuild (mirrors the
+// sim's SUPER_KINDS; kept local so this stays a client-only change).
+const SUPER_KINDS = new Set(['nuke', 'weather']);
+// True once a player survived the relic awakening AND no device exists yet: the
+// seat may channel a one-shot nuke/weather machine. Drives the pause-menu build
+// entry + the on-screen hint; the sim no-ops inp.superBuild until then anyway.
+function seatCanBuildSuper(snap) {
+  return !!(snap && snap.superweaponUnlocked && !snap.superweapon);
+}
+// True when an armed superweapon is awaiting a target AND this seat is its owner
+// (only the owner may fire). Drives the targeting reticle + the superFire input.
+function seatCanFireSuper(snap, pid) {
+  const sw = snap && snap.superweapon;
+  return !!(sw && sw.state === 'ready' && sw.ownerPid === pid);
+}
+// A seat only needs the mouse aim point while it is actually placing a structure
+// or while THIS seat owns an armed superweapon awaiting a target — so we never
+// spend uplink bytes on aim during ordinary play. The sim ignores aim outside
+// those modes anyway; this just keeps the input message lean.
+function seatNeedsAim(snap, pid) {
+  if (!snap) return false;
+  const me = snap.players?.find(p => p.pid === pid);
+  if (me && me.placing) return true;
+  return seatCanFireSuper(snap, pid);
+}
+
 // E = interact (matches the on-screen [E/X] prompts), F = special, Q = item,
 // hold Tab/M/SELECT = full map. These are the DEFAULTS — the Settings remap
 // screen stores per-device overrides in localStorage and applyBinds() builds
 // the live KB1/KB2/PADMAP tables from defaults + overrides.
-const KB1_DEF = { up: ['KeyW'], down: ['KeyS'], left: ['KeyA'], right: ['KeyD'], fire: ['Space'], special: ['KeyF'], act: ['KeyE'], item: ['KeyQ'], start: ['Escape'], map: ['Tab'] };
+// invSel (C) cycles the placeable inventory; place (B = Build) enters placement
+// mode — both inert until the seat carries a bought placeable (the sim gates
+// them), so they never disturb classic play. Neither key collides with the
+// existing KB1 binds.
+const KB1_DEF = { up: ['KeyW'], down: ['KeyS'], left: ['KeyA'], right: ['KeyD'], fire: ['Space'], special: ['KeyF'], act: ['KeyE'], item: ['KeyQ'], start: ['Escape'], map: ['Tab'], invSel: ['KeyC'], place: ['KeyB'] };
 // KB2 pauses with Backspace (a shared Escape would emit start on BOTH seats at once)
-const KB2_DEF = { up: ['ArrowUp'], down: ['ArrowDown'], left: ['ArrowLeft'], right: ['ArrowRight'], fire: ['Enter'], special: ['ShiftRight'], act: ['Slash'], item: ['Period'], start: ['Backspace'], map: ['KeyM'] };
-// Pad button indices (standard mapping); button 8 = Select/Back holds the map
-const PAD_DEF = { up: [12], down: [13], left: [14], right: [15], fire: [0, 7], special: [1, 5], act: [2], item: [3], start: [9], map: [8] };
-const ACTIONS = ['up', 'down', 'left', 'right', 'fire', 'special', 'act', 'item', 'start', 'map'];
+const KB2_DEF = { up: ['ArrowUp'], down: ['ArrowDown'], left: ['ArrowLeft'], right: ['ArrowRight'], fire: ['Enter'], special: ['ShiftRight'], act: ['Slash'], item: ['Period'], start: ['Backspace'], map: ['KeyM'], invSel: ['Comma'], place: ['KeyN'] };
+// Pad button indices (standard mapping); button 8 = Select/Back holds the map.
+// invSel = LB (4), place = LT (6): the two free shoulder buttons.
+const PAD_DEF = { up: [12], down: [13], left: [14], right: [15], fire: [0, 7], special: [1, 5], act: [2], item: [3], start: [9], map: [8], invSel: [4], place: [6] };
+const ACTIONS = ['up', 'down', 'left', 'right', 'fire', 'special', 'act', 'item', 'start', 'map', 'invSel', 'place'];
 const BIND_KEY = 'holdout-hd.binds'; // { kb1:{action:code}, kb2:{...}, pad:{action:btnIdx} }
 let binds = {};
 try { binds = JSON.parse(localStorage.getItem(BIND_KEY)) || {}; } catch {}
@@ -178,6 +232,8 @@ function readPad(i) {
     item: b('item'), // Y
     start: b('start'),
     map: b('map'),
+    invSel: b('invSel'), // LB: cycle placeable inventory
+    place: b('place'),   // LT: enter/confirm placement mode
   };
 }
 
@@ -327,14 +383,21 @@ function applyPromptGlyph() {
 
 // Online play: one player per machine, so any device drives them. `exclude`
 // drops devices the leave dialog has captured for menu navigation.
-function mergedInput(exclude) {
-  const o = { up: false, down: false, left: false, right: false, fire: false, special: false, act: false, item: false };
+function mergedInput(exclude, needAim) {
+  const o = { up: false, down: false, left: false, right: false, fire: false, special: false, act: false, item: false, invSel: false, place: false };
   for (const id of DEVICES) {
     if (exclude?.has(id)) continue;
     const c = readDevice(id);
     if (!c) continue;
     o.up ||= c.up; o.down ||= c.down; o.left ||= c.left; o.right ||= c.right;
     o.fire ||= c.fire; o.special ||= c.special; o.act ||= c.act; o.item ||= c.item;
+    o.invSel ||= c.invSel; o.place ||= c.place;
+  }
+  // one operative per machine: the mouse drives its aim cursor, but only while
+  // it is placing/targeting (the caller passes the gate) — no idle uplink aim
+  if (needAim) {
+    const aim = mouseAimWorld();
+    if (aim) { o.aimX = aim.x; o.aimY = aim.y; }
   }
   return o;
 }
@@ -1880,6 +1943,11 @@ class LocalSession {
   openPauseRoot() {
     this.paused = true; // re-assert across closePauseUi when returning from a sub-panel
     const items = [{ label: 'Resume', onPick: () => closePauseUi() }];
+    // Relic superweapon (NORMAL play): once the awakening was survived and no
+    // device exists, any player may channel the one-shot nuke/weather machine.
+    // Routes through inp.superBuild (works online + couch), unlike the dev cheat
+    // which mutates the sim directly. Gated so classic runs never see it.
+    if (seatCanBuildSuper(this.snap)) items.push({ label: 'Build Superweapon', onPick: () => this.openSuperBuildMenu() });
     // Cheats (Dev): SOLO OFFLINE single-player only — never online/co-op/versus
     if (this.cheatsAvailable()) items.push({ label: 'Cheats (Dev)', onPick: () => this.openCheatMenu() });
     if (this.canSaveQuit()) items.push({ label: 'Save & Quit', ghost: true, onPick: () => this.saveQuit() });
@@ -1898,6 +1966,35 @@ class LocalSession {
       },
     });
   }
+  // Build Superweapon (NORMAL play): pick nuke or weather machine, then queue a
+  // one-shot inp.superBuild edge for the local seat. The sim assembles the device
+  // on that seat's tile over a 6s standing channel (keep your operative there).
+  // Unlike the dev cheat (which mutates g directly), this routes through the input
+  // contract so it behaves identically in couch + online play. Gated by the
+  // caller to seatCanBuildSuper, so it never appears outside an unlocked run.
+  openSuperBuildMenu() {
+    this.paused = true; // re-assert across closePauseUi when sub-panel re-enters
+    const queue = kind => { this.queueSuperBuild(kind); closePauseUi(); };
+    openPauseUi({
+      title: 'Build Superweapon',
+      body: 'The relic grants ONE doomsday device. Pick a site near your operative, then stand on it for ~6s to assemble — enemies will rush it.',
+      hint: 'UP/DOWN picks · FIRE confirms · START / ESC / B backs out',
+      items: [
+        { label: 'Nuclear Missile Silo', onPick: () => queue('nuke') },
+        { label: 'Weather Control Device', onPick: () => queue('weather') },
+        { label: 'Back', ghost: true, onPick: () => this.openPauseRoot() },
+      ],
+      onBack: () => this.openPauseRoot(),
+      onClose: () => {
+        this.paused = false;
+        this.fireSquelch = new Set(DEVICES.filter(d => prevDev[d]?.fire));
+      },
+    });
+  }
+  // Queue a one-shot superBuild edge for the local primary seat. tick() drains it
+  // into that seat's input on the very next step and clears it, so the sim sees a
+  // single rising edge of inp.superBuild (matching the dev/keybind contract).
+  queueSuperBuild(kind) { if (SUPER_KINDS.has(kind)) this.pendingSuperBuild = kind; }
   // Dev cheats are gated to a SOLO OFFLINE run: a LocalSession (never the online
   // NetSession), a single human seat, and never a versus mode (ctf/br/siege).
   // Demo/attract runs never see it either.
@@ -2087,8 +2184,27 @@ class LocalSession {
         else this.fireSquelch.delete(p.device);
       }
       inputs[p.pid] = st
-        ? { up: st.up, down: st.down, left: st.left, right: st.right, fire, special: st.special, act: st.act, item: st.item }
+        ? { up: st.up, down: st.down, left: st.left, right: st.right, fire, special: st.special, act: st.act, item: st.item, invSel: st.invSel, place: st.place }
         : {};
+      // mouse aim drives the placement/targeting ghost, but only for keyboard
+      // seats that are actually placing/targeting: a gamepad seat keeps arrow/
+      // stick stepping (placementCursor would otherwise be yanked to the shared
+      // pointer), and idle seats spend no aim at all.
+      if (st && p.device.startsWith('kb') && seatNeedsAim(this.snap, p.pid)) {
+        const aim = mouseAimWorld();
+        if (aim) { inputs[p.pid].aimX = aim.x; inputs[p.pid].aimY = aim.y; }
+      }
+      // SUPERWEAPON LAUNCH: when this seat owns a READY device, its fire button
+      // doubles as the target-confirm — the sim edge-fires once with the aim
+      // point above, then the device is spent and this whole branch goes dark.
+      if (st && seatCanFireSuper(this.snap, p.pid)) inputs[p.pid].superFire = fire;
+    }
+    // BUILD: drain a one-shot superBuild queued by the pause-menu build entry into
+    // the local primary seat's input — a single rising edge the sim acts on once.
+    if (this.pendingSuperBuild) {
+      const pid = this.primaryPid();
+      (inputs[pid] ||= {}).superBuild = this.pendingSuperBuild;
+      this.pendingSuperBuild = null;
     }
     step(this.game, inputs, dt);
     this.snap = snapshot(this.game);
@@ -2527,11 +2643,15 @@ class NetSession {
       } else {
         // mouse-only machine: any device drives the primary (legacy form);
         // devices navigating the leave dialog are excluded while it is up
-        const o = mergedInput(this.menuDevs);
+        const o = mergedInput(this.menuDevs, seatNeedsAim(this.snap, this.myPid));
         if (this.fireSquelch?.size) {
           for (const dev of [...this.fireSquelch]) if (!readDevice(dev)?.fire) this.fireSquelch.delete(dev);
           if (this.fireSquelch.size) o.fire = false;
         }
+        // SUPERWEAPON LAUNCH: the ready device's owner fires with its fire edge.
+        if (seatCanFireSuper(this.snap, this.myPid)) o.superFire = o.fire;
+        // BUILD: drain a queued one-shot build edge for this connection's player.
+        if (this.pendingSuperBuild) { o.superBuild = this.pendingSuperBuild; this.pendingSuperBuild = null; }
         this.ws.send(JSON.stringify({ t: 'input', input: o }));
       }
     }, 33); // ~30Hz to match the server tick (was 20Hz) — removes ~50ms input latency
@@ -2641,7 +2761,22 @@ class NetSession {
       if (fire) fire = false; // held since a cutscene was dismissed
       else this.fireSquelch.delete(dev);
     }
-    return { up: c.up, down: c.down, left: c.left, right: c.right, fire, special: c.special, act: c.act, item: c.item };
+    const pid = this.seats.get(dev);
+    const o = { up: c.up, down: c.down, left: c.left, right: c.right, fire, special: c.special, act: c.act, item: c.item, invSel: c.invSel, place: c.place };
+    // online couch: the lone pointer aims keyboard seats only (pad seats step),
+    // and only while that seat is placing/targeting
+    if (dev.startsWith('kb') && seatNeedsAim(this.snap, pid)) {
+      const aim = mouseAimWorld();
+      if (aim) { o.aimX = aim.x; o.aimY = aim.y; }
+    }
+    // SUPERWEAPON LAUNCH: a ready device's owner fires with its normal fire edge.
+    if (seatCanFireSuper(this.snap, pid)) o.superFire = fire;
+    // BUILD: drain a queued one-shot build into the primary seat's uplink only.
+    if (this.pendingSuperBuild && pid === this.primaryPid()) {
+      o.superBuild = this.pendingSuperBuild;
+      this.pendingSuperBuild = null;
+    }
+    return o;
   }
   onMsg(m) {
     if (m.t === 'joined') {
@@ -3048,6 +3183,11 @@ class NetSession {
       hint: 'UP/DOWN picks · FIRE confirms · START / ESC / B keeps playing',
       items: [
         { label: 'Keep Playing', onPick: () => closePauseUi() },
+        // Relic superweapon (online): once unlocked and none built, queue a
+        // one-shot build edge — the server assembles it on the seat's tile. The
+        // match keeps running, so the dialog just dispatches and dismisses.
+        ...(seatCanBuildSuper(this.snap) ? [{ label: 'Build Superweapon (Nuke)', onPick: () => { this.queueSuperBuild('nuke'); closePauseUi(); } },
+          { label: 'Build Superweapon (Weather)', onPick: () => { this.queueSuperBuild('weather'); closePauseUi(); } }] : []),
         { label: 'Leave Match', ghost: true, onPick: () => this.leave() },
       ],
       onBack: () => closePauseUi(),
@@ -3055,6 +3195,9 @@ class NetSession {
       devs: this.menuDevs,
     });
   }
+  // Queue a one-shot superBuild edge for this connection's player; the input
+  // dispatcher drains it into the next uplink (single rising edge) and clears it.
+  queueSuperBuild(kind) { if (SUPER_KINDS.has(kind)) this.pendingSuperBuild = kind; }
   close() {
     clearInterval(this.inputTimer);
     this.ws.onclose = null;
@@ -3725,6 +3868,7 @@ const ACTION_LABEL = {
   up: 'MOVE UP', down: 'MOVE DOWN', left: 'MOVE LEFT', right: 'MOVE RIGHT',
   fire: 'FIRE', special: 'SPECIAL', act: 'INTERACT / BUILD', item: 'ITEM',
   start: 'PAUSE / START', map: 'MAP (HOLD)',
+  invSel: 'CYCLE PLACEABLE', place: 'PLACE STRUCTURE',
 };
 const KEY_NICE = {
   Space: 'SPACE', Slash: '/', Period: '.', Comma: ',', Escape: 'ESC', Backspace: 'BKSP',
@@ -4577,6 +4721,9 @@ function frame(now) {
   const polled = pollDevices();
   noteActiveDevice(polled); // track the live device for Auto prompt glyphs
   applyPromptGlyph();        // push the active controller type to the renderer
+  // feed the renderer the live pointer (canvas px) so it can draw the superweapon
+  // targeting reticle through each view's own camera; null when no mouse is active
+  renderMod.setAimScreen?.(mouseCanvas?.x ?? null, mouseCanvas?.y ?? null);
   remapPadTick();  // a pad rebind capture polls raw buttons each frame
   navTick(polled); // first: consumes the button edges it handles
   pauseUiTick(polled); // then the pause/leave dialog, when one is up
