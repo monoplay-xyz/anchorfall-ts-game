@@ -5051,23 +5051,36 @@ function drawMusicAltar(ctx, a, mb, t, lights) {
       ctx.beginPath(); ctx.ellipse(cx, y - 9, 2.2, 1.6, 0, 0, Math.PI * 2); ctx.fill();
     }
   }
+  // Always glow so the relic reads clearly against the tiles, and brighten with
+  // every shard restored — base findable glow at 0/4, full blaze + beam + note
+  // at 4/4. Additive ('lighter') so it pops regardless of ground colour.
+  const frac = seated / 4;                              // 0..1
+  const glowR = 30 + 18 * frac + (done ? 12 : 0) + 5 * pulse;
+  const aIn = (0.22 + 0.34 * frac + (done ? 0.20 : 0)) * (0.75 + 0.25 * pulse);
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const og = ctx.createRadialGradient(x, y - 6, 0, x, y - 6, glowR);
+  og.addColorStop(0, `rgba(198,140,255,${aIn})`);
+  og.addColorStop(1, 'rgba(198,140,255,0)');
+  ctx.fillStyle = og;
+  ctx.fillRect(x - glowR - 8, y - glowR - 8, (glowR + 8) * 2, (glowR + 8) * 2);
+  // a vertical beacon beam — taller + brighter as it fills, a pillar at 4/4
+  const beamH = 24 + 44 * frac + (done ? 26 : 0);
+  const bg = ctx.createLinearGradient(x, y - 4, x, y - 4 - beamH);
+  bg.addColorStop(0, `rgba(214,168,255,${0.18 + 0.26 * frac + (done ? 0.22 : 0)})`);
+  bg.addColorStop(1, 'rgba(214,168,255,0)');
+  ctx.fillStyle = bg;
+  ctx.fillRect(x - 3 - frac * 2, y - 4 - beamH, 6 + frac * 4, beamH);
+  ctx.restore();
   if (done) {
-    const og = ctx.createRadialGradient(x, y - 6, 0, x, y - 6, 34 + 6 * pulse);
-    og.addColorStop(0, `rgba(214,168,255,${0.28 + 0.12 * pulse})`);
-    og.addColorStop(1, 'rgba(214,168,255,0)');
-    ctx.fillStyle = og;
-    ctx.fillRect(x - 40, y - 46, 80, 80);
-    // a little note glyph lilting above
     ctx.save();
     ctx.fillStyle = `rgba(231,210,255,${0.7 + 0.3 * pulse})`;
     ctx.font = 'bold 14px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('♫', x, y - 22 - 3 * pulse);
+    ctx.fillText('♫', x, y - 28 - 3 * pulse);
     ctx.restore();
-    lights.push({ x, y: y - 6, r: 60, rgb: '198,140,255', a: 0.16 + 0.06 * pulse });
-  } else {
-    lights.push({ x, y: y - 6, r: 34, rgb: '120,90,150', a: 0.06 });
   }
+  lights.push({ x, y: y - 6, r: 34 + 32 * frac + (done ? 20 : 0), rgb: '198,140,255', a: 0.10 + 0.16 * frac + (done ? 0.08 : 0) + 0.04 * pulse });
 }
 
 // A loose music-box fragment: a small floating amethyst shard with a soft

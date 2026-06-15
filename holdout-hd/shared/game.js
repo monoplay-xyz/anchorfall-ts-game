@@ -854,6 +854,7 @@ export function createGame(def, party, charMap, roster) {
   // Music Box easter egg: story + stronghold only. Deterministic placement of
   // four corner fragments and one base-side altar straight off the tilemap, so
   // every client and the server agree without exchanging any extra setup.
+  placeStags(g, def);
   setupMusicBox(g, def);
   return g;
 }
@@ -907,6 +908,41 @@ function musicBoxStem(def) {
   return { mode, stem: 'sh' + String(def.stronghold?.level ?? 1).padStart(2, '0') };
 }
 
+// Stags are a fast land mount; authored 'V' tiles often sit inside the base,
+// turning the stag into a free shortcut. Scatter stags to deterministic-random
+// open tiles out in the map (away from every spawn), capped at 2 per level.
+// Skiffs (water craft) keep their authored dock positions.
+function placeStags(g, def) {
+  if (!Array.isArray(g.vehicles) || !g.vehicles.length) return;
+  const stags = g.vehicles.filter(v => v.kind === 'stag');
+  if (!stags.length) return;
+  const others = g.vehicles.filter(v => v.kind !== 'stag');
+  const keep = stags.slice(0, 2); // max 2
+  const sp = g.spawns.length ? g.spawns : [{ x: g.w * TILE / 2, y: g.h * TILE / 2 }];
+  const BASE_R = 4.5 * TILE, AWAY_R = 11 * TILE;
+  const inBase = (x, y) => sp.some(s => Math.hypot(x - s.x, y - s.y) < BASE_R);
+  const nearSpawn = (x, y) => sp.some(s => Math.hypot(x - s.x, y - s.y) < AWAY_R);
+  // deterministic LCG seeded by the level identity (same placement everywhere)
+  const nm = String(def.key || def.name || def.title || 'lvl');
+  let seed = 2166136261; for (let i = 0; i < nm.length; i++) { seed ^= nm.charCodeAt(i); seed = (seed * 16777619) >>> 0; }
+  const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+  for (const v of keep) {
+    if (!inBase(v.x, v.y)) continue; // only scatter stags that sit IN the base
+    for (let tries = 0; tries < 80; tries++) {
+      const tx = 2 + Math.floor(rnd() * Math.max(1, g.w - 4));
+      const ty = 2 + Math.floor(rnd() * Math.max(1, g.h - 4));
+      const x = (tx + 0.5) * TILE, y = (ty + 0.5) * TILE;
+      if (collides(g, x, y, PLAYER_R)) continue;
+      const c = tileAt(g, x, y);
+      if (c === '!' || c === '~' || c === '%') continue; // not lava / water / void
+      if (nearSpawn(x, y)) continue;                      // not in or beside the base
+      v.x = x; v.y = y; v.rider = null;
+      break;
+    }
+  }
+  g.vehicles = others.concat(keep);
+}
+
 function setupMusicBox(g, def) {
   const enabled = !!def.story || def.mode === 'bastion';
   if (!enabled) { g.musicBox = { enabled: false }; return; }
@@ -919,10 +955,29 @@ function setupMusicBox(g, def) {
   // altar: an open tile 3-5 tiles outside the spawn cluster (deterministic
   // ring scan); fall back to the centroid if the whole band is blocked
   const altarSpot = openTileNear(g, sx, sy, 3, 5, 7) || { x: sx, y: sy };
-  // four corners, nearest open tile scanning inward
-  const corners = [[0, 0], [g.w - 1, 0], [0, g.h - 1], [g.w - 1, g.h - 1]];
-  const fragments = corners.map(([cx, cy], i) => {
-    const spot = cornerOpenTile(g, cx, cy);
+  // four shards at deterministic-random spread spots — one per map quadrant so
+  // they stay spread out, but NO LONGER pinned to the exact corners. Open tiles,
+  // off lava/water/void, kept out of the base and off the altar. Falls back to
+  // the quadrant's corner if a quadrant has no eligible open tile.
+  const nm = String(def.key || def.name || def.title || 'lvl');
+  let seed = 2166136261; for (let i = 0; i < nm.length; i++) { seed ^= nm.charCodeAt(i); seed = (seed * 16777619) >>> 0; }
+  const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+  const hw = g.w / 2, hh = g.h / 2;
+  const quads = [[0, 0], [1, 0], [0, 1], [1, 1]]; // tl, tr, bl, br — spread coverage
+  const fragments = quads.map(([qx, qy], i) => {
+    let spot = null;
+    for (let tries = 0; tries < 120 && !spot; tries++) {
+      const tx = Math.floor(qx * hw + 1 + rnd() * (hw - 2));
+      const ty = Math.floor(qy * hh + 1 + rnd() * (hh - 2));
+      const x = (tx + 0.5) * TILE, y = (ty + 0.5) * TILE;
+      if (collides(g, x, y, PLAYER_R)) continue;
+      const c = tileAt(g, x, y);
+      if (c === '!' || c === '~' || c === '%') continue;                       // off hazards
+      if (Math.hypot(x - sx, y - sy) < 8 * TILE) continue;                     // not in the base
+      if (Math.hypot(x - altarSpot.x, y - altarSpot.y) < 6 * TILE) continue;   // not on the altar
+      spot = { x, y };
+    }
+    if (!spot) { const cc = cornerOpenTile(g, qx ? g.w - 1 : 0, qy ? g.h - 1 : 0); spot = { x: cc.x, y: cc.y }; }
     return { id: 'mb' + i, x: spot.x, y: spot.y, carrier: null, placed: false };
   });
   g.musicBox = {
@@ -1846,6 +1901,18 @@ function downPlayer(g, p) {
 // survival maps spend shield pips first, then hp, with a short hit-grace.
 function damagePlayer(g, p, dmg = 1) {
   if (p.state !== 'active' || p.invuln > 0) return;
+  // a single hit destroys your mount — the stag is a fast ride, not a tank. It's
+  // gone for the level (a fresh one can be earned/found next level). Skiffs
+  // (water craft) are exempt so you can't be stranded mid-lake.
+  if (p.riding) {
+    const v = g.vehicles.find(vv => vv.id === p.riding);
+    if (v && v.kind === 'stag') {
+      dismountVehicle(g, p, v);          // nulls v.rider + p.riding
+      const idx = g.vehicles.indexOf(v);
+      if (idx >= 0) g.vehicles.splice(idx, 1); // gone for the level
+      g.events.push({ type: 'vehicleDown', kind: 'stag', x: v.x, y: v.y, pid: p.pid });
+    }
+  }
   if (g.arcade || p.maxHp === undefined) { downPlayer(g, p); return; }
   if (g.family) dmg = 1; // toddler mode: every bump is a single gentle tick, never a burst
   for (let i = 0; i < dmg; i++) {
