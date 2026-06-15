@@ -2151,7 +2151,9 @@ class LocalSession {
     if (!g) return;
     g.devMode = true;
     g.status = 'cleared';
-    closePauseUi(); // unpause so the tick reaches finish() and advances
+    closePauseUi();   // drop the cheat dialog
+    this.finish();    // run results + advance directly: the tick guard short-circuits
+                      // once status !== 'play', so it would never reach finish() itself
   }
   // Equip / Awaken Relic: instantly complete the music-box relic so the
   // awakening fires without fetching shards. Marks every fragment placed, fills
