@@ -183,7 +183,10 @@ function seatNeedsAim(snap, pid) {
 // to a stranded operator to recruit them), a carried operator (drop at the
 // stronghold centre to save them), or a relic fragment. Inert with empty hands
 // (the sim no-ops), so it never disturbs classic play. KeyG is free in KB1.
-const KB1_DEF = { up: ['KeyW'], down: ['KeyS'], left: ['KeyA'], right: ['KeyD'], fire: ['Space'], special: ['KeyF'], act: ['KeyE'], item: ['KeyQ'], start: ['Escape'], map: ['Tab'], invSel: ['KeyC'], place: ['KeyB'], drop: ['KeyG'], sprint: ['ShiftLeft'] };
+// Primary scheme: WASD + Space/F/E/Q, with an ARROW-KEYS + Z/X/V alternate cluster
+// so a solo player can also play with arrows (move) + space=fire, z=act, x=special,
+// v=item, c=cycle, b=place, g=drop. (KB2 stays the disjoint second-keyboard seat.)
+const KB1_DEF = { up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'], left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'], fire: ['Space'], special: ['KeyF', 'KeyX'], act: ['KeyE', 'KeyZ'], item: ['KeyQ', 'KeyV'], start: ['Escape'], map: ['Tab'], invSel: ['KeyC'], place: ['KeyB'], drop: ['KeyG'], sprint: ['ShiftLeft'] };
 // KB2 pauses with Backspace (a shared Escape would emit start on BOTH seats at once)
 const KB2_DEF = { up: ['ArrowUp'], down: ['ArrowDown'], left: ['ArrowLeft'], right: ['ArrowRight'], fire: ['Enter'], special: ['ShiftRight'], act: ['Slash'], item: ['Period'], start: ['Backspace'], map: ['KeyM'], invSel: ['Comma'], place: ['KeyN'], drop: ['KeyL'], sprint: ['ControlRight'] };
 // Pad button indices (standard mapping); button 8 = Select/Back holds the map.
@@ -2111,6 +2114,7 @@ class LocalSession {
       ...(g.superweapon && g.superweapon.state === 'charging'
         ? [{ label: 'Charge Superweapon Now', onPick: () => { dirty(); g.superweapon.chargeT = 0; reopen(); } }] : []),
       { label: 'Select Character', onPick: () => { dirty(); this.cheatPickCharacter(me); } },
+      { label: 'Complete Mission (skip)', ghost: true, onPick: () => { dirty(); this.cheatCompleteMission(); } },
       { label: 'Back', ghost: true, onPick: () => { this.openPauseRoot(); } },
     ];
     openPauseUi({
@@ -2138,6 +2142,16 @@ class LocalSession {
       e.hp = 0;
       e.dead = true;
     }
+  }
+  // Complete Mission (skip): instantly clear the current mission and advance.
+  // step() no-ops once status !== 'play', so the next tick's finish() runs the
+  // results + next-level flow. Dirty (devMode) -> no score, like every cheat.
+  cheatCompleteMission() {
+    const g = this.game;
+    if (!g) return;
+    g.devMode = true;
+    g.status = 'cleared';
+    closePauseUi(); // unpause so the tick reaches finish() and advances
   }
   // Equip / Awaken Relic: instantly complete the music-box relic so the
   // awakening fires without fetching shards. Marks every fragment placed, fills
