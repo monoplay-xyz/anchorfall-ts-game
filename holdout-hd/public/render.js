@@ -6416,7 +6416,7 @@ function drawGlyphStone(ctx, gl, t, lights) {
 // 'X' — BLS pillar: pre-Fall classical cryptography. Beautiful, tiny, fast —
 // and forgeable now. Cracks open in stages under player fire; while one
 // stands, the field still honors the old curve.
-function drawPillar(ctx, pi, t, lights) {
+function drawPillar(ctx, pi, t, lights, idx = 0) {
   const { x, y } = pi;
   const maxHp = pi.maxHp ?? 12;
   const frac = Math.max(0, Math.min(1, (pi.hp ?? maxHp) / maxHp));
@@ -6434,7 +6434,8 @@ function drawPillar(ctx, pi, t, lights) {
     ctx.stroke();
     return;
   }
-  const idx = Math.abs(Math.round(pi.id ?? 0)) % 4;
+  // idx comes from the caller's loop position (0-based). The old `Math.round(pi.id)`
+  // computed NaN because pi.id is a string like 'pl0' -> NaN alpha -> render crash.
   shadowBlob(ctx, x + 2, y + 6, 14, 5);
   // marble plinth + tall fluted column — paler than anything Entropy-made
   ctx.fillStyle = '#4A5060';
@@ -6467,7 +6468,7 @@ function drawPillar(ctx, pi, t, lights) {
   ctx.font = 'bold 6px monospace';
   ctx.textAlign = 'center';
   ctx.fillStyle = 'rgba(191,208,232,0.65)';
-  ctx.fillText(PILLAR_NAMES[idx], x, y + 4.5);
+  ctx.fillText(PILLAR_NAMES[idx % PILLAR_NAMES.length] || 'CURVE', x, y + 4.5);
   ctx.restore();
   // while it stands the field honors the curve: a faint violet breath
   const honor = 0.06 + 0.04 * Math.sin(t * 1.1 + idx * 1.7);
@@ -9631,7 +9632,7 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
   for (const tp of teleports) if (inView(tp.x, tp.y, 60)) drawTeleportPad(ctx, tp, t, snap, lights);
   for (const sw of switches) if (inView(sw.x, sw.y, 60)) drawSwitch(ctx, sw, t, lights);
   for (const gl of glyphs) if (inView(gl.x, gl.y, 60)) drawGlyphStone(ctx, gl, t, lights);
-  for (const pi of pillars) if (inView(pi.x, pi.y, 90)) drawPillar(ctx, pi, t, lights);
+  pillars.forEach((pi, pidx) => { if (inView(pi.x, pi.y, 90)) drawPillar(ctx, pi, t, lights, pidx); });
   for (const fo2 of forges) if (inView(fo2.x, fo2.y, 80)) drawForge(ctx, fo2, t, lights);
   for (const pk of pickups) if (inView(pk.x, pk.y, 60)) drawFieldPickup(ctx, pk, t, lights);
   for (const q of qitems) if (inView(q.x, q.y, 60)) drawQuestItem(ctx, q, t, lights);
@@ -10601,7 +10602,7 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
   }
   for (const L of lights) {
     if (!inView(L.x, L.y, L.r)) continue;
-    let la = L.a, lr = L.r;
+    let la = Number.isFinite(L.a) ? L.a : 0, lr = L.r; // guard: a NaN alpha must never reach addColorStop
     if (darkWorld) {
       // night missions: warm pools (fires, LYTH, lanterns) bloom brighter
       const [cr, , cb] = L.rgb.split(',').map(Number);
