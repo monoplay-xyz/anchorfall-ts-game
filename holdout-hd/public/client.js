@@ -178,13 +178,21 @@ function seatNeedsAim(snap, pid) {
 // mode — both inert until the seat carries a bought placeable (the sim gates
 // them), so they never disturb classic play. Neither key collides with the
 // existing KB1 binds.
-const KB1_DEF = { up: ['KeyW'], down: ['KeyS'], left: ['KeyA'], right: ['KeyD'], fire: ['Space'], special: ['KeyF'], act: ['KeyE'], item: ['KeyQ'], start: ['Escape'], map: ['Tab'], invSel: ['KeyC'], place: ['KeyB'] };
+// drop (G = Give) lays down whatever the operative is carrying — scrap (give it
+// to a stranded operator to recruit them), a carried operator (drop at the
+// stronghold centre to save them), or a relic fragment. Inert with empty hands
+// (the sim no-ops), so it never disturbs classic play. KeyG is free in KB1.
+const KB1_DEF = { up: ['KeyW'], down: ['KeyS'], left: ['KeyA'], right: ['KeyD'], fire: ['Space'], special: ['KeyF'], act: ['KeyE'], item: ['KeyQ'], start: ['Escape'], map: ['Tab'], invSel: ['KeyC'], place: ['KeyB'], drop: ['KeyG'], sprint: ['ShiftLeft'] };
 // KB2 pauses with Backspace (a shared Escape would emit start on BOTH seats at once)
-const KB2_DEF = { up: ['ArrowUp'], down: ['ArrowDown'], left: ['ArrowLeft'], right: ['ArrowRight'], fire: ['Enter'], special: ['ShiftRight'], act: ['Slash'], item: ['Period'], start: ['Backspace'], map: ['KeyM'], invSel: ['Comma'], place: ['KeyN'] };
+const KB2_DEF = { up: ['ArrowUp'], down: ['ArrowDown'], left: ['ArrowLeft'], right: ['ArrowRight'], fire: ['Enter'], special: ['ShiftRight'], act: ['Slash'], item: ['Period'], start: ['Backspace'], map: ['KeyM'], invSel: ['Comma'], place: ['KeyN'], drop: ['KeyL'], sprint: ['ControlRight'] };
 // Pad button indices (standard mapping); button 8 = Select/Back holds the map.
 // invSel = LB (4), place = LT (6): the two free shoulder buttons.
-const PAD_DEF = { up: [12], down: [13], left: [14], right: [15], fire: [0, 7], special: [1, 5], act: [2], item: [3], start: [9], map: [8], invSel: [4], place: [6] };
-const ACTIONS = ['up', 'down', 'left', 'right', 'fire', 'special', 'act', 'item', 'start', 'map', 'invSel', 'place'];
+// drop = L3 (10, left-stick click): the free clickable stick, off the d-pad.
+// sprint = R3 (11, right-stick click): the remaining clickable stick (mirrors
+// drop=L3). Keyboard uses SHIFT — ShiftLeft on KB1, ControlRight on KB2 (KB2's
+// special already owns ShiftRight, so the second seat sprints on R-CTRL).
+const PAD_DEF = { up: [12], down: [13], left: [14], right: [15], fire: [0, 7], special: [1, 5], act: [2], item: [3], start: [9], map: [8], invSel: [4], place: [6], drop: [10], sprint: [11] };
+const ACTIONS = ['up', 'down', 'left', 'right', 'fire', 'special', 'act', 'item', 'start', 'map', 'invSel', 'place', 'drop', 'sprint'];
 const BIND_KEY = 'holdout-hd.binds'; // { kb1:{action:code}, kb2:{...}, pad:{action:btnIdx} }
 let binds = {};
 try { binds = JSON.parse(localStorage.getItem(BIND_KEY)) || {}; } catch {}
@@ -234,6 +242,8 @@ function readPad(i) {
     map: b('map'),
     invSel: b('invSel'), // LB: cycle placeable inventory
     place: b('place'),   // LT: enter/confirm placement mode
+    drop: b('drop'),     // L3: drop carried scrap / operator / fragment
+    sprint: b('sprint'), // R3: hold to sprint (drains stamina)
   };
 }
 
@@ -359,6 +369,24 @@ const GLYPH_OVERRIDE_TYPE = { keyboard: 'keyboard', xbox: 'xbox', playstation: '
 let glyphStyle = localStorage.getItem(GLYPH_KEY) || 'auto';
 if (!GLYPH_MODES.includes(glyphStyle)) glyphStyle = 'auto';
 
+// DIFFICULTY: a legit (non-cheat) enemy-count setting chosen at the lobby and
+// persisted. 'extreme' is the historical full count (what early playtests found
+// almost undoable); 'normal' (default) halves the pressure; 'easy' relaxes more.
+// Threaded into the def as def.difficulty so the shared sim scales spawn counts.
+const DIFF_KEY = 'holdout-hd.difficulty';
+const DIFF_MODES = ['easy', 'normal', 'extreme'];
+const DIFF_LABEL = { easy: 'Easy', normal: 'Normal', extreme: 'Extreme' };
+let difficulty = localStorage.getItem(DIFF_KEY) || 'normal';
+if (!DIFF_MODES.includes(difficulty)) difficulty = 'normal';
+function setDifficulty(d) {
+  if (!DIFF_MODES.includes(d)) return;
+  difficulty = d;
+  try { localStorage.setItem(DIFF_KEY, d); } catch {}
+}
+function cycleDifficulty(dir = 1) {
+  setDifficulty(DIFF_MODES[mod(DIFF_MODES.indexOf(difficulty) + dir, DIFF_MODES.length)]);
+}
+
 // The keyboard ACT key label the prompts should show (remap-aware). KB1 is the
 // primary keyboard seat; the [E/X] prompts are authored against it.
 function actKeyLabel() {
@@ -384,14 +412,14 @@ function applyPromptGlyph() {
 // Online play: one player per machine, so any device drives them. `exclude`
 // drops devices the leave dialog has captured for menu navigation.
 function mergedInput(exclude, needAim) {
-  const o = { up: false, down: false, left: false, right: false, fire: false, special: false, act: false, item: false, invSel: false, place: false };
+  const o = { up: false, down: false, left: false, right: false, fire: false, special: false, act: false, item: false, invSel: false, place: false, drop: false, sprint: false };
   for (const id of DEVICES) {
     if (exclude?.has(id)) continue;
     const c = readDevice(id);
     if (!c) continue;
     o.up ||= c.up; o.down ||= c.down; o.left ||= c.left; o.right ||= c.right;
     o.fire ||= c.fire; o.special ||= c.special; o.act ||= c.act; o.item ||= c.item;
-    o.invSel ||= c.invSel; o.place ||= c.place;
+    o.invSel ||= c.invSel; o.place ||= c.place; o.drop ||= c.drop; o.sprint ||= c.sprint;
   }
   // one operative per machine: the mouse drives its aim cursor, but only while
   // it is placing/targeting (the caller passes the gate) — no idle uplink aim
@@ -839,7 +867,7 @@ function pauseUiTick(polled) {
   }
 }
 
-function renderLobby({ title, info, hint, players, roster, canStart, cursors = [], onCard, onStep, teamCols = false, allowDupes = false }) {
+function renderLobby({ title, info, hint, players, roster, canStart, cursors = [], onCard, onStep, teamCols = false, allowDupes = false, showDifficulty = false, onDifficulty }) {
   $('lobbyTitle').textContent = title;
   $('roomInfo').innerHTML = info;
   $('lobbyHint').textContent = hint || '';
@@ -950,6 +978,16 @@ function renderLobby({ title, info, hint, players, roster, canStart, cursors = [
   if (pv) pv.onclick = () => onStep?.(-1);
   if (nx) nx.onclick = () => onStep?.(1);
   $('btnStart').disabled = !canStart;
+  // DIFFICULTY toggle (PvE lobbies only): cycles Easy/Normal/Extreme, persisted.
+  // A plain button so pad/keyboard nav walks it like any other lobby control.
+  const dbtn = $('btnDifficulty');
+  if (dbtn) {
+    dbtn.hidden = !showDifficulty;
+    if (showDifficulty) {
+      dbtn.textContent = `Difficulty: ${DIFF_LABEL[difficulty]}`;
+      dbtn.onclick = () => { (onDifficulty || cycleDifficulty)(); };
+    }
+  }
   show('lobby');
   buildSquadPanels(roster);
   updateMissionPanel();
@@ -1800,6 +1838,11 @@ class LocalSession {
       },
       teamCols: ctf,
       allowDupes: !!this.mode, // versus char select allows duplicates everywhere
+      // DIFFICULTY only matters where AI enemies spawn (PvE): story / classic /
+      // expedition / bastion. Versus modes (ctf/br/siege) field none, so the
+      // toggle is hidden there and their snapshots stay byte-identical.
+      showDifficulty: !this.mode,
+      onDifficulty: () => { cycleDifficulty(); this.renderLobby(); },
     });
   }
   deviceOf(id) { return this.players.find(p => p.device === id); }
@@ -1897,6 +1940,13 @@ class LocalSession {
     if (this.endless && lvl.mode === 'bastion') {
       lvl = { ...lvl, bastion: { ...(lvl.bastion || {}), endless: true } };
     }
+    // DIFFICULTY (PvE only): scale enemy spawn counts to the player's choice.
+    // Versus modes (ctf/br/siege) field no AI enemies, so they're left at the
+    // 'normal' default — keeping their snapshots byte-identical on the wire.
+    const pveMode = !lvl.mode || lvl.mode === 'bastion';
+    if (pveMode && difficulty !== 'normal') {
+      lvl = { ...lvl, difficulty }; // clone: never mutate the shared catalog def
+    }
     // fresh coach counters each (re)start so a retry doesn't inherit progress
     if (this.tutorial) tut = { step: 0, kills: 0, rescued: 0, moved: 0, lastPos: null };
     const begin = () => {
@@ -1952,9 +2002,12 @@ class LocalSession {
     if (this.cheatsAvailable()) items.push({ label: 'Cheats (Dev)', onPick: () => this.openCheatMenu() });
     if (this.canSaveQuit()) items.push({ label: 'Save & Quit', ghost: true, onPick: () => this.saveQuit() });
     items.push({ label: 'Quit to Menu', ghost: true, onPick: () => this.leave() });
+    // Surface the active difficulty (PvE runs only; versus carries none).
+    const diff = this.game && this.game.difficulty;
+    const diffLine = (!this.mode && diff) ? ` · Difficulty: ${DIFF_LABEL[diff] || diff}` : '';
     openPauseUi({
       title: 'Paused',
-      body: 'The frontier waits.',
+      body: 'The frontier waits.' + diffLine,
       hint: 'UP/DOWN picks · FIRE confirms · START / ESC / B resumes',
       items,
       onBack: () => closePauseUi(),
@@ -2012,6 +2065,9 @@ class LocalSession {
     // frozen while we navigate the cheats tree.
     this.paused = true;
     const c = g.cheats ??= { god: false, speed: 1, instantKill: false, instantBuild: false };
+    // additive: present only once the cheats panel has opened — undefined keeps
+    // untouched runs byte-identical (the sim reads g.cheats.coreInvuln defensively)
+    if (c.coreInvuln === undefined) c.coreInvuln = false;
     const SPEEDS = [1, 5, 10, 100]; // Off / x5 / x10 / x100
     const speedLabel = v => v <= 1 ? 'OFF' : '×' + v;
     const onState = b => b ? 'ON' : 'OFF';
@@ -2026,6 +2082,10 @@ class LocalSession {
         } },
       { label: `Instant Kill: ${onState(c.instantKill)}`, onPick: () => { c.instantKill = !c.instantKill; if (c.instantKill) dirty(); reopen(); } },
       { label: `Instant Build: ${onState(c.instantBuild)}`, onPick: () => { c.instantBuild = !c.instantBuild; if (c.instantBuild) dirty(); reopen(); } },
+      // Core Integrity: the center/objective the enemies attack cannot be destroyed
+      // (distinct from God Mode, which keeps the PLAYER alive). Damage is nullified.
+      { label: `Core Integrity: ${onState(c.coreInvuln)}`, onPick: () => { c.coreInvuln = !c.coreInvuln; if (c.coreInvuln) dirty(); reopen(); } },
+      { label: 'Max Out (Full Upgrades)', onPick: () => { dirty(); this.cheatMaxOut(me); reopen(); } },
       { label: 'Kill All Enemies', onPick: () => { dirty(); this.cheatKillAll(); reopen(); } },
       { label: 'Equip / Awaken Relic', onPick: () => { dirty(); this.cheatAwakenRelic(); reopen(); } },
       { label: 'Build Nuke Silo', onPick: () => { dirty(); this.cheatBuildSuperweapon('nuke', me); reopen(); } },
@@ -2090,35 +2150,81 @@ class LocalSession {
       x: cx, y: cy, ownerPid: me.pid, hp: 8, maxHp: 8,
     };
   }
-  // Select Character: cycle the local seat's operative through the full roster.
-  // A quick picker via the pause dialog — each FIRE advances to the next char,
-  // applying it live to the sim player. Back returns to the cheats panel.
+  // Operator Select (cards): the full-roster character carousel — the same big
+  // card + live ability preview the main-menu lobby uses (renderLobby), driven
+  // here from the pause overlay instead of rebuilding it. Browse ◀/▶ (pad d-pad/
+  // stick, mouse, arrows), FIRE/A confirms and swaps the live operative, SPECIAL/
+  // START/ESC backs out. Solo-only (gated by the cheats panel that opened it).
   cheatPickCharacter(me) {
     const g = this.game;
     if (!g || !me) return;
-    this.paused = true; // hold the freeze across closePauseUi re-entry
+    closePauseUi();     // tear the cheats dialog down (its onClose clears paused)
+    this.paused = true; // ...then re-assert the freeze while the carousel is up
     const ids = Object.keys(charMap);
-    const apply = id => { me.charId = id; };
-    const render = () => {
-      const cur = ids.indexOf(me.charId);
-      const items = ids.map((id, i) => ({
-        label: (i === cur ? '▶ ' : '   ') + charMap[id].name,
-        onPick: () => { apply(id); this.openCheatMenu(); },
-      }));
-      items.push({ label: 'Back', ghost: true, onPick: () => this.openCheatMenu() });
-      openPauseUi({
-        title: 'Select Character',
-        body: `Current: ${me.charId ? charMap[me.charId].name : '—'}`,
-        hint: 'UP/DOWN picks · FIRE equips · START / ESC / B backs out',
-        items,
-        onBack: () => this.openCheatMenu(),
-        onClose: () => {
-          this.paused = false;
-          this.fireSquelch = new Set(DEVICES.filter(d => prevDev[d]?.fire));
-        },
-      });
-    };
-    render();
+    const start = Math.max(0, ids.indexOf(me.charId));
+    // carousel state drives renderLobby + the per-frame ability preview; the tick
+    // dispatcher routes input to cheatCarouselTick while this is set.
+    this.cheatCarousel = { ids, idx: start, me };
+    this.renderCheatCarousel();
+  }
+  // Renders the operator-select card via the shared lobby carousel. A synthetic
+  // one-seat party feeds renderLobby; onCard confirms, onStep browses.
+  renderCheatCarousel() {
+    const cc = this.cheatCarousel;
+    if (!cc) return;
+    const focusId = cc.ids[mod(cc.idx, cc.ids.length)];
+    renderLobby({
+      title: 'OPERATOR SELECT — DEV',
+      info: 'Swap the live operative. Browse the full roster, FIRE to deploy.',
+      hint: 'Move ◀ / ▶ to browse · FIRE (A / Space / Enter) deploys · SPECIAL / START / ESC backs out',
+      players: [{ name: cc.me.name || 'OPERATIVE', charId: cc.me.charId, isHost: true, me: true, badge: 'P1', color: PCOLORS[0] }],
+      roster: cc.ids,
+      canStart: false,
+      cursors: [{ idx: cc.idx, color: PCOLORS[0], badge: 'P1', picked: false, me: true }],
+      onCard: () => this.confirmCheatCarousel(),
+      onStep: dir => { cc.idx = mod(cc.idx + dir, cc.ids.length); this.renderCheatCarousel(); },
+      allowDupes: true, // dev tool: never "taken"/blocked by the current char
+    });
+    void focusId; // renderLobby reads idx; focusId kept for clarity/debugging
+  }
+  // Apply the focused operative to the live seat, then return to the cheats panel.
+  confirmCheatCarousel() {
+    const cc = this.cheatCarousel;
+    if (!cc) return;
+    cc.me.charId = cc.ids[mod(cc.idx, cc.ids.length)];
+    this.cheatCarousel = null;
+    hideAll(); // drop the lobby screen, exposing the game canvas again
+    this.openCheatMenu();
+  }
+  // Back out of operator select without swapping.
+  cancelCheatCarousel() {
+    this.cheatCarousel = null;
+    hideAll();
+    this.openCheatMenu();
+  }
+  // Input pump for the operator-select cards (pad/keyboard). Mouse is handled by
+  // renderLobby's ◀/▶ + card onclick. Mirrors the lobby's left/right + fire nav.
+  cheatCarouselTick(polled) {
+    const cc = this.cheatCarousel;
+    if (!cc) return;
+    let moved = false;
+    for (const st of Object.values(polled)) {
+      if (st.specialJust || st.startJust) { st.specialJust = st.startJust = false; return this.cancelCheatCarousel(); }
+      if (st.leftJust || st.upJust) { cc.idx = mod(cc.idx - 1, cc.ids.length); moved = true; }
+      if (st.rightJust || st.downJust) { cc.idx = mod(cc.idx + 1, cc.ids.length); moved = true; }
+      if (st.fireJust) return this.confirmCheatCarousel();
+    }
+    if (moved) this.renderCheatCarousel();
+  }
+  // Max Out (dev): bring the active seat to full upgrades — top level (4), full
+  // max-hp, and every weapon/ability evolution the progression grants (L3/L4 are
+  // applied at fire time off p.level). Routes through the sim's grantXp so the
+  // level-up events fire exactly as an earned climb would. No-op on arcade seats
+  // (1-hit classic players never level — they have no p.level field).
+  cheatMaxOut(me) {
+    const g = this.game;
+    if (!g || !me || typeof gameMod.maxOutPlayer !== 'function') return;
+    gameMod.maxOutPlayer(g, me.pid);
   }
   // Save & Quit is offered on non-versus LOCAL runs (classic/story/bastion —
   // each twin-test-proven to round-trip through serializeGame); couch versus
@@ -2162,6 +2268,8 @@ class LocalSession {
   tick(polled, dt) {
     if (this.cutscene) return this.cutsceneTick(polled, dt);
     if (this.inLobby) return this.lobbyTick(polled, dt);
+    // operator-select cards (dev): the carousel owns input until it confirms/backs
+    if (this.cheatCarousel) return this.cheatCarouselTick(polled);
     if (!this.game) {
       // a mission-end dialog is up: fire/start on any device clicks through,
       // so a controller-only couch never needs the mouse
@@ -2184,7 +2292,7 @@ class LocalSession {
         else this.fireSquelch.delete(p.device);
       }
       inputs[p.pid] = st
-        ? { up: st.up, down: st.down, left: st.left, right: st.right, fire, special: st.special, act: st.act, item: st.item, invSel: st.invSel, place: st.place }
+        ? { up: st.up, down: st.down, left: st.left, right: st.right, fire, special: st.special, act: st.act, item: st.item, invSel: st.invSel, place: st.place, drop: st.drop, sprint: st.sprint }
         : {};
       // mouse aim drives the placement/targeting ghost, but only for keyboard
       // seats that are actually placing/targeting: a gamepad seat keeps arrow/
@@ -2762,7 +2870,7 @@ class NetSession {
       else this.fireSquelch.delete(dev);
     }
     const pid = this.seats.get(dev);
-    const o = { up: c.up, down: c.down, left: c.left, right: c.right, fire, special: c.special, act: c.act, item: c.item, invSel: c.invSel, place: c.place };
+    const o = { up: c.up, down: c.down, left: c.left, right: c.right, fire, special: c.special, act: c.act, item: c.item, invSel: c.invSel, place: c.place, drop: c.drop, sprint: c.sprint };
     // online couch: the lone pointer aims keyboard seats only (pad seats step),
     // and only while that seat is placing/targeting
     if (dev.startsWith('kb') && seatNeedsAim(this.snap, pid)) {
@@ -3868,7 +3976,8 @@ const ACTION_LABEL = {
   up: 'MOVE UP', down: 'MOVE DOWN', left: 'MOVE LEFT', right: 'MOVE RIGHT',
   fire: 'FIRE', special: 'SPECIAL', act: 'INTERACT / BUILD', item: 'ITEM',
   start: 'PAUSE / START', map: 'MAP (HOLD)',
-  invSel: 'CYCLE PLACEABLE', place: 'PLACE STRUCTURE',
+  invSel: 'CYCLE PLACEABLE', place: 'PLACE STRUCTURE', drop: 'DROP / GIVE',
+  sprint: 'SPRINT (HOLD)',
 };
 const KEY_NICE = {
   Space: 'SPACE', Slash: '/', Period: '.', Comma: ',', Escape: 'ESC', Backspace: 'BKSP',

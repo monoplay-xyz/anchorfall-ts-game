@@ -4984,9 +4984,101 @@ function drawCasterFollower(ctx, fo, t, dt, col, lights) {
 function drawFollower(ctx, fo, t, dt, col, lights) {
   if (fo.kind === 'hound') drawHound(ctx, fo, t, dt, col);
   else if (fo.kind === 'caster') drawCasterFollower(ctx, fo, t, dt, col, lights);
+  else if (fo.kind === 'defender') drawDefender(ctx, fo, t, dt);
   else drawArcherFollower(ctx, fo, t, dt, col); // archer + unknown future hires
   const maxHp = fo.maxHp ?? 2;
   if (fo.hp != null && fo.hp < maxHp) drawHeartPips(ctx, fo.x, fo.y - 22, fo.hp, maxHp);
+}
+
+// A recruited STRANDED OPERATOR: a friendly base defender. Ownerless, so it
+// wears the squad teal (not a seat color) — a scrappy civvy with a slung rifle
+// who garrisons the stronghold. Distinct silhouette from the hired archer.
+function drawDefender(ctx, fo, t, dt) {
+  const { ph, amp, fx, fy } = poseFor('f' + fo.id, fo.x, fo.y, dt);
+  const a = Math.atan2(fy, fx);
+  shadowBlob(ctx, fo.x, fo.y + 8, 8.5, 3.4);
+  ctx.save();
+  ctx.translate(fo.x, fo.y);
+  ctx.rotate(a + Math.PI / 2);
+  // boots
+  const lo = Math.sin(ph) * 3 * amp;
+  ctx.fillStyle = '#232533';
+  ctx.fillRect(-4.2, -1 + lo, 3.4, 4.6);
+  ctx.fillRect(0.8, -1 - lo, 3.4, 4.6);
+  // patched coat body, squad-teal trim
+  ctx.fillStyle = '#33433E';
+  ctx.beginPath(); ctx.ellipse(0, 0.5, 6.2, 7.6, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = PAL.teal;
+  ctx.shadowColor = PAL.teal;
+  ctx.shadowBlur = 4;
+  ctx.fillRect(-6.4, -1.4, 2.2, 3);
+  ctx.shadowBlur = 0;
+  // slung rifle held ahead
+  ctx.strokeStyle = '#4A4232';
+  ctx.lineWidth = 1.8;
+  ctx.beginPath(); ctx.moveTo(0, -6); ctx.lineTo(0, -11); ctx.stroke();
+  ctx.fillStyle = '#5E6880';
+  ctx.fillRect(-1, -11.5, 2, 2);
+  // head with a knit cap
+  ctx.fillStyle = '#C99A6A';
+  ctx.beginPath(); ctx.arc(0, -3.4, 3.8, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#2C5C4E';
+  ctx.beginPath(); ctx.arc(0, -4.4, 3.9, Math.PI, Math.PI * 2); ctx.fill();
+  ctx.restore();
+  rimArc(ctx, fo.x, fo.y - 4, 6.2, 0.4);
+}
+
+// A STRANDED OPERATOR waiting on the field (un-recruited, un-carried): a slumped
+// civvy by a small distress flare so the squad can spot who needs help.
+function drawStranded(ctx, o, t) {
+  const { x, y } = o;
+  ctx.save();
+  shadowBlob(ctx, x, y + 8, 11, 4.4);
+  // crouched body
+  ctx.translate(x, y + 2);
+  ctx.fillStyle = '#2C3140';
+  ctx.beginPath(); ctx.ellipse(0, 0, 7, 8.5, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#C99A6A';
+  ctx.beginPath(); ctx.arc(0, -6, 3.6, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+  // pulsing distress halo + a "?" call for help
+  const pulse = 0.45 + 0.4 * Math.sin(t * 3 + (x + y) * 0.02);
+  ctx.save();
+  ctx.strokeStyle = `rgba(240,169,60,${pulse})`;
+  ctx.lineWidth = 1.6;
+  ctx.beginPath(); ctx.arc(x, y, 14 + pulse * 4, 0, Math.PI * 2); ctx.stroke();
+  ctx.fillStyle = `rgba(255,239,194,${0.6 + 0.4 * pulse})`;
+  ctx.font = 'bold 12px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('?', x, y - 16);
+  ctx.restore();
+}
+
+// A SCRAP item: a generic salvage cog/bolt — clearly NOT a relic shard (which
+// glows gold/cyan). Dull steel with a rust tinge.
+function drawScrap(ctx, s, t) {
+  const { x, y } = s;
+  const spin = t * 0.9 + (x + y) * 0.01;
+  ctx.save();
+  shadowBlob(ctx, x, y + 6, 7, 3);
+  ctx.translate(x, y);
+  ctx.rotate(spin);
+  ctx.fillStyle = '#6E6A5E';
+  ctx.strokeStyle = '#3A382F';
+  ctx.lineWidth = 1.2;
+  // gear teeth
+  ctx.beginPath();
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    const r = i % 2 === 0 ? 7 : 4.5;
+    const px = Math.cos(a) * r, py = Math.sin(a) * r;
+    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  }
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  // hub
+  ctx.fillStyle = '#9A8A6A';
+  ctx.beginPath(); ctx.arc(0, 0, 2.4, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
 }
 
 // ============================== DEEP WORLD (FRONTIER III) ==============================
@@ -8159,7 +8251,9 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
   const cycle = snap.cycle ?? null;
   const zone = snap.zone ?? null;
   const patches = snap.patches ?? []; // burn/toxin ground pools
-  const followers = snap.followers ?? []; // combat hires (hound/archer/caster)
+  const followers = snap.followers ?? []; // combat hires (hound/archer/caster) + recruited defenders
+  const stranded = snap.stranded ?? []; // un-recruited stranded operators on the field
+  const scrap = snap.scrap ?? []; // generic scrap pickups (separate from relic shards)
   // --- frontier III (all optional) ---
   const pickups = snap.pickups ?? []; // field weapons on the ground
   const qitems = snap.qitems ?? []; // quest items / proof fragments
@@ -8498,6 +8592,11 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
   for (const fo2 of forges) if (inView(fo2.x, fo2.y, 80)) drawForge(ctx, fo2, t, lights);
   for (const pk of pickups) if (inView(pk.x, pk.y, 60)) drawFieldPickup(ctx, pk, t, lights);
   for (const q of qitems) if (inView(q.x, q.y, 60)) drawQuestItem(ctx, q, t, lights);
+  // STRANDED OPERATORS + SCRAP (def.stranded levels only; arrays empty -> no-op).
+  // Carried ones trail their carrier and still draw; recruited operators leave
+  // these arrays entirely (they ride 'followers' and draw as defenders).
+  for (const s of scrap) if (inView(s.x, s.y, 60)) drawScrap(ctx, s, t);
+  for (const o of stranded) if (inView(o.x, o.y, 60)) drawStranded(ctx, o, t);
 
   // --- frontier entities (all optional; absent on classic snapshots) ---
   const activePids = new Set();
@@ -9689,6 +9788,17 @@ function drawViewChip(ctx, snap, charMap, view, rect) {
   ctx.textBaseline = 'middle';
   ctx.fillText(name, x + 8, y + h / 2 + 0.5);
   if (hearts) drawHeartPips(ctx, x + 8 + tw + 6 + (p.maxHp * 7) / 2, y + h / 2 - 1, p.hp, p.maxHp);
+  // sprint stamina: a thin bar pinned just above the chip, local seats only
+  // (this chip IS the local seat's readout). Shipped only once the seat sprints,
+  // so seats that never sprint draw no bar at all. Amber, dim-tracked.
+  if (p && p.stamina != null && p.staminaMax) {
+    const frac = Math.max(0, Math.min(1, p.stamina / p.staminaMax));
+    const bx = x, by = y - 6, bw = w, bh = 3;
+    ctx.fillStyle = 'rgba(11,10,20,0.7)';
+    ctx.fillRect(bx, by, bw, bh);
+    ctx.fillStyle = frac >= 1 ? 'rgba(122,228,148,0.9)' : 'rgba(244,196,84,0.9)';
+    ctx.fillRect(bx, by, bw * frac, bh);
+  }
   ctx.restore();
 }
 
@@ -9889,6 +9999,9 @@ export function renderMinimap(ctx, snap, focusPids) {
   for (const fo2 of snap.forges ?? []) if (seenAt(fo2.x, fo2.y)) dot(fo2.x, fo2.y, PAL.lythAmber, 2.4);
   for (const pk of snap.pickups ?? []) if (seenAt(pk.x, pk.y)) dot(pk.x, pk.y, (PICKUP_STYLE[pk.kind] || {}).col || PAL.lythGold, 2);
   for (const q of snap.qitems ?? []) if (seenAt(q.x, q.y)) dot(q.x, q.y, '#FFEFC2', 2.2);
+  // stranded operators (amber distress) + scrap (dull steel): def.stranded only
+  for (const o of snap.stranded ?? []) if (seenAt(o.x, o.y)) dot(o.x, o.y, PAL.lythAmber, 2.4);
+  for (const s of snap.scrap ?? []) if (seenAt(s.x, s.y)) dot(s.x, s.y, '#8A8270', 1.8);
   for (const tw of snap.towers ?? []) if ((tw.hp ?? 1) > 0 && seenAt(tw.x, tw.y)) dot(tw.x, tw.y, PAL.moonsteel, 2);
   for (const v of snap.vehicles ?? []) if (seenAt(v.x, v.y)) dot(v.x, v.y, '#A9C4CE', 2);
   // objectives: flags, core(s), the landed ship — always visible
@@ -10045,6 +10158,8 @@ export function drawFullMap(ctx, snap, mask, focus, opts = {}) {
   for (const tw of snap.towers ?? []) if ((tw.hp ?? 1) > 0 && seen2(tw.x, tw.y)) dot(tw.x, tw.y, PAL.moonsteel, 0.7);
   for (const pk of snap.pickups ?? []) if (seen2(pk.x, pk.y)) dot(pk.x, pk.y, (PICKUP_STYLE[pk.kind] || {}).col || PAL.lythGold, 0.7);
   for (const q of snap.qitems ?? []) if (seen2(q.x, q.y)) dot(q.x, q.y, '#FFEFC2', 0.7);
+  for (const o of snap.stranded ?? []) if (seen2(o.x, o.y)) dot(o.x, o.y, PAL.lythAmber, 0.9);
+  for (const s of snap.scrap ?? []) if (seen2(s.x, s.y)) dot(s.x, s.y, '#8A8270', 0.7);
   for (const tp of snap.teleports ?? []) {
     if (!seen2(tp.x, tp.y)) continue;
     ctx.strokeStyle = 'rgba(111,216,242,0.85)';

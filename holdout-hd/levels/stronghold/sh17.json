@@ -1,4 +1,5 @@
 {
+  "stranded": true,
   "name": "Twin Strongholds",
   "objective": "Defend BOTH strongholds for five nights — the hold falls only if all four anchor monoliths go dark at once",
   "time": 600,

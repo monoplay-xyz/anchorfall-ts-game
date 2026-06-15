@@ -1,4 +1,5 @@
 {
+  "stranded": true,
   "name": "Night Unending",
   "objective": "Raise the comm mast before dark, then outlast seven unending nights",
   "time": 600,

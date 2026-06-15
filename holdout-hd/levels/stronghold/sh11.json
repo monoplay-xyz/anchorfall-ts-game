@@ -1,4 +1,5 @@
 {
+  "stranded": true,
   "name": "The Drowned Ring",
   "objective": "Keep at least one of the four drowned monoliths lit through six nights — all four dark at once and the ring goes under",
   "time": 600,

@@ -1,4 +1,5 @@
 {
+  "stranded": true,
   "name": "Dust Perimeter",
   "objective": "Hold Dust Perimeter through four nights — the core must stand at the fourth dawn",
   "time": 600,

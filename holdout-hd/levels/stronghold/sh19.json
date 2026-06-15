@@ -1,4 +1,5 @@
 {
+  "stranded": true,
   "name": "The Sunken Vault",
   "objective": "Keep at least one beacon lit through four nights — the vault pays those who open it",
   "time": 600,

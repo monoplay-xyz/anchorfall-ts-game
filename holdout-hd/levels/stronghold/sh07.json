@@ -1,4 +1,5 @@
 {
+  "stranded": true,
   "name": "Two Rivers",
   "objective": "Keep at least one beacon lit through four rain-soaked nights — the fords decide everything",
   "time": 600,

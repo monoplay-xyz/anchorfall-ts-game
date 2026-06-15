@@ -1,4 +1,5 @@
 {
+  "stranded": true,
   "name": "The Last Bastion",
   "objective": "Hold the bastion through five nights — the core must still stand at the fifth dawn",
   "time": 600,

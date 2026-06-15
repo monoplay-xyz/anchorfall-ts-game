@@ -1,4 +1,5 @@
 {
+  "stranded": true,
   "name": "Ash Quorum",
   "objective": "Hold the crater bastion for six nights — and light a 3-of-5 relay quorum to wake the old grid",
   "time": 600,

@@ -80,6 +80,24 @@ const HORDE_BURST_MIN = 2.2;   // seconds between bursts at the very start
 const HORDE_BURST_MAX = 5.0;   // seconds between bursts (slow opening)
 const HORDE_PER_EDGE_MIN = 1;  // enemies per edge at the opening
 const HORDE_PER_EDGE_MAX = 4;  // enemies per edge at the climax
+// DIFFICULTY: a single global multiplier on enemy spawn COUNTS for both normal
+// waves and the relic-awakening horde. 'extreme' is the historical no-op (1.0),
+// so every existing count-pinned path stays byte-identical; 'normal' (the
+// default) halves the pressure, 'easy' relaxes it further. This is a legit
+// setting (NOT a cheat): it never sets g.devMode and scores still count.
+const DIFFICULTY_SCALE = { easy: 0.35, normal: 0.5, extreme: 1 };
+function difficultyScale(d) {
+  return DIFFICULTY_SCALE[d] !== undefined ? DIFFICULTY_SCALE[d] : 1;
+}
+// Scale an integer spawn count by g.enemyScale, deterministically and never
+// dropping a required spawn to zero: round to nearest, but keep at least 1
+// whenever the un-scaled count asked for at least 1.
+function scaleCount(g, n) {
+  if (n <= 0) return n;
+  const s = (g && g.enemyScale !== undefined) ? g.enemyScale : 1;
+  if (s >= 1) return n;
+  return Math.max(1, Math.round(n * s));
+}
 // Scoring: a big survival bonus that bleeds away with every hit and death.
 const HORDE_BASE_BONUS = 5000;
 const HORDE_FLOOR_BONUS = 500;
@@ -242,6 +260,14 @@ const SHOP_OFFERS = [
   { what: 'toxin', cost: 10, amount: 1 },
 ];
 const STAG_SPEED = 2.2; // land mount speed multiplier
+// Sprint (hold SHIFT): a brief speed burst that drains a stamina meter, then
+// recovers — but ONLY while the operative is at full hp. The meter is a gated
+// hero-mode field (lazy-minted on the first sprint press), so seats that never
+// sprint stay byte-identical on the wire (CTF snapshots unchanged).
+const SPRINT_MULT = 1.6;     // move-speed multiplier while sprinting
+const STAMINA_MAX = 3;       // full meter (seconds of sprint at full drain)
+const STAMINA_DRAIN = 1;     // meter-units per second drained while sprinting
+const STAMINA_REGEN = 0.6;   // meter-units per second regained (FULL hp only)
 const FLAG_REACH = 0.6; // tiles, flag touch radius
 const FLAG_DROP_T = 8; // seconds a dropped flag lies before returning
 const CTF_RESPAWN = 5;
@@ -315,6 +341,18 @@ const FOLLOWER_TORNADO = { kind: 'tornado', damage: 2, projSpeed: 3.5, range: 7,
 const MAX_FOLLOWERS_PER_PLAYER = 2;
 const MAX_FOLLOWERS_PER_SQUAD = 5;
 const POST_RESTOCK_T = 20; // seconds before a post whose follower died restocks
+// --- STRANDED OPERATORS + SCRAP (def.stranded opt-in; absent => byte-stable) -
+// Weak neutral civilians waiting on the field. Give one a SCRAP item (a generic
+// pickup, wholly separate from relic/music-box shards) or carry one to the
+// stronghold centre and it RECRUITS as a 'defender' follower: an ownerless
+// (owner === null) weak friendly that hustles to base and shoots enemies near
+// it. Defenders reuse the g.followers array + render so the wire/draw stay one
+// code path; only stepFollowers gains an ownerless branch.
+const DEFENDER_STATS = { defender: { hp: 2, speed: 3.4 } }; // weak, but quick to base
+const DEFENDER_HOLD = 7; // tiles around base the defender garrisons + engages within
+const DEFENDER_ARROW = { kind: 'arrow', damage: 1, projSpeed: 8, range: 5, count: 1 };
+const STRANDED_R = 12; // touch radius, captive-sized
+const SCRAP_R = 12; // generic scrap pickup touch radius
 const CONTROLLER_RANGE = 4; // tiles, mind-control reach
 const CONTROLLER_T = 10; // seconds of mind control before the husk burns out
 const SWIM_SLOW = 0.7; // swimmer speed multiplier on water
@@ -889,6 +927,11 @@ export function createGame(def, party, charMap, roster) {
     familyLives: def.family ? FAMILY_BASE_LIVES + 3 * players.length : null,
     ship: null, // the landed Anchorcraft (early-extraction reward), if any
     hpMult,
+    // DIFFICULTY: enemy spawn-count multiplier from def.difficulty (default
+    // 'normal'). 'extreme' == 1.0 keeps today's exact counts; lower values
+    // thin both normal waves and the relic horde. Legit setting, not a cheat.
+    difficulty: def.difficulty || 'normal',
+    enemyScale: difficultyScale(def.difficulty || 'normal'),
     // alive world: weather/ambience pass through to snapshots for render/audio
     // (an explicit def.weather wins; otherwise a theme may imply one)
     weather: WEATHERS.has(def.weather) ? def.weather : themeWeather,
@@ -917,6 +960,13 @@ export function createGame(def, party, charMap, roster) {
     patches: [],
     followers: [],
     nextFollowerId: 1,
+    // STRANDED OPERATORS + SCRAP: filled by setupStranded only when def.stranded
+    // is set. Always present (empty otherwise) so step/snapshot/serialize never
+    // branch on existence; snapshot ships them only when populated, so every
+    // unflagged mode keeps byte-identical snapshots.
+    stranded: [],
+    scrap: [],
+    nextScrapId: 0,
     // field weapon pickups ('A') and quest items ('I'). Dropped weapons mint
     // fresh ids from nextPickupId so shared loot stays addressable.
     pickups: lvl.pickups,
@@ -1059,6 +1109,10 @@ export function createGame(def, party, charMap, roster) {
   // tiles — fragments simply route around the new structures, deterministically.
   setupStrongholds(g, def);
   setupMusicBox(g, def);
+  // STRANDED OPERATORS + SCRAP: opt-in field NPCs/pickups. Runs LAST so the base
+  // centre, strongholds and music-box altar are all on the map before it scans
+  // for open tiles. A no-op (arrays stay empty) unless def.stranded is set.
+  setupStranded(g, def);
   return g;
 }
 
@@ -1335,6 +1389,51 @@ function setupMusicBox(g, def) {
       return { x: spot.x, y: spot.y, filled: false };
     });
   }
+}
+
+// STRANDED OPERATORS + SCRAP: opt-in via def.stranded (truthy, or an object
+// {operators, scrap} for counts). Untouched modes leave both arrays empty so
+// snapshot/render gain no key and stay byte-identical. Placement is fully
+// deterministic — an FNV-seeded LCG (the exact pattern the music-box shards
+// use) walks open tiles away from the base, so server and every client agree
+// without exchanging setup. Scrap is a GENERIC item: it never touches the relic
+// shard pool (g.shards) or the music-box fragments.
+function setupStranded(g, def) {
+  const cfg = def.stranded;
+  if (!cfg) return; // arrays stay empty: classic/unflagged snapshots unchanged
+  const nOps = Math.max(1, (typeof cfg === 'object' && cfg.operators) || 3);
+  const nScrap = Math.max(nOps, (typeof cfg === 'object' && cfg.scrap) || nOps + 1);
+  const base = baseCenter(g);
+  const nm = String(def.key || def.name || def.title || 'lvl') + '#stranded';
+  let seed = 2166136261; for (let i = 0; i < nm.length; i++) { seed ^= nm.charCodeAt(i); seed = (seed * 16777619) >>> 0; }
+  const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+  // pick an open tile >= 6 tiles off the base (so saved folk have somewhere to
+  // be walked back to), off hazards; fall back to a ring scan when the random
+  // probe fails so the count is always met.
+  const pick = (kSeed, minTiles) => {
+    for (let tries = 0; tries < 160; tries++) {
+      const tx = 1 + Math.floor(rnd() * (g.w - 2));
+      const ty = 1 + Math.floor(rnd() * (g.h - 2));
+      const x = (tx + 0.5) * TILE, y = (ty + 0.5) * TILE;
+      if (collides(g, x, y, STRANDED_R)) continue;
+      const c = tileAt(g, x, y);
+      if (c === '!' || c === '~' || c === '%') continue;
+      if (Math.hypot(x - base.x, y - base.y) < minTiles * TILE) continue;
+      return { x, y };
+    }
+    return openTileNear(g, base.x, base.y, minTiles, minTiles + 8, kSeed) || { x: base.x, y: base.y };
+  };
+  g.stranded = [];
+  for (let i = 0; i < nOps; i++) {
+    const s = pick(i * 7 + 3, 6);
+    g.stranded.push({ id: 'op' + i, x: s.x, y: s.y, carrier: null, recruited: false });
+  }
+  g.scrap = [];
+  for (let i = 0; i < nScrap; i++) {
+    const s = pick(i * 13 + 5, 4);
+    g.scrap.push({ id: 'sc' + i, x: s.x, y: s.y, carrier: null });
+  }
+  g.nextScrapId = nScrap;
 }
 
 function spawnPlayer(pid, name, charId, x, y) {
@@ -1927,7 +2026,8 @@ function stepSiegeMinions(g, dt) {
     // once that team's towers are down, the core is exposed — chew it
     if (!gnawing && siegeCoreOpen(g, foe)) for (const c of g.cores) {
       if (c.team !== foe || c.hp <= 0) continue;
-      if (dist2(m, c) < SIEGE_CORE_R ** 2) { c.hp = Math.max(0, c.hp - MINION_CORE_DPS * dt); gnawing = true; break; }
+      // DEV core integrity: minion still stalls on the core, but deals no damage
+      if (dist2(m, c) < SIEGE_CORE_R ** 2) { if (!(g.cheats && g.cheats.coreInvuln)) c.hp = Math.max(0, c.hp - MINION_CORE_DPS * dt); gnawing = true; break; }
     }
     if (gnawing) continue; // hold position while chewing
     // otherwise march along the lane toward the enemy core
@@ -2108,6 +2208,23 @@ function awardXp(g, pid, e) {
   }
 }
 
+// DEV "max out": bring one seat to the top of the per-mission progression — full
+// level (4), every level-up perk applied (the +1 maxHp at L2, the L3/L4 weapon
+// evolution that fireWeapon reads off p.level), and topped-up hp. Routes through
+// grantXp so the level-up climb (and its events) is identical to an earned one.
+// No-op on arcade seats (1-hit classic players carry no p.level field) and on
+// seats already maxed. Exported so the solo dev cheat menu can invoke it.
+export function maxOutPlayer(g, pid) {
+  const p = g.players.find(q => q.pid === pid);
+  if (!p || p.level === undefined) return; // arcade seats never level
+  if (p.level < 4) {
+    // grant enough xp to cross every remaining threshold in one resolve; the
+    // grantXp loop caps at level 4, so this lands exactly at the top.
+    grantXp(g, p, XP_THRESH[XP_THRESH.length - 1] + 1);
+  }
+  p.hp = p.maxHp; // arrive at full health, like any fresh evolution would want
+}
+
 // --- status effects --------------------------------------------------------
 // Ignite: 1 dmg/s for 3s. Fresh ignitions reset the tick clock; re-touching
 // fire pins the timer at 3. patchFlag marks L4-burn ignitions whose corpse
@@ -2180,6 +2297,84 @@ function dropFieldWeapon(g, p) {
   p.fieldWeapon = null;
 }
 
+// STRANDED OPERATORS: spawn a weak friendly 'defender' follower at (x,y). It is
+// OWNERLESS (owner === null) — it belongs to the squad/base, not a seat — so
+// stepFollowers runs its garrison-the-base branch and enemies weight it like
+// any follower. Reuses g.followers (one wire/render path). slot: -1 marks the
+// ownerless garrison so the formation code never claims it.
+function recruitDefender(g, x, y, src) {
+  const f = {
+    id: g.nextFollowerId++, kind: 'defender', owner: null,
+    x, y, hp: DEFENDER_STATS.defender.hp, maxHp: DEFENDER_STATS.defender.hp, slot: -1,
+    fx: 0, fy: 1, cool: 0, invulnT: 0, path: null, pathI: 0, repathT: 0, isFollower: true,
+  };
+  g.followers.push(f);
+  g.events.push({ type: 'recruit', x, y, src });
+  return f;
+}
+
+// DROP action (inp.drop edge): lay down whatever the operative is carrying, in
+// priority. SCRAP first (the give-an-operator-a-weapon currency): dropped next
+// to a stranded operator it RECRUITS them (consumed), else it lands as a loose
+// pickup. Then a carried STRANDED OPERATOR: dropped at the stronghold centre
+// they are saved and recruited as a defender, else set back down on the field.
+// Then a relic music-box FRAGMENT (the carried shard). Empty-handed is a no-op.
+// Returns true when something was dropped (so the press is consumed).
+function dropHeld(g, p) {
+  // 1. carried scrap
+  const sc = g.scrap.find(s => s.carrier === p.pid);
+  if (sc) {
+    // recruit the NEAREST un-recruited stranded operator in reach
+    let op = null, best = (TILE * BUILD_REACH) ** 2;
+    for (const o of g.stranded) {
+      if (o.recruited || o.carrier != null) continue;
+      const d = dist2(p, o);
+      if (d < best) { best = d; op = o; }
+    }
+    if (op) {
+      op.recruited = true;
+      sc.carrier = null;
+      g.scrap.splice(g.scrap.indexOf(sc), 1); // scrap is consumed (never the relic pool)
+      recruitDefender(g, op.x, op.y, 'scrap');
+      g.events.push({ type: 'scrapGiven', x: op.x, y: op.y, opId: op.id });
+    } else {
+      sc.carrier = null;
+      sc.x = p.x;
+      sc.y = p.y;
+      g.events.push({ type: 'scrapDrop', x: p.x, y: p.y, id: sc.id });
+    }
+    return true;
+  }
+  // 2. carried stranded operator
+  const op = g.stranded.find(o => o.carrier === p.pid);
+  if (op) {
+    op.carrier = null;
+    op.x = p.x;
+    op.y = p.y;
+    const base = baseCenter(g);
+    if (dist2(p, base) < (TILE * DEFENDER_HOLD) ** 2) {
+      op.recruited = true;
+      recruitDefender(g, p.x, p.y, 'rescue');
+      g.events.push({ type: 'opSaved', x: p.x, y: p.y, opId: op.id });
+    } else {
+      g.events.push({ type: 'opDrop', x: p.x, y: p.y, opId: op.id });
+    }
+    return true;
+  }
+  // 3. carried relic fragment (drops it on the spot for a teammate to retrieve)
+  if (g.musicBox && g.musicBox.enabled && !g.musicBox.complete) {
+    const f = g.musicBox.fragments.find(fr => fr.carrier === p.pid);
+    if (f) {
+      f.carrier = null;
+      f.x = p.x;
+      f.y = p.y;
+      g.events.push({ type: 'mbDrop', x: p.x, y: p.y, id: f.id, pid: p.pid });
+      return true;
+    }
+  }
+  return false; // empty hands: no-op
+}
+
 // Going down vacates whatever the player held: mount, watchtower, flag, shop.
 function releaseHoldings(g, p) {
   p.shopping = false;
@@ -2196,6 +2391,10 @@ function releaseHoldings(g, p) {
     p.towerId = null;
   }
   dropFlags(g, p);
+  // a downed/extracted carrier sets down their stranded operator + scrap where
+  // they fell (mirrors how captives free their owner) so neither is ever lost
+  for (const o of g.stranded) if (o.carrier === p.pid) { o.carrier = null; o.x = p.x; o.y = p.y; }
+  for (const s of g.scrap) if (s.carrier === p.pid) { s.carrier = null; s.x = p.x; s.y = p.y; }
 }
 
 function downPlayer(g, p) {
@@ -3134,12 +3333,15 @@ function attackBuilds(g, e, dt) {
 function attackCore(g, e, dt) {
   if (!MELEE_KINDS.has(e.kind)) return false;
   if (!e.targetCore && !e.pathFailed) return false;
+  // DEV core integrity: the center cannot be destroyed. Enemy still stalls at
+  // the core (returns true to hold position), but no hp is ever subtracted.
+  const coreInvuln = !!(g.cheats && g.cheats.coreInvuln);
   const rr = CORE_R + ENEMY_R + 3;
   if (g.cores) {
     for (let i = 0; i < g.cores.length; i++) {
       const c = g.cores[i];
       if (!c.lit || dist2(e, c) >= rr * rr) continue;
-      if (e.hitCool <= 0) {
+      if (e.hitCool <= 0 && !coreInvuln) {
         e.hitCool = 0.9;
         c.hp -= 1;
         g.events.push({ type: 'coreHit', idx: i, x: c.x, y: c.y, hp: Math.max(0, c.hp) });
@@ -3155,7 +3357,7 @@ function attackCore(g, e, dt) {
   }
   if (!g.core || g.core.hp <= 0) return false;
   if (dist2(e, g.core) >= rr * rr) return false;
-  if (e.hitCool <= 0) {
+  if (e.hitCool <= 0 && !coreInvuln) {
     e.hitCool = 0.9;
     g.core.hp -= 1;
     g.events.push({ type: 'coreHit', x: g.core.x, y: g.core.y, hp: Math.max(0, g.core.hp) });
@@ -3181,12 +3383,51 @@ function damageFollower(g, f, dmg = 1) {
 // from the owner's facing every tick — pure math, no randomness), engage
 // enemies within 5 tiles of the owner, and teleport home when 12+ tiles
 // adrift. Follower kills credit no seat (no xp).
+// A recruited STRANDED OPERATOR: an OWNERLESS (owner === null) weak friendly
+// that hustles to the stronghold centre and shoots any enemy within
+// DEFENDER_HOLD tiles of base. It rides the g.followers array (one wire/render
+// path) but, having no seat, runs this garrison branch instead of the formation
+// one. Fully deterministic (no RNG/clock): a stale-path A* via moveToward, the
+// same family the hired hands and enemies use.
+function stepDefender(g, f, dt) {
+  const st = DEFENDER_STATS.defender;
+  const base = baseCenter(g);
+  // engage the nearest enemy within the base hold ring
+  let tgt = null, best = Infinity;
+  const hold2 = (TILE * DEFENDER_HOLD) ** 2;
+  for (const e of g.enemies) {
+    if (e.dead || e.convertedT > 0) continue;
+    if (dist2(base, e) >= hold2) continue;
+    const d = dist2(f, e);
+    if (d < best) { best = d; tgt = e; }
+  }
+  if (tgt) {
+    const w = DEFENDER_ARROW;
+    if (best < (w.range * TILE) ** 2 && hasLoS(g, f.x, f.y, tgt.x, tgt.y, blocksSight)) {
+      const [fx, fy] = norm(tgt.x - f.x, tgt.y - f.y);
+      f.fx = fx; f.fy = fy;
+      if (f.cool <= 0) {
+        f.cool = 1.4;
+        fireWeapon(g, f, w, 'p', tgt);
+      }
+    } else {
+      moveToward(g, f, tgt, dt, st.speed * TILE, FOLLOWER_R);
+    }
+    return;
+  }
+  // no prey: march back to the base centre and garrison just off it
+  if (dist2(f, base) > (TILE * 1.5) ** 2) {
+    moveToward(g, f, base, dt, st.speed * TILE, FOLLOWER_R);
+  }
+}
+
 function stepFollowers(g, dt) {
   if (!g.followers.length) return;
   for (const f of g.followers) {
     if (f.dead) continue;
     if (f.invulnT > 0) f.invulnT -= dt;
     if (f.cool > 0) f.cool -= dt;
+    if (f.owner == null) { stepDefender(g, f, dt); continue; } // ownerless base garrison
     const o = g.players.find(q => q.pid === f.owner);
     if (!o || o.state !== 'active') continue; // owner down: hold position
     // remember the last solid footing — the adrift teleport must never drop
@@ -3831,7 +4072,8 @@ function stepWaves(g) {
     if (w.fired || g.elapsed < w.at) continue;
     w.fired = true;
     const room = Math.max(0, 90 - g.enemies.length);
-    const count = Math.min(w.letters.length, room); // drop overflow
+    // DIFFICULTY thins the wave first (extreme == full count), then room clamps.
+    const count = Math.min(scaleCount(g, w.letters.length), room); // drop overflow
     const pts = waveEntryPoints(g, w.edge, count);
     for (let i = 0; i < pts.length; i++) {
       const e = makeEnemy(w.letters[i], pts[i].x, pts[i].y, g.nextEnemyId++);
@@ -3936,8 +4178,9 @@ function stepHorde(g, dt) {
   if (g.elapsed >= h.nextAt) {
     const interval = HORDE_BURST_MAX - (HORDE_BURST_MAX - HORDE_BURST_MIN) * progress;
     h.nextAt = g.elapsed + interval;
-    const perEdge = HORDE_PER_EDGE_MIN
-      + Math.floor((HORDE_PER_EDGE_MAX - HORDE_PER_EDGE_MIN) * progress + 0.0001);
+    // DIFFICULTY scales the per-edge density (extreme == full); never below 1.
+    const perEdge = scaleCount(g, HORDE_PER_EDGE_MIN
+      + Math.floor((HORDE_PER_EDGE_MAX - HORDE_PER_EDGE_MIN) * progress + 0.0001));
     // the deadlier nightmares unlock as the song crests: at the climax the full
     // roster is in play; the opening is spider/zombie fodder.
     const pool = Math.max(2, Math.ceil(NIGHTMARE_LETTERS.length * (0.3 + 0.7 * progress)));
@@ -5332,6 +5575,29 @@ export function step(g, inputs, dt) {
     if (tower) { p.x = tower.x; p.y = tower.y; }
     const vehicle = p.riding ? g.vehicles.find(v => v.id === p.riding) : null;
 
+    // --- SPRINT + STAMINA (hold sprint to run a brief burst). The meter is a
+    // gated hero-mode field: only operatives with hp tracking (p.maxHp set, i.e.
+    // non-arcade) can sprint, and the field stays undefined until the seat first
+    // presses sprint — so untouched runs (and every mode that never sprints)
+    // emit byte-identical snapshots. Drain runs only while actually moving under
+    // sprint; recovery runs ONLY when the operative is at full hp. At 0 the meter
+    // simply stops boosting (normal speed) until it climbs back. The resulting
+    // `sprinting` flag feeds the movement velocity below (composes with the
+    // stag/vehicle/siege multipliers without double-applying). ---
+    let sprinting = false;
+    if (p.maxHp !== undefined && (inp.sprint || p.stamina !== undefined)) {
+      if (p.stamina === undefined) { p.stamina = STAMINA_MAX; p.staminaMax = STAMINA_MAX; }
+      const wantsSprint = !!inp.sprint && !tower && !p.shopping && !p.selecting && !(p.stunT > 0);
+      const moving = (inp.left || inp.right || inp.up || inp.down) && !(p.stunT > 0);
+      if (wantsSprint && moving && p.stamina > 0) {
+        sprinting = true;
+        p.stamina = Math.max(0, p.stamina - STAMINA_DRAIN * dt);
+      } else if (p.hp >= p.maxHp && p.stamina < p.staminaMax) {
+        // recovery gate: only refill when fully healed (the key constraint)
+        p.stamina = Math.min(p.staminaMax, p.stamina + STAMINA_REGEN * dt);
+      }
+    }
+
     // --- inventory cycle (edge): inp.invSel steps the selected placeable. Only
     // engages when the operative actually carries placeables; gated so seats
     // that never buy one never gain inventory keys. ---
@@ -5340,6 +5606,19 @@ export function step(g, inputs, dt) {
       p.invPrev = !!inp.invSel;
       if (invEdge && p.inventory && p.inventory.length) {
         p.invIdx = ((p.invIdx || 0) + 1) % p.inventory.length;
+      }
+    }
+
+    // --- DROP (edge): lay down whatever is carried — scrap (give it to a
+    // stranded operator to recruit them), a carried operator (drop at the
+    // stronghold centre to save + recruit), or a relic fragment. Empty hands is
+    // a no-op (dropHeld returns false), so seats carrying nothing are unaffected
+    // and unflagged levels — where every carry array is empty — never act. ---
+    {
+      const dropEdge = !!inp.drop && !p.dropPrev;
+      p.dropPrev = !!inp.drop;
+      if (dropEdge && !tower && !vehicle && !p.placing && !p.shopping && !p.selecting) {
+        dropHeld(g, p);
       }
     }
 
@@ -5584,6 +5863,9 @@ export function step(g, inputs, dt) {
         p.fx = mx; p.fy = my;
         let v = ch.speed * TILE * dt * (p.stimT > 0 ? 1.3 : 1);
         if (vehicle) v = ch.speed * TILE * dt * (vehicle.kind === 'stag' ? STAG_SPEED : 1);
+        // sprint burst: on foot only (a mount already carries its own boost), so
+        // it composes with siege/terrain factors below without doubling the stag
+        if (sprinting && !vehicle) v *= SPRINT_MULT;
         if (g.cheats && g.cheats.speed > 1) v *= g.cheats.speed; // DEV speed multiplier
         if (g.siege && !vehicle) v *= SIEGE_HERO_SPEED; // MOBA: deliberate hero movement
         v *= moveMult(g, p.x, p.y); // sand drags, ice skates, snowfall slows
@@ -5853,6 +6135,31 @@ export function step(g, inputs, dt) {
       if (it.carrier == null && dist2(p, it) < (PLAYER_R + QITEM_R) ** 2) {
         it.carrier = p.pid;
         g.events.push({ type: 'qitemPickup', x: it.x, y: it.y, id: it.id, kind: it.kind, pid: p.pid });
+      }
+    }
+
+    // SCRAP: scoop a loose scrap on touch (one per carrier — the carry it later
+    // gives to an operator, or drops, via the DROP action). Generic item: this
+    // never touches g.shards or the relic fragments. No-op off-mode (empty arr).
+    if (!g.scrap.some(s => s.carrier === p.pid)) {
+      for (const s of g.scrap) {
+        if (s.carrier == null && dist2(p, s) < (PLAYER_R + SCRAP_R) ** 2) {
+          s.carrier = p.pid;
+          g.events.push({ type: 'scrapPickup', x: s.x, y: s.y, id: s.id, pid: p.pid });
+          break; // at most one scrap per pickup tick
+        }
+      }
+    }
+    // STRANDED OPERATORS: carry one to the stronghold centre (drop there to
+    // save + recruit). Scoop on touch, one per carrier (a hand full of scrap is
+    // fine — the two carries are independent). No-op off-mode (empty arr).
+    if (!g.stranded.some(o => o.carrier === p.pid)) {
+      for (const o of g.stranded) {
+        if (!o.recruited && o.carrier == null && dist2(p, o) < (PLAYER_R + STRANDED_R) ** 2) {
+          o.carrier = p.pid;
+          g.events.push({ type: 'opPickup', x: o.x, y: o.y, opId: o.id, pid: p.pid });
+          break; // at most one operator per pickup tick
+        }
       }
     }
 
@@ -6430,6 +6737,34 @@ export function step(g, inputs, dt) {
     }
   }
 
+  // --- carried scrap + stranded operators trail their carrier exactly like
+  // captives; a carrier going down sets them down where they fell. Both arrays
+  // are empty off-mode, so these loops are pure no-ops on every other level. ---
+  for (const s of g.scrap) {
+    if (s.carrier == null) continue;
+    const o = g.players.find(p => p.pid === s.carrier);
+    if (!o || o.state !== 'active') { s.carrier = null; continue; }
+    const d = Math.hypot(o.x - s.x, o.y - s.y);
+    const gap = PLAYER_R + SCRAP_R + 8;
+    if (d > gap) {
+      const t = Math.min(1, ((d - gap) / d) * 8 * dt);
+      s.x += (o.x - s.x) * t;
+      s.y += (o.y - s.y) * t;
+    }
+  }
+  for (const op of g.stranded) {
+    if (op.carrier == null) continue;
+    const o = g.players.find(p => p.pid === op.carrier);
+    if (!o || o.state !== 'active') { op.carrier = null; continue; }
+    const d = Math.hypot(o.x - op.x, o.y - op.y);
+    const gap = PLAYER_R + STRANDED_R + 8;
+    if (d > gap) {
+      const t = Math.min(1, ((d - gap) / d) * 8 * dt);
+      op.x += (o.x - op.x) * t;
+      op.y += (o.y - op.y) * t;
+    }
+  }
+
   stepQuests(g); // reach checks + live fetch progress for the objectives HUD
 
   // --- monolythium puzzle systems: quorum windows, the seal forge, doors
@@ -6697,18 +7032,22 @@ export function step(g, inputs, dt) {
             }
           }
         }
+        // DEV core integrity: shots still die on contact, but the center keeps its hp
+        const coreInvuln = !!(g.cheats && g.cheats.coreInvuln);
         if (!dead && g.core && g.core.hp > 0
             && dist2(s, g.core) < (CORE_R + (s.radius || SHOT_R)) ** 2) {
           dead = true;
-          g.core.hp -= 1;
-          g.events.push({ type: 'coreHit', x: g.core.x, y: g.core.y, hp: Math.max(0, g.core.hp) });
+          if (!coreInvuln) {
+            g.core.hp -= 1;
+            g.events.push({ type: 'coreHit', x: g.core.x, y: g.core.y, hp: Math.max(0, g.core.hp) });
+          }
         }
         if (!dead && g.cores) {
           for (let ci = 0; ci < g.cores.length; ci++) {
             const c = g.cores[ci];
             if (dist2(s, c) < (CORE_R + (s.radius || SHOT_R)) ** 2) {
               dead = true;
-              if (c.lit) {
+              if (c.lit && !coreInvuln) {
                 c.hp -= 1;
                 g.events.push({ type: 'coreHit', idx: ci, x: c.x, y: c.y, hp: Math.max(0, c.hp) });
                 if (c.hp <= 0) {
@@ -6932,6 +7271,11 @@ export function snapshot(g, full = true) {
     ...(g.qitems.length ? { qitems: g.qitems.map(it => ({ id: it.id, x: it.x, y: it.y, kind: it.kind, carrier: it.carrier })) } : {}),
     ...(g.quests.length ? { quests: g.quests.map(q => ({ id: q.id, state: q.state, progress: q.progress, count: q.count, title: q.title, main: q.main, kind: q.kind })) } : {}),
     ...(g.followers.length ? { followers: g.followers.map(f => ({ id: f.id, kind: f.kind, owner: f.owner, x: qi(f.x), y: qi(f.y), hp: f.hp, fx: q2(f.fx), fy: q2(f.fy), slot: f.slot })) } : {}),
+    // STRANDED OPERATORS + SCRAP — shipped only when populated (def.stranded
+    // levels only), so every other mode's snapshot stays byte-identical.
+    // Recruited operators drop out of the wire (they ride 'followers' now).
+    ...(g.stranded.length ? { stranded: g.stranded.filter(o => !o.recruited).map(o => ({ id: o.id, x: qi(o.x), y: qi(o.y), carrier: o.carrier })) } : {}),
+    ...(g.scrap.length ? { scrap: g.scrap.map(s => ({ id: s.id, x: qi(s.x), y: qi(s.y), carrier: s.carrier })) } : {}),
     // monolythium puzzle systems — shipped only when populated, so classic
     // snapshots never gain a key
     ...(g.switches.length ? { switches: g.switches.map(s => ({ id: s.id, x: s.x, y: s.y, on: s.on, group: s.group })) } : {}),
@@ -6958,6 +7302,10 @@ export function snapshot(g, full = true) {
       lanes: g.siege.lanes.map(l => l.waypoints.map(w => [w.x, w.y])),
       open: [siegeCoreOpen(g, 0), siegeCoreOpen(g, 1)],
     } } : {}),
+    // Difficulty: ships only when NOT the default 'normal', so every
+    // default-difficulty snapshot stays byte-identical (the HUD shows the badge
+    // only when the player chose Easy or Extreme).
+    ...(g.difficulty && g.difficulty !== 'normal' ? { difficulty: g.difficulty } : {}),
     // Family Mode: the bright/cheerful render + the shared-lives HUD read these
     ...(g.family ? { family: true, familyLives: g.familyLives } : {}),
     ...(g.ship ? { ship: { x: g.ship.x, y: g.ship.y, landed: true } } : {}),
@@ -6999,6 +7347,9 @@ export function snapshot(g, full = true) {
       pid: p.pid, name: p.name, charId: p.charId, x: qi(p.x), y: qi(p.y), fx: q2(p.fx), fy: q2(p.fy),
       state: p.state, invuln: q1(p.invuln), specialCool: q1(p.specialCool),
       ...(p.maxHp !== undefined ? { hp: p.hp, maxHp: p.maxHp, shield: p.shield } : {}),
+      // sprint meter: shipped only once the seat has sprinted (gated), so seats
+      // that never sprint — and every mode that never uses it — stay byte-stable
+      ...(p.stamina !== undefined ? { stamina: q1(p.stamina), staminaMax: p.staminaMax } : {}),
       ...(p.item ? { item: { kind: p.item.kind, count: p.item.count } } : {}),
       ...(p.team !== undefined ? { team: p.team } : {}),
       ...(p.riding ? { riding: p.riding } : {}),

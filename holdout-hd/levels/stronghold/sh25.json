@@ -1,4 +1,5 @@
 {
+  "stranded": true,
   "name": "FINALITY",
   "objective": "Keep an anchor lit through four dense nights — or light all four under a night sky and board the Anchorcraft",
   "time": 600,

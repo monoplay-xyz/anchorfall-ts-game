@@ -1,4 +1,5 @@
 {
+  "stranded": true,
   "name": "The Husk Tide",
   "objective": "Hold the last precinct through three nights of fog — the tide breaks or the city does",
   "time": 600,

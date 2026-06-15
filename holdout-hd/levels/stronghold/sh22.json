@@ -1,4 +1,5 @@
 {
+  "stranded": true,
   "name": "The Silent Quorum",
   "objective": "Keep a shrine lit through eight nights — close the relay circle for the armory cache",
   "time": 600,

@@ -2,7 +2,7 @@ import assert from 'assert/strict';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { addPlayerMidGame, applyResults, charsById, createGame, MODE_CAPS, parseLevel, questProgress, restoreGame, revivePlayer, serializeGame, snapshot, step, TILE } from '../shared/game.js';
+import { addPlayerMidGame, applyResults, charsById, createGame, maxOutPlayer, MODE_CAPS, parseLevel, questProgress, restoreGame, revivePlayer, serializeGame, snapshot, step, TILE } from '../shared/game.js';
 import { MUSIC_DURATIONS, RELIC_WAVE_FALLBACK } from '../shared/music-durations.js';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -302,6 +302,148 @@ function testMusicBoxFeature() {
   assert.equal(sg.musicBox.stem, 'sh13', 'stronghold stem derives from level');
 }
 
+// --- STRANDED OPERATORS + SCRAP + DROP action: opt-in (def.stranded), gated so
+// every other mode stays byte-stable. Scrap is a GENERIC item separate from the
+// relic shard pool; giving scrap to an operator recruits a friendly defender;
+// dropping a carried operator at the stronghold centre saves + recruits one;
+// drop with empty hands is a no-op. ---
+function testStrandedOperatorsAndScrap() {
+  // a roomy open map, center spawn, no core -> base centre is the map centre.
+  // A story flag (musicBox) is added so we can prove scrap NEVER touches the
+  // relic assembled count.
+  const W = 18, H = 14;
+  const tiles = ['#'.repeat(W)];
+  for (let y = 1; y < H - 1; y++) tiles.push('#' + '.'.repeat(W - 2) + '#');
+  tiles.push('#'.repeat(W));
+  tiles[Math.floor(H / 2)] = '#' + '.'.repeat(7) + 'P' + '.'.repeat(W - 10) + '#';
+  tiles[2] = '#' + '.'.repeat(13) + 'g' + '.'.repeat(W - 16) + '#'; // a far sleeping grunt keeps the field non-empty
+  const def = { name: 'Stranded Test', story: true, chapter: 3, time: 600, tiles, captiveChars: [], stranded: { operators: 2, scrap: 3 } };
+
+  const g = createGame(def, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  assert.equal(g.stranded.length, 2, 'two stranded operators seed');
+  assert.equal(g.scrap.length, 3, 'three scrap items seed');
+  assert.ok(g.stranded.every(o => !o.recruited && o.carrier == null), 'operators start free');
+  assert.ok(g.scrap.every(s => s.carrier == null), 'scrap starts free');
+
+  // determinism: a second identical build places identically
+  const g2 = createGame(def, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  assert.deepEqual(g2.stranded.map(o => [o.x, o.y]), g.stranded.map(o => [o.x, o.y]), 'operator placement is deterministic');
+  assert.deepEqual(g2.scrap.map(s => [s.x, s.y]), g.scrap.map(s => [s.x, s.y]), 'scrap placement is deterministic');
+
+  // snapshot ships the gated keys for a stranded level
+  const snap = snapshot(g);
+  assert.equal((snap.stranded || []).length, 2, 'snapshot lists un-recruited operators');
+  assert.equal((snap.scrap || []).length, 3, 'snapshot lists scrap');
+
+  const p = g.players[0];
+  p.invuln = 999; g.graceT = 0;
+  const base = { x: g.w * TILE / 2, y: g.h * TILE / 2 }; // no core -> map centre
+
+  // --- SCRAP is separate from the relic pool: pick up scrap, give it to an
+  // operator, and the music-box assembled count must NOT move. ---
+  assert.equal(g.musicBox.assembled, 0, 'relic starts un-assembled');
+  const sc = g.scrap[0];
+  p.x = sc.x; p.y = sc.y;
+  step(g, { 0: {} }, 1 / 30);
+  assert.equal(g.scrap[0].carrier, 0, 'walking onto scrap carries it');
+  // a carrier cannot scoop a second scrap
+  const sc2 = g.scrap[1];
+  p.x = sc2.x; p.y = sc2.y;
+  step(g, { 0: {} }, 1 / 30);
+  assert.equal(g.scrap[1].carrier, null, 'a carrier cannot scoop a second scrap');
+
+  // carry the scrap onto an operator and DROP it -> recruit, scrap consumed
+  const op0 = g.stranded[0];
+  p.x = op0.x; p.y = op0.y;
+  const scrapBefore = g.scrap.length;
+  const followersBefore = g.followers.length;
+  step(g, { 0: { drop: true } }, 1 / 30);
+  assert.equal(g.musicBox.assembled, 0, 'giving scrap NEVER changes the relic assembled count');
+  assert.ok(op0.recruited, 'the operator is recruited by the scrap');
+  assert.equal(g.scrap.length, scrapBefore - 1, 'the scrap is consumed (not returned to any pool)');
+  assert.equal(g.followers.length, followersBefore + 1, 'recruiting spawns one defender follower');
+  const def0 = g.followers[g.followers.length - 1];
+  assert.equal(def0.kind, 'defender', 'recruit is a defender');
+  assert.equal(def0.owner, null, 'the defender is ownerless (a base garrison, not a seat hire)');
+
+  // the defender HEADS TO BASE: park it left of base with no prey near, step,
+  // it closes the distance to the stronghold centre. Pin the only field enemy
+  // far asleep in a corner (>9 tiles off both the defender and the player) so
+  // nothing wakes into the hold ring and yanks the march off course.
+  g.enemies[0].x = (g.w - 1.5) * TILE; g.enemies[0].y = 1.5 * TILE; g.enemies[0].awake = false;
+  def0.x = base.x - 5.5 * TILE; def0.y = base.y;
+  const distBefore = Math.hypot(def0.x - base.x, def0.y - base.y);
+  p.x = 1.5 * TILE; p.y = (g.h - 1.5) * TILE; // player parked opposite, far from everything
+  run(g, () => ({ 0: {} }), 1.5);
+  const distAfter = Math.hypot(def0.x - base.x, def0.y - base.y);
+  assert.ok(distAfter < distBefore - TILE, 'a recruited defender heads toward the stronghold centre');
+
+  // the defender FIGHTS enemies near base: drop a fresh grunt right by base, the
+  // defender shoots it down (weak but helpful). Park the defender on top of base
+  // so the new grunt is squarely inside the hold ring + weapon range.
+  def0.x = base.x; def0.y = base.y;
+  const e = makeEnemyForTest(g, 'g', base.x + TILE * 2, base.y);
+  e.awake = true;
+  g.enemies.push(e);
+  const eHp = e.hp;
+  run(g, () => ({ 0: {} }), 4);
+  assert.ok(e.dead || e.hp < eHp, 'a defender shoots enemies that reach the base');
+
+  // --- RESCUE PATH: carry a stranded operator to the base centre, DROP there
+  // -> saved + recruited. ---
+  const rg = createGame(def, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  const rp = rg.players[0];
+  rp.invuln = 999; rg.graceT = 0;
+  const rbase = { x: rg.w * TILE / 2, y: rg.h * TILE / 2 };
+  const rop = rg.stranded[1];
+  rp.x = rop.x; rp.y = rop.y;
+  step(rg, { 0: {} }, 1 / 30);
+  assert.equal(rop.carrier, 0, 'walking onto an operator carries them');
+  // dropping AWAY from base does NOT recruit (just sets them down)
+  rp.x = rbase.x + 9 * TILE; rp.y = rbase.y;
+  rop.x = rp.x; rop.y = rp.y; // the carried operator trails to the carrier
+  const fBeforeFar = rg.followers.length;
+  step(rg, { 0: { drop: true } }, 1 / 30);
+  assert.ok(!rop.recruited, 'dropping an operator far from base does not recruit');
+  assert.equal(rg.followers.length, fBeforeFar, 'no defender spawns on a far drop');
+  // pick them up again and drop at the base centre -> recruited
+  rp.x = rop.x; rp.y = rop.y;
+  step(rg, { 0: {} }, 1 / 30);
+  assert.equal(rop.carrier, 0, 're-carried after the far drop');
+  rp.x = rbase.x; rp.y = rbase.y; rop.x = rbase.x; rop.y = rbase.y;
+  const fBeforeBase = rg.followers.length;
+  step(rg, { 0: { drop: true } }, 1 / 30);
+  assert.ok(rop.recruited, 'dropping a carried operator at the base centre recruits them');
+  assert.equal(rg.followers.length, fBeforeBase + 1, 'the base-centre drop spawns a defender');
+  assert.equal(rg.followers[rg.followers.length - 1].owner, null, 'the rescued defender is ownerless');
+
+  // --- DROP with EMPTY HANDS is a no-op ---
+  const eg = createGame(def, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  const ep = eg.players[0];
+  ep.invuln = 999; eg.graceT = 0;
+  ep.x = eg.w * TILE / 2; ep.y = eg.h * TILE / 2; // empty-handed, away from any scrap/op
+  const scrapN = eg.scrap.length, opRecruited = eg.stranded.filter(o => o.recruited).length, follN = eg.followers.length, asm = eg.musicBox.assembled;
+  step(eg, { 0: { drop: true } }, 1 / 30);
+  assert.equal(eg.scrap.length, scrapN, 'empty-handed drop touches no scrap');
+  assert.equal(eg.stranded.filter(o => o.recruited).length, opRecruited, 'empty-handed drop recruits nobody');
+  assert.equal(eg.followers.length, follN, 'empty-handed drop spawns no defender');
+  assert.equal(eg.musicBox.assembled, asm, 'empty-handed drop never touches the relic pool');
+
+  // --- gating: an UNFLAGGED level seeds nothing and ships no keys ---
+  const plainDef = { name: 'Plain', time: 90, tiles, captiveChars: [] };
+  const cg = createGame(plainDef, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  assert.equal(cg.stranded.length, 0, 'unflagged level seeds no operators');
+  assert.equal(cg.scrap.length, 0, 'unflagged level seeds no scrap');
+  const csnap = snapshot(cg);
+  assert.ok(!('stranded' in csnap), 'unflagged snapshot never gains a stranded key');
+  assert.ok(!('scrap' in csnap), 'unflagged snapshot never gains a scrap key');
+
+  // serialize/restore round-trips the new state cleanly
+  const rt = restoreGame(serializeGame(g), charMap);
+  assert.equal(rt.scrap.length, g.scrap.length, 'scrap survives serialize/restore');
+  assert.equal(rt.followers.length, g.followers.length, 'defenders survive serialize/restore');
+}
+
 // --- every shipped story + stronghold level seeds a usable music box ---
 function testMusicBoxOnAllStoryAndStronghold() {
   for (const level of levels.filter(l => l.category === 'story' || l.category === 'stronghold')) {
@@ -462,7 +604,9 @@ function relicStoryDef(chapter = 4) {
   tiles[Math.floor(H / 2)] = '#' + '.'.repeat(8) + 'P' + '.'.repeat(W - 10) + '#';
   // one sleeping grunt far off so the field is never empty (no auto-clear)
   tiles[2] = '#' + '.'.repeat(15) + 'g' + '.'.repeat(W - 17) + '#';
-  return { name: 'Relic Test', story: true, chapter, time: 9000, untimed: true, tiles, captiveChars: [] };
+  // EXTREME pins the historical (no-op) spawn counts so every existing horde
+  // assertion stays the exact baseline; the difficulty test below varies it.
+  return { name: 'Relic Test', story: true, chapter, time: 9000, untimed: true, tiles, captiveChars: [], difficulty: 'extreme' };
 }
 
 // Drive the four shards into the altar so g.musicBox.complete flips true.
@@ -609,6 +753,96 @@ function testRelicAwakeningHorde() {
 // base bonus mirrored from game.js HORDE_BASE_BONUS (kept in sync by the asserts
 // above, which read the penalties off the live event so only the base is fixed).
 const HORDE_BASE_BONUS_FOR_TEST = 5000;
+
+// --- DIFFICULTY selector: a single enemy-count multiplier on normal waves and
+// the relic awakening horde. EXTREME (1.0) is the historical no-op baseline;
+// NORMAL (~0.5) halves the pressure; EASY (~0.35) relaxes it further. A legit
+// setting (never sets g.devMode), so scores still count on every difficulty. ---
+function testDifficultySelector() {
+  // a fresh relic level at a given difficulty.
+  const relicAt = (d) => ({ ...relicStoryDef(4), difficulty: d });
+
+  // BASELINE: omitting def.difficulty defaults to 'normal' (0.5).
+  const dfDefault = createGame(relicStoryDef(4), [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  // (relicStoryDef pins 'extreme' so the horde suite stays the baseline; a def
+  // with NO difficulty key falls back to 'normal'.)
+  const plain = createGame({ name: 'Plain', time: 90, tiles: relicStoryDef().tiles, captiveChars: [] },
+    [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  assert.equal(plain.difficulty, 'normal', 'no def.difficulty defaults to normal');
+  assert.equal(plain.enemyScale, 0.5, 'normal maps to a 0.5 enemy-count scale');
+  assert.equal(dfDefault.difficulty, 'extreme', 'extreme def carries through to the game');
+  assert.equal(dfDefault.enemyScale, 1, 'extreme is the no-op 1.0 scale');
+
+  // NOT A CHEAT: choosing any difficulty never flips the dev-dirty flag.
+  for (const d of ['easy', 'normal', 'extreme']) {
+    const g = createGame(relicAt(d), [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+    assert.equal(g.devMode, undefined, `difficulty '${d}' does not set g.devMode (scores still count)`);
+  }
+
+  // HORDE COUNT: force a single late-progress burst and total the nightmares
+  // spawned that tick. EXTREME must reproduce the historical count exactly;
+  // NORMAL spawns about half; EASY fewer still — never zero where 1 is needed.
+  function burstSpawns(d) {
+    const g = createGame(relicAt(d), [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+    completeRelic(g);
+    g.players[0].invuln = 1e9;
+    step(g, { 0: {} }, 1 / 30);          // latch + opening burst
+    g.horde.startedAt = g.elapsed - g.horde.dur * 0.9; // jump to ~climax
+    g.horde.nextAt = g.elapsed;          // force a burst this tick
+    for (const e of g.enemies) e.dead = true; // clear the field for a clean read
+    g.events.length = 0;                 // drop the opening-burst events first
+    step(g, { 0: {} }, 1 / 30);
+    const bursts = g.events.filter(e => e.type === 'hordeBurst');
+    assert.equal(bursts.length, 1, `difficulty '${d}': exactly one climax burst fired`);
+    return bursts[0].count; // total nightmares this burst (all four edges)
+  }
+  const extremeBurst = burstSpawns('extreme'); // climax: 3/edge * 4 edges = 12
+  const normalBurst = burstSpawns('normal');   // ~half: 2/edge * 4 = 8
+  const easyBurst = burstSpawns('easy');        // fewer: 1/edge * 4 = 4
+  assert.equal(extremeBurst, 12, 'extreme climax burst is the historical full count');
+  assert.ok(normalBurst >= 1 && normalBurst < extremeBurst,
+    `normal spawns FEWER than extreme (saw ${normalBurst} < ${extremeBurst})`);
+  // about half the relic horde (per-edge density carries a floor of 1, so the
+  // climax lands near ~0.5-0.67 of extreme; the early bursts thin proportionally).
+  assert.ok(normalBurst <= Math.round(extremeBurst * 0.7) && normalBurst >= Math.round(extremeBurst * 0.4),
+    `normal is about HALF the relic horde (saw ${normalBurst} of ${extremeBurst})`);
+  assert.ok(easyBurst < normalBurst, `easy spawns fewer than normal (saw ${easyBurst} < ${normalBurst})`);
+  assert.ok(easyBurst >= 1, 'easy never drops the horde to zero');
+
+  // NORMAL WAVES scale too: an extreme 8-letter wave spawns all 8; normal ~half.
+  function waveCount(d) {
+    const def = { name: 'WD', time: 60, captiveChars: [], difficulty: d,
+      tiles: ['#'.repeat(40), ...Array.from({ length: 18 }, (_, i) =>
+        i === 1 ? '#P' + '.'.repeat(37) + '#'
+        : i === 9 ? '#' + '.'.repeat(37) + 'g#' : '#' + '.'.repeat(38) + '#'),
+        '#'.repeat(40)],
+      modifiers: { waves: [{ at: 0.5, letters: 'gggggggg', edge: 'n' }] } };
+    const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+    g.graceT = 99999; g.players[0].invuln = 999;
+    const before = g.enemies.length;
+    run(g, () => ({ 0: {} }), 1);
+    return g.enemies.length - before;
+  }
+  const wExtreme = waveCount('extreme');
+  const wNormal = waveCount('normal');
+  const wEasy = waveCount('easy');
+  assert.equal(wExtreme, 8, 'extreme spawns the full 8-letter wave (no-op baseline)');
+  assert.equal(wNormal, 4, 'normal spawns about half the wave (8 -> 4)');
+  assert.ok(wEasy < wNormal && wEasy >= 1, `easy thins the wave further (saw ${wEasy})`);
+
+  // SNAPSHOT GATING: default 'normal' never ships the difficulty key (wire
+  // stays byte-identical); easy/extreme ship the badge for the HUD.
+  assert.ok(!('difficulty' in snapshot(plain)), 'normal snapshot stays byte-identical (no difficulty key)');
+  const eg = createGame(relicAt('easy'), [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  assert.equal(snapshot(eg).difficulty, 'easy', 'easy snapshot ships the difficulty badge');
+  assert.equal(snapshot(dfDefault).difficulty, 'extreme', 'extreme snapshot ships the difficulty badge');
+
+  // PERSISTENCE through serialize/restore: the resumed run keeps its scale so
+  // post-restore spawns stay deterministic (legacy beacons fall back to 1.0).
+  const rt = restoreGame(serializeGame(eg), charMap);
+  assert.equal(rt.enemyScale, eg.enemyScale, 'enemyScale survives restore');
+  assert.equal(rt.difficulty, 'easy', 'difficulty survives restore');
+}
 
 // --- RELIC SUPERWEAPON (RA2-style nuke / weather machine) ------------------
 // Unlocked by surviving the music-box awakening; then a player BUILDS a one-shot
@@ -1746,6 +1980,9 @@ function waveLevel(waves) {
     [17, '#....................................g#'], // keeps the level alive
   ]);
   def.modifiers = { waves };
+  // EXTREME pins the historical (no-op) wave counts so exact-count assertions
+  // below stay the baseline; difficulty scaling is exercised in its own test.
+  def.difficulty = 'extreme';
   return def;
 }
 
@@ -1830,6 +2067,7 @@ function testWaveRespectsGlobalCap() {
   const def = {
     name: 'Cap Wave', time: 60, captiveChars: [], tiles: rows,
     modifiers: { waves: [{ at: 1, letters: 'wwwww', edge: 'n' }] },
+    difficulty: 'extreme', // pin the historical count: this exercises the 90-cap drop
   };
   const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   assert.equal(g.enemies.length, 88, 'pre-placed population is 88');
@@ -1846,10 +2084,12 @@ testEveryCharacterCanKill();
 testNewEnemiesCanDownPlayer();
 testRescueAndPermanentLossRules();
 testMusicBoxFeature();
+testStrandedOperatorsAndScrap();
 testMusicBoxOnAllStoryAndStronghold();
 testStrongholdCornerMounts();
 testDevCheats();
 testRelicAwakeningHorde();
+testDifficultySelector();
 testRelicFreezesDayNightCycle();
 testSuperweaponLockedUntilSurvived();
 testSuperweaponBuildChargeAndTinyWave();
@@ -4816,6 +5056,7 @@ function testAlphaSplitAndFrontierWaves() {
   // new letters spawn from scripted waves exactly like the classics
   const wlevel = bigEmptyLevel([[17, '#....................................g#']]);
   wlevel.modifiers = { waves: [{ at: 0.5, letters: 'zu', edge: 'n' }] };
+  wlevel.difficulty = 'extreme'; // pin: both wave letters must spawn for the kind check
   const wg = createGame(wlevel, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   wg.players[0].invuln = 999;
   run(wg, () => ({ 0: {} }), 1);
@@ -7039,6 +7280,71 @@ function testCoreGnawNeedsWaveOrSealedTarget() {
   assert.ok(g3.events.some(ev => ev.type === 'coreHit'), 'a sealed-off chaser falls back to gnawing');
 }
 
+// --- DEV cheat: CORE INTEGRITY (g.cheats.coreInvuln) nullifies every bit of
+// damage to the base core/center. Control: the identical wave marcher gnaws the
+// core down without the cheat (mirrors testCoreGnawNeedsWaveOrSealedTarget). ---
+function testCoreIntegrityCheatNullifiesCoreDamage() {
+  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  // CONTROL: no cheat — a night-wave marcher parked on the core gnaws it down.
+  const ctrlDef = bastionDef({ nights: 1, dayLen: 1000, nightLen: 10, bloodMoons: [] });
+  ctrlDef.tiles[10] = put(ctrlDef.tiles[10], 24, 'z');
+  const gc = createGame(ctrlDef, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  gc.graceT = 0;
+  gc.players[0].invuln = 1e9;
+  const ec = gc.enemies[0];
+  ec.awake = true;
+  ec.aggro *= 100;
+  ec.targetCore = true;
+  ec.x = gc.core.x + 30;
+  ec.y = gc.core.y;
+  run(gc, () => ({ 0: {} }), 2);
+  assert.ok(gc.core.hp < gc.core.maxHp, 'control: the core takes gnaw damage without the cheat');
+  assert.ok(gc.events.some(ev => ev.type === 'coreHit'), 'control: a coreHit fired');
+
+  // CHEAT ON: identical setup, but g.cheats.coreInvuln = true — the center is
+  // invulnerable. The enemy still stalls at the core (no march-through) but the
+  // hp never drops and no coreHit event ever fires.
+  const cheatDef = bastionDef({ nights: 1, dayLen: 1000, nightLen: 10, bloodMoons: [] });
+  cheatDef.tiles[10] = put(cheatDef.tiles[10], 24, 'z');
+  const g = createGame(cheatDef, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  g.graceT = 0;
+  g.cheats = { god: false, speed: 1, instantKill: false, instantBuild: false, coreInvuln: true };
+  g.players[0].invuln = 1e9;
+  const e = g.enemies[0];
+  e.awake = true;
+  e.aggro *= 100;
+  e.targetCore = true;
+  e.x = g.core.x + 30;
+  e.y = g.core.y;
+  run(g, () => ({ 0: {} }), 2);
+  assert.equal(g.core.hp, g.core.maxHp, 'core integrity: the center takes no gnaw damage');
+  assert.ok(!g.events.some(ev => ev.type === 'coreHit'), 'core integrity: no coreHit event fires');
+}
+
+// --- DEV cheat: MAX OUT (maxOutPlayer) brings the seat to the top of the
+// per-mission progression — level 4, the L2 +1 maxHp perk applied, full hp.
+// Control: a fresh non-arcade seat starts at level 1 with base maxHp. ---
+function testMaxOutPlayerCheat() {
+  const g = createGame(bastionDef(), [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const p = g.players[0];
+  // baseline (control): a fresh seat is level 1 with the base hp pool
+  assert.equal(p.level, 1, 'control: a fresh seat starts at level 1');
+  const baseMaxHp = p.maxHp;
+  maxOutPlayer(g, p.pid);
+  assert.equal(p.level, 4, 'max out: the seat reaches the top level (4)');
+  assert.ok(p.maxHp > baseMaxHp, 'max out: the L2 perk raised max hp above baseline');
+  assert.equal(p.hp, p.maxHp, 'max out: the seat arrives at full health');
+  // the level-up climb fired its events exactly like an earned one would
+  assert.ok(g.events.some(ev => ev.type === 'levelUp' && ev.level === 4 && ev.pid === p.pid),
+    'max out: a level-4 levelUp event fired');
+  // idempotent: re-applying at the cap changes nothing and never over-levels
+  const evCount = g.events.filter(ev => ev.type === 'levelUp').length;
+  maxOutPlayer(g, p.pid);
+  assert.equal(p.level, 4, 'max out: re-applying at the cap never over-levels');
+  assert.equal(g.events.filter(ev => ev.type === 'levelUp').length, evCount,
+    'max out: re-applying at the cap emits no further level-ups');
+}
+
 // --- Anchorcraft boarding is EDGE-triggered (act chain, lowest rung) and
 // walking out of board reach un-boards; launch needs everyone at the vessel ---
 function testShipBoardingEdgeWalkAwayAndLaunch() {
@@ -7534,6 +7840,78 @@ function stuckAt(g, x, y) {
     if (Math.hypot(x - b.x, y - b.y) < 18 + 14) return true;
   }
   return false;
+}
+
+// --- sprint + stamina: hold sprint to burst (drains), recover only at full hp ---
+// Driven on the roomy non-arcade relic map (a hero seat with hp tracking). The
+// meter is a gated field: it does not exist until the seat first presses sprint,
+// so the no-sprint control stays byte-identical to a vanilla run.
+function testSprintStamina() {
+  // a roomy 30x24 (=720 tiles, above ARCADE_MAP_TILES=600) open story map, so the
+  // seat is a hero with hp tracking (arcade 1-hit seats carry no stamina at all)
+  const W = 30, HH = 24;
+  const sprintTiles = ['#'.repeat(W)];
+  for (let y = 1; y < HH - 1; y++) sprintTiles.push('#' + '.'.repeat(W - 2) + '#');
+  sprintTiles.push('#'.repeat(W));
+  sprintTiles[Math.floor(HH / 2)] = '#' + 'P' + '.'.repeat(W - 3) + '#'; // spawn far left
+  sprintTiles[2] = '#' + '.'.repeat(W - 4) + 'g' + '..#'; // one sleeping grunt: never empty, so the field can't auto-clear (extract) the seat mid-measure
+  const sprintDef = { name: 'Sprint Test', story: true, chapter: 4, time: 9000, untimed: true, tiles: sprintTiles, captiveChars: [] };
+  const mk = () => {
+    const g = createGame(sprintDef, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+    const p = g.players[0];
+    assert.equal(g.arcade, false, 'sprint map is a big (non-arcade) hero map');
+    assert.ok(p.maxHp !== undefined, 'hero seat carries hp tracking');
+    p.invuln = 1e9; // never die mid-measure
+    p.x = 4 * TILE; p.y = Math.floor(HH / 2) * TILE; // open left, clear of the wall
+    return [g, p];
+  };
+  const DT = 1 / 30, RUN = 0.3;
+
+  // CONTROL: no sprint input -> no meter ever minted (byte-stable), normal travel
+  const [gc, pc] = mk();
+  const cx0 = pc.x;
+  run(gc, () => ({ 0: { right: true } }), RUN);
+  const ctrlDist = pc.x - cx0;
+  assert.equal(pc.stamina, undefined, 'no sprint input ever mints the stamina field (byte-stable control)');
+  assert.ok(!('stamina' in snapshot(gc, false).players[0]), 'control snapshot ships no stamina key');
+  assert.ok(ctrlDist > 0, 'control seat actually moved right');
+
+  // SPRINT: holding sprint while moving drains the meter AND travels farther
+  const [gs, ps] = mk();
+  const sx0 = ps.x;
+  run(gs, () => ({ 0: { right: true, sprint: true } }), RUN);
+  const sprintDist = ps.x - sx0;
+  assert.ok(ps.stamina !== undefined, 'sprinting mints the stamina field');
+  assert.ok(ps.stamina < ps.staminaMax, `sprint drains the meter (got ${ps.stamina}/${ps.staminaMax})`);
+  assert.ok(sprintDist > ctrlDist * 1.3, `sprint covers more ground than walking (${sprintDist} vs ${ctrlDist})`);
+  assert.ok('stamina' in snapshot(gs, false).players[0], 'sprinting seat snapshot ships the stamina key');
+
+  // AT ZERO: an empty meter caps the seat back to normal speed. Wound the seat
+  // so the recovery gate stays shut and the meter holds at 0 across the burst.
+  const [gz, pz] = mk();
+  step(gz, { 0: { sprint: true } }, DT);     // mint the field with a single press
+  pz.stamina = 0;                            // hand-drain it
+  pz.hp = pz.maxHp - 1;                       // below full -> no recovery
+  const zx0 = pz.x;
+  run(gz, () => ({ 0: { right: true, sprint: true } }), RUN);
+  const zeroDist = pz.x - zx0;
+  assert.ok(Math.abs(zeroDist - ctrlDist) < 0.01, `at 0 stamina sprint is normal speed (${zeroDist} vs ${ctrlDist})`);
+  assert.equal(pz.stamina, 0, 'an empty meter stays empty (no boost, no recovery below full hp)');
+
+  // RECOVERY GATE — below full hp the meter does NOT climb back
+  const [gh, ph] = mk();
+  step(gh, { 0: { right: true, sprint: true } }, DT); // mint + drain a touch
+  const drained = ph.stamina;
+  assert.ok(drained < ph.staminaMax, 'meter is below full after a sprint tick');
+  ph.hp = ph.maxHp - 1;                                // wounded
+  run(gh, () => ({ 0: {} }), 1.0);                     // idle, healed? no — still hurt
+  assert.equal(ph.stamina, drained, 'stamina does NOT recover while below full hp');
+
+  // RECOVERY — at full hp the meter climbs back
+  ph.hp = ph.maxHp;
+  run(gh, () => ({ 0: {} }), 0.5);
+  assert.ok(ph.stamina > drained, `stamina recovers once at full hp (${ph.stamina} > ${drained})`);
+  assert.ok(ph.stamina <= ph.staminaMax, 'recovery never overfills the meter');
 }
 
 // --- ctf mode caps: the contract numbers the whole wave builds against ---
@@ -8041,6 +8419,8 @@ async function testServerPublicHardening() {
 
 testEnemyShotsBlockedByStructures();
 testCoreGnawNeedsWaveOrSealedTarget();
+testCoreIntegrityCheatNullifiesCoreDamage();
+testMaxOutPlayerCheat();
 testShipBoardingEdgeWalkAwayAndLaunch();
 testCornerPinnedMarcherReachesCore();
 testPathBudgetThrottleAndDormancy();
@@ -8051,6 +8431,7 @@ testHornCallsTheNightEarly();
 testHornAtLitBeacon();
 testDayEventsProbeAndSupplyDrop();
 testDayEventsSkippedByHornAndRearm();
+testSprintStamina();
 testModeCaps();
 testCtfSameTeamDuplicates();
 testCtfSpawnRings16PerStand();
