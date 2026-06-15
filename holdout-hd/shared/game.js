@@ -1,6 +1,11 @@
 // Core simulation shared by the Node server (online co-op) and the browser (solo).
 // All distances are in pixels; speeds in characters.json are tiles/second.
 
+// RELIC AWAKENING horde: the event runs for EXACTLY the level track's length
+// (the song plays once, no loop). These exact per-track seconds are the
+// deterministic input that keeps the server and every client in lockstep.
+import { MUSIC_DURATIONS, RELIC_WAVE_FALLBACK } from './music-durations.js';
+
 export const TILE = 48;
 // Per-mode seat caps for one match (wave 7: replaces the old flat 8). The sim
 // enforces the ctf cap — and its half-size team cap — in addPlayerMidGame;
@@ -40,7 +45,49 @@ const ENEMY_STATS = {
   // u Pyre Beetle: the Swarm Carrier urnback — the urn cracks on death into a
   // burning ground patch plus a 1-damage blast.
   u: { kind: 'beetle', hp: 2, speed: 1.4, score: 130, aggro: 9 },
+  // --- NIGHTMARE roster: the RELIC AWAKENING horde event ONLY ----------------
+  // These use FRESH letters (capitals + '&') that NO level tilemap ever uses
+  // (parseLevel's tiles are all lowercase/special), so they can never appear in
+  // normal play — only stepHorde spawns them, gated entirely on g.musicBox.
+  // U Dread Spider: fast skittering swarmer, glass-thin (melee).
+  U: { kind: 'spider', hp: 1, speed: 2.3, score: 60, aggro: 11 },
+  // F Pale Ghost: drifts THROUGH walls (stepEnemy moves it ignoring collision),
+  // medium hp, translucent (melee).
+  F: { kind: 'ghost', hp: 3, speed: 1.15, score: 200, aggro: 10 },
+  // M Reaper: slow, high hp, heavy 2-dmg melee, a dread aura (handled in render).
+  M: { kind: 'reaper', hp: 8, speed: 0.6, score: 320, aggro: 9, meleeDmg: 2 },
+  // R Rattle Skeleton: jittery ranged bone-thrower (holds and lobs).
+  R: { kind: 'skeleton', hp: 2, speed: 0.85, range: 8, cool: 1.6, score: 180, aggro: 10 },
+  // G Ghoul (zombie): slow shambling melee filler, cheap horde mass.
+  G: { kind: 'zombie', hp: 2, speed: 0.7, score: 70, aggro: 9 },
+  // L Hellhound: very fast lunger that closes and mauls (melee).
+  L: { kind: 'hellhound', hp: 2, speed: 2.6, score: 150, aggro: 11.5 },
+  // & Banshee Wraith: a ranged drifter that wails bolts from afar.
+  '&': { kind: 'banshee', hp: 2, speed: 1.0, range: 7, cool: 2.0, score: 220, aggro: 10 },
 };
+
+// Nightmare kinds the RELIC AWAKENING horde draws from. Names are distinct from
+// every existing kind so MELEE_KINDS/STATIONARY_KINDS/SHARD_DROPS wiring below
+// is purely additive and normal play is byte-identical.
+const NIGHTMARE_KINDS = ['spider', 'ghost', 'reaper', 'skeleton', 'zombie', 'hellhound', 'banshee'];
+const NIGHTMARE_LETTERS = ['U', 'F', 'M', 'R', 'G', 'L', '&'];
+
+// --- RELIC AWAKENING horde tuning (all deterministic) ----------------------
+// Bursts fire on a cadence that tightens toward the climax, and each burst
+// drops more enemies per edge as the song crests. The global 90-enemy cap
+// still rules, so a packed field self-throttles.
+const HORDE_BURST_MIN = 2.2;   // seconds between bursts at the very start
+const HORDE_BURST_MAX = 5.0;   // seconds between bursts (slow opening)
+const HORDE_PER_EDGE_MIN = 1;  // enemies per edge at the opening
+const HORDE_PER_EDGE_MAX = 4;  // enemies per edge at the climax
+// Scoring: a big survival bonus that bleeds away with every hit and death.
+const HORDE_BASE_BONUS = 5000;
+const HORDE_FLOOR_BONUS = 500;
+const HORDE_HIT_PENALTY = 60;
+const HORDE_DEATH_PENALTY = 400;
+function hordeDur(g) {
+  return MUSIC_DURATIONS[`${g.musicBox.mode}-${g.musicBox.stem}`] || RELIC_WAVE_FALLBACK;
+}
 
 // Maps at or below this tile count play arcade-style: every enemy is awake
 // from the start, exactly like the original single-screen levels.
@@ -57,6 +104,8 @@ const ENEMY_LETTERS = new Set(Object.keys(ENEMY_STATS));
 const SHARD_DROPS = {
   grunt: 1, archer: 1, skitter: 1, charger: 2, sniper: 2, bulwark: 2, spawner: 3, boss: 12,
   husk: 1, alpha: 2, acolyte: 2, wraith: 2, stalker: 3, beetle: 1,
+  // nightmare horde drops (relic event only)
+  spider: 1, ghost: 2, reaper: 4, skeleton: 1, zombie: 1, hellhound: 1, banshee: 2,
 };
 const DROP_TTL = 25;
 const MAGNET_RANGE = 2.5; // tiles
@@ -64,8 +113,11 @@ const MAGNET_SPEED = 6; // tiles/sec
 const BUILD_RADIUS = 18; // px, built structures block movement in this circle
 const BUILD_REACH = 1.5; // tiles, act range for building and talking
 const CRYSTAL_R = 16;
-const MELEE_KINDS = new Set(['grunt', 'skitter', 'charger', 'bulwark', 'boss', 'husk', 'alpha', 'stalker', 'beetle']);
-const STATIONARY_KINDS = new Set(['archer', 'sniper', 'spawner']);
+const MELEE_KINDS = new Set(['grunt', 'skitter', 'charger', 'bulwark', 'boss', 'husk', 'alpha', 'stalker', 'beetle',
+  // nightmare melee kinds (relic event); ghost/hellhound/spider/reaper/zombie all close and maul
+  'spider', 'ghost', 'reaper', 'zombie', 'hellhound']);
+// skeleton (bone-thrower) and banshee (wailing bolts) hold and fire like archers
+const STATIONARY_KINDS = new Set(['archer', 'sniper', 'spawner', 'skeleton', 'banshee']);
 const LEASH_MULT = 1.8;
 const TURRET_WEAPON = { kind: 'turret', damage: 1, projSpeed: 10, range: 6, count: 1 };
 
@@ -301,7 +353,10 @@ const LAVA_PLAYER_TICK = 0.8; // seconds per 1 hp standing in lava (players)
 const LAVA_ENEMY_TICK = 1; // seconds per 1 hp for enemies
 // Weather (def.weather): fog/ashstorm cap all sim sight at 9 tiles, snow slows
 // every entity to x0.92, rain burns ground fire patches out twice as fast.
-const WEATHERS = new Set(['rain', 'snow', 'ashstorm', 'fog']);
+// 'thunderstorm' is the RELIC AWAKENING weather: it is NOT a level-authorable
+// weather (createGame only honors def.weather for the four classic kinds), so
+// no normal level can ever request it — only stepHorde latches it for the event.
+const WEATHERS = new Set(['rain', 'snow', 'ashstorm', 'fog', 'thunderstorm']);
 const WEATHER_SIGHT_TILES = 9;
 const SNOW_SLOW = 0.92;
 // Alive world: camp patrols walk waypoints at 0.6x while unaware; a living
@@ -1824,6 +1879,9 @@ function enemyWeapon(kind) {
   if (kind === 'wraith') return { kind: 'zap', damage: 1, projSpeed: 9, range: 6.5, cooldown: 0, count: 1, stunPlayer: WRAITH_STUN };
   if (kind === 'boss') return { kind: 'boss', damage: 1, projSpeed: 6.8, range: 9, cooldown: 0, count: 5, spreadDeg: 42 };
   if (kind === 'spawner') return { kind: 'spore', damage: 1, projSpeed: 4.8, range: 6, cooldown: 0, count: 1 };
+  // nightmare ranged (relic event): a thrown bone and a banshee wail
+  if (kind === 'skeleton') return { kind: 'bone', damage: 1, projSpeed: 6, range: 8, cooldown: 0, count: 1 };
+  if (kind === 'banshee') return { kind: 'wail', damage: 1, projSpeed: 5, range: 7, cooldown: 0, count: 1 };
   return { kind: 'arrow', damage: 1, projSpeed: 5.5, range: 8, cooldown: 0, count: 1 };
 }
 
@@ -1887,6 +1945,8 @@ function releaseHoldings(g, p) {
 
 function downPlayer(g, p) {
   if (p.state !== 'active' || p.invuln > 0) return;
+  // RELIC AWAKENING scoring: a death during the live event is a heavy penalty.
+  if (g.horde && !g.horde.ended) g.horde.deaths++;
   releaseHoldings(g, p);
   p.aboard = false; // going down steps off the landed Anchorcraft
   // BR: no rescue, no captive body — straight out, last one standing wins.
@@ -1949,6 +2009,10 @@ function downPlayer(g, p) {
 // survival maps spend shield pips first, then hp, with a short hit-grace.
 function damagePlayer(g, p, dmg = 1) {
   if (p.state !== 'active' || p.invuln > 0) return;
+  // RELIC AWAKENING scoring: a connecting hit during the live event bleeds the
+  // survival bonus. Counted once per landed damage instance (the invuln guard
+  // above already throttles repeat contact).
+  if (g.horde && !g.horde.ended) g.horde.hits++;
   // a single hit destroys your mount — the stag is a fast ride, not a tank. It's
   // gone for the level (a fresh one can be earned/found next level). Skiffs
   // (water craft) are exempt so you can't be stranded mid-lake.
@@ -2705,6 +2769,14 @@ function contactPlayer(g, e, best, tgt) {
   if (best < rr) damagePlayer(g, tgt);
 }
 
+// Nightmare melee contact: like contactPlayer, but honors a per-kind melee
+// damage (the reaper's heavy 2-dmg blow). Used by the relic horde only.
+function contactNightmare(g, e, best, tgt) {
+  if (!tgt || tgt.nonPlayer) return;
+  const rr = (PLAYER_R + ENEMY_R) ** 2;
+  if (best < rr) damagePlayer(g, tgt, ENEMY_STATS[e.letter]?.meleeDmg || 1);
+}
+
 function spawnSkitter(g, e, tgt) {
   const angles = [0, Math.PI / 2, Math.PI, Math.PI * 1.5, Math.PI / 4, -Math.PI / 4];
   for (const a of angles) {
@@ -3195,6 +3267,38 @@ function stepEnemy(g, e, dt) {
   if (attackBuilds(g, e, dt)) return;
   if (attackCore(g, e, dt)) return;
 
+  // --- NIGHTMARE melee (relic event only): spider/zombie/hellhound chase like
+  // the classic chassis; the ghost glides STRAIGHT THROUGH walls (no collision)
+  // and the reaper lands a heavy 2-damage blow. All deterministic.
+  if (e.kind === 'spider' || e.kind === 'zombie' || e.kind === 'hellhound'
+      || e.kind === 'ghost' || e.kind === 'reaper') {
+    if (e.kind === 'ghost') {
+      // a ghost ignores every blocker: it floats in a straight bearing toward
+      // the target, phasing through rock, trees and structures alike.
+      e.x += e.fx * e.speed * dt;
+      e.y += e.fy * e.speed * dt;
+    } else if (g.arcade) {
+      moveCircle(g, e, e.fx * e.speed * dt, e.fy * e.speed * dt, ENEMY_R);
+    } else {
+      moveToward(g, e, tgt, dt);
+    }
+    contactNightmare(g, e, dist2(e, tgt), tgt);
+    return;
+  }
+  // skeleton (bone-thrower) + banshee (wail) hold at range and fire like archers
+  if (e.kind === 'skeleton' || e.kind === 'banshee') {
+    e.cool -= dt;
+    if (d < e.range && (g.arcade || canSee(g, e, tgt)) && !tgt.nonPlayer) {
+      if (e.cool <= 0) {
+        fireWeapon(g, e, enemyWeapon(e.kind), 'e', tgt);
+        e.cool = (e.kind === 'banshee' ? 2.0 : 1.6) + (e.id % 3) * 0.2;
+      }
+    } else {
+      moveToward(g, e, tgt, dt);
+    }
+    return;
+  }
+
   // husk/alpha/beetle melee exactly like the classic chassis; the stalker
   // shares it after resolving its blink below
   if (e.kind === 'grunt' || e.kind === 'skitter' || e.kind === 'bulwark'
@@ -3447,6 +3551,130 @@ function stepWaves(g) {
     const cx = w.edge === 'w' ? TILE : w.edge === 'e' ? (g.w - 1) * TILE : g.w * TILE / 2;
     const cy = w.edge === 'n' ? TILE : w.edge === 's' ? (g.h - 1) * TILE : g.h * TILE / 2;
     g.events.push({ type: 'wave', edge: w.edge, count: pts.length, x: cx, y: cy });
+  }
+}
+
+// True when every operative is down/out (relic FAILS — world restores, no bonus).
+// Players in 'pick' (waiting to redeploy) count as down too: nobody is standing.
+function allPlayersDown(g) {
+  if (!g.players.length) return false;
+  return g.players.every(p => p.state !== 'active');
+}
+
+// Restore the world to its pre-event look and clear every remaining nightmare
+// (they dissolve). One code path for both the survive and the fail finish.
+function endHorde(g) {
+  const h = g.horde;
+  if (!h || h.ended) return;
+  h.ended = true;
+  g.dark = h.prevDark;
+  g.weather = h.prevWeather;
+  for (const e of g.enemies) {
+    if (e.dead || !NIGHTMARE_KINDS.includes(e.kind)) continue;
+    e.dead = true; // dissolve: no score, no shard drop
+    g.events.push({ type: 'nightmareDissolve', x: e.x, y: e.y, kind: e.kind });
+  }
+}
+
+// RELIC AWAKENING — the horde event. A NO-OP unless g.musicBox is enabled and
+// complete, so every other level/mode is byte-identical (it never touches g
+// otherwise). Called once in step() right after stepWaves.
+//
+// LATCH: the first tick g.musicBox.complete is true, latch g.horde, darken the
+// world, swap in the thunderstorm, and push {type:'relicAwaken'}.
+// ESCALATE: while the song plays, fire bursts on a cadence that tightens toward
+// the climax; each burst spawns nightmare hunters from ALL FOUR edges, the type
+// mix and density ramping with progress = (elapsed-startedAt)/dur.
+// END: when dur elapses -> {type:'relicSurvived', score+breakdown}; if every
+// player is down at any point -> {type:'relicFailed'} (no bonus). Either finish
+// restores g.dark/g.weather and dissolves the leftover nightmares.
+function stepHorde(g, dt) {
+  if (!g.musicBox || !g.musicBox.enabled) return;
+  // LATCH on the rising edge of complete.
+  if (g.musicBox.complete && !g.horde) {
+    const dur = hordeDur(g);
+    g.horde = {
+      startedAt: g.elapsed, dur,
+      tick: 0, nextAt: g.elapsed, // first burst fires immediately
+      hits: 0, deaths: 0, ended: false, result: null,
+      prevDark: g.dark, prevWeather: g.weather,
+    };
+    g.dark = true;
+    g.weather = 'thunderstorm';
+    g.events.push({ type: 'relicAwaken', x: g.musicBox.altar.x, y: g.musicBox.altar.y, dur });
+  }
+  const h = g.horde;
+  if (!h || h.ended) return;
+
+  // FAIL: the squad is wiped (every seat down/out/picking) -> relic goes
+  // dormant, world restores, no bonus.
+  if (allPlayersDown(g)) {
+    endHorde(g);
+    h.result = 'failed';
+    g.events.push({ type: 'relicFailed', x: g.musicBox.altar.x, y: g.musicBox.altar.y });
+    return;
+  }
+
+  const since = g.elapsed - h.startedAt;
+  // SURVIVED: the song has played out.
+  if (since >= h.dur) {
+    endHorde(g);
+    const base = HORDE_BASE_BONUS;
+    const penalty = h.hits * HORDE_HIT_PENALTY + h.deaths * HORDE_DEATH_PENALTY;
+    const score = Math.max(HORDE_FLOOR_BONUS, base - penalty);
+    g.score += score;
+    h.result = 'survived';
+    g.events.push({
+      type: 'relicSurvived', x: g.musicBox.altar.x, y: g.musicBox.altar.y,
+      score, base, hits: h.hits, deaths: h.deaths,
+      hitPenalty: HORDE_HIT_PENALTY, deathPenalty: HORDE_DEATH_PENALTY,
+      points: Math.round(g.score),
+    });
+    return;
+  }
+
+  // BURST schedule: progress 0..1 across the song. Cadence tightens and the
+  // per-edge count climbs toward the climax. Pure functions of since/dur and a
+  // monotonic tick counter — fully deterministic, no clocks/randomness.
+  const progress = h.dur > 0 ? since / h.dur : 1;
+  if (g.elapsed >= h.nextAt) {
+    const interval = HORDE_BURST_MAX - (HORDE_BURST_MAX - HORDE_BURST_MIN) * progress;
+    h.nextAt = g.elapsed + interval;
+    const perEdge = HORDE_PER_EDGE_MIN
+      + Math.floor((HORDE_PER_EDGE_MAX - HORDE_PER_EDGE_MIN) * progress + 0.0001);
+    // the deadlier nightmares unlock as the song crests: at the climax the full
+    // roster is in play; the opening is spider/zombie fodder.
+    const pool = Math.max(2, Math.ceil(NIGHTMARE_LETTERS.length * (0.3 + 0.7 * progress)));
+    let spawned = 0;
+    // a monotonic per-event sequence over EVERY nightmare spawned: stepping it
+    // by 1 per spawn (seeded by the burst tick) walks the unlocked roster slice
+    // evenly, so a burst is a mix — never all-one-kind — and stays deterministic.
+    let seq = h.tick * 3;
+    for (let ei = 0; ei < WAVE_EDGES.length; ei++) {
+      const edge = WAVE_EDGES[ei];
+      const room = Math.max(0, 90 - g.enemies.length);
+      if (room <= 0) break;
+      const count = Math.min(perEdge, room);
+      const pts = waveEntryPoints(g, edge, count);
+      for (let i = 0; i < pts.length; i++) {
+        // index ramps with progress (pool widens to the full roster at the
+        // climax); seq spreads the picks across the unlocked slice.
+        const idx = seq++ % pool;
+        const letter = NIGHTMARE_LETTERS[idx];
+        const e = makeEnemy(letter, pts[i].x, pts[i].y, g.nextEnemyId++);
+        e.awake = true;
+        e.aggro *= 100; // hunters: never leash home
+        e.targetCore = true; // march on the base if no player is reachable
+        scaleEnemyHp(g.hpMult, e);
+        g.enemies.push(e);
+        spawned++;
+      }
+      const cx = edge === 'w' ? TILE : edge === 'e' ? (g.w - 1) * TILE : g.w * TILE / 2;
+      const cy = edge === 'n' ? TILE : edge === 's' ? (g.h - 1) * TILE : g.h * TILE / 2;
+      g.events.push({ type: 'horde', edge, count: pts.length, x: cx, y: cy, progress });
+    }
+    h.tick++;
+    if (spawned) g.events.push({ type: 'hordeBurst', tick: h.tick, progress, count: spawned });
   }
 }
 
@@ -4222,6 +4450,7 @@ export function step(g, inputs, dt) {
     }
   }
   stepWaves(g);
+  stepHorde(g, dt); // RELIC AWAKENING horde (no-op unless g.musicBox completed)
   stepCycle(g, dt); // bastion day/night clock (final dawn can clear here)
   if (g.status !== 'play') return;
   // Anchor Siege: minion waves march the lanes, towers cover them (no-ops off-mode)
@@ -4466,7 +4695,7 @@ export function step(g, inputs, dt) {
         });
         used = true;
       } else if (it.kind === 'medkit' && p.hp < p.maxHp) {
-        p.hp++;
+        p.hp = Math.min(p.maxHp, p.hp + 2); // a medkit mends a meaningful chunk, not a token 1hp
         g.events.push({ type: 'heal', pid: p.pid, x: p.x, y: p.y, hp: p.hp });
         used = true;
       } else if (it.kind === 'shield' && p.shield < SHIELD_MAX) {
@@ -5946,6 +6175,21 @@ export function snapshot(g, full = true) {
         altar: { x: g.musicBox.altar.x, y: g.musicBox.altar.y },
         fragments: g.musicBox.fragments.map(f => ({ id: f.id, x: f.x, y: f.y, carrier: f.carrier, placed: f.placed })),
         assembled: g.musicBox.assembled, complete: g.musicBox.complete,
+      },
+    } : {}),
+    // RELIC AWAKENING: ships ONLY while the event has latched (gated, so every
+    // other snapshot is byte-stable). active=false the instant the event ends so
+    // the client can swap the survived/failed banner in. remaining + the live
+    // bonus drive the HUD readout; the client never recomputes the math.
+    ...(g.horde ? {
+      horde: {
+        active: !g.horde.ended,
+        remaining: Math.max(0, g.horde.dur - (g.elapsed - g.horde.startedAt)),
+        dur: g.horde.dur,
+        hits: g.horde.hits,
+        deaths: g.horde.deaths,
+        bonus: Math.max(HORDE_FLOOR_BONUS, HORDE_BASE_BONUS - g.horde.hits * HORDE_HIT_PENALTY - g.horde.deaths * HORDE_DEATH_PENALTY),
+        ...(g.horde.result ? { result: g.horde.result } : {}),
       },
     } : {}),
     // ownerPid lets the renderer dress player shots in their seat's evolution

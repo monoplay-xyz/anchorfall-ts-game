@@ -18,6 +18,7 @@ const streaks = []; // blink lines: teleports + phase stalkers {x,y,tx,ty,rgb}
 const pendingLevelUps = []; // coordless 'levelUp' events resolved to player pos
 const houndMood = new Map(); // follower id -> {engaged,lastBark}: bark on engage edge
 let coreAlarmT = 0; // base-core alarm glow, armed by 'coreHit'/'coreDown'
+let lightningT = 0; // RELIC AWAKENING white screen-flash (thunder crack), 0..1
 let shake = 0;
 let punch = 0; // camera zoom-kick on heavy impacts (render-only, networked-safe)
 let darkWorld = false; // set per-frame from snap.dark (story night missions)
@@ -1480,8 +1481,8 @@ export function addEventFX(ev) {
     burst(Math.round(22 * rk), PAL.lythAmber, 240 * rk, 0.6);
     burst(Math.round(8 * rk), PAL.ember, 150 * rk, 0.5);
     if (rk > 1.3) rings.push({ x: ev.x, y: ev.y, r0: 6, r1: ev.radius, life: 0.4, max: 0.4, color: PAL.lythAmber, w: 2.5 });
-    shake = Math.max(shake, 8 * Math.min(1.4, rk));
-    if (rk > 1.6) punch = Math.max(punch, 0.5); // only the biggest blasts kick the camera
+    shake = Math.max(shake, 4 * Math.min(1.4, rk)); // softened: grenadier blasts were jolting the whole couch/lobby
+    if (rk > 1.8) punch = Math.max(punch, 0.4); // only the very biggest blasts kick the camera
   }
   else if (ev.type === 'die') {
     // the Entropy unravels: violet static + one cyan eye-spark
@@ -1500,6 +1501,55 @@ export function addEventFX(ev) {
     ring(90, 'rgba(214,168,255,0.85)', 0.9, 3); ring(50, 'rgba(237,219,255,0.7)', 0.7, 2.5);
     shake = Math.max(shake, 6);
     popups.push({ screen: true, x: 0, y: 0, text: 'THE RELIC AWAKENS', life: 3.0, max: 3.0, color: '#d6a8ff', size: 28 });
+  }
+  // --- RELIC AWAKENING horde event ---
+  else if (ev.type === 'relicAwaken') {
+    // the sky cracks: a white thunder flash, a heavy shake, a violet shock ring,
+    // and a dread banner. The instant darken rides snap.dark (sim-driven).
+    lightningT = 1;
+    shake = Math.max(shake, 14);
+    punch = Math.max(punch, 0.9);
+    ring(260, 'rgba(160,90,220,0.8)', 1.1, 4);
+    burst(28, PAL.glitch, 240, 0.8);
+    popups.push({ screen: true, x: 0, y: 0, text: 'THE HORDE RISES', life: 3.4, max: 3.4, color: '#FF5A66', size: 32 });
+    for (const edge of ['n', 's', 'e', 'w']) edgePulses.push({ edge, life: 3.0, max: 3.0, rgb: '120,30,40' });
+  }
+  else if (ev.type === 'horde') {
+    // each burst breaches an edge: a crimson edge bleed + a directional pulse
+    edgePulses.push({ edge: ev.edge || 'n', life: 1.4, max: 1.4, rgb: '150,30,40' });
+    if (ev.x != null) { burst(10, PAL.red, 160, 0.5); burst(4, PAL.glitch, 120, 0.35); }
+  }
+  else if (ev.type === 'hordeBurst') {
+    // periodic lightning through the storm (intensity climbs with progress)
+    lightningT = Math.max(lightningT, 0.4 + 0.5 * (ev.progress ?? 0));
+    shake = Math.max(shake, 2 + 3 * (ev.progress ?? 0));
+  }
+  else if (ev.type === 'nightmareDissolve') {
+    // a leftover nightmare unravels when the event ends: violet motes, no score
+    if (ev.x != null) { burst(12, PAL.glitch, 170, 0.5); burst(4, '#FF6A6A', 120, 0.35); }
+  }
+  else if (ev.type === 'relicSurvived') {
+    lightningT = Math.max(lightningT, 0.6);
+    ring(220, PAL.lythGold, 1.1, 4); ring(140, PAL.anchor, 0.8, 3);
+    burst(30, PAL.lythGold, 260, 0.9); burst(12, PAL.lythPale, 200, 0.6);
+    shake = Math.max(shake, 8);
+    popups.push({ screen: true, x: 0, y: 0, text: 'THE RELIC IS QUELLED', life: 3.6, max: 3.6, color: PAL.lythGold, size: 30 });
+    if (ev.score != null) {
+      popups.push({ screen: true, x: 0, y: 56, text: `+${ev.score} RELIC BONUS`, life: 4.0, max: 4.0, color: PAL.lythGold, size: 22 });
+      if ((ev.hits || ev.deaths)) {
+        popups.push({
+          screen: true, x: 0, y: 92,
+          text: `${ev.base ?? 5000} BASE  −${(ev.hits || 0) * (ev.hitPenalty || 0)} HITS  −${(ev.deaths || 0) * (ev.deathPenalty || 0)} DEATHS`,
+          life: 4.0, max: 4.0, color: '#d6a8ff', size: 16,
+        });
+      }
+    }
+  }
+  else if (ev.type === 'relicFailed') {
+    shake = Math.max(shake, 10);
+    burst(24, PAL.red, 220, 0.8); burst(10, PAL.glitch, 160, 0.6);
+    ring(180, PAL.red, 1.0, 4);
+    popups.push({ screen: true, x: 0, y: 0, text: 'THE RELIC FALLS DORMANT', life: 3.6, max: 3.6, color: PAL.red, size: 28 });
   }
   else if (ev.type === 'spawn') burst(10, PAL.relay, 120, 0.5);
   else if (ev.type === 'spawnEnemy') { burst(8, PAL.glitch, 110, 0.45); burst(3, PAL.eye, 60, 0.25); }
@@ -2174,6 +2224,8 @@ function drawCaptive(ctx, c, color, t) {
 // ============================== THE ENTROPY ==============================
 // Purple-black glitch bodies, one cyan-white eye each, era-debris skins.
 const KIND_R = { grunt: 13, archer: 10, charger: 16, bulwark: 13, spawner: 13, sniper: 9, skitter: 7, boss: 26 };
+// RELIC AWAKENING nightmares (relic event only) — draw/glow radii.
+Object.assign(KIND_R, { spider: 8, ghost: 13, reaper: 16, skeleton: 10, zombie: 11, hellhound: 12, banshee: 12 });
 
 // Frontier III kinds (letters z f q v x u) may ship under a few names while
 // the sim wave lands; normalize for drawing and register their radii.
@@ -2198,6 +2250,43 @@ function drawEye(ctx, x, y, r, alpha = 1) {
   ctx.beginPath();
   ctx.arc(x, y, darkWorld ? r * 1.25 : r, 0, Math.PI * 2);
   ctx.fill();
+  ctx.restore();
+}
+
+// --- RELIC AWAKENING nightmares: glowing dread eyes + motion trail -----------
+// A pair of burning eyes (red by default, violet for the ghost) with a strong
+// bloom, sized up so they read through the event's darkness like the night
+// hunters' eyes. Used by the nightmare drawEnemy branches below.
+function drawDreadEyes(ctx, e, ahead = 7, r = 2.2, rgb = '255,60,60', spread = 3.2) {
+  const fx = e.fx || 1, fy = e.fy || 0;
+  const px = -fy, py = fx; // perpendicular for the two-eye spacing
+  const cx = e.x + fx * ahead, cy = e.y + fy * ahead;
+  ctx.save();
+  ctx.shadowColor = `rgb(${rgb})`;
+  ctx.shadowBlur = 12;
+  ctx.fillStyle = `rgb(${rgb})`;
+  for (const s of [-1, 1]) {
+    ctx.beginPath();
+    ctx.arc(cx + px * spread * s, cy + py * spread * s, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+// A short violet/grey wake dragged opposite the heading — every nightmare leaves
+// a brief motion trail so the swarm reads as fast and unnatural.
+function drawNightmareTrail(ctx, e, len = 14, rgb = '90,46,140') {
+  const fx = e.fx || 0, fy = e.fy || 1;
+  ctx.save();
+  const tg = ctx.createLinearGradient(e.x, e.y, e.x - fx * len, e.y - fy * len);
+  tg.addColorStop(0, `rgba(${rgb},0.35)`);
+  tg.addColorStop(1, `rgba(${rgb},0)`);
+  ctx.strokeStyle = tg;
+  ctx.lineWidth = 5;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(e.x, e.y);
+  ctx.lineTo(e.x - fx * len, e.y - fy * len);
+  ctx.stroke();
   ctx.restore();
 }
 
@@ -2960,6 +3049,216 @@ function drawEnemy(ctx, e, t, dt) {
     ctx.beginPath(); ctx.ellipse(0, -11, 4.5, 3, 0, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
     drawEye(ctx, e.x + e.fx * 9, e.y + e.fy * 9, 1.6, 0.8);
+    return;
+  }
+
+  // ===================== RELIC AWAKENING — NIGHTMARES ======================
+  // Drawn only during the horde event (these kinds never appear otherwise).
+  // Each carries glowing red/violet eyes + a motion trail; the ghost is
+  // translucent and phases; deaths dissolve via the 'nightmareDissolve' FX.
+  if (e.kind === 'spider') {
+    // DREAD SPIDER — a skittering knot of black legs, eyes a cluster of red.
+    drawNightmareTrail(ctx, e, 12, '120,30,30');
+    shadowBlob(ctx, e.x, e.y + 6, 9, 3);
+    ctx.save();
+    ctx.translate(e.x, e.y);
+    ctx.rotate(a + Math.PI / 2);
+    ctx.strokeStyle = '#0E0810';
+    ctx.lineWidth = 1.8;
+    for (let i = 0; i < 4; i++) {
+      const sk = Math.sin(ph * 1.6 + i * 1.3) * 4;
+      const yy = -6 + i * 4;
+      ctx.beginPath();
+      ctx.moveTo(-2, yy); ctx.lineTo(-9 - Math.abs(sk) * 0.4, yy + sk * 0.5 + 1);
+      ctx.moveTo(2, yy); ctx.lineTo(9 + Math.abs(sk) * 0.4, yy - sk * 0.5 + 1);
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#160812';
+    ctx.beginPath(); ctx.ellipse(0, 0, 5.5, 6.5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    drawDreadEyes(ctx, e, 5, 1.3, '255,40,40', 1.8);
+    return;
+  }
+
+  if (e.kind === 'ghost') {
+    // PALE GHOST — a translucent shroud that phases through walls; lower hp
+    // reads as a thinner veil. Violet dread eyes through the haze.
+    const bob = Math.sin(t * 2 + e.id) * 2.2;
+    ctx.save();
+    ctx.globalAlpha *= 0.42; // translucency — you can see the world through it
+    drawNightmareTrail(ctx, e, 18, '150,120,210');
+    ctx.translate(e.x, e.y + bob);
+    const grd = ctx.createRadialGradient(0, -2, 2, 0, 2, 16);
+    grd.addColorStop(0, 'rgba(214,200,255,0.9)');
+    grd.addColorStop(1, 'rgba(120,90,170,0.05)');
+    ctx.fillStyle = grd;
+    ctx.beginPath();
+    ctx.moveTo(0, -15);
+    ctx.quadraticCurveTo(11, -8, 11, 6);
+    // tattered wavy hem
+    for (let i = 3; i >= -3; i--) {
+      ctx.lineTo(i * 3.4, 8 + Math.sin(t * 4 + i + e.id) * 3);
+    }
+    ctx.quadraticCurveTo(-11, -8, 0, -15);
+    ctx.fill();
+    ctx.restore();
+    drawDreadEyes(ctx, e, 4, 1.8, '186,120,255', 3);
+    return;
+  }
+
+  if (e.kind === 'reaper') {
+    // REAPER — a tall hooded dread with a scythe and a low crimson aura.
+    const aura = 0.3 + 0.2 * Math.sin(t * 1.6 + e.id);
+    ctx.save();
+    ctx.strokeStyle = `rgba(180,20,30,${aura})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(e.x, e.y + 6, 22 + Math.sin(t * 2) * 2, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+    shadowBlob(ctx, e.x, e.y + 14, 13, 5);
+    const bob = Math.sin(t * 1.4 + e.id) * 1.6;
+    ctx.save();
+    ctx.translate(e.x, e.y + bob);
+    // robe
+    ctx.fillStyle = '#0C0710';
+    ctx.beginPath();
+    ctx.moveTo(0, -22);
+    ctx.quadraticCurveTo(13, -8, 11, 16);
+    ctx.lineTo(-11, 16);
+    ctx.quadraticCurveTo(-13, -8, 0, -22);
+    ctx.fill();
+    // hood shadow
+    ctx.fillStyle = '#050308';
+    ctx.beginPath(); ctx.ellipse(0, -15, 6.5, 7.5, 0, 0, Math.PI * 2); ctx.fill();
+    // scythe haft + blade
+    ctx.strokeStyle = '#2A1014';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(11, 14); ctx.lineTo(15, -20); ctx.stroke();
+    ctx.strokeStyle = 'rgba(220,60,70,0.9)';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(15, -20); ctx.quadraticCurveTo(26, -18, 23, -7); ctx.stroke();
+    ctx.restore();
+    drawDreadEyes(ctx, e, -e.fx * 4 + 0, 2, '255,40,40', 2);
+    // eyes set in the hood, facing forward
+    drawDreadEyes(ctx, { x: e.x, y: e.y - 15 + bob, fx: e.fx, fy: e.fy }, 0, 1.7, '255,50,50', 2.4);
+    return;
+  }
+
+  if (e.kind === 'skeleton') {
+    // RATTLE SKELETON — a jittery bone-thrower; a small double-exposure shiver.
+    const shiver = Math.sin(t * 22 + e.id) * 1.1;
+    drawNightmareTrail(ctx, e, 8, '120,120,130');
+    shadowBlob(ctx, e.x, e.y + 9, 8, 3);
+    ctx.save();
+    ctx.translate(e.x + shiver, e.y);
+    // ribcage
+    ctx.strokeStyle = '#D8D2C2';
+    ctx.lineWidth = 1.4;
+    for (let i = 0; i < 3; i++) {
+      ctx.beginPath();
+      ctx.arc(0, -2 + i * 3, 5 - i * 0.6, 0.2 * Math.PI, 0.8 * Math.PI);
+      ctx.stroke();
+    }
+    // spine + skull
+    ctx.strokeStyle = '#C9C2B0';
+    ctx.beginPath(); ctx.moveTo(0, 6); ctx.lineTo(0, -8); ctx.stroke();
+    ctx.fillStyle = '#E6E0D0';
+    ctx.beginPath(); ctx.arc(0, -11, 4.2, 0, Math.PI * 2); ctx.fill();
+    // jaw
+    ctx.fillStyle = '#B8B2A0';
+    ctx.fillRect(-3, -8.5, 6, 1.6);
+    ctx.restore();
+    // hollow red eye-sockets
+    drawDreadEyes(ctx, { x: e.x + shiver, y: e.y - 11, fx: e.fx, fy: e.fy }, 0, 1.2, '255,70,40', 1.7);
+    return;
+  }
+
+  if (e.kind === 'zombie') {
+    // GHOUL — a slow, lopsided shamble; one arm dragging, sickly green tinge.
+    const lurch = Math.sin(ph * 0.7) * 2.6;
+    drawNightmareTrail(ctx, e, 8, '60,90,50');
+    shadowBlob(ctx, e.x, e.y + 9, 9, 3.6);
+    ctx.save();
+    ctx.translate(e.x, e.y + Math.abs(Math.sin(ph * 0.4)) * 1.2);
+    ctx.strokeStyle = '#23301E';
+    ctx.lineWidth = 2.6;
+    // reaching arms
+    ctx.beginPath();
+    ctx.moveTo(-4, -3); ctx.lineTo(-9 + lurch * 0.3, 2 - Math.abs(lurch));
+    ctx.moveTo(4, -3); ctx.lineTo(9 - lurch * 0.3, 1 - Math.abs(lurch));
+    ctx.stroke();
+    ctx.fillStyle = '#1C2A18';
+    ctx.beginPath();
+    ctx.moveTo(-6, 8); ctx.quadraticCurveTo(-8, -5, -2 + lurch * 0.3, -9);
+    ctx.quadraticCurveTo(3, -11, 6, -6);
+    ctx.quadraticCurveTo(8, -2, 6, 8);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#16210F';
+    ctx.beginPath(); ctx.arc(1 + lurch * 0.25, -10, 3.6, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    drawDreadEyes(ctx, { x: e.x + lurch * 0.25, y: e.y - 10, fx: e.fx, fy: e.fy }, 2, 1.3, '170,255,90', 1.7);
+    return;
+  }
+
+  if (e.kind === 'hellhound') {
+    // HELLHOUND — a low, fast quadruped lunger streaming embers; a long trail.
+    drawNightmareTrail(ctx, e, 22, '200,60,20');
+    shadowBlob(ctx, e.x, e.y + 7, 12, 4);
+    ctx.save();
+    ctx.translate(e.x, e.y);
+    ctx.rotate(a);
+    // body wedge, nose forward (+x after rotate)
+    ctx.fillStyle = '#160807';
+    ctx.beginPath();
+    ctx.moveTo(11, 0); ctx.lineTo(2, -6); ctx.lineTo(-10, -4);
+    ctx.lineTo(-12, 0); ctx.lineTo(-10, 4); ctx.lineTo(2, 6);
+    ctx.closePath(); ctx.fill();
+    // running legs
+    ctx.strokeStyle = '#0E0605';
+    ctx.lineWidth = 2;
+    const gait = Math.sin(ph * 1.8) * 3;
+    ctx.beginPath();
+    ctx.moveTo(4, 5); ctx.lineTo(6 + gait, 9);
+    ctx.moveTo(-6, 5); ctx.lineTo(-4 - gait, 9);
+    ctx.moveTo(4, -5); ctx.lineTo(6 - gait, -9);
+    ctx.moveTo(-6, -5); ctx.lineTo(-4 + gait, -9);
+    ctx.stroke();
+    // ember spine
+    ctx.fillStyle = `rgba(240,120,40,${0.6 + 0.3 * Math.sin(t * 8 + e.id)})`;
+    for (const ex of [-6, -2, 2]) { ctx.beginPath(); ctx.arc(ex, 0, 1.4, 0, Math.PI * 2); ctx.fill(); }
+    ctx.restore();
+    drawDreadEyes(ctx, e, 9, 1.5, '255,90,30', 2);
+    return;
+  }
+
+  if (e.kind === 'banshee') {
+    // BANSHEE — a wailing drifter; a thin shrieking veil with violet eyes and
+    // a faint sonic ring that pulses as it wails.
+    const bob = Math.sin(t * 2.4 + e.id) * 2.5;
+    const wail = 0.3 + 0.3 * Math.sin(t * 5 + e.id);
+    ctx.save();
+    ctx.strokeStyle = `rgba(160,90,220,${wail * 0.5})`;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(e.x, e.y + bob, 16 + wail * 6, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+    drawNightmareTrail(ctx, e, 14, '150,90,210');
+    ctx.save();
+    ctx.globalAlpha *= 0.7;
+    ctx.translate(e.x, e.y + bob);
+    const grd = ctx.createLinearGradient(0, -14, 0, 12);
+    grd.addColorStop(0, 'rgba(210,180,255,0.85)');
+    grd.addColorStop(1, 'rgba(110,70,160,0.1)');
+    ctx.fillStyle = grd;
+    ctx.beginPath();
+    ctx.moveTo(0, -14);
+    ctx.quadraticCurveTo(9, -6, 8, 6);
+    for (let i = 2; i >= -2; i--) ctx.lineTo(i * 4, 10 + Math.sin(t * 6 + i) * 3);
+    ctx.quadraticCurveTo(-9, -6, 0, -14);
+    ctx.fill();
+    // a gaping wailing mouth
+    ctx.fillStyle = 'rgba(40,10,60,0.8)';
+    ctx.beginPath(); ctx.ellipse(0, -2 + bob * 0.1, 1.6, 3 + wail * 2, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    drawDreadEyes(ctx, { x: e.x, y: e.y - 6 + bob, fx: e.fx, fy: e.fy }, 2, 1.6, '200,130,255', 2.6);
     return;
   }
 
@@ -6808,6 +7107,27 @@ function fogLayer() {
 function drawWeather(ctx, VW, VH, weather, t) {
   if (!weather || weather === 'clear') return;
   ctx.save();
+  if (weather === 'thunderstorm') {
+    // RELIC AWAKENING storm: a heavier, faster, more crimson-lit downpour with
+    // a deep storm tint. The thunder flashes themselves draw in the global pass.
+    ctx.fillStyle = 'rgba(20,12,30,0.18)';
+    ctx.fillRect(0, 0, VW, VH);
+    for (const [n, sp, ln, al, seed] of [[80, 1250, 16, 0.34, 23], [50, 1700, 24, 0.5, 91]]) {
+      ctx.strokeStyle = `rgba(170,150,200,${al})`;
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      for (let i = 0; i < n; i++) {
+        const rx = flick(i * 7.3 + seed), ry = flick(i * 13.7 + seed * 3);
+        const px2 = ((rx * VW + t * sp * 0.18) % (VW + 40)) - 20;
+        const py2 = ((ry * VH + t * sp) % (VH + 60)) - 30;
+        ctx.moveTo(px2, py2);
+        ctx.lineTo(px2 - ln * 0.22, py2 + ln);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+    return;
+  }
   if (weather === 'rain') {
     // two parallax layers of slanted streaks + a cold sheen on the world
     ctx.fillStyle = 'rgba(60,80,110,0.05)';
@@ -6990,6 +7310,41 @@ function drawCountdownBanner(ctx, VW, snap, t) {
   ctx.restore();
 }
 
+// RELIC AWAKENING HUD: a compact center-top readout of the survival timer and
+// the live bonus (which bleeds with hits + deaths). Pulses red near the end.
+function drawRelicHud(ctx, VW, horde, t) {
+  const rem = Math.max(0, horde.remaining ?? 0);
+  const mm = Math.floor(rem / 60), ss = Math.floor(rem % 60);
+  const timer = `${mm}:${String(ss).padStart(2, '0')}`;
+  const near = rem <= 12;
+  const pulse = near ? 0.6 + 0.4 * Math.sin(t * 9) : 1;
+  ctx.save();
+  ctx.textAlign = 'center';
+  // panel
+  const w = 230, h = 46, x = VW / 2 - w / 2, y = 150;
+  ctx.fillStyle = 'rgba(13,8,18,0.82)';
+  ctx.strokeStyle = `rgba(255,90,102,${0.5 * pulse})`;
+  ctx.lineWidth = 1.5;
+  ctx.fillRect(x, y, w, h);
+  ctx.strokeRect(x, y, w, h);
+  // title
+  ctx.font = 'bold 11px monospace';
+  ctx.fillStyle = '#FF8A94';
+  ctx.fillText('SURVIVE THE RELIC', VW / 2, y + 15);
+  // timer + bonus row
+  ctx.font = 'bold 20px monospace';
+  ctx.shadowColor = near ? '#FF5A66' : '#d6a8ff';
+  ctx.shadowBlur = 10;
+  ctx.globalAlpha = pulse;
+  ctx.fillStyle = near ? '#FF5A66' : PAL.anchor;
+  ctx.textAlign = 'left';
+  ctx.fillText(timer, x + 14, y + 37);
+  ctx.textAlign = 'right';
+  ctx.fillStyle = PAL.lythGold;
+  ctx.fillText(`+${horde.bonus ?? 0}`, x + w - 14, y + 37);
+  ctx.restore();
+}
+
 // Beacon pips: stronghold beacon-defense HUD — one monolith pip per beacon,
 // gold while lit, cracked violet-grey while dark. Lose only if ALL go dark.
 function drawBeaconPips(ctx, VW, cores, t) {
@@ -7139,6 +7494,7 @@ function advanceFrameFx(snap, dt) {
     if (edgePulses[i].life <= 0) edgePulses.splice(i, 1);
   }
   coreAlarmT = Math.max(0, coreAlarmT - dt);
+  lightningT = Math.max(0, lightningT - dt * 3.2); // quick white flash decay
   for (let i = crackers.length - 1; i >= 0; i--) {
     crackers[i].life -= dt;
     if (crackers[i].life <= 0) crackers.splice(i, 1); // boom event missed: time out
@@ -8524,10 +8880,21 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
     else ctx.fillRect(VW - th, 0, th, VH);
   }
 
+  // --- RELIC AWAKENING thunder flash: a full-screen white crack over the
+  // darkened world (drawn before the banners so text stays readable). Driven by
+  // lightningT (armed by relicAwaken/hordeBurst, decays fast). ---
+  if (lightningT > 0) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = `rgba(220,225,255,${0.5 * lightningT})`;
+    ctx.fillRect(0, 0, VW, VH);
+    ctx.restore();
+  }
+
   // --- global screen alerts: single view draws them here (today's op
   // order); splitscreen defers them to the full-canvas pass after the cells ---
   if (globalUi) {
-    // screen-space banners (LOW TIME / THE ANCHOR WAKES)
+    // screen-space banners (LOW TIME / THE ANCHOR WAKES); p.y stacks extra rows
     for (const p of popups) {
       if (!p.screen) continue;
       ctx.globalAlpha = Math.max(0, p.life / p.max);
@@ -8536,10 +8903,13 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
       ctx.textAlign = 'center';
       ctx.shadowColor = p.color;
       ctx.shadowBlur = 14;
-      ctx.fillText(p.text, VW / 2, 64);
+      ctx.fillText(p.text, VW / 2, 64 + (p.y || 0));
       ctx.shadowBlur = 0;
     }
     ctx.globalAlpha = 1;
+
+    // RELIC AWAKENING HUD: the wave timer + the live bonus, center-top
+    if (snap.horde && snap.horde.active) drawRelicHud(ctx, VW, snap.horde, t);
 
     // big blinking countdown (wave inbound / zone shrink / sudden death)
     drawCountdownBanner(ctx, VW, snap, t);
@@ -8682,6 +9052,14 @@ function viewportCtx(ctx, w, h) {
 // beacon pips. Drawn once, full-canvas, after every viewport has rendered.
 function drawGlobalScreenFx(ctx, snap, t, VW, VH) {
   ctx.save();
+  // RELIC AWAKENING thunder flash across the whole couch
+  if (lightningT > 0) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = `rgba(220,225,255,${0.5 * lightningT})`;
+    ctx.fillRect(0, 0, VW, VH);
+    ctx.restore();
+  }
   for (const p of popups) {
     if (!p.screen) continue;
     ctx.globalAlpha = Math.max(0, p.life / p.max);
@@ -8690,10 +9068,11 @@ function drawGlobalScreenFx(ctx, snap, t, VW, VH) {
     ctx.textAlign = 'center';
     ctx.shadowColor = p.color;
     ctx.shadowBlur = 14;
-    ctx.fillText(p.text, VW / 2, 64);
+    ctx.fillText(p.text, VW / 2, 64 + (p.y || 0));
     ctx.shadowBlur = 0;
   }
   ctx.globalAlpha = 1;
+  if (snap.horde && snap.horde.active) drawRelicHud(ctx, VW, snap.horde, t);
   drawCountdownBanner(ctx, VW, snap, t);
   const cores = snap.cores ?? [];
   if (cores.length > 1) drawBeaconPips(ctx, VW, cores, t);

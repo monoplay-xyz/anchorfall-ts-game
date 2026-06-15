@@ -367,7 +367,7 @@ export function setScene(snap) {
     scene.phase = cy ? cy.phase : (snap.dark ? 'night' : 'day');
     scene.blood = !!(cy && cy.bloodMoon && cy.phase === 'night');
     const w = snap.weather ?? snap.modifiers?.weather;
-    scene.weather = (w === 'rain' || w === 'snow' || w === 'ashstorm' || w === 'fog') ? w : 'clear';
+    scene.weather = (w === 'rain' || w === 'snow' || w === 'ashstorm' || w === 'fog' || w === 'thunderstorm') ? w : 'clear';
     // map theme drives a low per-theme ambient bed (see themeTick)
     scene.theme = typeof snap.theme === 'string' ? snap.theme : null;
   } catch { /* a malformed snapshot never breaks audio */ }
@@ -476,6 +476,7 @@ const WEATHER_BED = {
   snow: { freq: 700, q: 0.4, vol: 0.022 },   // soft high wind, half-buried
   ashstorm: { freq: 380, q: 0.5, vol: 0.045 }, // low gusting roar
   fog: { freq: 240, q: 0.3, vol: 0.018 },     // barely-there low air
+  thunderstorm: { freq: 900, q: 0.45, vol: 0.03 }, // RELIC AWAKENING: a heavier downpour bed (thunder cracks ride playEvent)
 };
 function weatherTick() {
   const want = scene.active && scene.weather !== 'clear' ? scene.weather : null;
@@ -901,6 +902,17 @@ function noise(dur, gain = 0.12, filterFreq = 1200, dest = null) {
   filt.connect(vol);
   vol.connect(dest || sfxBus);
   src.start();
+}
+
+// A thunder crack: a sharp noise transient over a deep rolling sub-rumble.
+// `power` 0..1 scales the wallop (relic awaken = full, periodic cracks softer).
+function thunder(power = 1) {
+  const ac = ensureAudio();
+  if (!ac || muted) return;
+  noise(0.06, 0.16 * power, 5200);                         // the crack
+  setTimeout(() => noise(0.5, 0.12 * power, 240), 40);     // the rolling boom
+  tone(46, 0.9 * power + 0.3, 'sine', 0.16 * power, 0.5);  // deep sub-rumble
+  setTimeout(() => noise(0.7, 0.05 * power, 120), 180);    // tail roll
 }
 
 function shot(kind, who, ev = null) {
@@ -1414,6 +1426,41 @@ export function playEvent(ev) {
   else if (ev.type === 'toxicHurt' || ev.type === 'toxicTick') {
     // bad air in the lungs — low cough of static, heavily gated
     if (cueGate('toxic', 1.2)) { noise(0.2, 0.05, 650); tone(140, 0.12, 'sine', 0.04, 0.7); }
+  }
+  // --- RELIC AWAKENING horde event ---
+  else if (ev.type === 'relicAwaken') {
+    // the sky cracks open: a full thunder wallop + a long tense dread swell
+    thunder(1);
+    tone(40, 2.4, 'sawtooth', 0.14, 1.3);   // rising dread rumble
+    setTimeout(() => { tone(58, 1.6, 'sawtooth', 0.1, 1.2); tone(311, 0.2, 'square', 0.07, 0.6); }, 500);
+  }
+  else if (ev.type === 'hordeBurst') {
+    // periodic thunder through the storm, intensity climbing toward the climax;
+    // gated so dense late bursts don't machine-gun the cracks
+    if (cueGate('hordeThunder', 1.4)) thunder(0.4 + 0.5 * (ev.progress ?? 0));
+  }
+  else if (ev.type === 'horde') {
+    // an edge breaches: a short low alarm knock (gated — fires per edge)
+    if (cueGate('hordeEdge', 0.18)) { tone(62, 0.5, 'sawtooth', 0.08, 1.8); noise(0.3, 0.04, 200); }
+  }
+  else if (ev.type === 'nightmareDissolve') {
+    // a leftover horror unravels: a brief reversed-shimmer hiss (heavily gated)
+    if (cueGate('dissolve', 0.12)) { tone(420, 0.18, 'sine', 0.04, 0.4); noise(0.12, 0.04, 1800); }
+  }
+  else if (ev.type === 'relicSurvived') {
+    // the storm breaks: a triumphant rising fanfare over a settling rumble
+    tone(392, 0.16, 'triangle', 0.09, 1.05);
+    setTimeout(() => tone(523.25, 0.16, 'triangle', 0.09, 1.05), 130);
+    setTimeout(() => tone(659.25, 0.18, 'triangle', 0.09, 1.04), 260);
+    setTimeout(() => { tone(1046.5, 0.45, 'triangle', 0.08, 1.0); tone(196, 0.6, 'sine', 0.05, 1.0); }, 400);
+    setTimeout(() => playUi('clear'), 700);
+  }
+  else if (ev.type === 'relicFailed') {
+    // the relic falls dormant: a grim descending toll + a dead thud
+    thunder(0.6);
+    tone(196, 0.7, 'sawtooth', 0.1, 0.45);
+    setTimeout(() => tone(98, 1.0, 'sawtooth', 0.1, 0.4), 300);
+    setTimeout(() => playUi('fail'), 500);
   }
   // unknown event types stay silent, never throw
 }

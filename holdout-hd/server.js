@@ -327,7 +327,14 @@ const server = app.listen(PORT, () => {
 // --- websocket rooms ---
 // maxPayload: inputs are tiny — an oversized frame closes the offending
 // socket (ws sends 1009) instead of buffering 100MB into JSON.parse.
-const wss = new WebSocketServer({ server, maxPayload: 16 * 1024 });
+// perMessageDeflate compresses the repetitive JSON snapshots ~80% — the single
+// biggest bandwidth win for online lag. no-context-takeover bounds per-conn
+// memory; threshold skips the tiny input frames.
+const wss = new WebSocketServer({
+  server,
+  maxPayload: 16 * 1024,
+  perMessageDeflate: { clientNoContextTakeover: true, serverNoContextTakeover: true, threshold: 256 },
+});
 const rooms = new Map();
 let nextPid = 1;
 

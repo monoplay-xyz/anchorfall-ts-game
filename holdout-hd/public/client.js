@@ -474,6 +474,9 @@ function bannerFor(ev) {
     // stronghold beacon-defense variant + early-extraction ship (all optional)
     case 'beaconDown': return { text: 'A BEACON GOES DARK', blood: true };
     case 'beaconLit': return { text: 'BEACON RELIT' };
+    // RELIC AWAKENING horde payoff banners
+    case 'relicSurvived': return { text: 'THE RELIC IS QUELLED' };
+    case 'relicFailed': return { text: 'THE RELIC FALLS DORMANT', blood: true };
     case 'shipDown': return { text: 'THE ANCHORCRAFT HAS LANDED — ALL ABOARD TO EXTRACT' };
     case 'shipLaunch': return { text: 'ANCHORCRAFT AWAY — FULL CLEAR' };
     // bastion day events: the horn call and the supply drop
@@ -513,6 +516,15 @@ function handleEvent(ev) {
     const mb = session?.snap?.musicBox;
     if (mb) playMusicBox(mb.mode, mb.stem);
   }
+  // RELIC AWAKENING horde: the awaken roar, and the survive/fail payoff toasts
+  if (ev.type === 'relicAwaken') showBanner('THE HORDE RISES — SURVIVE THE RELIC', true, 4200);
+  if (ev.type === 'relicSurvived') {
+    const bd = (ev.hits || ev.deaths)
+      ? ` (${ev.base ?? ''} − ${(ev.hits || 0) * (ev.hitPenalty || 0)} hits − ${(ev.deaths || 0) * (ev.deathPenalty || 0)} deaths)`
+      : '';
+    showToast(`RELIC QUELLED — +${ev.score ?? 0} BONUS${bd}`, 5000, true);
+  }
+  if (ev.type === 'relicFailed') showToast('THE RELIC FALLS DORMANT — NO BONUS', 4000, true);
   const b = bannerFor(ev);
   if (b) showBanner(b.text, b.blood);
 }
@@ -978,11 +990,28 @@ function updateObjectives(snap) {
   // tracking shards returned to the ruin altar, "N/4", checked at 4/4.
   const mb = snap.musicBox;
   if (mb) {
-    rows.push({
-      id: 'musicBox', title: 'Awaken the Relic',
-      state: mb.complete ? 'done' : 'active',
-      progress: mb.assembled, count: 4,
-    });
+    const hd = snap.horde;
+    if (hd && hd.active) {
+      // RELIC AWAKENING: the secondary objective becomes "survive the horde",
+      // counting down the track length, with the live bonus on the title.
+      const rem = Math.max(0, Math.ceil(hd.remaining ?? 0));
+      rows.push({
+        id: 'musicBox', title: `Survive the Relic — ${rem}s  (+${hd.bonus ?? 0})`,
+        state: 'active',
+      });
+    } else if (hd && hd.result) {
+      rows.push({
+        id: 'musicBox',
+        title: hd.result === 'survived' ? 'Relic quelled' : 'Relic dormant',
+        state: hd.result === 'survived' ? 'done' : 'active',
+      });
+    } else {
+      rows.push({
+        id: 'musicBox', title: 'Awaken the Relic',
+        state: mb.complete ? 'done' : 'active',
+        progress: mb.assembled, count: 4,
+      });
+    }
   }
   const sig = rows.map(r => [r.id ?? '', r.state, r.progress ?? '', r.count ?? '', r.title].join(':')).join('|');
   if (sig === objSig) return;
@@ -2360,7 +2389,7 @@ class NetSession {
         }
         this.ws.send(JSON.stringify({ t: 'input', input: o }));
       }
-    }, 50);
+    }, 33); // ~30Hz to match the server tick (was 20Hz) — removes ~50ms input latency
   }
   get story() { return this.lobbyData?.mode === 'story'; }
   versusMode() {

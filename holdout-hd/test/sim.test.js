@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { addPlayerMidGame, applyResults, charsById, createGame, MODE_CAPS, parseLevel, questProgress, restoreGame, revivePlayer, serializeGame, snapshot, step, TILE } from '../shared/game.js';
+import { MUSIC_DURATIONS, RELIC_WAVE_FALLBACK } from '../shared/music-durations.js';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const characters = JSON.parse(fs.readFileSync(path.join(root, 'shared/characters.json'), 'utf8'));
@@ -299,6 +300,166 @@ function testMusicBoxOnAllStoryAndStronghold() {
     assert.ok(snapshot(g).musicBox, `${level.name}: snapshot ships musicBox`);
   }
 }
+
+// --- RELIC AWAKENING horde: latch on relic completion, escalating nightmares
+// from all four edges, ends after the track length restoring dark/weather, and
+// a survival bonus that drops with hits + deaths. Gated entirely on g.musicBox.
+function relicStoryDef(chapter = 4) {
+  // a roomy open story map: center spawn, open edges for edge-spawns.
+  const W = 20, H = 14;
+  const tiles = ['#'.repeat(W)];
+  for (let y = 1; y < H - 1; y++) tiles.push('#' + '.'.repeat(W - 2) + '#');
+  tiles.push('#'.repeat(W));
+  tiles[Math.floor(H / 2)] = '#' + '.'.repeat(8) + 'P' + '.'.repeat(W - 10) + '#';
+  // one sleeping grunt far off so the field is never empty (no auto-clear)
+  tiles[2] = '#' + '.'.repeat(15) + 'g' + '.'.repeat(W - 17) + '#';
+  return { name: 'Relic Test', story: true, chapter, time: 9000, untimed: true, tiles, captiveChars: [] };
+}
+
+// Drive the four shards into the altar so g.musicBox.complete flips true.
+function completeRelic(g) {
+  const p = g.players[0];
+  p.invuln = 1e9; g.graceT = 0;
+  for (let idx = 0; idx < 4; idx++) {
+    const fr = g.musicBox.fragments[idx];
+    p.x = fr.x; p.y = fr.y;
+    step(g, { 0: {} }, 1 / 30);            // scoop
+    p.x = g.musicBox.altar.x; p.y = g.musicBox.altar.y;
+    step(g, { 0: {} }, 1 / 30);            // deposit
+  }
+  assert.ok(g.musicBox.complete, 'relic completes at 4/4');
+}
+
+function testRelicAwakeningHorde() {
+  // dur ties EXACTLY to MUSIC_DURATIONS for the level's mode-stem.
+  const g = createGame(relicStoryDef(4), [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  assert.ok(!g.horde, 'no horde before the relic completes');
+  assert.equal(g.dark, false, 'world starts lit');
+
+  completeRelic(g);
+  // one more step: stepHorde latches on the rising edge of complete.
+  step(g, { 0: {} }, 1 / 30);
+  assert.ok(g.horde, 'completing the relic latches g.horde');
+  const expectDur = MUSIC_DURATIONS['story-ch04'] || RELIC_WAVE_FALLBACK;
+  assert.equal(g.horde.dur, expectDur, 'horde dur is the exact MUSIC_DURATIONS track length');
+  assert.equal(g.dark, true, 'the world darkens for the event');
+  assert.equal(g.weather, 'thunderstorm', 'the thunderstorm rolls in');
+  assert.ok(g.horde.prevDark === false, 'pre-event dark is remembered for restore');
+  // the relicAwaken event fired (banner/audio cue for the client)
+  const snapNow = snapshot(g);
+  assert.ok(snapNow.horde && snapNow.horde.active, 'snapshot ships an active horde flag while live');
+  assert.ok(snapNow.dark, 'snapshot ships the dark flag during the event');
+
+  // ESCALATE: the very first burst (fired at latch) spawns from ALL FOUR edges
+  // at once. Read the spawn-band edges straight off that first batch before the
+  // fast melee kinds rush inward. Edges are reported on the 'horde' events too.
+  const p = g.players[0];
+  p.invuln = 1e9;
+  const nm = g.enemies.filter(e => ['spider', 'ghost', 'reaper', 'skeleton', 'zombie', 'hellhound', 'banshee'].includes(e.kind));
+  assert.ok(nm.length > 0, 'nightmares spawn on the first burst');
+  const edges = new Set(nm.map(e => {
+    if (e.y < 2 * TILE) return 'n';
+    if (e.y > (g.h - 2) * TILE) return 's';
+    if (e.x < 2 * TILE) return 'w';
+    if (e.x > (g.w - 2) * TILE) return 'e';
+    return 'mid';
+  }));
+  edges.delete('mid');
+  assert.ok(edges.size >= 2, `nightmares enter from multiple edges (saw ${[...edges].join(',')})`);
+  // the horde events also name every breached edge
+  const hordeEdges = new Set(snapNow.events.filter(e => e.type === 'horde').map(e => e.edge));
+  assert.ok(hordeEdges.size >= 3, `the first burst breaches 3+ edges (saw ${[...hordeEdges].join(',')})`);
+  // the nightmare letters are FRESH — none collides with a real level enemy
+  assert.ok(nm.every(e => /[UFMRGL&]/.test(e.letter)), 'nightmares use fresh capital/symbol letters');
+  // density ESCALATES: a late-progress burst drops more per edge than the opener.
+  let earlyPerEdge = 0, latePerEdge = 0;
+  {
+    const ge = createGame(relicStoryDef(4), [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+    completeRelic(ge);
+    ge.players[0].invuln = 1e9;
+    step(ge, { 0: {} }, 1 / 30); // latch + first (opening) burst
+    earlyPerEdge = (snapshot(ge).events.find(e => e.type === 'horde') || {}).count || 0;
+    // jump near the climax: shove the start clock back so progress ~0.9
+    ge.horde.startedAt = ge.elapsed - ge.horde.dur * 0.9;
+    ge.horde.nextAt = ge.elapsed; // force a burst now
+    for (const e of ge.enemies) e.dead = true; // clear the field for a clean read
+    step(ge, { 0: {} }, 1 / 30);
+    latePerEdge = (snapshot(ge).events.find(e => e.type === 'horde') || {}).count || 0;
+  }
+  assert.ok(latePerEdge > earlyPerEdge, `density escalates (${earlyPerEdge} -> ${latePerEdge} per edge)`);
+
+  // END (survive): fast-forward past the track length with the squad alive.
+  // Coarse dt just to walk the clock to the finish — determinism unaffected.
+  run(g, () => { g.players[0].invuln = 1e9; return { 0: {} }; }, expectDur + 4, 0.5);
+  assert.ok(g.horde.ended, 'the horde ends once the song plays out');
+  assert.equal(g.horde.result, 'survived', 'the squad survives');
+  assert.equal(g.dark, false, 'dark restores to its pre-event value');
+  assert.equal(g.weather, g.horde.prevWeather, 'weather restores to its pre-event value');
+  // every leftover nightmare dissolved on the finish
+  assert.equal(g.enemies.filter(e => !e.dead && ['spider', 'ghost', 'reaper', 'skeleton', 'zombie', 'hellhound', 'banshee'].includes(e.kind)).length, 0,
+    'remaining nightmares dissolve when the event ends');
+
+  // SCORING: the formula drops with hits + deaths. Clean survival (0/0) banks
+  // the full base bonus; a wounded run banks strictly less.
+  const cleanBonus = HORDE_BASE_BONUS_FOR_TEST; // mirrored below
+  // run two fresh events to the same finish, one clean, one battered.
+  function survivedScore({ hits, deaths }) {
+    const gg = createGame(relicStoryDef(4), [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+    completeRelic(gg);
+    step(gg, { 0: {} }, 1 / 30);
+    const before = gg.score;
+    // walk to a few seconds before the finish, then inject the hit/death tallies
+    // the sim would have accrued, and step on until the bonus is awarded.
+    run(gg, () => { gg.players[0].invuln = 1e9; return { 0: {} }; }, gg.horde.dur - 5, 0.5);
+    assert.ok(!gg.horde.ended, 'still live just before the finish');
+    gg.horde.hits = hits; gg.horde.deaths = deaths;
+    let surv = null;
+    for (let i = 0; i < 40 && !gg.horde.ended; i++) {
+      gg.players[0].invuln = 1e9;
+      step(gg, { 0: {} }, 0.5);
+      const ev = gg.events.find(e => e.type === 'relicSurvived');
+      if (ev) surv = ev;
+    }
+    assert.ok(gg.horde.ended && gg.horde.result === 'survived', 'event survived');
+    assert.ok(surv, 'a relicSurvived event carries the breakdown');
+    return { awarded: gg.score - before, ev: surv };
+  }
+  const clean = survivedScore({ hits: 0, deaths: 0 });
+  const battered = survivedScore({ hits: 10, deaths: 1 });
+  assert.equal(clean.ev.base, cleanBonus, 'clean run reports the base bonus');
+  assert.equal(clean.awarded, cleanBonus, 'clean survival banks the full base bonus');
+  assert.equal(battered.awarded, cleanBonus - 10 * clean.ev.hitPenalty - 1 * clean.ev.deathPenalty,
+    'each hit + death bleeds the bonus by the exact penalties');
+  assert.ok(battered.awarded < clean.awarded, 'a battered run banks strictly less');
+  assert.equal(battered.ev.hits, 10, 'breakdown carries the hit count');
+  assert.equal(battered.ev.deaths, 1, 'breakdown carries the death count');
+
+  // FAIL: if every player is down during the event, the relic goes dormant —
+  // world restores, no bonus, a relicFailed event fires.
+  const fg = createGame(relicStoryDef(4), [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  completeRelic(fg);
+  step(fg, { 0: {} }, 1 / 30);
+  assert.ok(fg.horde && !fg.horde.ended, 'fail run: event is live');
+  const scoreBeforeFail = fg.score;
+  fg.players[0].state = 'down'; // simulate the whole squad going down
+  step(fg, { 0: {} }, 1 / 30);
+  assert.ok(fg.horde.ended && fg.horde.result === 'failed', 'a full wipe fails the event');
+  assert.equal(fg.dark, false, 'fail restores dark');
+  assert.equal(fg.weather, fg.horde.prevWeather, 'fail restores weather');
+  assert.equal(fg.score, scoreBeforeFail, 'a failed event awards no bonus');
+  assert.ok(fg.events.some(e => e.type === 'relicFailed'), 'a relicFailed event fires');
+
+  // GATING: a plain classic level never latches a horde even if forced.
+  const cg = createGame({ name: 'Plain', time: 90, tiles: relicStoryDef().tiles, captiveChars: [] },
+    [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  assert.equal(cg.musicBox.enabled, false, 'classic level has no music box');
+  run(cg, () => ({ 0: {} }), 3, 1 / 30);
+  assert.ok(!cg.horde, 'no music box -> stepHorde stays a no-op (no g.horde key)');
+  assert.ok(!snapshot(cg).horde, 'classic snapshot never gains a horde key');
+}
+// base bonus mirrored from game.js HORDE_BASE_BONUS (kept in sync by the asserts
+// above, which read the penalties off the live event so only the base is fixed).
+const HORDE_BASE_BONUS_FOR_TEST = 5000;
 
 function testScriptedBotClearsLevelOne() {
   const party = startingRoster.map((id, i) => ({ pid: i, name: id, charId: id }));
@@ -1157,6 +1318,7 @@ testNewEnemiesCanDownPlayer();
 testRescueAndPermanentLossRules();
 testMusicBoxFeature();
 testMusicBoxOnAllStoryAndStronghold();
+testRelicAwakeningHorde();
 testScriptedBotClearsLevelOne();
 testAggroSleep();
 testSmallMapsStayArcade();
@@ -1443,22 +1605,23 @@ function testItemMedkitAndShield() {
   const p = g.players[0];
   p.invuln = 999;
   p.item = { kind: 'medkit', count: 2 };
-  p.hp = 1;
+  p.maxHp = 6; p.hp = 1;
   // a full second of held button is still one edge -> one use
   run(g, () => ({ 0: { item: true } }), 1);
-  assert.equal(p.hp, 2, 'medkit heals exactly +1 on a held press (edge-triggered)');
+  assert.equal(p.hp, 3, 'medkit heals +2 on a held press (edge-triggered)');
   assert.equal(p.item.count, 1, 'one medkit consumed');
   assert.ok(g.events.some(ev => ev.type === 'heal'), 'heal cue event fired');
   run(g, () => ({ 0: {} }), 0.2);
   run(g, () => ({ 0: { item: true } }), 0.2);
-  assert.equal(p.hp, 3, 'second press heals again');
+  assert.equal(p.hp, 5, 'second press heals again (+2)');
   assert.equal(p.item, null, 'spent slot empties');
   assert.ok(!('item' in snapshot(g, false).players[0]), 'empty slot ships no item key');
   // medkit at full hp is not wasted
+  p.hp = p.maxHp;
   p.item = { kind: 'medkit', count: 1 };
   run(g, () => ({ 0: {} }), 0.2);
   run(g, () => ({ 0: { item: true } }), 0.2);
-  assert.equal(p.hp, 3, 'hp capped at max');
+  assert.equal(p.hp, p.maxHp, 'hp capped at max — medkit no-op at full');
   assert.deepEqual(p.item, { kind: 'medkit', count: 1 }, 'medkit not consumed at full hp');
   // shield item: +2 pips, capped at 2, not wasted at the cap
   p.item = { kind: 'shield', count: 1 };
@@ -4294,13 +4457,13 @@ function testFieldWeaponDropShareAndDownedDrop() {
   run(g, () => ({ 0: { item: true } }), 4 / 30); // 0.13s and still held...
   assert.equal(p0.hp, 1, 'a press in flight does nothing yet (tap-use waits for the release)');
   run(g, () => ({ 0: {} }), 0.2); // ...released inside the 0.3s tap window
-  assert.equal(p0.hp, 2, 'the tap used the medkit on release');
+  assert.equal(p0.hp, 3, 'the tap used the medkit on release (+2)');
   assert.equal(p0.item.count, 1, 'one medkit spent');
   assert.deepEqual(p0.fieldWeapon, { kind: 'stormgun', ammo: 7 }, 'the tap never dropped the weapon');
   // a mid-length press (0.3s..0.8s) is neither tap nor drop
   run(g, () => ({ 0: { item: true } }), 0.5);
   run(g, () => ({ 0: {} }), 0.2);
-  assert.equal(p0.hp, 2, 'a 0.5s press is no tap: the item is preserved');
+  assert.equal(p0.hp, 3, 'a 0.5s press is no tap: the item is preserved');
   assert.deepEqual(p0.fieldWeapon, { kind: 'stormgun', ammo: 7 }, 'and no drop either');
   // a full 0.8s hold drops the weapon; the closing release never tap-uses
   const drops0 = g.pickups.length;
@@ -4308,9 +4471,10 @@ function testFieldWeaponDropShareAndDownedDrop() {
   assert.equal(p0.fieldWeapon, null, 'the 0.8s hold dropped the weapon');
   assert.equal(g.pickups.length, drops0 + 1, 'it lies as a pickup');
   run(g, () => ({ 0: {} }), 0.2);
-  assert.equal(p0.hp, 2, 'the release closing a fired hold uses nothing');
+  assert.equal(p0.hp, 3, 'the release closing a fired hold uses nothing');
   assert.equal(p0.item.count, 1, 'the medkit is untouched');
   // empty-handed (no field weapon) the press edge uses the item immediately
+  p0.hp = 1; // hurt again so the heal isn't a full-hp no-op
   step(g, { 0: { item: true } }, 1 / 30);
   assert.equal(p0.hp, 3, 'without a field weapon the press edge heals at once');
   assert.equal(p0.item, null, 'the last medkit is spent');
