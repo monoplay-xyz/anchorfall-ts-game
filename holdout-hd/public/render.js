@@ -819,6 +819,11 @@ function floorTex(c, x, y) {
   return tex[name + ((x * 7 + y * 13) % n)];
 }
 
+// All in-game art is generated procedurally; the optional /assets/<key>.png
+// overrides are NOT shipped, so we skip the fetch entirely (was ~60 console 404s
+// + wasted requests per load). Flip to true if real PNG art is ever added.
+const USE_PNG_OVERRIDES = false;
+
 function loadImage(src) {
   return new Promise((res, rej) => {
     const img = new Image();
@@ -829,12 +834,14 @@ function loadImage(src) {
 }
 
 function loadCached(src) {
+  if (!USE_PNG_OVERRIDES) return Promise.reject(); // no override PNGs: procedural fallback, no 404
   imageCache[src] ||= loadImage(src);
   return imageCache[src];
 }
 
 export async function initTextures() {
   await Promise.all(Object.entries(BAKERS).map(async ([key, bakeFn]) => {
+    if (!USE_PNG_OVERRIDES) { tex[key] = bakeFn(); return; }
     try { tex[key] = await loadImage(`/assets/${key}.png`); }
     catch { tex[key] = bakeFn(); }
   }));
