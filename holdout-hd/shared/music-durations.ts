@@ -1,3 +1,4 @@
+// @ts-nocheck — TS migration (issue #4): runtime-migrated to .ts, types pending.
 // Auto-generated: exact length (seconds) of each music-box / relic track.
 // The Relic Awakening horde runs for EXACTLY this long (the song plays once,
 // no loop). Deterministic input to the sim (server + client). Regenerate when
