@@ -26,6 +26,19 @@ let familyMode = false; // set per-frame from snap.family: bright child-friendly
 const tex = {};
 const imageCache = {};
 
+// --- per-frame gradient caches (render-only perf; visually identical) ---
+// Light pools rebuild ~40-80 radial gradients/frame from a small set of
+// (rgb, alpha, radius) shapes — most repeat or differ only by sub-perceptual
+// flicker. Bake each shape ONCE at the origin and reuse via ctx.translate.
+// Alpha/radius are bucketed at imperceptible steps (0.005 opacity / 1px) so
+// the cache hits even through flicker without any visible banding.
+const lightGradCache = new Map(); // key: darkWorld|rgb|aBucket|rBucket -> {grad, r}
+let lightGradDark = false;        // cache is keyed to one darkWorld state; flush on toggle
+// Screen-space gradients (vignette + edge pulses) are pure functions of their
+// inputs and only change on resize / phase ramp / pulse color.
+const vignetteCache = new Map();  // key string -> CanvasGradient
+const edgePulseCache = new Map(); // key: edge|rgb|VW|VH -> CanvasGradient (baked at alpha 1)
+
 // --- Anchorfall palette (see art bible) ---
 const PAL = {
   voidNight: '#0B0A14',
@@ -10607,6 +10620,10 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
       ctx.restore();
     }
   }
+  // The darkWorld alpha/radius boost differs, so the bake is keyed to one
+  // darkWorld state; flush when it toggles (or the cache grows unbounded).
+  if (lightGradDark !== darkWorld) { lightGradCache.clear(); lightGradDark = darkWorld; }
+  else if (lightGradCache.size > 500) lightGradCache.clear();
   for (const L of lights) {
     if (!inView(L.x, L.y, L.r)) continue;
     let la = Number.isFinite(L.a) ? L.a : 0, lr = L.r; // guard: a NaN alpha must never reach addColorStop
@@ -10617,11 +10634,24 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
       la = Math.min(0.85, la * (warm ? 1.8 : 1.35));
       lr = lr * (warm ? 1.25 : 1.1);
     }
-    const lg = ctx.createRadialGradient(L.x, L.y, 0, L.x, L.y, lr);
-    lg.addColorStop(0, `rgba(${L.rgb},${la})`);
-    lg.addColorStop(1, `rgba(${L.rgb},0)`);
-    ctx.fillStyle = lg;
-    ctx.fillRect(L.x - lr, L.y - lr, lr * 2, lr * 2);
+    // Bucket alpha (0.005 step) + radius (1px) so flicker reuses one bake; the
+    // sub-bucket quantization is far below perceptible in an additive glow.
+    const ab = Math.round(la * 200), rb = Math.round(lr); // 200 = 1/0.005
+    const key = L.rgb + '|' + ab + '|' + rb;
+    let entry = lightGradCache.get(key);
+    if (!entry) {
+      const bakedR = rb || 0.0001; // avoid a zero-radius gradient
+      const bakedA = ab / 200;
+      const lg = ctx.createRadialGradient(0, 0, 0, 0, 0, bakedR);
+      lg.addColorStop(0, `rgba(${L.rgb},${bakedA})`);
+      lg.addColorStop(1, `rgba(${L.rgb},0)`);
+      entry = { grad: lg, r: bakedR };
+      lightGradCache.set(key, entry);
+    }
+    ctx.translate(L.x, L.y);
+    ctx.fillStyle = entry.grad;
+    ctx.fillRect(-entry.r, -entry.r, entry.r * 2, entry.r * 2);
+    ctx.translate(-L.x, -L.y);
   }
   ctx.restore();
   ctx.restore();
@@ -10672,24 +10702,44 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
   // --- vignette (screen space, Void Night; deeper on dark missions, pulled
   // far back under the bastion's daylight). Family mode swaps the dark void
   // vignette for a barely-there warm sun glow at the edges. ---
+  // dayK only moves during the 6s dusk/dawn ramp; bucket it (0.01 steps) so the
+  // vignette gradients are baked once per resize/phase and reused otherwise.
+  // Bound the cache (resize churn) so it can never grow without limit.
+  if (vignetteCache.size > 200) vignetteCache.clear();
+  const dayB = Math.round(dayK * 100); // 0..100 buckets across the ramp
   if (familyMode) {
-    const vg = ctx.createRadialGradient(VW / 2, VH / 2, VH * 0.55, VW / 2, VH / 2, VH * 0.95);
-    vg.addColorStop(0, `rgba(${FAM.vignette},0)`);
-    vg.addColorStop(1, `rgba(${FAM.vignette},0.10)`);
+    let vg = vignetteCache.get('fam|' + VW + '|' + VH);
+    if (!vg) {
+      vg = ctx.createRadialGradient(VW / 2, VH / 2, VH * 0.55, VW / 2, VH / 2, VH * 0.95);
+      vg.addColorStop(0, `rgba(${FAM.vignette},0)`);
+      vg.addColorStop(1, `rgba(${FAM.vignette},0.10)`);
+      vignetteCache.set('fam|' + VW + '|' + VH, vg);
+    }
     ctx.fillStyle = vg;
     ctx.fillRect(0, 0, VW, VH);
   } else {
-    const vg = ctx.createRadialGradient(VW / 2, VH / 2, VH * (darkWorld ? 0.24 : 0.32 + 0.18 * dayK), VW / 2, VH / 2, VH * 0.85);
-    vg.addColorStop(0, 'rgba(11,10,20,0)');
-    vg.addColorStop(1, `rgba(11,10,20,${darkWorld ? 0.8 : 0.62 - 0.38 * dayK})`);
+    const vkey = 'void|' + (darkWorld ? 1 : 0) + '|' + dayB + '|' + VW + '|' + VH;
+    let vg = vignetteCache.get(vkey);
+    if (!vg) {
+      const dk = dayB / 100;
+      vg = ctx.createRadialGradient(VW / 2, VH / 2, VH * (darkWorld ? 0.24 : 0.32 + 0.18 * dk), VW / 2, VH / 2, VH * 0.85);
+      vg.addColorStop(0, 'rgba(11,10,20,0)');
+      vg.addColorStop(1, `rgba(11,10,20,${darkWorld ? 0.8 : 0.62 - 0.38 * dk})`);
+      vignetteCache.set(vkey, vg);
+    }
     ctx.fillStyle = vg;
     ctx.fillRect(0, 0, VW, VH);
     // themed vignette tint riding on top of the void one (lava reds, toxic
     // greens...). Only on themed levels — plain frames keep the void vignette.
     if (tpal) {
-      const tv = ctx.createRadialGradient(VW / 2, VH / 2, VH * 0.45, VW / 2, VH / 2, VH * 0.9);
-      tv.addColorStop(0, `rgba(${tpal.vignetteRgb},0)`);
-      tv.addColorStop(1, `rgba(${tpal.vignetteRgb},0.34)`);
+      const tkey = 'tint|' + tpal.vignetteRgb + '|' + VW + '|' + VH;
+      let tv = vignetteCache.get(tkey);
+      if (!tv) {
+        tv = ctx.createRadialGradient(VW / 2, VH / 2, VH * 0.45, VW / 2, VH / 2, VH * 0.9);
+        tv.addColorStop(0, `rgba(${tpal.vignetteRgb},0)`);
+        tv.addColorStop(1, `rgba(${tpal.vignetteRgb},0.34)`);
+        vignetteCache.set(tkey, tv);
+      }
       ctx.fillStyle = tv;
       ctx.fillRect(0, 0, VW, VH);
     }
@@ -10700,23 +10750,34 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
 
   // --- nightwave warning: violet pulse bleeding in from the breached edge
   // (blood moons reuse the pulse in crimson via ep.rgb) ---
+  // Each pulse's only per-frame variable is its alpha; bake the directional
+  // gradient once at alpha 1 (keyed by edge+rgb+VW+VH) and ride the live alpha
+  // through globalAlpha. In source-over, globalAlpha(a) * grad(1->0) reproduces
+  // the original grad(a->0) exactly, so this is pixel-identical.
+  if (edgePulseCache.size > 200) edgePulseCache.clear();
   for (const ep of edgePulses) {
     const k = Math.max(0, ep.life / ep.max);
     const a = Math.max(0, k * (0.26 + 0.16 * Math.sin(t * 9))) * (ep.peak ?? 1);
     const th = Math.min(VW, VH) * 0.18;
     const rgb = ep.rgb ?? '142,79,209';
-    let eg;
-    if (ep.edge === 'n') eg = ctx.createLinearGradient(0, 0, 0, th);
-    else if (ep.edge === 's') eg = ctx.createLinearGradient(0, VH, 0, VH - th);
-    else if (ep.edge === 'w') eg = ctx.createLinearGradient(0, 0, th, 0);
-    else eg = ctx.createLinearGradient(VW, 0, VW - th, 0);
-    eg.addColorStop(0, `rgba(${rgb},${a})`);
-    eg.addColorStop(1, `rgba(${rgb},0)`);
+    const ekey = ep.edge + '|' + rgb + '|' + VW + '|' + VH;
+    let eg = edgePulseCache.get(ekey);
+    if (!eg) {
+      if (ep.edge === 'n') eg = ctx.createLinearGradient(0, 0, 0, th);
+      else if (ep.edge === 's') eg = ctx.createLinearGradient(0, VH, 0, VH - th);
+      else if (ep.edge === 'w') eg = ctx.createLinearGradient(0, 0, th, 0);
+      else eg = ctx.createLinearGradient(VW, 0, VW - th, 0);
+      eg.addColorStop(0, `rgba(${rgb},1)`);
+      eg.addColorStop(1, `rgba(${rgb},0)`);
+      edgePulseCache.set(ekey, eg);
+    }
+    ctx.globalAlpha = a;
     ctx.fillStyle = eg;
     if (ep.edge === 'n') ctx.fillRect(0, 0, VW, th);
     else if (ep.edge === 's') ctx.fillRect(0, VH - th, VW, th);
     else if (ep.edge === 'w') ctx.fillRect(0, 0, th, VH);
     else ctx.fillRect(VW - th, 0, th, VH);
+    ctx.globalAlpha = 1;
   }
 
   // --- RELIC AWAKENING thunder flash: a full-screen white crack over the
