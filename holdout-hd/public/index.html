@@ -455,7 +455,7 @@
         <!-- MAP BUILDER — visual grid editor + live validation + export (issue #5) -->
         <div class="mpage mbuilder" id="pageBuilder" hidden>
           <h2>Map Builder</h2>
-          <p class="tag">paint a map &mdash; validate &mdash; export a LevelDef .json</p>
+          <p class="tag">paint or import a map &mdash; validate &mdash; export, share or publish</p>
           <div class="mb-layout">
             <!-- LEFT: the tile palette, grouped per the authoring contract -->
             <aside class="mb-palette panel">
@@ -520,6 +520,38 @@
                 <button id="mbValidate" class="ghost">Validate</button>
                 <button id="mbExport" disabled>Export .json</button>
               </div>
+
+              <!-- IMPORT: load a .json file or paste a shareable string to remix -->
+              <div class="mb-subpanel" id="mbImportPanel">
+                <div class="ptitle">IMPORT / SHARE</div>
+                <div class="mb-field">
+                  <label>Load .json
+                    <input id="mbImportFile" type="file" accept="application/json,.json">
+                  </label>
+                </div>
+                <div class="mb-field">
+                  <label>Paste shareable string
+                    <textarea id="mbImportText" rows="3" placeholder="MONOMAP1:… or raw LevelDef JSON"></textarea>
+                  </label>
+                </div>
+                <div class="btnrow">
+                  <button id="mbImportLoad" class="ghost">Load Pasted</button>
+                  <button id="mbCopyShare" class="ghost" disabled>Copy Shareable String</button>
+                </div>
+                <p class="mb-hint" id="mbImportNote" hidden></p>
+              </div>
+
+              <!-- PUBLISH: validate -> POST /api/maps -> show the returned id -->
+              <div class="mb-subpanel" id="mbPublishPanel">
+                <div class="ptitle">PUBLISH TO COMMUNITY</div>
+                <div class="mb-field"><label>Author<input id="mbAuthor" type="text" maxlength="24" placeholder="Anonymous"></label></div>
+                <div class="mb-field"><label>Description<input id="mbDesc" type="text" maxlength="240" placeholder="short blurb (optional)"></label></div>
+                <div class="btnrow">
+                  <button id="mbPublish" disabled>Publish</button>
+                </div>
+                <p class="mb-hint" id="mbPublishNote" hidden></p>
+              </div>
+
               <div id="mbProblems" class="mb-problems"></div>
             </aside>
           </div>

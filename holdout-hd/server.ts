@@ -545,7 +545,12 @@ function cheapMapCaps(def: any): string | null {
   }
   // numeric fields a malicious def could blow up (giant wave counts, etc.)
   if (def.time !== undefined && !isFiniteInRange(def.time, 0, 86400)) return 'time out of range';
-  if (def.difficulty !== undefined && !isFiniteInRange(def.difficulty, 1, 5)) return 'difficulty out of range';
+  // difficulty is authored either as a sim label (easy/normal/hard/extreme — what
+  // shipped levels AND the map builder write) OR a small number; accept both, as
+  // difficultyScale() reads the string form. (A bad value is inert, not a DoS.)
+  if (def.difficulty !== undefined
+      && !(typeof def.difficulty === 'string' && /^(easy|normal|hard|extreme)$/.test(def.difficulty))
+      && !isFiniteInRange(def.difficulty, 1, 5)) return 'difficulty out of range';
   if (def.bastion) {
     const b = def.bastion;
     if (b.nights !== undefined && !isFiniteInRange(b.nights, 1, 24)) return 'bastion.nights out of range';

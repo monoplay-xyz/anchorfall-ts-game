@@ -32,6 +32,7 @@ import {
   PALETTE, THEME_KEYS, BUILDER_MODES, BUILDER_OBJECTIVES, DIFFICULTIES, SIZE_LABELS,
   GRID_MIN, GRID_MAX, TILE_BY_CHAR, emptyBuilderState, builderStateToLevelDef,
   paintCell, resizeGrid, applyBorder, blankGrid,
+  importToBuilderState, levelDefToShareString, parseShareString,
 } from './mapBuilder.js';
 import type { BuilderState, BuilderMode, BuilderObjective } from './mapBuilder.js';
 import { validateLevelDef } from '/shared/mapValidate.js';
@@ -4263,19 +4264,7 @@ function mbInit(): void {
   fillSelect('mbSize', SIZE_LABELS.map((s) => [s, s]));
 
   // initial values from state
-  ($('mbName') as HTMLInputElement).value = mbState.name;
-  ($('mbMode') as HTMLSelectElement).value = mbState.mode;
-  ($('mbTheme') as HTMLSelectElement).value = String(mbState.theme);
-  ($('mbObjective') as HTMLSelectElement).value = mbState.objective;
-  ($('mbDifficulty') as HTMLSelectElement).value = String(mbState.difficulty);
-  ($('mbSize') as HTMLSelectElement).value = mbState.sizeLabel;
-  ($('mbW') as HTMLInputElement).value = String(mbState.grid[0].length);
-  ($('mbH') as HTMLInputElement).value = String(mbState.grid.length);
-  ($('mbNights') as HTMLInputElement).value = String(mbState.bastion.nights);
-  ($('mbWavesPerNight') as HTMLInputElement).value = String(mbState.bastion.wavesPerNight);
-  ($('mbBloodMoons') as HTMLInputElement).value = mbState.bastion.bloodMoons.join(',');
-  ($('mbRoster') as HTMLInputElement).value = mbState.bastion.roster.join('');
-  ($('mbEdges') as HTMLInputElement).value = mbState.bastion.edges.join(',');
+  mbSyncPanelFromState();
 
   // --- bind panel inputs back into state (each edit re-previews) ---
   $('mbName').oninput = (e: any) => { mbState!.name = e.target.value; mbAfterEdit(false); };
@@ -4313,6 +4302,12 @@ function mbInit(): void {
   // validate + export actions
   $('mbValidate').onclick = (e: any) => { e.currentTarget.blur(); mbRunValidate(); };
   $('mbExport').onclick = (e: any) => { e.currentTarget.blur(); mbExport(); };
+
+  // import / share / publish actions (issue #5 Stage B)
+  $('mbImportFile').onchange = (e: any) => { const f = e.target.files && e.target.files[0]; if (f) mbImportFromFile(f); e.target.value = ''; };
+  $('mbImportLoad').onclick = (e: any) => { e.currentTarget.blur(); mbImportFromPaste(); };
+  $('mbCopyShare').onclick = (e: any) => { e.currentTarget.blur(); mbCopyShare(); };
+  $('mbPublish').onclick = (e: any) => { e.currentTarget.blur(); mbPublish(); };
 
   // --- canvas paint: click + drag, mapped from CSS pixels to tile coords ---
   const cv = $('mbGrid') as HTMLCanvasElement;
@@ -4465,10 +4460,13 @@ function mbDrawPreviewFallback(ctx: CanvasRenderingContext2D, cv: HTMLCanvasElem
   }
 }
 
-// ---- validate-before-save: run validateLevelDef, paint problems, gate Export ----
+// ---- validate-before-save: run validateLevelDef, paint problems, gate the save
+// actions (Export / Copy Shareable String / Publish all require ok:true) ----
 function mbRunValidate(): { ok: boolean; problems: string[] } {
   const box = $('mbProblems');
   const exportBtn = $('mbExport') as HTMLButtonElement;
+  const shareBtn = $('mbCopyShare') as HTMLButtonElement;
+  const publishBtn = $('mbPublish') as HTMLButtonElement;
   let res: { ok: boolean; problems: string[] };
   try {
     res = validateLevelDef(mbDef(), { charMap, characters });
@@ -4476,13 +4474,15 @@ function mbRunValidate(): { ok: boolean; problems: string[] } {
     res = { ok: false, problems: ['validator threw: ' + (e && e.message || e)] };
   }
   if (res.ok) {
-    box.innerHTML = '<span class="ok">&#10003; Valid — ready to export.</span>';
-    exportBtn.disabled = false;
+    box.innerHTML = '<span class="ok">&#10003; Valid — ready to export / share / publish.</span>';
   } else {
     box.innerHTML = `<span class="bad">&#10007; ${res.problems.length} problem(s):</span>`
       + '<ul>' + res.problems.slice(0, 40).map((p) => `<li>${escapeHtml(p)}</li>`).join('') + '</ul>';
-    exportBtn.disabled = true;
   }
+  // gate every save action on validity (Copy Share + Publish, like Export)
+  exportBtn.disabled = !res.ok;
+  if (shareBtn) shareBtn.disabled = !res.ok;
+  if (publishBtn) publishBtn.disabled = !res.ok;
   return res;
 }
 function escapeHtml(s: string): string {
@@ -4506,6 +4506,160 @@ function mbExport(): void {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   playUi('select');
+}
+
+// ---- sync EVERY panel input from the current mbState (init + after import) ----
+function mbSyncPanelFromState(): void {
+  const s = mbState!;
+  ($('mbName') as HTMLInputElement).value = s.name;
+  ($('mbMode') as HTMLSelectElement).value = s.mode;
+  ($('mbTheme') as HTMLSelectElement).value = String(s.theme);
+  ($('mbObjective') as HTMLSelectElement).value = s.objective;
+  ($('mbDifficulty') as HTMLSelectElement).value = String(s.difficulty);
+  ($('mbSize') as HTMLSelectElement).value = s.sizeLabel;
+  ($('mbW') as HTMLInputElement).value = String(s.grid[0].length);
+  ($('mbH') as HTMLInputElement).value = String(s.grid.length);
+  ($('mbNights') as HTMLInputElement).value = String(s.bastion.nights);
+  ($('mbWavesPerNight') as HTMLInputElement).value = String(s.bastion.wavesPerNight);
+  ($('mbBloodMoons') as HTMLInputElement).value = s.bastion.bloodMoons.join(',');
+  ($('mbRoster') as HTMLInputElement).value = s.bastion.roster.join('');
+  ($('mbEdges') as HTMLInputElement).value = s.bastion.edges.join(',');
+  ($('mbCapRadius') as HTMLInputElement).value = String(s.capture.radius);
+  ($('mbCapDuration') as HTMLInputElement).value = String(s.capture.duration);
+  ($('mbGateNeed') as HTMLInputElement).value = String(s.gate.need);
+}
+
+// ---- IMPORT / SHARE / PUBLISH (issue #5 Stage B) ----
+
+// short status line under the import panel (text only — never innerHTML)
+function mbSetImportNote(msg: string, bad = false): void {
+  const note = $('mbImportNote');
+  note.hidden = !msg;
+  note.textContent = msg;
+  note.classList.toggle('bad', bad);
+  note.classList.toggle('ok', !!msg && !bad);
+}
+
+// load a def INTO the builder: derive the modeled panel fields + stash the WHOLE
+// def as the passthrough base (lossless round-trip on export), repaint, validate.
+function mbLoadDef(def: any, sourceLabel: string): void {
+  let next: BuilderState;
+  try {
+    next = importToBuilderState(def);
+  } catch (e: any) {
+    mbSetImportNote('Import failed: ' + (e?.message || 'not a LevelDef'), true);
+    playUi('locked');
+    return;
+  }
+  mbState = next;
+  mbSyncPanelFromState();
+  mbSyncPanelVis();
+  mbDrawGrid();
+  mbSchedulePreview();
+  const res = mbRunValidate();
+  const w = mbState.grid[0].length, h = mbState.grid.length;
+  mbSetImportNote(
+    `Loaded "${mbState.name}" (${w}×${h}) from ${sourceLabel}. `
+    + (res.ok ? 'Valid — edit & re-export to remix.' : `${res.problems.length} problem(s) — see below.`),
+    !res.ok,
+  );
+  playUi('select');
+}
+
+// Load .json file input -> parse -> load
+function mbImportFromFile(file: File): void {
+  const reader = new FileReader();
+  reader.onload = () => {
+    let def: any;
+    try { def = JSON.parse(String(reader.result || '')); }
+    catch (e: any) { mbSetImportNote('Not valid JSON: ' + (e?.message || 'parse error'), true); playUi('locked'); return; }
+    mbLoadDef(def, 'file ' + file.name);
+  };
+  reader.onerror = () => { mbSetImportNote('Could not read that file.', true); playUi('locked'); };
+  reader.readAsText(file);
+}
+
+// Paste a shareable string (MONOMAP1:… or raw JSON) -> parse -> load
+function mbImportFromPaste(): void {
+  const raw = ($('mbImportText') as HTMLTextAreaElement).value;
+  if (!raw.trim()) { mbSetImportNote('Paste a shareable string or LevelDef JSON first.', true); return; }
+  let def: any;
+  try { def = parseShareString(raw); }
+  catch (e: any) { mbSetImportNote('Could not parse: ' + (e?.message || 'bad share string'), true); playUi('locked'); return; }
+  mbLoadDef(def, 'pasted string');
+}
+
+// Copy a single shareable blob (the whole LevelDef) to the clipboard.
+async function mbCopyShare(): Promise<void> {
+  const res = mbRunValidate();
+  if (!res.ok) { playUi('locked'); return; } // gate on validity like Export
+  const str = levelDefToShareString(mbDef());
+  let copied = false;
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(str); copied = true; }
+  } catch { copied = false; }
+  if (!copied) {
+    // fallback: drop it in the paste box so the author can select + copy it
+    ($('mbImportText') as HTMLTextAreaElement).value = str;
+  }
+  mbSetImportNote(copied ? 'Shareable string copied to clipboard.' : 'Clipboard blocked — string placed in the paste box, copy it manually.');
+  showToast(copied ? 'SHAREABLE STRING COPIED' : 'STRING IN PASTE BOX', 1800);
+  playUi('select');
+}
+
+// short status line under the publish panel (text only — never innerHTML)
+function mbSetPublishNote(msg: string, bad = false): void {
+  const note = $('mbPublishNote');
+  note.hidden = !msg;
+  note.textContent = msg;
+  note.classList.toggle('bad', bad);
+  note.classList.toggle('ok', !!msg && !bad);
+}
+
+let mbPublishing = false;
+// Publish: validate (block on !ok) -> POST /api/maps -> show the returned id.
+// Mirrors how the community browser calls the maps API (same /api/maps base,
+// same { ok, id } / { error, problems } response shapes, graceful 400/429).
+async function mbPublish(): Promise<void> {
+  if (mbPublishing) return;
+  const res = mbRunValidate();
+  if (!res.ok) { mbSetPublishNote('Fix the validation problems before publishing.', true); playUi('locked'); return; }
+  const def = mbDef();
+  const name = String(mbState!.name || 'Untitled Map').slice(0, 48);
+  const author = ($('mbAuthor') as HTMLInputElement).value.trim().slice(0, 24) || 'Anonymous';
+  const description = ($('mbDesc') as HTMLInputElement).value.trim().slice(0, 240);
+  const btn = $('mbPublish') as HTMLButtonElement;
+  mbPublishing = true;
+  btn.disabled = true;
+  mbSetPublishNote('Publishing…');
+  try {
+    const r = await fetch('/api/maps', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, author, description, def }),
+    });
+    let body: any = {};
+    try { body = await r.json(); } catch { /* non-JSON error body */ }
+    if (r.ok && body && body.id) {
+      mbSetPublishNote(`Published! Map id: ${body.id} — find it under Play › Community Maps.`);
+      showToast('PUBLISHED: ' + body.id, 2600);
+      playUi('select');
+    } else if (r.status === 429) {
+      mbSetPublishNote('Rate limited — you are publishing too fast. Wait a minute and try again.', true);
+      playUi('locked');
+    } else {
+      const probs = Array.isArray(body?.problems) ? ' (' + body.problems.slice(0, 3).join('; ') + ')' : '';
+      mbSetPublishNote(`Publish rejected${probs || (body?.error ? ': ' + body.error : '')}.`, true);
+      playUi('locked');
+    }
+  } catch (e: any) {
+    mbSetPublishNote('Could not reach the server — try again later.', true);
+    playUi('locked');
+  } finally {
+    mbPublishing = false;
+    // re-gate on the current validity (mbRunValidate flips it back on if valid)
+    mbRunValidate();
+  }
 }
 
 // ---------- menu pages (MAIN / SINGLEPLAYER / VERSUS / ONLINE / SETTINGS /

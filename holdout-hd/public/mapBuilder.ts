@@ -217,6 +217,17 @@ export interface BuilderState {
   };
   /** sizeLabel for the optional stronghold catalog block (bastion only). */
   sizeLabel: string;
+  /**
+   * IMPORTED-DEF PASSTHROUGH BASE (lossless round-trip). When a def is imported
+   * (Load .json / Paste shareable string), the WHOLE original def is stashed here
+   * so export can preserve every gameplay field the builder does NOT model
+   * (stranded / captiveChars / builds / chests / vehicles / hires / intro / outro /
+   * stronghold / quests / switchGroups / …). builderStateToLevelDef() deep-clones
+   * this base and overlays only the edited grid + modeled panel fields on top.
+   * A freshly-built (non-imported) map leaves this undefined and assembles from
+   * scratch exactly as in Stage A.
+   */
+  _base?: any;
 }
 
 /** A fresh, valid-by-construction starting state: a bordered hold with a spawn,
@@ -337,96 +348,389 @@ export interface AssembleCtx {
  */
 export function builderStateToLevelDef(state: BuilderState, ctx: AssembleCtx = {}): LevelDef {
   const grid = state.grid.map((r) => r); // defensive copy of the rows
-  const def: any = {
-    name: state.name || 'Untitled Map',
-    tiles: grid,
-  };
+
+  // LOSSLESS ROUND-TRIP. If this state was IMPORTED, start from a deep clone of
+  // the original def (the passthrough base) so EVERY gameplay field the builder
+  // does not model survives untouched (stranded / stronghold / quests /
+  // switchGroups / intro / outro / captiveChars / builds / chests / vehicles /
+  // hires / npcs / …). We then overlay only the edited grid + the modeled panel
+  // fields on top. A freshly-built map has no base and assembles from scratch.
+  const imported = state._base != null;
+  const def: any = imported ? deepClone(state._base) : {};
+
+  def.name = state.name || def.name || 'Untitled Map';
+  def.tiles = grid;
 
   if (state.theme) def.theme = state.theme;
 
   // --- mode / category tagging ---
-  switch (state.mode) {
-    case 'bastion':
-      def.mode = 'bastion';
-      def.untimed = true;
-      break;
-    case 'siege':
-      def.mode = 'siege';
-      def.siege = {};
-      break;
-    case 'ctf':
-      def.mode = 'ctf';
-      break;
-    case 'br':
-      def.mode = 'br';
-      break;
-    case 'story':
-      def.story = true;
-      def.untimed = true;
-      break;
-    case 'family':
-      def.family = true;
-      def.untimed = true;
-      break;
+  // For an IMPORTED base whose mode the author did NOT change, leave the base's
+  // mode fields EXACTLY as they were — so a classic timed map (no `mode`, no
+  // core) is never force-tagged 'bastion', and any unmodeled mode semantics
+  // survive. We only re-tag when the map is fresh OR the author switched modes.
+  const modeChanged = !imported || state.mode !== deriveBuilderMode(state._base);
+  // does the base behave like a bastion already (so we must still write the
+  // bastion config block below even when we did not re-tag the mode)?
+  if (modeChanged) {
+    // Clear the mode flags this enum could have set so a mode change off an
+    // imported base does not leave a stale flag behind.
+    delete def.story; delete def.family; delete def.untimed;
+    switch (state.mode) {
+      case 'bastion':
+        def.mode = 'bastion';
+        def.untimed = true;
+        break;
+      case 'siege':
+        def.mode = 'siege';
+        if (!def.siege || typeof def.siege !== 'object') def.siege = {};
+        break;
+      case 'ctf':
+        def.mode = 'ctf';
+        break;
+      case 'br':
+        def.mode = 'br';
+        break;
+      case 'story':
+        delete def.mode;
+        def.story = true;
+        def.untimed = true;
+        break;
+      case 'family':
+        delete def.mode;
+        def.family = true;
+        def.untimed = true;
+        break;
+    }
   }
 
   def.difficulty = state.difficulty;
 
   // --- bastion config (nights / waves / bloodMoons / roster + wave edges) ---
-  if (state.mode === 'bastion') {
+  // Only write the bastion config when this map is ACTUALLY a bastion: a fresh
+  // bastion, an imported bastion, or a mode-switch INTO bastion. A classic map
+  // imported (and shown as 'bastion' in the panel) but left unchanged must NOT
+  // gain a bastion block — that block would make the validator demand a K core.
+  const isBastion = state.mode === 'bastion' && (modeChanged || def.mode === 'bastion');
+  if (isBastion) {
     const nights = clampInt(state.bastion.nights, 1, 25);
     const wpn = clampInt(state.bastion.wavesPerNight, 1, 3);
     const bloodMoons = (state.bastion.bloodMoons || [])
       .filter((n) => Number.isInteger(n) && n >= 1 && n <= nights)
       .sort((a, b) => a - b);
     const roster = (state.bastion.roster || []).filter((c) => WAVE_LETTER_SET.has(c));
-    const bastion: BastionDef = {
-      nights,
-      wavesPerNight: wpn,
-      bloodMoons,
-      ...(roster.length ? { roster } : {}),
-    } as BastionDef;
-    def.bastion = bastion;
+    const base = (imported && def.bastion && typeof def.bastion === 'object') ? def.bastion : null;
+    // Start from any imported bastion block so unmodeled sub-fields (dayLen /
+    // nightLen / waveMult / endless / survival / …) ride through unchanged, then
+    // overlay the modeled knobs. For an IMPORTED base, a modeled field is written
+    // only when the author ACTUALLY changed it from the imported value — so a
+    // pure import->export keeps the base verbatim (a `nights: 99` endless map
+    // survives the panel's 1-25 clamp; an absent wavesPerNight stays absent).
+    const bastion: any = base ? { ...base } : {};
+    // import re-derives each modeled knob by clamping the base value; we only
+    // overwrite when the panel value DIFFERS from that imported-derived value.
+    if (!base) { bastion.nights = nights; bastion.wavesPerNight = wpn; bastion.bloodMoons = bloodMoons; if (roster.length) bastion.roster = roster; }
+    else {
+      if (nights !== clampInt(base.nights ?? 5, 1, 25)) bastion.nights = nights;
+      if (wpn !== clampInt(base.wavesPerNight ?? 1, 1, 3)) bastion.wavesPerNight = wpn;
+      const impMoons = Array.isArray(base.bloodMoons) ? base.bloodMoons.filter((n: any) => Number.isInteger(n)) : [];
+      if (!sameNums(bloodMoons, impMoons)) bastion.bloodMoons = bloodMoons;
+      const impRoster = Array.isArray(base.roster) ? base.roster.map((c: any) => String(c)).filter((c: string) => c.length === 1) : [];
+      if (roster.length && roster.join('') !== impRoster.join('')) bastion.roster = roster;
+    }
+    def.bastion = bastion as BastionDef;
 
     // timed reinforcement waves around the chosen edges (legal roster letters).
+    // For an imported base we only RE-DERIVE waves when the author edited the
+    // edge set (otherwise the base's authored modifiers.waves ride through).
     const edges = (state.bastion.edges || []).filter((e) => 'nsew'.includes(e));
-    if (roster.length && edges.length) {
+    const baseEdges = baseDerivedEdges(imported ? state._base : null);
+    const edgesEdited = !imported || edges.join(',') !== baseEdges.join(',');
+    if (roster.length && edges.length && edgesEdited) {
       const waves: WaveDef[] = [];
       for (let i = 0; i < edges.length; i++) {
         waves.push({ at: 20 + i * 20, letters: roster.join('').slice(0, 4) || 'g', edge: edges[i] as any });
       }
-      def.modifiers = { waves };
+      def.modifiers = { ...(imported && def.modifiers && typeof def.modifiers === 'object' ? def.modifiers : {}), waves };
     }
   }
 
   // --- objective block (only the chosen one) ---
+  // For an imported base each objective block MERGES over the base so unmodeled
+  // sub-fields survive (capture: threshold/decay/contest; escort: speed/hp/
+  // holdRadius + the authored path; gate: after). The modeled scalars are only
+  // overwritten when the author changed them from the imported value.
+  const objBase = imported ? state._base : null;
   if (state.objective === 'capture') {
-    // centre the capture zone on the (first) core, else the grid centre.
     const k = findChar(grid, 'K');
     const cx = k ? k[0] : Math.floor((grid[0]?.length ?? 2) / 2);
     const cy = k ? k[1] : Math.floor(grid.length / 2);
-    def.capture = {
-      x: cx, y: cy,
-      radius: clampInt(state.capture.radius, 1, 12),
-      duration: clampInt(state.capture.duration, 5, 600),
-    };
+    const cb = (objBase && objBase.capture && typeof objBase.capture === 'object') ? objBase.capture : null;
+    const cap: any = cb ? { ...cb } : { x: cx, y: cy };
+    const impR = clampInt(cb?.radius ?? 3, 1, 12), impD = clampInt(cb?.duration ?? 30, 5, 600);
+    const r = clampInt(state.capture.radius, 1, 12), d = clampInt(state.capture.duration, 5, 600);
+    if (!cb) { cap.radius = r; cap.duration = d; }
+    else { if (r !== impR) cap.radius = r; if (d !== impD) cap.duration = d; }
+    def.capture = cap;
   } else if (state.objective === 'escort') {
     // an escort map is CORELESS — strip every 'K' so the validator's 0-core rule
     // holds, then thread a path through interior waypoints (spawn -> exit-ish).
-    stripChar(grid, 'K');
-    const path = (state.escort.path || []).filter(
+    stripChar(grid, 'K'); // mutates grid rows in place; def.tiles already === grid
+    const eb = (objBase && objBase.escort && typeof objBase.escort === 'object') ? objBase.escort : null;
+    const userPath = (state.escort.path || []).filter(
       ([x, y]) => x > 0 && y > 0 && x < (grid[0]?.length ?? 0) - 1 && y < grid.length - 1,
     );
-    def.escort = { path: path.length >= 2 ? path : autoEscortPath(grid) };
+    const impPath = importEscortPath(eb);
+    const esc: any = eb ? { ...eb } : {};
+    // keep the authored path unless the author supplied a new (different) one
+    if (userPath.length >= 2 && !samePath(userPath, impPath)) esc.path = userPath;
+    else if (!eb) esc.path = userPath.length >= 2 ? userPath : autoEscortPath(grid);
+    def.escort = esc;
   } else if (state.objective === 'gate') {
-    def.gate = { need: clampInt(state.gate.need, 1, Math.max(1, tileCount(grid, 'B'))) };
+    const gb = (objBase && objBase.gate && typeof objBase.gate === 'object') ? objBase.gate : null;
+    const need = clampInt(state.gate.need, 1, Math.max(1, tileCount(grid, 'B')));
+    const impNeed = clampInt(gb?.need ?? 1, 1, 99);
+    const gate: any = gb ? { ...gb } : {};
+    if (!gb || clampInt(state.gate.need, 1, 99) !== impNeed) gate.need = need;
+    def.gate = gate;
   }
 
-  // --- sidecar arrays auto-sized to their marker-tile counts ---
-  // Each defaults its per-entity payload; an author tunes the specifics later.
-  attachSidecars(def, grid, ctx);
+  // --- sidecar arrays ---
+  // FRESH map: synthesize every tile-bound sidecar sized to its marker count so
+  // the new def validates (the author refines the per-entity details later).
+  // IMPORTED map: the base ALREADY carries the real sidecars (correctly sized to
+  // the unchanged grid), so we do NOT regenerate them — regenerating would clob-
+  // ber authored builds/chests/npcs/… with empty placeholders and DROP gameplay.
+  // We only fill in a sidecar the base happens to be MISSING for a marker the
+  // author painted in (keeps parity without overwriting authored data).
+  if (!imported) attachSidecars(def, grid, ctx);
+  else fillMissingSidecars(def, grid, ctx);
 
   return def as LevelDef;
+}
+
+/** Structured deep clone (kept local + dependency-free; JSON round-trip is enough
+ *  for a LevelDef, which is plain JSON data). */
+function deepClone<T>(v: T): T {
+  return JSON.parse(JSON.stringify(v));
+}
+
+/** For an imported base: only ADD a tile-bound sidecar the base is MISSING for a
+ *  marker the author painted, so the def keeps sidecar parity WITHOUT overwriting
+ *  any authored entry. Existing arrays (real builds/chests/npcs/…) are untouched. */
+function fillMissingSidecars(def: any, grid: string[], ctx: AssembleCtx): void {
+  const n = (ch: string): number => tileCount(grid, ch);
+  const need = (key: string, ch: string, make: (count: number) => any[]): void => {
+    const have = Array.isArray(def[key]) ? def[key].length : (def[key] === undefined ? -1 : 0);
+    const count = n(ch);
+    if (have === count) return;            // already in parity — leave authored data alone
+    if (count === 0) { if (Array.isArray(def[key])) def[key] = []; return; }
+    if (have < 0) { def[key] = make(count); return; } // base never had it: synth full
+    // base had a partial/stale array after a grid edit: pad or trim to parity,
+    // preserving as many authored leading entries as possible.
+    const cur = def[key].slice(0, count);
+    while (cur.length < count) cur.push(make(1)[0]);
+    def[key] = cur;
+  };
+  need('captiveChars', 'c', (c) => new Array(c).fill(ctx.captiveCharId || '__CAPTIVE__'));
+  need('npcs', 'N', (c) => Array.from({ length: c }, (_, i) => ({ id: 'npc' + i, name: 'Survivor ' + (i + 1) })));
+  need('builds', 'B', (c) => Array.from({ length: c }, () => ({ kind: 'pylon', cost: 0 })));
+  need('chests', 'C', (c) => Array.from({ length: c }, () => ({})));
+  need('vehicles', 'V', (c) => Array.from({ length: c }, () => ({})));
+  need('hires', 'H', (c) => Array.from({ length: c }, () => ({})));
+  need('pickups', 'A', (c) => Array.from({ length: c }, () => ({})));
+  need('qitems', 'I', (c) => Array.from({ length: c }, () => ({ kind: 'fragment' })));
+  need('switches', 'Q', (c) => Array.from({ length: c }, (_, i) => ({ id: 'sw' + i, group: 0 })));
+  need('glyphs', 'J', (c) => Array.from({ length: c }, (_, i) => ({ id: 'gl' + i, symbol: i % 8, group: 0 })));
+  need('teleports', 'O', (c) => Array.from({ length: c }, (_, i) => ({ id: 'tp' + i })));
+}
+
+// ---------------------------------------------------------------------------
+// 4. IMPORT — load a LevelDef back INTO a builder state (the inverse direction)
+// ---------------------------------------------------------------------------
+
+/** Map a LevelDef to the builder MODE its panel would select. A def with no
+ *  recognized mode/flag (a classic timed map) edits as 'bastion' for the panel,
+ *  but the assembler PRESERVES the base's mode fields when that choice is
+ *  unchanged — so a classic map never gets force-tagged bastion on export. */
+export function deriveBuilderMode(def: any): BuilderMode {
+  if (def?.mode === 'bastion' || def?.mode === 'siege' || def?.mode === 'ctf' || def?.mode === 'br') return def.mode;
+  if (def?.story) return 'story';
+  if (def?.family) return 'family';
+  return 'bastion';
+}
+
+/**
+ * importToBuilderState — turn an authored LevelDef back into an editable
+ * BuilderState. It (a) DERIVES the modeled panel fields the builder owns
+ * (name / grid / mode / theme / objective / difficulty / bastion knobs) from the
+ * def so the right panel reflects the loaded map, and (b) stashes the WHOLE def
+ * as `state._base` so builderStateToLevelDef() can replay every unmodeled
+ * gameplay field on export — the lossless round-trip contract.
+ *
+ * Pure: no DOM, no fs. Throws TypeError if `def` is not a tile-grid LevelDef.
+ */
+export function importToBuilderState(def: any): BuilderState {
+  if (!def || typeof def !== 'object' || !Array.isArray(def.tiles)
+      || def.tiles.length === 0 || typeof def.tiles[0] !== 'string') {
+    throw new TypeError('not a LevelDef: missing a tiles string[] grid');
+  }
+  const grid = def.tiles.map((r: any) => String(r));
+
+  // --- mode: prefer def.mode; story/family are flags, not a mode value ---
+  const mode = deriveBuilderMode(def);
+
+  // --- theme: only keep a value the panel can re-select ---
+  const theme: Theme | '' = (typeof def.theme === 'string' && THEME_KEYS.includes(def.theme as Theme))
+    ? (def.theme as Theme) : '';
+
+  // --- objective: read back the one objective block the def carries ---
+  let objective: BuilderObjective = 'none';
+  if (def.capture) objective = 'capture';
+  else if (def.escort) objective = 'escort';
+  else if (def.gate) objective = 'gate';
+
+  // --- difficulty: keep a known label, else fall back to normal ---
+  const difficulty: Difficulty =
+    DIFFICULTIES.includes(def.difficulty as Difficulty) ? (def.difficulty as Difficulty) : 'normal';
+
+  // --- objective params (best-effort read; the base preserves the rest) ---
+  const capture = {
+    radius: clampInt(def.capture?.radius ?? 3, 1, 12),
+    duration: clampInt(def.capture?.duration ?? 30, 5, 600),
+  };
+  const escortPath: [number, number][] = Array.isArray(def.escort?.path)
+    ? def.escort.path.map(normTileCoord).filter((p: any): p is [number, number] => !!p)
+    : [];
+  const gate = { need: clampInt(def.gate?.need ?? 1, 1, 99) };
+
+  // --- bastion knobs (only meaningful when mode === 'bastion') ---
+  const b = (def.bastion && typeof def.bastion === 'object') ? def.bastion : {};
+  const waves = (def.modifiers && Array.isArray(def.modifiers.waves)) ? def.modifiers.waves : [];
+  const edges = Array.from(new Set(
+    waves.map((w: any) => String(w?.edge || '')).filter((e: string) => 'nsew'.includes(e) && e.length === 1),
+  )) as string[];
+  const bastion = {
+    nights: clampInt(b.nights ?? 5, 1, 25),
+    wavesPerNight: clampInt(b.wavesPerNight ?? 1, 1, 3),
+    bloodMoons: Array.isArray(b.bloodMoons) ? b.bloodMoons.filter((n: any) => Number.isInteger(n)) : [],
+    roster: Array.isArray(b.roster) ? b.roster.map((c: any) => String(c)).filter((c: string) => c.length === 1) : [],
+    edges,
+  };
+
+  const sizeLabel = String(def.stronghold?.sizeLabel ?? 'S');
+
+  return {
+    name: String(def.name || 'Imported Map'),
+    grid,
+    mode,
+    theme,
+    objective,
+    difficulty,
+    capture,
+    escort: { path: escortPath },
+    gate,
+    bastion,
+    sizeLabel,
+    _base: deepClone(def), // the passthrough base — lossless round-trip on export
+  };
+}
+
+/** Normalize a `[x,y]` pair OR `{x,y}` object waypoint to a tuple (or null). */
+function normTileCoord(p: any): [number, number] | null {
+  if (Array.isArray(p) && p.length >= 2 && Number.isFinite(p[0]) && Number.isFinite(p[1])) return [p[0], p[1]];
+  if (p && typeof p === 'object' && Number.isFinite(p.x) && Number.isFinite(p.y)) return [p.x, p.y];
+  return null;
+}
+
+/** The wave EDGES importToBuilderState would derive from a base def's
+ *  modifiers.waves (dedup'd, single n/s/e/w letters). Used to tell whether the
+ *  author edited the edge set, so an unchanged import keeps the authored waves. */
+function baseDerivedEdges(base: any): string[] {
+  const waves = (base && base.modifiers && Array.isArray(base.modifiers.waves)) ? base.modifiers.waves : [];
+  return Array.from(new Set(
+    waves.map((w: any) => String(w?.edge || '')).filter((e: string) => 'nsew'.includes(e) && e.length === 1),
+  )) as string[];
+}
+
+/** The escort PATH importToBuilderState would derive from a base escort block
+ *  (normalized to tuples), so export can tell an unchanged path from an edit. */
+function importEscortPath(escortBlock: any): [number, number][] {
+  return Array.isArray(escortBlock?.path)
+    ? escortBlock.path.map(normTileCoord).filter((p: any): p is [number, number] => !!p)
+    : [];
+}
+
+/** Two waypoint lists equal (same length + same coords in order). */
+function samePath(a: [number, number][], b: [number, number][]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i][0] !== b[i][0] || a[i][1] !== b[i][1]) return false;
+  return true;
+}
+
+/** Two integer lists equal (order-insensitive — bloodMoons are a set). */
+function sameNums(a: number[], b: number[]): boolean {
+  if (a.length !== b.length) return false;
+  const sa = [...a].sort((x, y) => x - y), sb = [...b].sort((x, y) => x - y);
+  return sa.every((v, i) => v === sb[i]);
+}
+
+// ---------------------------------------------------------------------------
+// 5. SHAREABLE STRING — a single pasteable blob carrying the whole LevelDef.
+//
+// Format: a short tag + base64-of-UTF8(JSON), so the blob survives copy/paste
+// (no raw braces/quotes to mangle) and Import can recognise + decode it. Import
+// ALSO accepts raw JSON (a pasted .json), so authors can paste either form.
+// ---------------------------------------------------------------------------
+
+const SHARE_PREFIX = 'MONOMAP1:';
+
+/** Encode a LevelDef to a single shareable string (tag + base64 of its JSON). */
+export function levelDefToShareString(def: LevelDef): string {
+  const json = JSON.stringify(def);
+  return SHARE_PREFIX + b64encodeUtf8(json);
+}
+
+/** Decode a pasted blob to a LevelDef. Accepts the tagged base64 share string
+ *  OR bare base64 OR raw JSON. Throws on anything that is not a tile-grid def. */
+export function parseShareString(input: string): LevelDef {
+  let s = String(input || '').trim();
+  if (!s) throw new TypeError('empty input');
+  let json: string;
+  if (s.startsWith(SHARE_PREFIX)) {
+    json = b64decodeUtf8(s.slice(SHARE_PREFIX.length).trim());
+  } else if (s[0] === '{' || s[0] === '[') {
+    json = s; // raw JSON pasted directly
+  } else {
+    // bare base64 (no tag) — try to decode; fall through to a JSON parse error
+    try { json = b64decodeUtf8(s); } catch { json = s; }
+  }
+  let def: any;
+  try { def = JSON.parse(json); } catch (e: any) {
+    throw new TypeError('could not parse: ' + (e?.message || 'invalid JSON / share string'));
+  }
+  if (!def || typeof def !== 'object' || !Array.isArray(def.tiles)) {
+    throw new TypeError('parsed value is not a LevelDef (no tiles grid)');
+  }
+  return def as LevelDef;
+}
+
+/** UTF-8-safe base64 encode (browser btoa is latin1-only; Node has Buffer). */
+function b64encodeUtf8(s: string): string {
+  const g: any = (typeof globalThis !== 'undefined') ? globalThis : {};
+  if (g.Buffer) return g.Buffer.from(s, 'utf8').toString('base64');
+  // browser: percent-encode to latin1 first so btoa accepts non-ASCII
+  const bytes = encodeURIComponent(s).replace(/%([0-9A-F]{2})/g, (_m, h) => String.fromCharCode(parseInt(h, 16)));
+  return g.btoa(bytes);
+}
+
+/** UTF-8-safe base64 decode (inverse of b64encodeUtf8). */
+function b64decodeUtf8(s: string): string {
+  const g: any = (typeof globalThis !== 'undefined') ? globalThis : {};
+  if (g.Buffer) return g.Buffer.from(s, 'base64').toString('utf8');
+  const bin = g.atob(s);
+  let pct = '';
+  for (let i = 0; i < bin.length; i++) pct += '%' + ('00' + bin.charCodeAt(i).toString(16)).slice(-2);
+  return decodeURIComponent(pct);
 }
 
 /** Attach every tile-bound sidecar array, sized to its marker count, with

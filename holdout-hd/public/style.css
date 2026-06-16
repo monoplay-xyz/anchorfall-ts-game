@@ -685,11 +685,17 @@ button.ghost.navfocus { color: #eaf6ff; }
 .mb-problems li { color: #d99; margin: 2px 0; }
 
 /* form controls inside the builder share the input look used elsewhere */
-.mbuilder input[type="text"], .mbuilder input[type="number"], .mbuilder select {
+.mbuilder input[type="text"], .mbuilder input[type="number"], .mbuilder select,
+.mbuilder textarea {
   background: rgba(255,255,255,.06); border: 1px solid rgba(54,160,138,.3);
   border-radius: 3px; color: #eaf2ff; padding: 6px 8px; font-family: inherit; width: 100%;
 }
+.mbuilder textarea { resize: vertical; font-size: 12px; line-height: 1.4; min-height: 48px; }
+.mbuilder input[type="file"] { font-size: 11px; padding: 4px; background: transparent; border: 1px dashed rgba(54,160,138,.4); }
 .mbuilder select { cursor: pointer; }
+/* import / publish status lines reuse the problem-box ok/bad colours */
+.mb-hint.ok { color: #7adf8a; }
+.mb-hint.bad { color: #e0556a; }
 
 @media (max-width: 980px) {
   .mb-layout { grid-template-columns: 1fr; }
