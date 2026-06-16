@@ -429,8 +429,10 @@ app.post('/api/rankings', express.json({ limit: '4kb' }), (req, res) => {
 // --- community map database (issue #7) --------------------------------------
 // User-uploaded LevelDefs feed the DETERMINISTIC SIM, so the publish path is a
 // hostile trust boundary. Order of defence on POST /api/maps:
-//   (1) CHEAP structural caps run BEFORE validateLevelDef so a giant grid or a
-//       pathfinding-bomb can't DoS the (expensive, sim-running) validator;
+//   (1) CHEAP structural caps run BEFORE validateLevelDef so a giant grid, a
+//       pathfinding-bomb, OR an oversized sidecar/objective array can't DoS the
+//       (expensive, sim-running) validator — every array it loops over is
+//       length-capped here, so its work is bounded before it runs;
 //   (2) validateLevelDef — the full authoring-contract integrity battery;
 //   (3) sanitize + clamp name/description (HTML-escaped: no stored XSS);
 //   (4) DERIVE biome/objective/mode from the def server-side (client tags are
@@ -447,6 +449,16 @@ const MAP_MAX_CELLS = 96 * 72;      // total tiles ceiling
 const MAP_MAX_ROWS = MAP_MAX_H;     // tile-row count cap
 const MAP_MAX_ROW_LEN = MAP_MAX_W;  // tile-row length cap
 const MAP_MAX_MARKERS = 4096;       // total entity/build/objective markers across the grid
+// Sidecar/objective array ceiling. A real authored map's sidecar entries (one
+// per marker tile) can never exceed its marker count, and groups/quests/slides
+// are far fewer still — so a tight cap here is sound. This is what restores the
+// stated invariant "the cheap caps bound the work the validator can be made to
+// do": validateLevelDef iterates these RAW client arrays, several in loops
+// nested against grid-derived sets (e.g. switchGroups x 'Q' tiles), so an
+// unbounded array is an event-loop DoS even within the 256KB body limit.
+const MAP_MAX_SIDECAR = MAP_MAX_MARKERS; // per-tile sidecars: bounded by marker count (4096)
+const MAP_MAX_GROUPS = 512;         // groups/quests/cutscene slides: far fewer than markers
+const MAP_MAX_NESTED = 256;         // a single group's nested array (e.g. glyph order, slide lines)
 const MAP_NAME_MAX = 48;
 const MAP_DESC_MAX = 240;
 const MAP_AUTHOR_MAX = 24;
@@ -493,6 +505,29 @@ function cheapMapCaps(def: any): string | null {
       if (!MAP_LEGAL_TILES.has(ch)) return `illegal tile '${ch}'`;
       if (MAP_MARKER_CHARS.has(ch) && ++markers > MAP_MAX_MARKERS) return `too many markers (>${MAP_MAX_MARKERS})`;
     }
+  }
+  // SIDECAR / OBJECTIVE ARRAY CAPS — the load-bearing fix. validateLevelDef
+  // iterates these RAW client arrays (several in loops nested against
+  // grid-derived sets), so without a ceiling here a single legal sub-256KB
+  // body can pin the main thread for hundreds of ms and stall every live game
+  // tick. A real authored map keeps one sidecar per marker tile, so capping at
+  // the marker count is sound; groups/quests/slides are far fewer.
+  // Per-tile sidecars (one entry per marker glyph on the grid).
+  for (const k of ['captiveChars', 'npcs', 'builds', 'pickups', 'qitems', 'switches', 'glyphs', 'teleports', 'chests', 'vehicles', 'hires', 'doors']) {
+    const arr = def[k];
+    if (arr !== undefined && (!Array.isArray(arr) || arr.length > MAP_MAX_SIDECAR)) return `too many ${k}`;
+  }
+  // Objective groups / quests / cutscene slides — far fewer than markers.
+  for (const k of ['switchGroups', 'glyphGroups', 'quests', 'intro', 'outro', 'patrols']) {
+    const arr = def[k];
+    if (arr !== undefined && (!Array.isArray(arr) || arr.length > MAP_MAX_GROUPS)) return `too many ${k}`;
+  }
+  // Nested arrays a single group/slide could blow up (glyph order, slide lines).
+  for (const gg of Array.isArray(def.glyphGroups) ? def.glyphGroups : []) {
+    if (Array.isArray(gg?.order) && gg.order.length > MAP_MAX_NESTED) return 'glyph order too long';
+  }
+  for (const slide of [...(Array.isArray(def.intro) ? def.intro : []), ...(Array.isArray(def.outro) ? def.outro : [])]) {
+    if (Array.isArray(slide?.lines) && slide.lines.length > MAP_MAX_NESTED) return 'slide lines too long';
   }
   // numeric fields a malicious def could blow up (giant wave counts, etc.)
   if (def.time !== undefined && !isFiniteInRange(def.time, 0, 86400)) return 'time out of range';

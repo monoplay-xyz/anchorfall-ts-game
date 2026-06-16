@@ -10049,6 +10049,47 @@ async function testCommunityMapDatabase() {
     assert.equal(wide.status, 400, 'over-wide grid rejected by the cheap caps');
     await alive();
 
+    // (2b) SIDECAR-ARRAY DoS — a legal sub-256KB body whose objective/sidecar
+    // arrays are huge. The grid passes cheapMapCaps' marker scan, but the
+    // validator would otherwise iterate these RAW client arrays (several in
+    // loops nested against grid-derived sets), pinning the main thread and
+    // stalling every live game tick. The cheap caps must now reject these
+    // BEFORE validateLevelDef runs — fast, and the server stays responsive.
+    const sgBomb = JSON.parse(JSON.stringify(mapA));
+    sgBomb.switchGroups = Array.from({ length: 10000 }, (_, i) => ({ group: i }));
+    const sgBody = JSON.stringify({ def: sgBomb, name: 'SG' });
+    assert.ok(sgBody.length < 256 * 1024, `switchGroups bomb fits under the 256KB body limit (${sgBody.length}B)`);
+    const t0 = Date.now();
+    const sgRes = await postMap({ def: sgBomb, name: 'SG' });
+    assert.equal(sgRes.status, 400, 'oversized switchGroups rejected by the cheap caps (sidecar DoS)');
+    assert.ok((await sgRes.json()).problems?.[0]?.includes('switchGroups'), 'rejection names the offending array');
+    assert.ok(Date.now() - t0 < 250, 'the sidecar bomb is rejected cheaply, not after a long validate stall');
+    await alive();
+
+    // glyphGroups is bounded the same way (the other nested-loop offender)
+    const ggBomb = JSON.parse(JSON.stringify(mapA));
+    ggBomb.glyphGroups = Array.from({ length: 8000 }, (_, i) => ({ group: i, order: [0] }));
+    const ggBody = JSON.stringify({ def: ggBomb, name: 'GG' });
+    assert.ok(ggBody.length < 256 * 1024, `glyphGroups bomb fits under the 256KB body limit (${ggBody.length}B)`);
+    const ggRes = await postMap({ def: ggBomb, name: 'GG' });
+    assert.equal(ggRes.status, 400, 'oversized glyphGroups rejected by the cheap caps');
+    assert.ok((await ggRes.json()).problems?.[0]?.includes('glyphGroups'), 'rejection names glyphGroups');
+    await alive();
+
+    // a single group's nested array (glyph order) is also capped
+    const orderBomb = JSON.parse(JSON.stringify(mapA));
+    orderBomb.glyphGroups = [{ group: 0, order: Array.from({ length: 5000 }, () => 0) }];
+    const orderRes = await postMap({ def: orderBomb, name: 'ORD' });
+    assert.equal(orderRes.status, 400, 'oversized glyph order rejected by the cheap caps');
+    await alive();
+
+    // a benign small sidecar count never trips the new caps: a valid map with
+    // an empty switchGroups array still publishes fine (no false positive)
+    const okSidecar = JSON.parse(JSON.stringify(mapA));
+    okSidecar.switchGroups = [];
+    assert.equal((await postMap({ def: okSidecar, name: 'OK sidecar' })).status, 200, 'an empty sidecar array still publishes (no false positive)');
+    await alive();
+
     // (3) an XSS-y name is sanitized/escaped, never stored raw
     const xss = await postMap({ def: mapA, name: '<script>alert(1)</script>', author: '<img src=x onerror=alert(2)>', description: 'hi <b>bold</b> & "quote"' });
     assert.equal(xss.status, 200, 'a map with an XSS-y name still publishes (name sanitized)');
