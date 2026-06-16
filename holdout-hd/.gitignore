@@ -12,6 +12,7 @@ node_modules/
 /public/audio.js
 /public/render.js
 /public/client.js
+/public/mapBuilder.js
 /shared/game.js
 /shared/mapValidate.js
 /shared/mapgen.js

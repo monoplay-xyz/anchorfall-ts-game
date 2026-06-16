@@ -25,6 +25,17 @@ import { render, renderMinimap, addEventFX, initTextures, drawPortrait, drawWeap
 // ship independently — accessed via renderMod.* with runtime existence checks.
 import * as renderMod from './render.js';
 import { playEvent, playUi, setupAudioToggle, setMusicVolume, setVoiceVolume, setSfxVolume, playMusicBox, stopMusicBox } from './audio.js';
+// Map Builder (issue #5): the PURE assembly core + palette live in mapBuilder.ts
+// (DOM-free, node-smokeable); validateLevelDef is the shared validate-before-save
+// gate. Both are plain value imports — the editor shell below is the thin UI.
+import {
+  PALETTE, THEME_KEYS, BUILDER_MODES, BUILDER_OBJECTIVES, DIFFICULTIES, SIZE_LABELS,
+  GRID_MIN, GRID_MAX, TILE_BY_CHAR, emptyBuilderState, builderStateToLevelDef,
+  paintCell, resizeGrid, applyBorder, blankGrid,
+  importToBuilderState, levelDefToShareString, parseShareString,
+} from './mapBuilder.js';
+import type { BuilderState, BuilderMode, BuilderObjective } from './mapBuilder.js';
+import { validateLevelDef } from '/shared/mapValidate.js';
 
 // build-static.js rewrites the quoted /api/levels literal below to a relative
 // ./levels.json — that rewrite doubles as the static-build marker: no server
@@ -801,7 +812,13 @@ function navTick(polled: any) {
     if (screen === 'menu' && navEl?.dataset?.cycle && (st.leftJust || st.rightJust)) {
       const d = st.rightJust ? 1 : -1;
       st.leftJust = st.rightJust = false;
-      (({ display: cycleDisplayMode, aspect: cycleAspect, overscan: cycleOverscan }) as any)[navEl.dataset.cycle]?.(d);
+      (({
+        display: cycleDisplayMode, aspect: cycleAspect, overscan: cycleOverscan,
+        cmBiome: (n: number) => cmCycle('biome', n),
+        cmObjective: (n: number) => cmCycle('objective', n),
+        cmMode: (n: number) => cmCycle('mode', n),
+        cmSort: cmCycleSort,
+      }) as any)[navEl.dataset.cycle]?.(d);
       navDev = dev;
     }
     const gridEl = screen === 'menu' ? navEl?.closest?.('.navgrid') : null;
@@ -2844,6 +2861,12 @@ class NetSession {
         if (hostEndless) msg.endless = true;
         // Daily online: the server resolves today's map+twist from its own date.
         if (hostDaily) msg.daily = true;
+        // Community map online host: ship the published, already-validated def so
+        // the room plays it. Additive — a server without community-host support
+        // ignores the field and falls back to its default level (the play count
+        // still incremented client-side at launch). Mirrors the daily/endless
+        // additive-flag convention; never sent for the built-in modes.
+        if (opts.communityDef) msg.communityDef = opts.communityDef;
         this.ws.send(JSON.stringify(msg));
       } else {
         this.ws.send(JSON.stringify({ t: 'join', room: code, name: this.name }));
@@ -3992,6 +4015,653 @@ async function renderBrowse() {
   }
 }
 
+// ---------- community maps browser (Play > Community Maps) ----------
+// Mirrors the public room browser: GET /api/maps lists player-published levels
+// (server-validated + sanitized on publish, biome/objective/mode DERIVED + the
+// browse summary carries NO def blob). Filter cyclers + a sort toggle + paging
+// drive the SAME query the smoke/oracle exercises. Rows are pad-navigable
+// buttons; a press offers Play (solo/couch) or Host Online. Play fetches the
+// full def via GET /api/maps/:id and launches it on the SAME one-map
+// LocalSession path Random Map / Daily use; Host Online ships the def on the
+// host message. On launch POST /api/maps/:id/play (fire-and-forget) counts it.
+//
+// SECURITY: every user-authored string (name/author/description/tags) is set via
+// textContent / DOM text nodes — NEVER innerHTML. The server escapes on publish
+// too; this is defense-in-depth so a hostile def can never inject markup here.
+const CM_BIOMES = ['emberwaste', 'glacis', 'mire', 'dunes', 'verdance', 'voidscar', 'saltworks', 'nocturne', 'crucible', 'reliquary'];
+const CM_OBJECTIVES = ['bastion', 'beacons', 'capture', 'bridge', 'escort', 'gate', 'survival'];
+const CM_MODES = ['bastion', 'survival'];
+const CM_SORTS: Array<{ key: string; label: string }> = [
+  { key: 'new', label: 'Newest' },
+  { key: 'plays', label: 'Most Played' },
+  { key: 'rating', label: 'Top Rated' },
+];
+const CM_PAGE = 24; // rows per page (the server clamps; matches the browse default)
+const cmFilter = { biome: -1, objective: -1, mode: -1, sort: 0, page: 0 }; // -1 = Any
+let cmSeq = 0; // stale-fetch guard: only the newest request renders
+const cmCap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+function cmPaintControls() {
+  const b = (id: string) => $(id);
+  b('btnCmBiome').textContent = 'Biome: ' + (cmFilter.biome < 0 ? 'Any' : cmCap(CM_BIOMES[cmFilter.biome]));
+  b('btnCmObjective').textContent = 'Objective: ' + (cmFilter.objective < 0 ? 'Any' : cmCap(CM_OBJECTIVES[cmFilter.objective]));
+  b('btnCmMode').textContent = 'Mode: ' + (cmFilter.mode < 0 ? 'Any' : cmCap(CM_MODES[cmFilter.mode]));
+  b('btnCmSort').textContent = 'Sort: ' + CM_SORTS[cmFilter.sort].label;
+  b('cmPageLabel').textContent = 'Page ' + (cmFilter.page + 1);
+}
+// cycle a filter (-1=Any, then the list, wrapping back to Any); +1 / -1 step.
+function cmCycle(which: 'biome' | 'objective' | 'mode', d: number) {
+  const len = which === 'biome' ? CM_BIOMES.length : which === 'objective' ? CM_OBJECTIVES.length : CM_MODES.length;
+  let v = cmFilter[which] + d;
+  if (v < -1) v = len - 1; else if (v >= len) v = -1; // Any sits at -1, before index 0
+  cmFilter[which] = v;
+  cmFilter.page = 0; // changing the filter resets to the first page
+  playUi('select');
+  cmPaintControls();
+  renderCommunity();
+}
+function cmCycleSort(d: number) {
+  cmFilter.sort = (cmFilter.sort + d + CM_SORTS.length) % CM_SORTS.length;
+  cmFilter.page = 0;
+  playUi('select');
+  cmPaintControls();
+  renderCommunity();
+}
+function cmGoPage(d: number) {
+  const next = cmFilter.page + d;
+  if (next < 0) return; // already at the first page
+  if (d > 0 && (cmLastCount < CM_PAGE)) return; // last page was short — no more rows
+  cmFilter.page = next;
+  playUi('select');
+  cmPaintControls();
+  renderCommunity();
+}
+let cmLastCount = 0; // rows returned by the last query (gates Next at the end)
+function cmQuery() {
+  const p = new URLSearchParams();
+  if (cmFilter.biome >= 0) p.set('biome', CM_BIOMES[cmFilter.biome]);
+  if (cmFilter.objective >= 0) p.set('objective', CM_OBJECTIVES[cmFilter.objective]);
+  if (cmFilter.mode >= 0) p.set('mode', CM_MODES[cmFilter.mode]);
+  p.set('sort', CM_SORTS[cmFilter.sort].key);
+  p.set('limit', String(CM_PAGE));
+  p.set('offset', String(cmFilter.page * CM_PAGE));
+  return '/api/maps?' + p.toString();
+}
+function startCommunity() {
+  cmFilter.page = 0;
+  cmPaintControls();
+  renderCommunity();
+}
+async function renderCommunity() {
+  const seq = ++cmSeq;
+  const host = $('communityList');
+  let list: any[] = [];
+  let failed = false;
+  try {
+    const res = await fetch(cmQuery());
+    if (res.ok) {
+      const d = await res.json();
+      list = Array.isArray(d?.maps) ? d.maps : Array.isArray(d) ? d : [];
+    } // non-ok (older server / no endpoint): graceful empty state below
+  } catch { failed = true; }
+  // stale guard: a newer query, a page change, or leaving the page voids this
+  if (seq !== cmSeq || menuPageId !== 'pageCommunity' || $('menu').hidden) return;
+  cmLastCount = list.length;
+  host.innerHTML = '';
+  $('btnCmPrev').disabled = cmFilter.page === 0;
+  $('btnCmNext').disabled = list.length < CM_PAGE;
+  if (!list.length) {
+    const d = document.createElement('div');
+    d.className = 'bempty';
+    d.textContent = failed ? 'SERVER UNREACHABLE — TRY AGAIN LATER'
+      : cmFilter.page > 0 ? 'NO MORE MAPS — GO BACK A PAGE'
+        : 'NO MAPS MATCH — PUBLISH ONE FROM THE MAP EDITOR!';
+    host.appendChild(d);
+    return;
+  }
+  for (const m of list) {
+    if (!m || typeof m !== 'object' || !m.id) continue;
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'cmrow';
+    row.dataset.mapId = String(m.id);
+    // map name (defense-in-depth: textContent, never innerHTML)
+    const name = document.createElement('span');
+    name.className = 'cmname';
+    name.textContent = String(m.name || 'Untitled Map');
+    // author
+    const author = document.createElement('span');
+    author.className = 'cmauthor';
+    author.textContent = 'by ' + String(m.author || 'Anonymous');
+    // biome + objective tags (DERIVED server-side, but still rendered as text)
+    const biome = document.createElement('i');
+    biome.className = 'cmtag';
+    biome.textContent = String(m.biome || '?').toUpperCase();
+    const obj = document.createElement('i');
+    obj.className = 'cmtag';
+    obj.textContent = String(m.objective || m.mode || '?').toUpperCase();
+    // play count
+    const plays = document.createElement('span');
+    plays.className = 'cmplays';
+    const n = Number(m.plays) || 0;
+    plays.textContent = '▶ ' + n.toLocaleString();
+    row.append(name, author, biome, obj, plays);
+    row.onclick = (e: any) => {
+      e.currentTarget.blur();
+      if (session) return;
+      playUi('select');
+      cmOpenMap(m);
+    };
+    host.appendChild(row);
+  }
+}
+// a row press: offer Play (solo/couch) or Host Online. Both fetch the full def
+// first (the browse summary omits it), then launch + count the play.
+function cmOpenMap(summary: any) {
+  const nm = String(summary?.name || 'this map');
+  showMsg('Community Map',
+    `${nm}\nby ${String(summary?.author || 'Anonymous')}\n\nPlay it solo / couch, or host it online for friends?`,
+    'Play (Solo / Couch)', () => cmLaunch(summary, false),
+    'Host Online', () => cmLaunch(summary, true));
+}
+async function cmFetchDef(id: string): Promise<any | null> {
+  try {
+    const res = await fetch('/api/maps/' + encodeURIComponent(id));
+    if (!res.ok) return null;
+    const row = await res.json();
+    return row?.def ?? null;
+  } catch { return null; }
+}
+// fire-and-forget play counter — never blocks or fails the launch
+function cmCountPlay(id: string) {
+  try { fetch('/api/maps/' + encodeURIComponent(id) + '/play', { method: 'POST' }).catch(() => {}); } catch {}
+}
+async function cmLaunch(summary: any, online: boolean) {
+  if (session) return;
+  const id = String(summary?.id || '');
+  if (!id) return;
+  const def = await cmFetchDef(id);
+  if (session) return; // a blind second FIRE started something while we fetched
+  if (!def) { showMsg('Community Map', 'Could not load that map — it may have been removed.', 'OK', () => { show('menu'); showMenuPage('pageCommunity'); }); return; }
+  // tag the def with its published name so the lobby/HUD read it
+  if (summary?.name) def.name = String(summary.name);
+  cmCountPlay(id); // count the launch (fire-and-forget)
+  playUi('select');
+  if (online) {
+    // Host Online: ship the validated def on the host message (additive — see
+    // the NetSession host-message construction). Bastion defs host as bastion.
+    const hostMode = def.mode === 'bastion' ? 'bastion' : 'classic';
+    session = new NetSession('host', $('joinCode').value.trim().toUpperCase(), hostMode, null, { communityDef: def });
+    return;
+  }
+  // Play solo/couch: the SAME one-map LocalSession path Random Map / Daily use.
+  // The def carries its own mode (bastion|null); a bastion def gets the siege HUD.
+  const opts: any = { randomMap: { def, seed: 0 } };
+  if (def.mode === 'bastion') opts.mode = 'bastion';
+  session = new LocalSession(null, opts);
+  session.lobby();
+}
+
+// ===========================================================================
+// MAP BUILDER (issue #5, Stage A) — the thin canvas/panel SHELL.
+//
+// All LevelDef assembly lives in the PURE builderStateToLevelDef() (mapBuilder.ts);
+// this shell only: (1) maintains `mbState`, (2) paints the grid canvas + handles
+// click/drag paint, (3) binds the def panel inputs, (4) drives the LIVE PREVIEW
+// through the REAL renderer (createGame -> snapshot -> drawFullMap, wrapped in
+// try/catch so an invalid in-progress def shows the raw grid + a note instead of
+// crashing), and (5) gates Export on validateLevelDef ok:true.
+// ===========================================================================
+let mbState: BuilderState | null = null;
+let mbSelTile = '.';            // the currently-selected palette char
+let mbPainting = false;        // mouse-down drag paint in progress
+let mbInited = false;          // one-time DOM wiring guard
+// a real character id to bind to captive ('c') tiles so the def fully validates
+const mbCaptiveCharId = startingRoster[0] || (characters[0] && characters[0].id);
+const mbAssembleCtx = { captiveCharId: mbCaptiveCharId };
+
+function mbDef(): any {
+  // assemble from the current state — the single source for preview + validate + export
+  return builderStateToLevelDef(mbState as BuilderState, mbAssembleCtx);
+}
+
+// ---- one-time wiring: build the palette + panel selects, bind every control ----
+function mbInit(): void {
+  if (mbInited) return;
+  mbInited = true;
+  mbState = emptyBuilderState(16, 12);
+  mbSelTile = '.';
+
+  // PALETTE — grouped swatches; click selects the paint tile
+  const pal = $('mbPalette');
+  pal.innerHTML = '';
+  for (const grp of PALETTE) {
+    const gt = document.createElement('div');
+    gt.className = 'mb-pgroup-title';
+    gt.textContent = grp.group;
+    pal.appendChild(gt);
+    const row = document.createElement('div');
+    row.className = 'mb-swatches';
+    for (const t of grp.tiles) {
+      const sw = document.createElement('button');
+      sw.type = 'button';
+      sw.className = 'mb-swatch';
+      sw.style.background = t.color;
+      sw.textContent = t.ch === '.' ? '·' : t.ch;
+      sw.title = `${t.name} (${t.ch})`;
+      sw.dataset.ch = t.ch;
+      sw.onclick = (e: any) => { e.currentTarget.blur(); mbSelectTile(t.ch); };
+      row.appendChild(sw);
+    }
+    pal.appendChild(row);
+  }
+  mbSelectTile('.');
+
+  // DEF PANEL selects
+  fillSelect('mbMode', BUILDER_MODES.map((m) => [m, mbModeLabel(m)]));
+  fillSelect('mbTheme', THEME_KEYS.map((t) => [t, t]));
+  fillSelect('mbObjective', BUILDER_OBJECTIVES.map((o) => [o, o === 'none' ? 'None' : o]));
+  fillSelect('mbDifficulty', DIFFICULTIES.map((d) => [String(d), String(d)]));
+  fillSelect('mbSize', SIZE_LABELS.map((s) => [s, s]));
+
+  // initial values from state
+  mbSyncPanelFromState();
+
+  // --- bind panel inputs back into state (each edit re-previews) ---
+  $('mbName').oninput = (e: any) => { mbState!.name = e.target.value; mbAfterEdit(false); };
+  $('mbMode').onchange = (e: any) => { mbState!.mode = e.target.value as BuilderMode; mbSyncPanelVis(); mbAfterEdit(); };
+  $('mbTheme').onchange = (e: any) => { mbState!.theme = e.target.value; mbAfterEdit(); };
+  $('mbObjective').onchange = (e: any) => { mbState!.objective = e.target.value as BuilderObjective; mbSyncPanelVis(); mbAfterEdit(); };
+  $('mbDifficulty').onchange = (e: any) => { mbState!.difficulty = e.target.value; mbAfterEdit(); };
+  $('mbSize').onchange = (e: any) => { mbState!.sizeLabel = e.target.value; mbAfterEdit(false); };
+  $('mbCapRadius').oninput = (e: any) => { mbState!.capture.radius = +e.target.value; mbAfterEdit(); };
+  $('mbCapDuration').oninput = (e: any) => { mbState!.capture.duration = +e.target.value; mbAfterEdit(); };
+  $('mbGateNeed').oninput = (e: any) => { mbState!.gate.need = +e.target.value; mbAfterEdit(); };
+  $('mbNights').oninput = (e: any) => { mbState!.bastion.nights = +e.target.value; mbAfterEdit(); };
+  $('mbWavesPerNight').oninput = (e: any) => { mbState!.bastion.wavesPerNight = +e.target.value; mbAfterEdit(); };
+  $('mbBloodMoons').oninput = (e: any) => { mbState!.bastion.bloodMoons = parseCsvInts(e.target.value); mbAfterEdit(); };
+  $('mbRoster').oninput = (e: any) => { mbState!.bastion.roster = e.target.value.split('').filter((c: string) => c.trim()); mbAfterEdit(); };
+  $('mbEdges').oninput = (e: any) => { mbState!.bastion.edges = e.target.value.split(/[,\s]+/).filter((c: string) => 'nsew'.includes(c)); mbAfterEdit(); };
+
+  // grid controls
+  $('mbResize').onclick = (e: any) => {
+    e.currentTarget.blur();
+    const w = clampI(+($('mbW') as HTMLInputElement).value, GRID_MIN, GRID_MAX);
+    const h = clampI(+($('mbH') as HTMLInputElement).value, GRID_MIN, GRID_MAX);
+    mbState!.grid = resizeGrid(mbState!.grid, w, h);
+    ($('mbW') as HTMLInputElement).value = String(w);
+    ($('mbH') as HTMLInputElement).value = String(h);
+    mbAfterEdit();
+  };
+  $('mbBorder').onclick = (e: any) => { e.currentTarget.blur(); mbState!.grid = applyBorder(mbState!.grid, '#'); mbAfterEdit(); };
+  $('mbClear').onclick = (e: any) => {
+    e.currentTarget.blur();
+    mbState!.grid = blankGrid(mbState!.grid[0].length, mbState!.grid.length);
+    mbAfterEdit();
+  };
+
+  // validate + export actions
+  $('mbValidate').onclick = (e: any) => { e.currentTarget.blur(); mbRunValidate(); };
+  $('mbExport').onclick = (e: any) => { e.currentTarget.blur(); mbExport(); };
+
+  // import / share / publish actions (issue #5 Stage B)
+  $('mbImportFile').onchange = (e: any) => { const f = e.target.files && e.target.files[0]; if (f) mbImportFromFile(f); e.target.value = ''; };
+  $('mbImportLoad').onclick = (e: any) => { e.currentTarget.blur(); mbImportFromPaste(); };
+  $('mbCopyShare').onclick = (e: any) => { e.currentTarget.blur(); mbCopyShare(); };
+  $('mbPublish').onclick = (e: any) => { e.currentTarget.blur(); mbPublish(); };
+
+  // --- canvas paint: click + drag, mapped from CSS pixels to tile coords ---
+  const cv = $('mbGrid') as HTMLCanvasElement;
+  const paintAt = (ev: MouseEvent) => {
+    const rect = cv.getBoundingClientRect();
+    const w = mbState!.grid[0].length, h = mbState!.grid.length;
+    const tx = Math.floor(((ev.clientX - rect.left) / rect.width) * w);
+    const ty = Math.floor(((ev.clientY - rect.top) / rect.height) * h);
+    const next = paintCell(mbState!.grid, tx, ty, mbSelTile);
+    if (next !== mbState!.grid) { mbState!.grid = next; mbDrawGrid(); mbSchedulePreview(); }
+  };
+  cv.onmousedown = (ev: MouseEvent) => { mbPainting = true; paintAt(ev); };
+  cv.onmousemove = (ev: MouseEvent) => { if (mbPainting) paintAt(ev); };
+  window.addEventListener('mouseup', () => { if (mbPainting) { mbPainting = false; mbRunValidate(); } });
+}
+
+function mbModeLabel(m: BuilderMode): string {
+  return ({ bastion: 'Stronghold (bastion)', story: 'Story', siege: 'Siege (MOBA)', ctf: 'CTF', br: 'Battle Royale', family: 'Family' } as any)[m] || m;
+}
+function fillSelect(id: string, pairs: [string, string][]): void {
+  const sel = $(id) as HTMLSelectElement;
+  sel.innerHTML = '';
+  for (const [val, label] of pairs) {
+    const o = document.createElement('option');
+    o.value = val; o.textContent = label;
+    sel.appendChild(o);
+  }
+}
+function parseCsvInts(s: string): number[] {
+  return String(s).split(/[,\s]+/).map((p) => parseInt(p, 10)).filter((n) => Number.isInteger(n));
+}
+function clampI(v: number, lo: number, hi: number): number { return Math.max(lo, Math.min(hi, Math.round(v || 0))); }
+
+function mbSelectTile(ch: string): void {
+  mbSelTile = ch;
+  const t = TILE_BY_CHAR[ch];
+  $('mbSelName').textContent = t ? t.name : ch;
+  $('mbSelChar').textContent = ch;
+  for (const sw of document.querySelectorAll('#mbPalette .mb-swatch') as any) {
+    sw.classList.toggle('sel', sw.dataset.ch === ch);
+  }
+}
+
+// show/hide the objective-param + bastion sub-panels for the current selection
+function mbSyncPanelVis(): void {
+  const obj = mbState!.objective;
+  $('mbCaptureParams').hidden = obj !== 'capture';
+  $('mbGateParams').hidden = obj !== 'gate';
+  $('mbEscortNote').hidden = obj !== 'escort';
+  $('mbBastionParams').hidden = mbState!.mode !== 'bastion';
+}
+
+// open the page: lazy-init, sync panel visibility, paint + preview + validate
+function openMapBuilder(): void {
+  mbInit();
+  mbSyncPanelVis();
+  mbDrawGrid();
+  mbSchedulePreview();
+  mbRunValidate();
+}
+
+// after any state edit: repaint the grid, schedule a preview, refresh validation.
+// `reValidate` defaults true; text typing (name) passes false to stay snappy.
+function mbAfterEdit(reValidate = true): void {
+  mbDrawGrid();
+  mbSchedulePreview();
+  if (reValidate) mbRunValidate();
+}
+
+// ---- paint the editable ASCII grid onto #mbGrid (chunky swatches + glyphs) ----
+function mbDrawGrid(): void {
+  const cv = $('mbGrid') as HTMLCanvasElement;
+  const ctx = cv.getContext('2d')!;
+  const grid = mbState!.grid;
+  const w = grid[0].length, h = grid.length;
+  const cell = Math.max(6, Math.floor(Math.min(cv.width / w, cv.height / h)));
+  const gw = cell * w, gh = cell * h;
+  const ox = Math.floor((cv.width - gw) / 2), oy = Math.floor((cv.height - gh) / 2);
+  ctx.fillStyle = '#06070e';
+  ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `${Math.floor(cell * 0.62)}px monospace`;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const ch = grid[y][x];
+      const t = TILE_BY_CHAR[ch];
+      ctx.fillStyle = t ? t.color : '#1c242b';
+      ctx.fillRect(ox + x * cell, oy + y * cell, cell - 1, cell - 1);
+      // draw the glyph for any non-floor marker so structure/enemy/objective reads
+      if (ch !== '.' && ch !== ',' && ch !== ':' && ch !== ';' && ch !== '_') {
+        ctx.fillStyle = 'rgba(232,240,255,0.92)';
+        ctx.fillText(ch, ox + x * cell + cell / 2, oy + y * cell + cell / 2);
+      }
+    }
+  }
+  // grid lines for paint precision
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x <= w; x++) { ctx.beginPath(); ctx.moveTo(ox + x * cell + 0.5, oy); ctx.lineTo(ox + x * cell + 0.5, oy + gh); ctx.stroke(); }
+  for (let y = 0; y <= h; y++) { ctx.beginPath(); ctx.moveTo(ox, oy + y * cell + 0.5); ctx.lineTo(ox + gw, oy + y * cell + 0.5); ctx.stroke(); }
+}
+
+// ---- LIVE PREVIEW via the REAL renderer (debounced) ----
+let mbPreviewTimer: any = null;
+function mbSchedulePreview(): void {
+  if (mbPreviewTimer) clearTimeout(mbPreviewTimer);
+  mbPreviewTimer = setTimeout(mbDrawPreview, 120);
+}
+function mbDrawPreview(): void {
+  const cv = $('mbPreview') as HTMLCanvasElement;
+  const ctx = cv.getContext('2d')!;
+  const note = $('mbPreviewNote');
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  try {
+    if (!texturesReady) ensureTextures();
+    const def = mbDef();
+    // build a throwaway game from the in-progress def, snapshot it, and draw the
+    // whole map fit-to-canvas with the real cartographic renderer. drawFullMap
+    // with mask=null shows the entire map (no fog) — ideal for an author preview.
+    const g = createGame(def, [{ pid: 0, name: 'A', charId: mbCaptiveCharId }], charMap,
+      startingRoster.length ? startingRoster : (mbCaptiveCharId ? [mbCaptiveCharId] : []));
+    const snap = snapshot(g);
+    if (typeof renderMod.drawFullMap === 'function') {
+      renderMod.drawFullMap(ctx, snap, null, [], {});
+    } else {
+      mbDrawPreviewFallback(ctx, cv);
+    }
+    note.hidden = true;
+  } catch {
+    // invalid in-progress def: show the raw painted grid + a fix-errors note
+    // instead of crashing the page.
+    mbDrawPreviewFallback(ctx, cv);
+    note.hidden = false;
+    note.textContent = 'Preview unavailable — fix errors to preview (raw grid shown).';
+  }
+}
+// fallback: a plain swatch render of the raw painted grid (no sim needed)
+function mbDrawPreviewFallback(ctx: CanvasRenderingContext2D, cv: HTMLCanvasElement): void {
+  const grid = mbState!.grid;
+  const w = grid[0].length, h = grid.length;
+  const cell = Math.max(2, Math.floor(Math.min(cv.width / w, cv.height / h)));
+  const ox = Math.floor((cv.width - cell * w) / 2), oy = Math.floor((cv.height - cell * h) / 2);
+  ctx.fillStyle = '#06070e';
+  ctx.fillRect(0, 0, cv.width, cv.height);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const t = TILE_BY_CHAR[grid[y][x]];
+    ctx.fillStyle = t ? t.color : '#1c242b';
+    ctx.fillRect(ox + x * cell, oy + y * cell, cell, cell);
+  }
+}
+
+// ---- validate-before-save: run validateLevelDef, paint problems, gate the save
+// actions (Export / Copy Shareable String / Publish all require ok:true) ----
+function mbRunValidate(): { ok: boolean; problems: string[] } {
+  const box = $('mbProblems');
+  const exportBtn = $('mbExport') as HTMLButtonElement;
+  const shareBtn = $('mbCopyShare') as HTMLButtonElement;
+  const publishBtn = $('mbPublish') as HTMLButtonElement;
+  let res: { ok: boolean; problems: string[] };
+  try {
+    res = validateLevelDef(mbDef(), { charMap, characters });
+  } catch (e: any) {
+    res = { ok: false, problems: ['validator threw: ' + (e && e.message || e)] };
+  }
+  if (res.ok) {
+    box.innerHTML = '<span class="ok">&#10003; Valid — ready to export / share / publish.</span>';
+  } else {
+    box.innerHTML = `<span class="bad">&#10007; ${res.problems.length} problem(s):</span>`
+      + '<ul>' + res.problems.slice(0, 40).map((p) => `<li>${escapeHtml(p)}</li>`).join('') + '</ul>';
+  }
+  // gate every save action on validity (Copy Share + Publish, like Export)
+  exportBtn.disabled = !res.ok;
+  if (shareBtn) shareBtn.disabled = !res.ok;
+  if (publishBtn) publishBtn.disabled = !res.ok;
+  return res;
+}
+function escapeHtml(s: string): string {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as any)[c]);
+}
+
+// ---- export: re-validate (block on !ok), then download the LevelDef as .json ----
+function mbExport(): void {
+  const res = mbRunValidate();
+  if (!res.ok) { playUi('locked'); return; } // BLOCKED until ok:true
+  const def = mbDef();
+  const json = JSON.stringify(def, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const safe = String(mbState!.name || 'map').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'map';
+  a.href = url;
+  a.download = `${safe}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  playUi('select');
+}
+
+// ---- sync EVERY panel input from the current mbState (init + after import) ----
+function mbSyncPanelFromState(): void {
+  const s = mbState!;
+  ($('mbName') as HTMLInputElement).value = s.name;
+  ($('mbMode') as HTMLSelectElement).value = s.mode;
+  ($('mbTheme') as HTMLSelectElement).value = String(s.theme);
+  ($('mbObjective') as HTMLSelectElement).value = s.objective;
+  ($('mbDifficulty') as HTMLSelectElement).value = String(s.difficulty);
+  ($('mbSize') as HTMLSelectElement).value = s.sizeLabel;
+  ($('mbW') as HTMLInputElement).value = String(s.grid[0].length);
+  ($('mbH') as HTMLInputElement).value = String(s.grid.length);
+  ($('mbNights') as HTMLInputElement).value = String(s.bastion.nights);
+  ($('mbWavesPerNight') as HTMLInputElement).value = String(s.bastion.wavesPerNight);
+  ($('mbBloodMoons') as HTMLInputElement).value = s.bastion.bloodMoons.join(',');
+  ($('mbRoster') as HTMLInputElement).value = s.bastion.roster.join('');
+  ($('mbEdges') as HTMLInputElement).value = s.bastion.edges.join(',');
+  ($('mbCapRadius') as HTMLInputElement).value = String(s.capture.radius);
+  ($('mbCapDuration') as HTMLInputElement).value = String(s.capture.duration);
+  ($('mbGateNeed') as HTMLInputElement).value = String(s.gate.need);
+}
+
+// ---- IMPORT / SHARE / PUBLISH (issue #5 Stage B) ----
+
+// short status line under the import panel (text only — never innerHTML)
+function mbSetImportNote(msg: string, bad = false): void {
+  const note = $('mbImportNote');
+  note.hidden = !msg;
+  note.textContent = msg;
+  note.classList.toggle('bad', bad);
+  note.classList.toggle('ok', !!msg && !bad);
+}
+
+// load a def INTO the builder: derive the modeled panel fields + stash the WHOLE
+// def as the passthrough base (lossless round-trip on export), repaint, validate.
+function mbLoadDef(def: any, sourceLabel: string): void {
+  let next: BuilderState;
+  try {
+    next = importToBuilderState(def);
+  } catch (e: any) {
+    mbSetImportNote('Import failed: ' + (e?.message || 'not a LevelDef'), true);
+    playUi('locked');
+    return;
+  }
+  mbState = next;
+  mbSyncPanelFromState();
+  mbSyncPanelVis();
+  mbDrawGrid();
+  mbSchedulePreview();
+  const res = mbRunValidate();
+  const w = mbState.grid[0].length, h = mbState.grid.length;
+  mbSetImportNote(
+    `Loaded "${mbState.name}" (${w}×${h}) from ${sourceLabel}. `
+    + (res.ok ? 'Valid — edit & re-export to remix.' : `${res.problems.length} problem(s) — see below.`),
+    !res.ok,
+  );
+  playUi('select');
+}
+
+// Load .json file input -> parse -> load
+function mbImportFromFile(file: File): void {
+  const reader = new FileReader();
+  reader.onload = () => {
+    let def: any;
+    try { def = JSON.parse(String(reader.result || '')); }
+    catch (e: any) { mbSetImportNote('Not valid JSON: ' + (e?.message || 'parse error'), true); playUi('locked'); return; }
+    mbLoadDef(def, 'file ' + file.name);
+  };
+  reader.onerror = () => { mbSetImportNote('Could not read that file.', true); playUi('locked'); };
+  reader.readAsText(file);
+}
+
+// Paste a shareable string (MONOMAP1:… or raw JSON) -> parse -> load
+function mbImportFromPaste(): void {
+  const raw = ($('mbImportText') as HTMLTextAreaElement).value;
+  if (!raw.trim()) { mbSetImportNote('Paste a shareable string or LevelDef JSON first.', true); return; }
+  let def: any;
+  try { def = parseShareString(raw); }
+  catch (e: any) { mbSetImportNote('Could not parse: ' + (e?.message || 'bad share string'), true); playUi('locked'); return; }
+  mbLoadDef(def, 'pasted string');
+}
+
+// Copy a single shareable blob (the whole LevelDef) to the clipboard.
+async function mbCopyShare(): Promise<void> {
+  const res = mbRunValidate();
+  if (!res.ok) { playUi('locked'); return; } // gate on validity like Export
+  const str = levelDefToShareString(mbDef());
+  let copied = false;
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(str); copied = true; }
+  } catch { copied = false; }
+  if (!copied) {
+    // fallback: drop it in the paste box so the author can select + copy it
+    ($('mbImportText') as HTMLTextAreaElement).value = str;
+  }
+  mbSetImportNote(copied ? 'Shareable string copied to clipboard.' : 'Clipboard blocked — string placed in the paste box, copy it manually.');
+  showToast(copied ? 'SHAREABLE STRING COPIED' : 'STRING IN PASTE BOX', 1800);
+  playUi('select');
+}
+
+// short status line under the publish panel (text only — never innerHTML)
+function mbSetPublishNote(msg: string, bad = false): void {
+  const note = $('mbPublishNote');
+  note.hidden = !msg;
+  note.textContent = msg;
+  note.classList.toggle('bad', bad);
+  note.classList.toggle('ok', !!msg && !bad);
+}
+
+let mbPublishing = false;
+// Publish: validate (block on !ok) -> POST /api/maps -> show the returned id.
+// Mirrors how the community browser calls the maps API (same /api/maps base,
+// same { ok, id } / { error, problems } response shapes, graceful 400/429).
+async function mbPublish(): Promise<void> {
+  if (mbPublishing) return;
+  const res = mbRunValidate();
+  if (!res.ok) { mbSetPublishNote('Fix the validation problems before publishing.', true); playUi('locked'); return; }
+  const def = mbDef();
+  const name = String(mbState!.name || 'Untitled Map').slice(0, 48);
+  const author = ($('mbAuthor') as HTMLInputElement).value.trim().slice(0, 24) || 'Anonymous';
+  const description = ($('mbDesc') as HTMLInputElement).value.trim().slice(0, 240);
+  const btn = $('mbPublish') as HTMLButtonElement;
+  mbPublishing = true;
+  btn.disabled = true;
+  mbSetPublishNote('Publishing…');
+  try {
+    const r = await fetch('/api/maps', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, author, description, def }),
+    });
+    let body: any = {};
+    try { body = await r.json(); } catch { /* non-JSON error body */ }
+    if (r.ok && body && body.id) {
+      mbSetPublishNote(`Published! Map id: ${body.id} — find it under Play › Community Maps.`);
+      showToast('PUBLISHED: ' + body.id, 2600);
+      playUi('select');
+    } else if (r.status === 429) {
+      mbSetPublishNote('Rate limited — you are publishing too fast. Wait a minute and try again.', true);
+      playUi('locked');
+    } else {
+      const probs = Array.isArray(body?.problems) ? ' (' + body.problems.slice(0, 3).join('; ') + ')' : '';
+      mbSetPublishNote(`Publish rejected${probs || (body?.error ? ': ' + body.error : '')}.`, true);
+      playUi('locked');
+    }
+  } catch (e: any) {
+    mbSetPublishNote('Could not reach the server — try again later.', true);
+    playUi('locked');
+  } finally {
+    mbPublishing = false;
+    // re-gate on the current validity (mbRunValidate flips it back on if valid)
+    mbRunValidate();
+  }
+}
+
 // ---------- menu pages (MAIN / SINGLEPLAYER / VERSUS / ONLINE / SETTINGS /
 // REMAP / STRONGHOLD SELECT / BROWSE) — DOM screens inside #menu, pad-navigable ----
 const MENU_PARENT: Record<string, any> = {
@@ -4000,7 +4670,8 @@ const MENU_PARENT: Record<string, any> = {
   pageClassic: 'pageSingle', pageStory: 'pageSingle',
   pageSettings: 'pageMain', pageRemap: 'pageSettings', pageSh: 'pageSingle',
   pageRank: 'pageMain', pageRankBoard: 'pageRank', pageBrowse: 'pageOnline',
-  pageOperators: 'pageMain', pageAccount: 'pageSettings',
+  pageOperators: 'pageMain', pageAccount: 'pageSettings', pageCommunity: 'pagePlay',
+  pageBuilder: 'pagePlay',
 };
 let menuPageId = 'pageMain';
 let shPurpose = 'local'; // why the level select is open: 'local' | 'host'
@@ -4020,6 +4691,8 @@ function showMenuPage(id: any) {
   if (id === 'pageRankBoard') renderRankBoard();  // async: fills in when fetched
   if (id === 'pageBrowse') startBrowse();         // 5s auto-refresh while open
   else stopBrowse();
+  if (id === 'pageCommunity') startCommunity();   // fetch the first page of maps
+  if (id === 'pageBuilder') openMapBuilder();      // lazy-init the editor + paint a frame
   if (id === 'pageOperators') renderOperators();
   // re-trigger the entrance animation on the page that just became visible
   const pg = $(id);
@@ -4381,6 +5054,16 @@ function tutorialTick(snap: any) {
 }
 $('btnTutorial').onclick = (e: any) => { e.currentTarget.blur(); startTutorial(); };
 $('btnBrowse').onclick = (e: any) => { e.currentTarget.blur(); showMenuPage('pageBrowse'); };
+// Community Maps: open the browser; filter/sort cyclers step on click + LEFT/RIGHT
+$('btnCommunity').onclick = (e: any) => { e.currentTarget.blur(); showMenuPage('pageCommunity'); };
+// Map Builder: open the visual editor (issue #5)
+$('btnMapBuilder').onclick = (e: any) => { e.currentTarget.blur(); showMenuPage('pageBuilder'); };
+$('btnCmBiome').onclick = (e: any) => { e.currentTarget.blur(); cmCycle('biome', 1); };
+$('btnCmObjective').onclick = (e: any) => { e.currentTarget.blur(); cmCycle('objective', 1); };
+$('btnCmMode').onclick = (e: any) => { e.currentTarget.blur(); cmCycle('mode', 1); };
+$('btnCmSort').onclick = (e: any) => { e.currentTarget.blur(); cmCycleSort(1); };
+$('btnCmPrev').onclick = (e: any) => { e.currentTarget.blur(); cmGoPage(-1); };
+$('btnCmNext').onclick = (e: any) => { e.currentTarget.blur(); cmGoPage(1); };
 // room visibility toggles (Online page): cycle Public/Private per mode group,
 // persisted; the choice rides the next host message's explicit public flag
 const visSync = () => {

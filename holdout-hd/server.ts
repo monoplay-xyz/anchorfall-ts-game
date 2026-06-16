@@ -10,7 +10,8 @@ import { createGame, step, snapshot, applyResults, charsById, dailyChallenge, TI
 // namespace import: wave-6 sim exports (revivePlayer) are probed with typeof
 // so the server keeps working while they land
 import * as sim from './shared/game.js';
-import { initDb } from './db.js';
+import { initDb, db } from './db.js';
+import { validateLevelDef } from './shared/mapValidate.js';
 import { mountAuth } from './auth.js';
 import type { Request, Response } from 'express';
 import type { WebSocket, RawData } from 'ws';
@@ -71,6 +72,10 @@ interface Room {
   hostPid: Pid;
   players: Map<Pid, Seat>;
   levelIdx: number;
+  // community-map online host (issue #7): a validated, sanitized user def the
+  // room plays INSTEAD of roomLevels(room)[levelIdx]. When set the room is
+  // SINGLE-MAP — levelIdx stays 0, it never advances and never writes a save.
+  customDef: any | null;
   roster: string[];
   game: Game | null;
   timer: ReturnType<typeof setInterval> | null;
@@ -167,6 +172,11 @@ const isPvp = (room: Room) => room.mode === 'ctf' || room.mode === 'br' || room.
 // pvp/siege and bastion rooms are one-shots: never saved, never resumed, never
 // advanced — the lobby is the rematch on the same map
 const isOneShot = (room: Room) => isPvp(room) || room.mode === 'bastion';
+// Community-map host (issue #7): a room that plays a validated user def resolves
+// its level from room.customDef at EVERY def-resolution site, never from the
+// built-in catalog. A community room is single-map (levelIdx stays 0) and is
+// also treated as a one-shot for the advance/save guard below.
+const roomDef = (room: Room): any => room.customDef ?? roomLevels(room)[room.levelIdx];
 // Per-mode room caps (wave 7): pvp fields outgrow the co-op party of 8.
 // Prefer the sim's table once it lands so server and sim can never disagree;
 // seats-per-connection stays 4 everywhere. CTF team cap = MODE_CAPS.ctf / 2.
@@ -286,6 +296,19 @@ const joinFailLog = new Map<string, number[]>(); // ws room-code misses (enumera
 // rankings POST: 10/min plus a 150/day budget per IP (a curl loop can junk
 // boards a lot slower that way; real players submit a handful per session)
 const rankRateLimited = (ip: string) => rateLimited(rankPostLog, ip, 10, 60000) || rateLimited(rankDayLog, ip, 150, 86400000);
+// community-map logs (issue #7): publishing a validated user level is expensive
+// (full validateLevelDef + a DB write) so it's the most tightly throttled; play
+// counts and browse are looser.
+const mapPublishLog = new Map<string, number[]>();
+const mapPublishDayLog = new Map<string, number[]>();
+const mapPlayLog = new Map<string, number[]>();
+const mapPlayDayLog = new Map<string, number[]>();
+const mapBrowseLog = new Map<string, number[]>();
+// publish budget is env-tunable (ops can loosen it; the API test raises it so a
+// single run isn't throttled). Defaults stay tight: 6/min + 60/day per IP.
+const MAP_PUBLISH_PER_MIN = Math.max(1, Number(process.env.MAP_PUBLISH_PER_MIN) || 6);
+const MAP_PUBLISH_PER_DAY = Math.max(1, Number(process.env.MAP_PUBLISH_PER_DAY) || 60);
+const mapPublishLimited = (ip: string) => rateLimited(mapPublishLog, ip, MAP_PUBLISH_PER_MIN, 60000) || rateLimited(mapPublishDayLog, ip, MAP_PUBLISH_PER_DAY, 86400000);
 
 // --- http ---
 const app = express();
@@ -336,9 +359,13 @@ app.get('/api/rooms', (req, res) => {
     if (!room.public || room.players.size >= roomCap(room)) continue;
     const live = room.mode === 'ctf' && room.phase === 'play' && room.game && room.game.status === 'play';
     if (room.phase !== 'lobby' && !live) continue;
-    const list = roomLevels(room);
-    if (room.levelIdx >= list.length) continue; // campaign finished — nothing left to join
-    const def = list[room.levelIdx];
+    // community rooms resolve their (single) map from customDef; built-in rooms
+    // from the catalog, where a finished campaign drops out of the browser
+    if (!room.customDef) {
+      const list = roomLevels(room);
+      if (room.levelIdx >= list.length) continue; // campaign finished — nothing left to join
+    }
+    const def = roomDef(room);
     out.push({
       code: room.code, mode: room.mode,
       levelName: room.daily ? `Daily Challenge` : (def?.name || null), levelTitle: def?.title,
@@ -412,6 +439,237 @@ app.post('/api/rankings', express.json({ limit: '4kb' }), (req, res) => {
   const rank = recordRanking(key, { names, players, score, timeS, date: new Date().toISOString(), online: false });
   res.json({ ok: true, rank });
 });
+
+// --- community map database (issue #7) --------------------------------------
+// User-uploaded LevelDefs feed the DETERMINISTIC SIM, so the publish path is a
+// hostile trust boundary. Order of defence on POST /api/maps:
+//   (1) CHEAP structural caps run BEFORE validateLevelDef so a giant grid, a
+//       pathfinding-bomb, OR an oversized sidecar/objective array can't DoS the
+//       (expensive, sim-running) validator — every array it loops over is
+//       length-capped here, so its work is bounded before it runs;
+//   (2) validateLevelDef — the full authoring-contract integrity battery;
+//   (3) sanitize + clamp name/description (HTML-escaped: no stored XSS);
+//   (4) DERIVE biome/objective/mode from the def server-side (client tags are
+//       never trusted for the filters);
+//   (5) per-IP publish rate limit;
+//   (6) store + return the new id.
+
+// Cheap structural caps. These bound the work the validator (and the sim it
+// runs) can be made to do, BEFORE any of it executes.
+const MAP_MAX_BYTES = 256 * 1024;   // raw JSON body ceiling (express.json limit mirrors it)
+const MAP_MAX_W = 96;               // grid width cap (mapgen large is 72)
+const MAP_MAX_H = 72;               // grid height cap (mapgen large is 50)
+const MAP_MAX_CELLS = 96 * 72;      // total tiles ceiling
+const MAP_MAX_ROWS = MAP_MAX_H;     // tile-row count cap
+const MAP_MAX_ROW_LEN = MAP_MAX_W;  // tile-row length cap
+const MAP_MAX_MARKERS = 4096;       // total entity/build/objective markers across the grid
+// Sidecar/objective array ceiling. A real authored map's sidecar entries (one
+// per marker tile) can never exceed its marker count, and groups/quests/slides
+// are far fewer still — so a tight cap here is sound. This is what restores the
+// stated invariant "the cheap caps bound the work the validator can be made to
+// do": validateLevelDef iterates these RAW client arrays, several in loops
+// nested against grid-derived sets (e.g. switchGroups x 'Q' tiles), so an
+// unbounded array is an event-loop DoS even within the 256KB body limit.
+const MAP_MAX_SIDECAR = MAP_MAX_MARKERS; // per-tile sidecars: bounded by marker count (4096)
+const MAP_MAX_GROUPS = 512;         // groups/quests/cutscene slides: far fewer than markers
+const MAP_MAX_NESTED = 256;         // a single group's nested array (e.g. glyph order, slide lines)
+const MAP_NAME_MAX = 48;
+const MAP_DESC_MAX = 240;
+const MAP_AUTHOR_MAX = 24;
+// The validator's own tile vocabulary. A tile char outside it is rejected in the
+// cheap pass (kept in sync with shared/mapValidate.ts LEGAL_TILES).
+const MAP_LEGAL_TILES = new Set(
+  '#.To~,:;_*=!^%E' + '+-@/' + 'PcNBCKVWSHDYAIQJXZO' + 'garsmnwbzfqvxu' + 'dehijkly$',
+);
+// Marker chars: any non-floor/non-wall glyph that parseLevel turns into an
+// entity, build, spawn or objective. Counting these bounds entity fan-out.
+const MAP_MARKER_CHARS = new Set('PcNBCKVWSHDYAIQJXZOgarsmnwbzfqvxudehijkly$E');
+const isFiniteInRange = (v: unknown, lo: number, hi: number) =>
+  typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
+
+// HTML-escape + control-strip + length-clamp for stored, later-rendered text.
+// Mirrors cleanName's control/bidi scrub, then escapes the five HTML-significant
+// chars so a name/description can never inject markup when the browse UI prints
+// it. Empty -> a safe fallback for name/author; '' allowed for description.
+function cleanText(v: unknown, max: number, fallback = ''): string {
+  let s = String(v ?? '')
+    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u2028\u2029\u202A-\u202E\u2066-\u2069\uFEFF]/g, ' ')
+    .replace(/\s+/g, ' ').trim().slice(0, max).trim();
+  s = s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  return s || fallback;
+}
+
+// CHEAP structural pre-check. Returns null if the def passes every cap, else a
+// short reason string. Touches only the raw JSON shape — never parseLevel/sim.
+function cheapMapCaps(def: any): string | null {
+  if (!def || typeof def !== 'object') return 'def must be an object';
+  const tiles = def.tiles;
+  if (!Array.isArray(tiles) || tiles.length === 0) return 'def.tiles missing';
+  if (tiles.length > MAP_MAX_ROWS) return `too many rows (>${MAP_MAX_ROWS})`;
+  const w = typeof tiles[0] === 'string' ? tiles[0].length : -1;
+  if (w <= 0) return 'first tile row empty';
+  if (w > MAP_MAX_ROW_LEN) return `row too wide (>${MAP_MAX_ROW_LEN})`;
+  if (w * tiles.length > MAP_MAX_CELLS) return `grid too large (>${MAP_MAX_CELLS} cells)`;
+  let markers = 0;
+  for (const row of tiles) {
+    if (typeof row !== 'string') return 'tile row not a string';
+    if (row.length > MAP_MAX_ROW_LEN) return `row too wide (>${MAP_MAX_ROW_LEN})`;
+    for (const ch of row) {
+      if (!MAP_LEGAL_TILES.has(ch)) return `illegal tile '${ch}'`;
+      if (MAP_MARKER_CHARS.has(ch) && ++markers > MAP_MAX_MARKERS) return `too many markers (>${MAP_MAX_MARKERS})`;
+    }
+  }
+  // SIDECAR / OBJECTIVE ARRAY CAPS — the load-bearing fix. validateLevelDef
+  // iterates these RAW client arrays (several in loops nested against
+  // grid-derived sets), so without a ceiling here a single legal sub-256KB
+  // body can pin the main thread for hundreds of ms and stall every live game
+  // tick. A real authored map keeps one sidecar per marker tile, so capping at
+  // the marker count is sound; groups/quests/slides are far fewer.
+  // Per-tile sidecars (one entry per marker glyph on the grid).
+  for (const k of ['captiveChars', 'npcs', 'builds', 'pickups', 'qitems', 'switches', 'glyphs', 'teleports', 'chests', 'vehicles', 'hires', 'doors']) {
+    const arr = def[k];
+    if (arr !== undefined && (!Array.isArray(arr) || arr.length > MAP_MAX_SIDECAR)) return `too many ${k}`;
+  }
+  // Objective groups / quests / cutscene slides — far fewer than markers.
+  for (const k of ['switchGroups', 'glyphGroups', 'quests', 'intro', 'outro', 'patrols']) {
+    const arr = def[k];
+    if (arr !== undefined && (!Array.isArray(arr) || arr.length > MAP_MAX_GROUPS)) return `too many ${k}`;
+  }
+  // Nested arrays a single group/slide could blow up (glyph order, slide lines).
+  for (const gg of Array.isArray(def.glyphGroups) ? def.glyphGroups : []) {
+    if (Array.isArray(gg?.order) && gg.order.length > MAP_MAX_NESTED) return 'glyph order too long';
+  }
+  for (const slide of [...(Array.isArray(def.intro) ? def.intro : []), ...(Array.isArray(def.outro) ? def.outro : [])]) {
+    if (Array.isArray(slide?.lines) && slide.lines.length > MAP_MAX_NESTED) return 'slide lines too long';
+  }
+  // numeric fields a malicious def could blow up (giant wave counts, etc.)
+  if (def.time !== undefined && !isFiniteInRange(def.time, 0, 86400)) return 'time out of range';
+  // difficulty is authored either as a sim label (easy/normal/hard/extreme — what
+  // shipped levels AND the map builder write) OR a small number; accept both, as
+  // difficultyScale() reads the string form. (A bad value is inert, not a DoS.)
+  if (def.difficulty !== undefined
+      && !(typeof def.difficulty === 'string' && /^(easy|normal|hard|extreme)$/.test(def.difficulty))
+      && !isFiniteInRange(def.difficulty, 1, 5)) return 'difficulty out of range';
+  if (def.bastion) {
+    const b = def.bastion;
+    if (b.nights !== undefined && !isFiniteInRange(b.nights, 1, 24)) return 'bastion.nights out of range';
+    if (b.wavesPerNight !== undefined && !isFiniteInRange(b.wavesPerNight, 1, 4)) return 'bastion.wavesPerNight out of range';
+    if (Array.isArray(b.bloodMoons) && b.bloodMoons.length > 24) return 'too many bloodMoons';
+  }
+  const waves = def.modifiers && def.modifiers.waves;
+  if (waves !== undefined) {
+    if (!Array.isArray(waves) || waves.length > 64) return 'too many waves';
+    for (const wv of waves) if (typeof wv?.letters === 'string' && wv.letters.length > 64) return 'wave letters too long';
+  }
+  return null;
+}
+
+// DERIVE the browse tags from the validated def — never the client's claimed
+// tags. biome comes from def.theme; mode from def.mode; objective is inferred
+// from the objective-bearing fields the generator wires (mirrors mapgen's
+// wireObjective so the same map always classifies the same way).
+const MAP_BIOMES = new Set(['emberwaste', 'glacis', 'mire', 'dunes', 'verdance', 'voidscar', 'saltworks', 'nocturne', 'crucible', 'reliquary']);
+const MAP_MODES = new Set<string>(['classic', 'story', 'bastion', 'ctf', 'br', 'siege']);
+function deriveBiome(def: any): string {
+  return MAP_BIOMES.has(def.theme) ? def.theme : 'reliquary';
+}
+function deriveMode(def: any): string {
+  return MAP_MODES.has(def.mode) ? def.mode : 'classic';
+}
+function deriveObjective(def: any): string {
+  if (def.bastionVariant === 'beacons') return 'beacons';
+  if (def.capture) return 'capture';
+  if (def.bridge) return 'bridge';
+  if (def.escort) return 'escort';
+  if (def.gate) return 'gate';
+  if (def.mode === 'bastion') return 'bastion';
+  return 'survival';
+}
+
+app.post('/api/maps', express.json({ limit: MAP_MAX_BYTES }), async (req, res) => {
+  const ip = req.ip || req.socket?.remoteAddress || '?';
+  if (mapPublishLimited(ip)) return res.status(429).json({ error: 'rate limited' });
+  const body = req.body || {};
+  const def = body.def;
+  // (1) CHEAP caps FIRST — before the expensive validator ever runs
+  const capFail = cheapMapCaps(def);
+  if (capFail) return res.status(400).json({ error: 'rejected', problems: [capFail] });
+  // (2) full authoring-contract validation (runs parseLevel + a few sim steps)
+  let result;
+  try {
+    result = validateLevelDef(def, { charMap, characters });
+  } catch (e: any) {
+    return res.status(400).json({ error: 'rejected', problems: ['THREW: ' + (e?.message || String(e))] });
+  }
+  if (!result.ok) return res.status(400).json({ error: 'invalid map', problems: result.problems.slice(0, 20) });
+  // (3) sanitize + clamp the human-visible text (HTML-escaped: no stored XSS)
+  const name = cleanText(body.name ?? def.name, MAP_NAME_MAX, 'Untitled Map');
+  const author = cleanText(body.author, MAP_AUTHOR_MAX, 'Anonymous');
+  const description = cleanText(body.description ?? def.objective, MAP_DESC_MAX, '');
+  // (4) DERIVE the browse tags server-side (client tags are ignored)
+  const biome = deriveBiome(def);
+  const objective = deriveObjective(def);
+  const mode = deriveMode(def);
+  // (6) store + return the new id
+  try {
+    const row = await db.createMap({ name, author, description, def, biome, objective, mode });
+    res.json({ ok: true, id: row.id, map: row });
+  } catch (e: any) {
+    console.error('createMap failed:', e?.message || e);
+    res.status(500).json({ error: 'store failed' });
+  }
+});
+
+app.get('/api/maps', async (req, res) => {
+  const ip = req.ip || req.socket?.remoteAddress || '?';
+  if (rateLimited(mapBrowseLog, ip, 60, 10000)) return res.status(429).json({ error: 'rate limited' });
+  const q = req.query;
+  const filterBiome = MAP_BIOMES.has(String(q.biome)) ? String(q.biome) : undefined;
+  const filterObjective = typeof q.objective === 'string' && /^[a-z]{1,16}$/.test(q.objective) ? q.objective : undefined;
+  const filterMode = MAP_MODES.has(String(q.mode)) ? String(q.mode) : undefined;
+  const sort = (q.sort === 'plays' || q.sort === 'rating') ? q.sort : 'new';
+  // bounded page size (db clamps too): a browse page never returns > 60 rows
+  const limit = Math.min(60, Math.max(1, Math.floor(Number(q.limit)) || 24));
+  const offset = Math.min(100000, Math.max(0, Math.floor(Number(q.offset)) || 0));
+  try {
+    const rows = await db.listMaps({ biome: filterBiome, objective: filterObjective, mode: filterMode, sort, limit, offset });
+    res.json({ maps: rows, limit, offset });
+  } catch (e: any) {
+    console.error('listMaps failed:', e?.message || e);
+    res.status(500).json({ error: 'list failed' });
+  }
+});
+
+app.get('/api/maps/:id', async (req, res) => {
+  const id = String(req.params.id || '');
+  if (!/^[a-z0-9-]{1,64}$/.test(id)) return res.status(400).json({ error: 'bad id' });
+  try {
+    const row = await db.getMap(id);
+    if (!row) return res.status(404).json({ error: 'not found' });
+    res.json(row);
+  } catch (e: any) {
+    console.error('getMap failed:', e?.message || e);
+    res.status(500).json({ error: 'lookup failed' });
+  }
+});
+
+app.post('/api/maps/:id/play', async (req, res) => {
+  const ip = req.ip || req.socket?.remoteAddress || '?';
+  // clamp the play-count spam: 30/min + 600/day per IP across all maps
+  if (rateLimited(mapPlayLog, ip, 30, 60000) || rateLimited(mapPlayDayLog, ip, 600, 86400000)) return res.status(429).json({ error: 'rate limited' });
+  const id = String(req.params.id || '');
+  if (!/^[a-z0-9-]{1,64}$/.test(id)) return res.status(400).json({ error: 'bad id' });
+  try {
+    const plays = await db.incrementPlays(id);
+    if (plays === null) return res.status(404).json({ error: 'not found' });
+    res.json({ ok: true, plays });
+  } catch (e: any) {
+    console.error('incrementPlays failed:', e?.message || e);
+    res.status(500).json({ error: 'play failed' });
+  }
+});
+
 const lanIp = Object.values(os.networkInterfaces()).flat().find(i => i && i.family === 'IPv4' && !i.internal)?.address;
 const lanUrl = lanIp ? `http://${lanIp}:${PORT}` : null;
 const server = app.listen(PORT, () => {
@@ -571,7 +829,7 @@ function assignTeams(room: Room) {
 function lobbyState(room: Room): OutMsg {
   assignTeams(room);
   const list = roomLevels(room);
-  const def = list[room.levelIdx];
+  const def = roomDef(room);
   // daily online: resolve today's map + twist for the lobby label
   let dailyMap = null, dailyLabel = null;
   if (room.daily) {
@@ -590,7 +848,7 @@ function lobbyState(room: Room): OutMsg {
     levelIdx: room.levelIdx,
     levelName: room.daily ? `Daily — ${dailyMap} · ${dailyLabel}` : (def?.name || null),
     levelTitle: def?.title || undefined,
-    totalLevels: list.length,
+    totalLevels: room.customDef ? 1 : list.length, // a community room is a single map
     roster: room.roster,
     lan: PUBLIC_DEPLOY ? undefined : (lanUrl || undefined),
     players: [...room.players.values()].map(p => ({ pid: p.pid, name: p.name, charId: p.charId, isHost: p.pid === room.hostPid, team: p.team })),
@@ -720,17 +978,21 @@ function endLevel(room: Room) {
   // ends — there is no lobby to come back to with nobody in it
   if (!room.players.size) { room.holds = []; room.game = null; return destroyRoom(room); }
   const list = roomLevels(room);
-  const def = list[room.levelIdx]; // the chapter just played
+  const def = roomDef(room); // the chapter just played (a community def when hosted)
   const g = room.game!;
   const res = applyResults(room.roster, g); // pvp: sim returns the roster untouched
   room.roster = res.roster;
   let victory = false;
-  if (g.status === 'cleared' && !isOneShot(room)) {
+  // community rooms are SINGLE-MAP: like pvp/bastion one-shots they never
+  // advance and never write a campaign save (a user def isn't a campaign, and
+  // roomDef stays pinned to customDef regardless of levelIdx). The replay is
+  // the same map from the lobby.
+  if (g.status === 'cleared' && !isOneShot(room) && !room.customDef) {
     room.levelIdx++;
     victory = room.levelIdx >= list.length;
     fs.writeFileSync(savePath(room.code), JSON.stringify({ mode: room.mode, levelIdx: room.levelIdx, roster: room.roster }));
   }
-  // pvp/bastion rooms never save and never advance — rematch replays the same map (levelIdx stays 0)
+  // pvp/bastion/community rooms never save and never advance — rematch replays the same map (levelIdx stays 0)
   for (const p of room.players.values()) p.charId = null;
   room.phase = 'lobby';
   room.lastActivity = Date.now(); // fresh idle window for the post-level lobby
@@ -765,7 +1027,8 @@ function startLevel(room: Room) {
   for (const p of room.players.values()) p.input = {};
   // Endless Siege: a stronghold room flagged endless plays the same map with no
   // night cap. Clone the def (never mutate the shared catalog) and flip the flag.
-  let baseDef = roomLevels(room)[room.levelIdx];
+  // Community rooms play their validated user def (roomDef) instead of the catalog.
+  let baseDef = roomDef(room);
   // Daily online: the server resolves today's map + twist from its own date so
   // every host worldwide runs the same siege (matches the client's local daily).
   let dailyMods = null;
@@ -927,7 +1190,29 @@ wss.on('connection', (ws, req) => {
       // known settings; an unknown/absent value falls back to 'normal'.
       const pveHost = mode === 'classic' || mode === 'story' || mode === 'bastion';
       const difficulty = (pveHost && ['easy', 'normal', 'extreme'].includes(m.difficulty)) ? m.difficulty : 'normal';
-      const r = { code, mode, public: pub, endless, daily, dailyDate, difficulty, hostPid: me.pid, players: new Map([[me.pid, me]]), levelIdx, roster, game: null, timer: null, phase: 'lobby', holds: [], tick: 0, lastActivity: Date.now() };
+      // COMMUNITY MAP ONLINE HOST (issue #7): m.communityDef is UNTRUSTED user
+      // content that will feed the deterministic sim, so it crosses the SAME
+      // trust boundary as POST /api/maps — the cheap structural caps (bound the
+      // validator's work) THEN the full authoring-contract validator. Only a def
+      // that passes both becomes the room's single map; anything invalid/oversized
+      // is rejected outright (never falls through into a live room). A community
+      // host pins levelIdx 0 and never resumes a campaign save, so it ignores any
+      // resume code. The stored def is a deep CLONE so a later client message can
+      // never mutate the live room's shared state.
+      let customDef: any = null;
+      if (m.communityDef !== undefined) {
+        const cand = m.communityDef;
+        const capFail = cheapMapCaps(cand);
+        let valid = !capFail;
+        if (valid) {
+          try { valid = validateLevelDef(cand, { charMap, characters }).ok; }
+          catch { valid = false; } // a def that THROWS the validator is rejected, never hosted
+        }
+        if (!valid) return sendTo(me, { t: 'error', error: 'That community map is invalid — it can’t be hosted.' });
+        customDef = JSON.parse(JSON.stringify(cand)); // deep clone: the room owns its def
+        levelIdx = 0; // a community room is single-map; no resume/campaign index
+      }
+      const r = { code, mode, public: pub, endless, daily, dailyDate, difficulty, hostPid: me.pid, players: new Map([[me.pid, me]]), levelIdx, customDef, roster, game: null, timer: null, phase: 'lobby', holds: [], tick: 0, lastActivity: Date.now() };
       rooms.set(code, r);
       me.room = r;
       sendTo(me, { t: 'joined', you: me.pid, token: myToken });
@@ -1055,10 +1340,10 @@ wss.on('connection', (ws, req) => {
     else if (m.t === 'start' && room && me.pid === room.hostPid && room.phase === 'lobby' && !room.game) {
       room.lastActivity = Date.now();
       const list = roomLevels(room);
-      if (room.levelIdx >= list.length) return;
+      if (!room.customDef && room.levelIdx >= list.length) return; // built-in campaign finished
       // br needs a real field — the client greys Deploy out too, this is the backstop
       if (room.mode === 'br' && [...room.players.values()].filter(p => p.charId).length < 2) return;
-      const def = list[room.levelIdx];
+      const def = roomDef(room);
       if ((room.mode === 'story' || room.mode === 'bastion') && def.intro?.length) {
         if (![...room.players.values()].some(p => p.charId)) return; // no party — don't strand the room in intro
         room.phase = 'intro';

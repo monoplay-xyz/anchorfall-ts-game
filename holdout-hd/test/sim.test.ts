@@ -9925,6 +9925,399 @@ async function testServerPublicHardening() {
   }
 }
 
+// === Community Map Database API (issue #7) ==================================
+// Spawns a real `node server.js` (mirroring testServerPublicHardening) and
+// exercises the whole publish/browse/play surface against the live HTTP routes:
+//   - publish a VALID generated map (shared/mapgen) -> 200 + id
+//   - browse -> includes it; filters / sort / paging all work
+//   - GET :id -> the stored def round-trips
+//   - POST :id/play -> plays increments
+//   - REJECT: an invalid def, an oversized grid, and an XSS-y name are all
+//     refused/sanitized and the server NEVER crashes
+async function testCommunityMapDatabase() {
+  const { spawn } = await import('child_process');
+  const osMod = await import('os');
+  const { generate } = await import('../shared/mapgen.js');
+  const sleep = (ms: any) => new Promise(r => setTimeout(r, ms));
+  const port = 4900 + (process.pid % 400);
+  const tmp = fs.mkdtempSync(path.join(osMod.tmpdir(), 'anchorfall-maps-'));
+
+  const proc = spawn(process.execPath, [path.join(root, 'server.js')], {
+    // raise the publish budget so this single run isn't throttled mid-suite; a
+    // dedicated low-budget sub-test below proves the limiter still bites.
+    env: { ...process.env, PORT: String(port), PUBLIC_DEPLOY: '', HOLDOUT_SMOKE: '', SAVES_DIR: tmp, ROOM_CAP: '', LOBBY_TTL_MS: '', MAP_PUBLISH_PER_MIN: '200', MAP_PUBLISH_PER_DAY: '500' },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let log = '';
+  proc.stdout.on('data', d => { log += d; });
+  proc.stderr.on('data', d => { log += d; });
+  const ready = (async () => {
+    for (let i = 0; i < 240; i++) {
+      if (log.includes('running at')) return;
+      if (proc.exitCode !== null) throw new Error('server exited early:\n' + log);
+      await sleep(25);
+    }
+    throw new Error('server boot timeout:\n' + log);
+  })();
+
+  const api = (p: any) => `http://127.0.0.1:${port}${p}`;
+  const postMap = (body: any) => fetch(api('/api/maps'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const alive = async () => assert.equal((await fetch(api('/api/levels'))).status, 200, 'server alive');
+
+  try {
+    await ready;
+
+    // --- publish two distinct valid maps (different biome+objective) ---------
+    const mapA = generate('apitest-A', { biome: 'verdance', archetype: 'centered-hold', objective: 'bastion', size: 'small', difficulty: 2 });
+    const mapB = generate('apitest-B', { biome: 'glacis', archetype: 'four-corner-beacons', objective: 'beacons', size: 'small', difficulty: 2 });
+    assert.equal((mapA as any).mode, 'bastion', 'generated map A is bastion mode');
+
+    const pubA = await postMap({ def: mapA, name: 'Verdant Hold', author: 'Tester', description: 'a calm green keep' });
+    assert.equal(pubA.status, 200, 'valid map A published (200)');
+    const a = await pubA.json();
+    assert.ok(typeof a.id === 'string' && a.id.length > 0, 'publish returns a server-generated id');
+    assert.equal(a.map.biome, 'verdance', 'biome DERIVED from def.theme (not the client)');
+    assert.equal(a.map.objective, 'bastion', 'objective derived server-side');
+    assert.equal(a.map.mode, 'bastion', 'mode derived server-side');
+    assert.equal(a.map.plays, 0, 'new map starts at 0 plays');
+
+    const pubB = await postMap({ def: mapB, name: 'Frost Beacons', author: 'Tester' });
+    assert.equal(pubB.status, 200, 'valid map B published (200)');
+    const b = await pubB.json();
+    assert.equal(b.map.biome, 'glacis', 'map B biome derived');
+    assert.equal(b.map.objective, 'beacons', 'map B objective derived as beacons');
+
+    // --- the client cannot spoof the browse tags: declared biome is ignored --
+    const spoof = await (await postMap({ def: mapA, name: 'Spoofer', biome: 'dunes', objective: 'gate', mode: 'ctf' })).json();
+    assert.equal(spoof.map.biome, 'verdance', 'client-declared biome is ignored (derived from def)');
+    assert.equal(spoof.map.mode, 'bastion', 'client-declared mode is ignored');
+
+    // --- browse: all three present, summary rows carry NO def blob -----------
+    const all = await (await fetch(api('/api/maps'))).json();
+    assert.ok(Array.isArray(all.maps) && all.maps.length === 3, `browse lists all 3 maps (got ${all.maps?.length})`);
+    assert.ok(all.maps.every((m: any) => !('def' in m)), 'browse summary rows omit the def blob');
+    assert.ok(all.maps.some((m: any) => m.id === a.id), 'browse includes published map A');
+
+    // --- filter by biome -----------------------------------------------------
+    const glacisOnly = await (await fetch(api('/api/maps?biome=glacis'))).json();
+    assert.equal(glacisOnly.maps.length, 1, 'biome filter returns only the glacis map');
+    assert.equal(glacisOnly.maps[0].id, b.id, 'biome filter returns the right map');
+
+    // --- paging: bounded page size ------------------------------------------
+    const page1 = await (await fetch(api('/api/maps?limit=2&offset=0'))).json();
+    assert.equal(page1.maps.length, 2, 'limit=2 returns 2 rows');
+    const page2 = await (await fetch(api('/api/maps?limit=2&offset=2'))).json();
+    assert.equal(page2.maps.length, 1, 'offset=2 returns the remaining 1 row');
+    const overLimit = await (await fetch(api('/api/maps?limit=9999'))).json();
+    assert.ok(overLimit.limit <= 60, 'page size is clamped to <= 60');
+
+    // --- GET :id returns the stored def --------------------------------------
+    const got = await (await fetch(api(`/api/maps/${a.id}`))).json();
+    assert.ok(got.def && Array.isArray(got.def.tiles), 'GET :id returns the stored def with tiles');
+    assert.equal(got.def.tiles.length, (mapA as any).tiles.length, 'stored def round-trips the tile grid');
+    assert.equal((await fetch(api('/api/maps/does-not-exist'))).status, 404, 'unknown id is 404');
+    assert.equal((await fetch(api('/api/maps/Bad%20Id!'))).status, 400, 'malformed id is 400');
+
+    // --- POST :id/play increments plays --------------------------------------
+    const play1 = await (await fetch(api(`/api/maps/${a.id}/play`), { method: 'POST' })).json();
+    assert.equal(play1.plays, 1, 'first play -> plays = 1');
+    const play2 = await (await fetch(api(`/api/maps/${a.id}/play`), { method: 'POST' })).json();
+    assert.equal(play2.plays, 2, 'second play -> plays = 2');
+    assert.equal((await fetch(api('/api/maps/nope/play'), { method: 'POST' })).status, 404, 'play on unknown id is 404');
+
+    // --- sort by plays: the played map floats to the top ---------------------
+    const byPlays = await (await fetch(api('/api/maps?sort=plays'))).json();
+    assert.equal(byPlays.maps[0].id, a.id, 'sort=plays puts the most-played map first');
+
+    // --- REJECT cases: each is refused AND the server survives ----------------
+    // (1) an invalid def (no player spawn / broken grid)
+    const bad = await postMap({ def: { tiles: ['#####', '#...#', '#####'] }, name: 'Broken' });
+    assert.equal(bad.status, 400, 'invalid def rejected with 400');
+    const badBody = await bad.json();
+    assert.ok(Array.isArray(badBody.problems) && badBody.problems.length >= 1, 'invalid def reports problems');
+    await alive();
+
+    // (2) an oversized grid — rejected by the CHEAP caps BEFORE the validator
+    const hugeRow = '#'.repeat(500);
+    const huge = await postMap({ def: { tiles: Array.from({ length: 500 }, () => hugeRow) }, name: 'Huge' });
+    assert.equal(huge.status, 400, 'oversized grid rejected with 400');
+    await alive();
+
+    // a pathfinding-bomb-sized but body-fitting grid is still capped cheaply
+    const wideRow = '#' + '.'.repeat(MAP_CHEAP_TOO_WIDE - 2) + '#';
+    const wide = await postMap({ def: { tiles: [wideRow, wideRow, wideRow] }, name: 'Wide' });
+    assert.equal(wide.status, 400, 'over-wide grid rejected by the cheap caps');
+    await alive();
+
+    // (2b) SIDECAR-ARRAY DoS — a legal sub-256KB body whose objective/sidecar
+    // arrays are huge. The grid passes cheapMapCaps' marker scan, but the
+    // validator would otherwise iterate these RAW client arrays (several in
+    // loops nested against grid-derived sets), pinning the main thread and
+    // stalling every live game tick. The cheap caps must now reject these
+    // BEFORE validateLevelDef runs — fast, and the server stays responsive.
+    const sgBomb = JSON.parse(JSON.stringify(mapA));
+    sgBomb.switchGroups = Array.from({ length: 10000 }, (_, i) => ({ group: i }));
+    const sgBody = JSON.stringify({ def: sgBomb, name: 'SG' });
+    assert.ok(sgBody.length < 256 * 1024, `switchGroups bomb fits under the 256KB body limit (${sgBody.length}B)`);
+    const t0 = Date.now();
+    const sgRes = await postMap({ def: sgBomb, name: 'SG' });
+    assert.equal(sgRes.status, 400, 'oversized switchGroups rejected by the cheap caps (sidecar DoS)');
+    assert.ok((await sgRes.json()).problems?.[0]?.includes('switchGroups'), 'rejection names the offending array');
+    assert.ok(Date.now() - t0 < 250, 'the sidecar bomb is rejected cheaply, not after a long validate stall');
+    await alive();
+
+    // glyphGroups is bounded the same way (the other nested-loop offender)
+    const ggBomb = JSON.parse(JSON.stringify(mapA));
+    ggBomb.glyphGroups = Array.from({ length: 8000 }, (_, i) => ({ group: i, order: [0] }));
+    const ggBody = JSON.stringify({ def: ggBomb, name: 'GG' });
+    assert.ok(ggBody.length < 256 * 1024, `glyphGroups bomb fits under the 256KB body limit (${ggBody.length}B)`);
+    const ggRes = await postMap({ def: ggBomb, name: 'GG' });
+    assert.equal(ggRes.status, 400, 'oversized glyphGroups rejected by the cheap caps');
+    assert.ok((await ggRes.json()).problems?.[0]?.includes('glyphGroups'), 'rejection names glyphGroups');
+    await alive();
+
+    // a single group's nested array (glyph order) is also capped
+    const orderBomb = JSON.parse(JSON.stringify(mapA));
+    orderBomb.glyphGroups = [{ group: 0, order: Array.from({ length: 5000 }, () => 0) }];
+    const orderRes = await postMap({ def: orderBomb, name: 'ORD' });
+    assert.equal(orderRes.status, 400, 'oversized glyph order rejected by the cheap caps');
+    await alive();
+
+    // a benign small sidecar count never trips the new caps: a valid map with
+    // an empty switchGroups array still publishes fine (no false positive)
+    const okSidecar = JSON.parse(JSON.stringify(mapA));
+    okSidecar.switchGroups = [];
+    assert.equal((await postMap({ def: okSidecar, name: 'OK sidecar' })).status, 200, 'an empty sidecar array still publishes (no false positive)');
+    await alive();
+
+    // (3) an XSS-y name is sanitized/escaped, never stored raw
+    const xss = await postMap({ def: mapA, name: '<script>alert(1)</script>', author: '<img src=x onerror=alert(2)>', description: 'hi <b>bold</b> & "quote"' });
+    assert.equal(xss.status, 200, 'a map with an XSS-y name still publishes (name sanitized)');
+    const xssBody = await xss.json();
+    assert.ok(!/[<>]/.test(xssBody.map.name), `published name has no raw angle brackets (got ${JSON.stringify(xssBody.map.name)})`);
+    assert.ok(!/[<>]/.test(xssBody.map.author), 'author is HTML-escaped too');
+    assert.ok(!/<b>|<\/b>|[<>]/.test(xssBody.map.description), 'description is HTML-escaped');
+    // the escaped form survives a GET :id round-trip (stored, not just echoed)
+    const xssGot = await (await fetch(api(`/api/maps/${xssBody.id}`))).json();
+    assert.ok(!/[<>]/.test(xssGot.name), 'stored name stays escaped on re-fetch');
+    await alive();
+
+    // garbage body / wrong types never crash the server
+    assert.equal((await postMap({ def: 'not an object', name: 'x' })).status, 400, 'string def rejected');
+    assert.equal((await postMap({ name: 'no def' })).status, 400, 'missing def rejected');
+    await alive();
+
+    console.log('  community map database: publish/browse/get/play + reject/sanitize all hold');
+  } finally {
+    proc.kill();
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+
+  // --- the publish limiter actually bites (fresh server, tight budget) -------
+  const tmp2 = fs.mkdtempSync(path.join(osMod.tmpdir(), 'anchorfall-maps-rl-'));
+  const proc2 = spawn(process.execPath, [path.join(root, 'server.js')], {
+    env: { ...process.env, PORT: String(port + 1), PUBLIC_DEPLOY: '', HOLDOUT_SMOKE: '', SAVES_DIR: tmp2, ROOM_CAP: '', LOBBY_TTL_MS: '', MAP_PUBLISH_PER_MIN: '2', MAP_PUBLISH_PER_DAY: '500' },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let log2 = '';
+  proc2.stdout.on('data', d => { log2 += d; });
+  proc2.stderr.on('data', d => { log2 += d; });
+  try {
+    for (let i = 0; i < 240; i++) {
+      if (log2.includes('running at')) break;
+      if (proc2.exitCode !== null) throw new Error('rl server exited early:\n' + log2);
+      await sleep(25);
+    }
+    const rlMap = generate('apitest-RL', { biome: 'mire', archetype: 'centered-hold', objective: 'bastion', size: 'small', difficulty: 1 });
+    const rlPost = () => fetch(`http://127.0.0.1:${port + 1}/api/maps`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ def: rlMap, name: 'RL' }) });
+    assert.equal((await rlPost()).status, 200, 'publish 1/2 under the tight budget succeeds');
+    assert.equal((await rlPost()).status, 200, 'publish 2/2 under the tight budget succeeds');
+    assert.equal((await rlPost()).status, 429, 'the 3rd publish in the window is rate limited (429)');
+    console.log('  community map database: publish rate limit holds');
+  } finally {
+    proc2.kill();
+    fs.rmSync(tmp2, { recursive: true, force: true });
+  }
+}
+// the server's MAP_MAX_ROW_LEN is 96; one over it trips the cheap width cap
+const MAP_CHEAP_TOO_WIDE = 120;
+
+// === Community Map ONLINE CO-OP HOST (issue #7) =============================
+// Spawns a real `node server.js` (mirroring the WS host/join handshake in
+// testServerPublicHardening) and proves the server hosts an ARBITRARY community
+// map online — not just the built-in catalog:
+//   - host a room WITH a generated community def (shared/mapgen, classic
+//     survival so it hosts as a coreless co-op map)
+//   - a 2nd client joins the lobby, both pick, the host deploys
+//   - BOTH clients receive the SAME levelStart grid, and it MATCHES the hosted
+//     def's parsed tiles AND DIFFERS from the server's default classic level
+//     (proving the user def is genuinely in play, identically for the joiner)
+//   - the lobby labels the map by the def's name and reports a single map
+//   - an INVALID def and an OVERSIZED def are both REJECTED on host (a friendly
+//     error, never a live room, and the server never crashes)
+async function testCommunityMapOnlineHost() {
+  const { spawn } = await import('child_process');
+  const osMod = await import('os');
+  const { generate } = await import('../shared/mapgen.js');
+  const WebSocket = (await import('ws')).default;
+  const sleep = (ms: any) => new Promise(r => setTimeout(r, ms));
+  // a dedicated port window clear of the other integration tests (public
+  // hardening 4300-4799, community DB 4900-5300) so a leftover socket from a
+  // sibling test can never collide with this server's bind.
+  const port = 4810 + (process.pid % 80);
+  const tmp = fs.mkdtempSync(path.join(osMod.tmpdir(), 'anchorfall-cmhost-'));
+
+  const proc = spawn(process.execPath, [path.join(root, 'server.js')], {
+    env: { ...process.env, PORT: String(port), PUBLIC_DEPLOY: '', HOLDOUT_SMOKE: '', SAVES_DIR: tmp, ROOM_CAP: '', LOBBY_TTL_MS: '' },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let log = '';
+  proc.stdout.on('data', d => { log += d; });
+  proc.stderr.on('data', d => { log += d; });
+  const ready = (async () => {
+    for (let i = 0; i < 240; i++) {
+      if (log.includes('running at')) return;
+      if (proc.exitCode !== null) throw new Error('server exited early:\n' + log);
+      await sleep(25);
+    }
+    throw new Error('server boot timeout:\n' + log);
+  })();
+
+  // ws client with an inbox (same shape as testServerPublicHardening's open())
+  function open() {
+    const w = new WebSocket(`ws://127.0.0.1:${port}`);
+    const queue: any[] = [];
+    const waiters: any[] = [];
+    w.on('message', raw => {
+      let m; try { m = JSON.parse(raw as any); } catch { return; }
+      const i = waiters.findIndex(x => x.type === m.t);
+      if (i !== -1) waiters.splice(i, 1)[0].res(m);
+      else queue.push(m);
+    });
+    (w as any).expect = (type: any, ms = 4000) => {
+      const i = queue.findIndex(m => m.t === type);
+      if (i !== -1) return Promise.resolve(queue.splice(i, 1)[0]);
+      return new Promise((res, rej) => {
+        const wt: any = { type, res: null };
+        const t = setTimeout(() => {
+          const j = waiters.indexOf(wt);
+          if (j !== -1) waiters.splice(j, 1);
+          rej(new Error(`timeout waiting for '${type}' (queued: ${queue.map(m => m.t).join(',') || 'nothing'})`));
+        }, ms);
+        wt.res = (m: any) => { clearTimeout(t); res(m); };
+        waiters.push(wt);
+      });
+    };
+    (w as any).sendj = (obj: any) => w.send(JSON.stringify(obj));
+    (w as any).opened = new Promise((res, rej) => { w.on('open', () => res(w)); w.on('error', rej); });
+    return w;
+  }
+
+  const api = (p: any) => `http://127.0.0.1:${port}${p}`;
+  const gridStr = (g: any) => (g as any[]).map((r: any) => (Array.isArray(r) ? r.join('') : String(r))).join('\n');
+  const sockets: any[] = [];
+  const track = (w: any) => { sockets.push(w); return w; };
+  try {
+    await ready;
+
+    // a valid, generated COMMUNITY def: classic survival (coreless, mode
+    // undefined) so it hosts as a co-op room, NOT one of the catalog levels.
+    const customDef: any = generate('ws-community-A', { biome: 'verdance', archetype: 'centered-hold', objective: 'survival', size: 'small', difficulty: 2 });
+    customDef.name = 'Community Custom Hold'; // the client tags the published name
+    assert.equal(customDef.mode, undefined, 'a survival community def hosts as classic (mode undefined)');
+    // what the server's parsed grid will look like for this def — the wire grid
+    // the clients must receive (parseLevel strips markers to floor identically).
+    const expectGrid = gridStr(parseLevel(customDef).grid);
+    // the server's DEFAULT classic level grid — the room would play THIS if the
+    // server ignored communityDef. The custom grid must differ from it.
+    const defaultClassic = levels.find(l => l.category === 'classic');
+    const defaultGrid = gridStr(parseLevel(defaultClassic).grid);
+    assert.notEqual(expectGrid, defaultGrid, 'the community grid differs from the default classic level (test precondition)');
+
+    // --- HOST a room with the community def, JOIN a 2nd client ---------------
+    const host = await track(open()).opened;
+    host.sendj({ t: 'host', name: 'Host', mode: 'classic', communityDef: customDef });
+    await host.expect('joined');
+    const hostLobby = await host.expect('lobby');
+    assert.equal(hostLobby.levelName, 'Community Custom Hold', 'lobby labels the room by the community def name');
+    assert.equal(hostLobby.totalLevels, 1, 'a community room reports a single map (never a campaign)');
+    const code = hostLobby.room;
+
+    const joiner = await track(open()).opened;
+    joiner.sendj({ t: 'join', room: code, name: 'Joiner' });
+    await joiner.expect('joined');
+    const joinLobby = await joiner.expect('lobby');
+    assert.equal(joinLobby.levelName, 'Community Custom Hold', 'the joiner sees the same community map in the lobby');
+
+    // both pick an operative; the host deploys
+    host.sendj({ t: 'select', charId: hostLobby.roster[0] });
+    await host.expect('lobby');
+    joiner.sendj({ t: 'select', charId: joinLobby.roster[1] || joinLobby.roster[0] });
+    await host.expect('lobby'); // the select re-broadcasts the lobby to everyone
+    host.sendj({ t: 'start' });
+
+    // BOTH clients receive the level — and the SAME grid, which MATCHES the
+    // hosted community def (they load + play it identically with no client change)
+    const hostStart = await host.expect('levelStart');
+    const joinStart = await joiner.expect('levelStart');
+    assert.ok(hostStart.s && Array.isArray(hostStart.s.grid), 'host levelStart carries the full grid');
+    assert.ok(joinStart.s && Array.isArray(joinStart.s.grid), 'joiner levelStart carries the full grid');
+    const hostGrid = gridStr(hostStart.s.grid);
+    const joinGrid = gridStr(joinStart.s.grid);
+    assert.equal(hostGrid, joinGrid, 'host and joiner receive an identical grid (deterministic shared map)');
+    assert.equal(joinGrid, expectGrid, 'the joiner plays the HOSTED community def, not a built-in level');
+    assert.notEqual(joinGrid, defaultGrid, 'the played grid is NOT the server default classic level');
+    assert.equal(hostStart.s.name, 'Community Custom Hold', 'the snapshot names the community map');
+
+    // drive a few ticks so the live sim is genuinely running on the custom map
+    host.sendj({ t: 'input', inputs: { [hostLobby.players[0].pid]: { left: true } } });
+    const tick = await joiner.expect('state');
+    assert.ok(tick.s && typeof tick.s === 'object', 'the joiner receives live per-tick state on the custom map');
+    host.close();
+    joiner.close();
+    await sleep(100);
+
+    // --- REJECT: an INVALID community def is refused, no live room, no crash --
+    // a structurally-fine grid that the full validator rejects (no player spawn)
+    const bad = await track(open()).opened;
+    bad.sendj({ t: 'host', name: 'BadHost', mode: 'classic', communityDef: { tiles: ['#####', '#...#', '#####'] } });
+    const badErr = await bad.expect('error');
+    assert.ok(/invalid/i.test(badErr.error), `invalid community def host is refused (${badErr.error})`);
+    bad.close();
+    // no room was minted for the rejected host
+    const afterBad = await (await fetch(api('/api/rooms'))).json();
+    assert.ok(!Array.isArray(afterBad) || afterBad.length === 0, 'a rejected community host minted no public room');
+
+    // --- REJECT: an OVERSIZED community def is refused by the cheap caps ------
+    // over-wide grid (one past MAP_MAX_ROW_LEN=96) — trips cheapMapCaps BEFORE
+    // the validator ever runs. Kept small enough to fit the ws frame limit so
+    // it's the CAPS (not the frame size) that reject it, exercising the host
+    // path's cheap pre-check.
+    const huge = await track(open()).opened;
+    const wideRow = '#' + '.'.repeat(MAP_CHEAP_TOO_WIDE - 2) + '#'; // 120 cols > 96 cap
+    huge.sendj({ t: 'host', name: 'HugeHost', mode: 'classic', communityDef: { tiles: [wideRow, wideRow, wideRow] } });
+    const hugeErr = await huge.expect('error');
+    assert.ok(/invalid/i.test(hugeErr.error), 'oversized (over-wide) community def host is refused by the cheap caps');
+    huge.close();
+    await sleep(100);
+
+    // the server survived every rejection: a fresh normal host still works
+    assert.equal((await fetch(api('/api/levels'))).status, 200, 'server alive after invalid/oversized community hosts');
+    const survivor = await track(open()).opened;
+    survivor.sendj({ t: 'host', name: 'Plain', mode: 'classic' });
+    await survivor.expect('joined');
+    const plainLobby = await survivor.expect('lobby');
+    assert.ok(plainLobby.totalLevels > 1, 'a plain (non-community) host still resolves the built-in campaign');
+    survivor.close();
+
+    console.log('  community map online host: hosted def plays identically for the joiner; invalid/oversized rejected');
+  } finally {
+    for (const w of sockets) { try { w.terminate(); } catch { /* already closed */ } }
+    proc.kill();
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
 testEnemyShotsBlockedByStructures();
 testCoreGnawNeedsWaveOrSealedTarget();
 testCoreIntegrityCheatNullifiesCoreDamage();
@@ -10624,5 +11017,7 @@ testBastionRosterPalette();
 testBastionDirectionalEdges();
 
 await testServerPublicHardening();
+await testCommunityMapDatabase();
+await testCommunityMapOnlineHost();
 
 console.log('sim tests passed');
