@@ -13,3 +13,4 @@ node_modules/
 /public/render.js
 /public/client.js
 /shared/game.js
+/test/sim.test.js

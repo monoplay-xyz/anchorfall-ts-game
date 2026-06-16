@@ -1,3 +1,4 @@
+// @ts-nocheck — TS migration (issue #4): runtime-migrated to .ts, types pending.
 import assert from 'assert/strict';
 import fs from 'fs';
 import path from 'path';
