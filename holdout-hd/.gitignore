@@ -11,3 +11,4 @@ node_modules/
 /server.js
 /public/audio.js
 /public/render.js
+/public/client.js

@@ -1,3 +1,4 @@
+// @ts-nocheck — TS migration (issue #4): runtime-migrated to .ts, types pending.
 import { TILE, createGame, step, snapshot, applyResults, charsById, dailyChallenge } from '/shared/game.js';
 // Namespace import so optional sim features (serializeGame/restoreGame for save
 // beacons) can ship independently — accessed via gameMod.* with runtime checks.
