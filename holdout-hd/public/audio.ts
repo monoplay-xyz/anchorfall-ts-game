@@ -1,15 +1,18 @@
-// @ts-nocheck — TS migration (issue #4): runtime-migrated to .ts, types pending.
-let ctx = null;
-let master = null;
+// TS migration (issue #4): runtime-migrated to .ts.
+import type { WireEvent, Snapshot } from '../types/snapshot';
+import type { GameMode } from '../types/common';
+
+let ctx: any = null;
+let master: any = null;
 // Settings volume buses, all feeding master (so the Audio toggle still gates
 // everything): musicBus carries the ambient bed + every music-ish bed (the
 // whole amb.out field), voiceBus carries the EVA announcer + NPC dialogue
 // clips, sfxBus carries everything else (synth engine, pack cues, combat
 // vocals). Defaults 70/100/100, persisted client-side; see the exported
 // setMusicVolume/setVoiceVolume/setSfxVolume setters below.
-let musicBus = null;
-let voiceBus = null;
-let sfxBus = null;
+let musicBus: any = null;
+let voiceBus: any = null;
+let sfxBus: any = null;
 const vols = { music: 0.7, voice: 1, sfx: 1 };
 let muted = false;
 let storageKey = 'holdout.audio.muted';
@@ -17,12 +20,12 @@ let storageKey = 'holdout.audio.muted';
 function ensureAudio() {
   if (typeof window === 'undefined') return null; // headless (tests): stay silent
   if (!ctx) {
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
     if (!AudioCtx) return null;
     ctx = new AudioCtx();
     master = ctx.createGain();
     master.connect(ctx.destination);
-    const bus = v => { const g = ctx.createGain(); g.gain.value = v; g.connect(master); return g; };
+    const bus = (v: number) => { const g = ctx.createGain(); g.gain.value = v; g.connect(master); return g; };
     musicBus = bus(vols.music);
     voiceBus = bus(vols.voice);
     sfxBus = bus(vols.sfx);
@@ -36,16 +39,16 @@ function ensureAudio() {
 
 // Settings > volume rows. v in 0..1; values land before OR after the ctx is
 // born (the buses pick vols up at creation). The master toggle is unchanged.
-const vol01 = v => { const n = +v; return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 1; };
-export function setMusicVolume(v) {
+const vol01 = (v: any) => { const n = +v; return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 1; };
+export function setMusicVolume(v: number) {
   vols.music = vol01(v);
   if (musicBus) musicBus.gain.value = vols.music;
 }
-export function setVoiceVolume(v) {
+export function setVoiceVolume(v: number) {
   vols.voice = vol01(v);
   if (voiceBus) voiceBus.gain.value = vols.voice;
 }
-export function setSfxVolume(v) {
+export function setSfxVolume(v: number) {
   vols.sfx = vol01(v);
   if (sfxBus) sfxBus.gain.value = vols.sfx;
 }
@@ -60,8 +63,8 @@ export function setSfxVolume(v) {
 // hears nothing. playMusicBox is idempotent — calling it every frame while the
 // same track already loops is a no-op — so the per-frame client sync, the 4/4
 // banner cue, online late-joins and save-resume all funnel through it safely.
-let musicBoxWant = null; // the id we're trying to play, retried while loading
-let musicBoxDone = null; // id that already played its one-shot this level (no replay)
+let musicBoxWant: any = null; // the id we're trying to play, retried while loading
+let musicBoxDone: any = null; // id that already played its one-shot this level (no replay)
 
 function tryStartMusicBox() {
   if (!ctx || muted || !musicBoxWant || musicBoxBed) return;
@@ -88,7 +91,7 @@ function tryStartMusicBox() {
 
 // Begin (or keep) the restored music box loop for a level. mode is
 // 'story'|'stronghold', stem is the level file stem (e.g. 'ch01','sh13').
-export function playMusicBox(mode, stem) {
+export function playMusicBox(mode: string, stem: string) {
   if (typeof window === 'undefined') return; // headless (tests): no-op
   const id = `${mode}-${stem}`;
   if (id === musicBoxDone) return;                    // already played its one-shot this level
@@ -137,10 +140,10 @@ let cueGateAt = new Map(); // cue key -> earliest next allowed play (cooldowns)
 const CDN_MUSIC = 'https://cdn.jsdelivr.net/gh/monoplay-xyz/holdout@main/holdout-hd/public/assets/audio/';
 const IS_LOCAL = typeof location !== 'undefined' &&
   (/^(localhost|127\.|0\.0\.0\.0)/.test(location.hostname || '') || location.protocol === 'file:');
-function audioUrl(rel) {
+function audioUrl(rel: string) {
   return (rel.startsWith('music/') && !IS_LOCAL) ? CDN_MUSIC + rel : `/assets/audio/${rel}`;
 }
-function loadFile(rel) {
+function loadFile(rel: string): any {
   let f = FILES.get(rel);
   if (f) return f;
   if (!ctx || typeof fetch === 'undefined') return { state: 'missing', buf: null }; // pre-gesture / headless: uncached
@@ -163,7 +166,7 @@ function loadFile(rel) {
 // clip actually plays (so a still-loading head clip retries instead of being
 // skipped), except a confirmed-missing clip advances so a dead file can't
 // wedge its cue. Returns true when a buffer was scheduled.
-function playFile(list, key, vol = 0.5, rate = 1, dest = null) {
+function playFile(list: string[], key: string, vol = 0.5, rate = 1, dest: any = null) {
   try {
     if (!ctx || muted || !list || !list.length) return false;
     const n = seq.get(key) ?? 0;
@@ -189,7 +192,7 @@ function playFile(list, key, vol = 0.5, rate = 1, dest = null) {
 // Per-cue rate limiting so horde fights don't become a choir. The absurd-wait
 // guard heals epoch mixing: evaNow() switches clocks (performance -> ctx time)
 // when the AudioContext is born, and a pre-gesture gate must not wedge a cue.
-function cueGate(key, cd) {
+function cueGate(key: string, cd: number) {
   const t = evaNow();
   const at = cueGateAt.get(key) ?? -1;
   if (t < at && at - t < cd * 4) return false;
@@ -258,7 +261,7 @@ const DIALOGUE = {
   },
 };
 const talked = new Set(); // npcIds greeted this mission (greeting vs confirmation)
-function npcVoice(id) {
+function npcVoice(id: any) {
   let h = 0;
   const s = String(id ?? '');
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
@@ -271,7 +274,7 @@ function npcVoice(id) {
 // bus into `master`, so the Music & ambience volume scales it and the audio
 // toggle still silences it instantly. Started once, lazily, from ensureAudio
 // (which only ever runs off a user gesture or game sound).
-let amb = null;
+let amb: any = null;
 
 function startAmbient() {
   if (amb || !ctx) return;
@@ -282,7 +285,7 @@ function startAmbient() {
   bed.gain.setValueAtTime(0.0001, now);
   bed.gain.exponentialRampToValueAtTime(0.16, now + 8); // slow fade-in
   bed.connect(out);
-  const drone = (freq, type, vol) => {
+  const drone = (freq: number, type: OscillatorType, vol: number) => {
     const o = ctx.createOscillator();
     const og = ctx.createGain();
     o.type = type;
@@ -345,15 +348,15 @@ const STORY_BEDS = {
 };
 const AMBIENCES = new Set(['meadow', 'forest', 'swamp', 'ash', 'city', 'night', 'lava', 'ship']);
 
-const scene = { active: false, ambience: 'meadow', phase: 'day', blood: false, weather: 'clear', theme: null, boss: false };
+const scene: { active: boolean; ambience: string; phase: string; blood: boolean; weather: string; theme: string | null; boss: boolean } = { active: false, ambience: 'meadow', phase: 'day', blood: false, weather: 'clear', theme: null, boss: false };
 let lastSceneAt = -1e9;
-let sceneTimer = null;
-let music = null;        // { cat, src, g }
+let sceneTimer: any = null;
+let music: any = null;        // { cat, src, g }
 let musicGapUntil = 0;   // small silence between rotated tracks
-let bloodDrone = null;   // sustained dissonant pair while the moon is up
-let weatherBed = null;   // { kind, src, g } looping filtered-noise bed
-let storyBed = null;     // intro/ending one-shot bed (cutscenes, victory)
-let musicBoxBed = null;  // { id, src, g } the restored Music Box loop (easter egg)
+let bloodDrone: any = null;   // sustained dissonant pair while the moon is up
+let weatherBed: any = null;   // { kind, src, g } looping filtered-noise bed
+let storyBed: any = null;     // intro/ending one-shot bed (cutscenes, victory)
+let musicBoxBed: any = null;  // { id, src, g } the restored Music Box loop (easter egg)
 let texT = 0;            // texture scheduler clock
 let texRng = 1;          // tiny LCG for texture spacing (reseeded per mission)
 function texRand() { texRng = (texRng * 1664525 + 1013904223) >>> 0; return texRng / 4294967296; }
@@ -361,7 +364,7 @@ function texRand() { texRng = (texRng * 1664525 + 1013904223) >>> 0; return texR
 // The render loop calls this with every snapshot (or null from the menus).
 // Defensive by contract: snapshot.ambience lands from the sim this phase —
 // until then every read falls back ('meadow', clear weather, cycle-less day).
-export function setScene(snap) {
+export function setScene(snap: Snapshot | null) {
   try {
     lastSceneAt = evaNow();
     if (!snap) { sceneOff(); return; }
@@ -374,11 +377,11 @@ export function setScene(snap) {
       stopStoryBed(0.8);
     }
     scene.active = true;
-    scene.ambience = AMBIENCES.has(snap.ambience) ? snap.ambience : 'meadow';
+    scene.ambience = AMBIENCES.has(snap.ambience as string) ? snap.ambience as string : 'meadow';
     const cy = snap.cycle;
     scene.phase = cy ? cy.phase : (snap.dark ? 'night' : 'day');
     scene.blood = !!(cy && cy.bloodMoon && cy.phase === 'night');
-    const w = snap.weather ?? snap.modifiers?.weather;
+    const w = snap.weather ?? (snap as any).modifiers?.weather;
     scene.weather = (w === 'rain' || w === 'snow' || w === 'ashstorm' || w === 'fog' || w === 'thunderstorm') ? w : 'clear';
     // map theme drives a low per-theme ambient bed (see themeTick)
     scene.theme = typeof snap.theme === 'string' ? snap.theme : null;
@@ -415,7 +418,7 @@ function musicTick() {
   if (!music && want && evaNow() >= musicGapUntil && !muted) startMusic(want);
 }
 
-function startMusic(cat) {
+function startMusic(cat: keyof typeof MUSIC) {
   const list = MUSIC[cat];
   if (!list || !list.length) return;
   const key = `music-${cat}`;
@@ -462,7 +465,7 @@ function bloodTick() {
     g.gain.setValueAtTime(0.0001, ctx.currentTime);
     g.gain.exponentialRampToValueAtTime(0.035, ctx.currentTime + 2);
     g.connect(amb.out);
-    const mk = fr => { const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = fr; o.connect(g); o.start(); return o; };
+    const mk = (fr: number) => { const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = fr; o.connect(g); o.start(); return o; };
     bloodDrone = { g, oscs: [mk(66), mk(69.4)], beatAt: 0 }; // a flat semitone grinding
     playFile(CUE.bloodSting, 'bloodSting', 0.4, 1, amb.out); // the darkest sting in the pack
   } else if (!scene.blood && bloodDrone) {
@@ -501,7 +504,7 @@ function weatherTick() {
     } catch { /* fine */ }
   }
   if (!weatherBed && want && !muted) {
-    const cfg = WEATHER_BED[want];
+    const cfg = WEATHER_BED[want as keyof typeof WEATHER_BED];
     if (!cfg) return;
     const len = Math.floor(ctx.sampleRate * 2);
     const buf = ctx.createBuffer(1, len, ctx.sampleRate);
@@ -571,7 +574,7 @@ function textureTick() {
   // night tension pulse (skipped under blood moon — the heartbeat owns it)
   if (!day && !scene.blood && (texT % 2.25) < 0.25) tone(49, 0.45, 'sine', 0.028, 1.0, amb.out);
 }
-function birdChirp(f) {
+function birdChirp(f: number) {
   tone(f, 0.06, 'sine', 0.022, 1.35, amb.out);
   setTimeout(() => tone(f * 1.18, 0.05, 'sine', 0.018, 0.8, amb.out), 90);
   if (texRand() < 0.5) setTimeout(() => tone(f * 0.92, 0.07, 'sine', 0.015, 1.25, amb.out), 200);
@@ -593,7 +596,7 @@ function skitterScratch() {
 }
 
 // --- story beds: intro slide / ending payoff (one-shot, self-replacing) ----
-function playStoryBed(list, key) {
+function playStoryBed(list: string[], key: string) {
   stopStoryBed(0.4);
   if (!ctx || muted) return;
   const n = seq.get(key) ?? 0;
@@ -671,7 +674,7 @@ const EVA_LINES = {
 // The one declarative wiring table: sim event type -> line id (null = silent).
 // playEvent is the single client funnel for sim events, so hooking here wires
 // every session kind (story/bastion/classic/ctf/br) without touching client.js.
-const EVA_WIRES = {
+const EVA_WIRES: Record<string, (ev: any) => string | null> = {
   built: ev => ev.kind === 'pylon' ? 'pylon-online' : ev.kind === 'turret' ? 'turret-online' : null,
   gateOpen: () => 'anchor-open',
   dusk: () => 'nightfall',
@@ -705,13 +708,13 @@ const EVA_WIRES = {
 };
 
 const evaClips = new Map(); // id -> { state: 'loading'|'ready'|'missing', buf }
-const evaQueue = [];        // [{ id, pri, at }]
+const evaQueue: any[] = [];        // [{ id, pri, at }]
 const evaLast = new Map();  // id -> last accepted time (cooldowns)
 const evaOnce = new Set();
-let evaSpeaking = null;     // { id, src, watchdog }
+let evaSpeaking: any = null;     // { id, src, watchdog }
 let evaNextOk = 0;          // earliest time the next line may start
-let evaPumpT = null;        // pending pump timer
-let evaChain = null;        // comms filter input node
+let evaPumpT: any = null;        // pending pump timer
+let evaChain: any = null;        // comms filter input node
 
 // Monotonic seconds that also works headless (node tests have no AudioContext).
 function evaNow() {
@@ -721,7 +724,7 @@ function evaNow() {
 
 // Slight downsample: hold every 3rd sample (~14.7kHz effective at 44.1k) —
 // just enough grit to sit the voice "on the radio" without mangling it.
-function evaCrush(buf) {
+function evaCrush(buf: AudioBuffer) {
   const HOLD = 3;
   const out = ctx.createBuffer(1, buf.length, buf.sampleRate);
   const src = buf.getChannelData(0);
@@ -734,7 +737,7 @@ function evaCrush(buf) {
   return out;
 }
 
-function evaLoad(id) {
+function evaLoad(id: string): any {
   let c = evaClips.get(id);
   if (c) return c;
   c = { state: 'loading', buf: null };
@@ -771,7 +774,7 @@ function evaOut() {
   return evaChain;
 }
 
-function evaDuck(on) {
+function evaDuck(on: boolean) {
   if (!amb || !amb.out || !ctx) return;
   const g = amb.out.gain;
   g.cancelScheduledValues(ctx.currentTime);
@@ -819,9 +822,9 @@ function evaPump() {
   }
 }
 
-export function announce(id) {
+export function announce(id: string) {
   try {
-    const line = EVA_LINES[id];
+    const line: any = (EVA_LINES as any)[id];
     if (!line || muted) return;
     ensureAudio(); // no-op headless; resumes/creates the ctx in a browser
     const t = evaNow();
@@ -846,7 +849,7 @@ export function announce(id) {
   } catch { /* the announcer never breaks the game */ }
 }
 
-function evaOnEvent(ev) {
+function evaOnEvent(ev: WireEvent) {
   try {
     const wire = EVA_WIRES[ev.type];
     const id = wire && wire(ev);
@@ -854,11 +857,11 @@ function evaOnEvent(ev) {
   } catch { /* bad payloads stay silent */ }
 }
 
-function updateButton(btn) {
+function updateButton(btn: HTMLElement | null) {
   if (btn) btn.textContent = muted ? 'Audio: Off' : 'Audio: On';
 }
 
-export function setupAudioToggle(btn, key = 'holdout.audio.muted') {
+export function setupAudioToggle(btn: HTMLElement | null, key = 'holdout.audio.muted') {
   if (typeof window === 'undefined') return; // headless (tests): no DOM, no storage
   storageKey = key;
   muted = localStorage.getItem(storageKey) === '1';
@@ -877,7 +880,7 @@ export function setupAudioToggle(btn, key = 'holdout.audio.muted') {
   }
 }
 
-function tone(freq, dur, type = 'square', gain = 0.14, slide = 1, dest = null) {
+function tone(freq: number, dur: number, type: OscillatorType = 'square', gain = 0.14, slide = 1, dest: any = null) {
   const ac = ensureAudio();
   if (!ac || muted) return;
   const now = ac.currentTime;
@@ -895,7 +898,7 @@ function tone(freq, dur, type = 'square', gain = 0.14, slide = 1, dest = null) {
   osc.stop(now + dur + 0.02);
 }
 
-function noise(dur, gain = 0.12, filterFreq = 1200, dest = null) {
+function noise(dur: number, gain = 0.12, filterFreq = 1200, dest: any = null) {
   const ac = ensureAudio();
   if (!ac || muted) return;
   const len = Math.max(1, Math.floor(ac.sampleRate * dur));
@@ -927,7 +930,7 @@ function thunder(power = 1) {
   setTimeout(() => noise(0.7, 0.05 * power, 120), 180);    // tail roll
 }
 
-function shot(kind, who, ev = null) {
+function shot(kind: string, who: string, ev: any = null) {
   if (who === 'e') {
     tone(kind === 'sniper' ? 520 : 220, 0.08, 'sawtooth', 0.08, 0.55);
     return;
@@ -971,8 +974,8 @@ const GLYPH_TONES = [261.63, 293.66, 329.63, 392, 440, 523.25, 587.33, 659.25];
 // One NPC voice line, polarity-matched, twice gated (a global breath between
 // any two lines plus a per-polarity cooldown). Returns true when VO played.
 // Dialogue rides the voice bus (with EVA), not the sfx bus.
-function sayVO(pol, voice, vol = 0.55, cd = 1.2) {
-  const lines = DIALOGUE[pol]?.[voice];
+function sayVO(pol: string, voice: string, vol = 0.55, cd = 1.2) {
+  const lines = (DIALOGUE as any)[pol]?.[voice];
   if (!lines) return false;
   if (!cueGate('vo-any', 0.8) || !cueGate(`vo-${pol}`, cd)) return false;
   return playFile(lines, `vo-${pol}-${voice}`, vol, 1, voiceBus);
@@ -981,16 +984,16 @@ function sayVO(pol, voice, vol = 0.55, cd = 1.2) {
 // Additive combat-vocal flavor on top of the synth hits (never replaces the
 // arcade ticks): enemy pain/death by kind family, operator grunts, spotters
 // calling targets. Deterministic rotation + cooldown gates keep hordes sane.
-function vocalEvent(ev) {
+function vocalEvent(ev: any) {
   if (ev.type === 'hit' && ev.kind) {
-    const fam = VOX_FAM[ev.kind];
+    const fam = VOX_FAM[ev.kind as keyof typeof VOX_FAM];
     if (fam && cueGate('vox-hit', 0.3)) {
       const key = `vox-hit-${fam}`;
       playFile(fam === 'F' ? VOX.hitF : VOX.hitM, key, 0.26, 0.95 + ((seq.get(key) ?? 0) % 4) * 0.035);
     }
   } else if (ev.type === 'die' && ev.kind) {
     if (ev.kind === 'boss') { playFile(VOX.dieBig, 'vox-die-big', 0.45); return; }
-    const fam = VOX_FAM[ev.kind];
+    const fam = VOX_FAM[ev.kind as keyof typeof VOX_FAM];
     if (fam && cueGate('vox-die', 0.35)) {
       const key = `vox-die-${fam}`;
       playFile(fam === 'F' ? VOX.dieF : VOX.dieM, key, 0.32, 0.94 + ((seq.get(key) ?? 0) % 5) * 0.03);
@@ -1010,7 +1013,7 @@ function vocalEvent(ev) {
 // synth voice for that event (return true short-circuits the switch below);
 // missing/still-loading clips return false and the synth covers, so the game
 // sounds right on the very first chest of a fresh cache.
-function assetEvent(ev) {
+function assetEvent(ev: any) {
   switch (ev.type) {
     case 'chest': return playFile(CUE.chest, 'chest', 0.5);
     case 'buy': return playFile(CUE.buy, 'buy', 0.42);
@@ -1050,7 +1053,7 @@ function assetEvent(ev) {
   return false;
 }
 
-export function playEvent(ev) {
+export function playEvent(ev: any) {
   if (muted) return;
   evaOnEvent(ev); // EVA announcer rides the same funnel as the sfx
   try {
@@ -1536,7 +1539,7 @@ export function playEvent(ev) {
   // unknown event types stay silent, never throw
 }
 
-export function playUi(kind) {
+export function playUi(kind: string) {
   if (muted) return;
   if (kind === 'clear' || kind === 'victory') {
     tone(392, 0.09, 'triangle', 0.09, 1.05);
