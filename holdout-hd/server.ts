@@ -293,6 +293,7 @@ const rankRateLimited = (ip: string) => rateLimited(rankPostLog, ip, 10, 60000) 
 const mapPublishLog = new Map<string, number[]>();
 const mapPublishDayLog = new Map<string, number[]>();
 const mapPlayLog = new Map<string, number[]>();
+const mapPlayDayLog = new Map<string, number[]>();
 const mapBrowseLog = new Map<string, number[]>();
 // publish budget is env-tunable (ops can loosen it; the API test raises it so a
 // single run isn't throttled). Defaults stay tight: 6/min + 60/day per IP.
@@ -638,7 +639,7 @@ app.get('/api/maps/:id', async (req, res) => {
 app.post('/api/maps/:id/play', async (req, res) => {
   const ip = req.ip || req.socket?.remoteAddress || '?';
   // clamp the play-count spam: 30/min + 600/day per IP across all maps
-  if (rateLimited(mapPlayLog, ip, 30, 60000)) return res.status(429).json({ error: 'rate limited' });
+  if (rateLimited(mapPlayLog, ip, 30, 60000) || rateLimited(mapPlayDayLog, ip, 600, 86400000)) return res.status(429).json({ error: 'rate limited' });
   const id = String(req.params.id || '');
   if (!/^[a-z0-9-]{1,64}$/.test(id)) return res.status(400).json({ error: 'bad id' });
   try {
