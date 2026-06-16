@@ -701,3 +701,74 @@ button.ghost.navfocus { color: #eaf6ff; }
   .mb-layout { grid-template-columns: 1fr; }
   .mb-layout .panel { max-height: none; }
 }
+
+/* ---------- frame-loop error surface ----------
+   Shown by client.ts when the render/tick frame-loop catch fires (once per
+   distinct error). Sits above everything; the card itself catches pointer
+   events but input polling keeps running, so the game stays playable. */
+#frameError {
+  position: absolute; inset: 0; z-index: 90;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(6, 9, 14, .72); padding: 4vh 3vw;
+  pointer-events: none; /* the backdrop never steals pad/keyboard input */
+}
+#frameError .fe-card {
+  pointer-events: auto;
+  max-width: 760px; width: 100%; max-height: 86vh; overflow: auto;
+  background: rgba(18, 8, 12, .96);
+  border: 1px solid rgba(224, 72, 72, .7);
+  border-radius: 6px; padding: 18px 22px;
+  box-shadow: 0 0 40px rgba(224, 72, 72, .35);
+  font-family: ui-monospace, Menlo, monospace;
+}
+#frameError .fe-title {
+  color: #FF5A66; font-weight: 800; letter-spacing: 4px; font-size: 18px;
+  text-shadow: 0 0 14px rgba(224, 72, 72, .6); margin-bottom: 10px;
+}
+#frameError .fe-msg {
+  color: #ffe0e4; font-size: 14px; line-height: 1.5; word-break: break-word;
+  white-space: pre-wrap; margin-bottom: 10px;
+}
+#frameError .fe-stack {
+  color: #b8c2d0; font-size: 11px; line-height: 1.45;
+  background: rgba(255, 255, 255, .04); border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 4px; padding: 8px 10px; margin: 0 0 12px;
+  white-space: pre-wrap; word-break: break-word; max-height: 38vh; overflow: auto;
+}
+#frameError .fe-hint {
+  color: #8fd6c4; font-size: 12px; letter-spacing: 2px; text-transform: uppercase;
+}
+
+/* ---------- controller diagnostic (Settings > Input Remapping) ----------
+   Lists each connected pad (index -> seat, detected type) and live-highlights
+   the button/axis currently pressed. Repainted only when its signature changes
+   (cheap from the frame loop while the remap page is open). */
+#padDiag {
+  margin: 10px 0 4px; padding: 10px 12px;
+  background: rgba(255, 255, 255, .03);
+  border: 1px solid rgba(54, 160, 138, .28); border-radius: 5px;
+}
+#padDiag .pd-head {
+  font-size: 11px; letter-spacing: 2px; color: #8fd6c4; text-transform: uppercase;
+  margin-bottom: 8px;
+}
+#padDiag .pd-sub { color: #7d8aa0; letter-spacing: 1px; margin-left: 8px; text-transform: none; }
+#padDiagBody .pd-pad { margin-bottom: 10px; }
+#padDiagBody .pd-pad:last-child { margin-bottom: 0; }
+#padDiagBody .pd-none { color: #9aa6ba; font-size: 12px; }
+#padDiagBody .pd-title { font-size: 12px; color: #eaf2ff; margin-bottom: 5px; }
+#padDiagBody .pd-title b { color: #FFD98A; }
+#padDiagBody .pd-title .pd-type { color: #8fd6c4; font-size: 11px; margin-left: 6px; }
+#padDiagBody .pd-btns { display: flex; flex-wrap: wrap; gap: 4px; }
+#padDiagBody .pd-btn {
+  min-width: 30px; padding: 3px 6px; text-align: center;
+  font-size: 10px; font-family: ui-monospace, Menlo, monospace;
+  border-radius: 3px; background: rgba(255, 255, 255, .05);
+  border: 1px solid rgba(255, 255, 255, .1); color: #aeb8c8;
+}
+#padDiagBody .pd-btn.on {
+  background: rgba(54, 160, 138, .8); border-color: #5fe0c0; color: #06120f;
+  box-shadow: 0 0 8px rgba(95, 224, 192, .6); font-weight: 800;
+}
+#padDiagBody .pd-axes { margin-top: 4px; font-size: 10px; color: #8a96aa; font-family: ui-monospace, Menlo, monospace; }
+#padDiagBody .pd-axes .pd-ax.on { color: #5fe0c0; font-weight: 800; }

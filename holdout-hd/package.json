@@ -10,7 +10,7 @@
     "prestart": "node scripts/build.js",
     "start": "node server.js",
     "pretest": "node scripts/build.js",
-    "test": "node test/sim.test.js",
+    "test": "node test/sim.test.js && node test/frame-error.test.js",
     "gen-assets": "node scripts/gen-assets.js",
     "gen-expedition": "node scripts/gen-expedition.js",
     "build-static": "node scripts/build.js && node scripts/build-static.js"

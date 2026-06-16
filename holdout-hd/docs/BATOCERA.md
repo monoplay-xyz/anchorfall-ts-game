@@ -53,6 +53,11 @@ The game uses the browser Gamepad API — pads just work, including DualSense
 full-map overlay is fog-of-war aware — it only shows territory the squad has
 explored.
 
+See [`CONTROLLERS.md`](CONTROLLERS.md) for the Auto glyph-detection table, the
+press-any-button remap diagnostic, the visible frame-loop error surface, and the
+fast in-place console content update (`scripts/console-update.sh`) that skips a
+full AppImage rebuild — plus the hardware items still deferred to the console.
+
 These are the defaults. **Settings → Input remapping** rebinds any action per
 device (each keyboard seat and the shared gamepad layout): pick the action,
 press the new button, done — bindings persist in the browser, with a one-press
