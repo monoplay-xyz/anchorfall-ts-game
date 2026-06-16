@@ -3,7 +3,10 @@ saves
 desktop
 test
 docs
-scripts
+# scripts/ holds dev-only map/asset generators + playtests, but build.js is the
+# TS transpile step the Dockerfile runs (npm run build) — it MUST be uploaded.
+scripts/*
+!scripts/build.js
 *.md
 *.map
 .DS_Store
