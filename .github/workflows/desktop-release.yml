@@ -44,13 +44,21 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install game deps (express, ws)
+      # devDeps (esbuild/typescript) are needed to transpile the TS game sources.
+      - name: Install game deps
         working-directory: holdout-hd
-        run: npm install --omit=dev --no-audit --no-fund
+        run: npm install --no-audit --no-fund
 
       - name: Install desktop deps
         working-directory: holdout-hd/desktop
         run: npm install --no-audit --no-fund
+
+      # Transpile the game .ts -> sibling .js (server.js, public/*.js, shared/*.js)
+      # BEFORE electron-builder bundles them into Resources/game. Without this the
+      # AppImage would ship raw .ts the Electron renderer can't run.
+      - name: Build the TS game
+        working-directory: holdout-hd
+        run: npm run build
 
       # Bundle this runner's Node binary (correct OS + arch) into runtime/ so the
       # SDL controller sidecar has a real Node to run under inside the app.
