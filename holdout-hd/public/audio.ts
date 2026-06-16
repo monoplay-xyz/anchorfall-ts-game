@@ -1,3 +1,4 @@
+// @ts-nocheck — TS migration (issue #4): runtime-migrated to .ts, types pending.
 let ctx = null;
 let master = null;
 // Settings volume buses, all feeding master (so the Audio toggle still gates

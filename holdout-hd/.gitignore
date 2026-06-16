@@ -9,3 +9,4 @@ node_modules/
 /shared/music-durations.js
 /auth.js
 /server.js
+/public/audio.js
