@@ -630,3 +630,68 @@ button.ghost.navfocus { color: #eaf6ff; }
 /* story level-select: a compact scrollable grid of chapter buttons */
 .chapterList { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; max-height: 44vh; overflow-y: auto; margin: 8px 0; }
 .chapterList button { margin: 0; width: 100%; }
+
+/* ===========================================================================
+   MAP BUILDER (issue #5) — a wide, three-column authoring page that overrides
+   the narrow centered .mpage layout: palette | canvas+preview | def panel.
+   =========================================================================== */
+.mpage.mbuilder { width: 100%; max-width: 1220px; align-items: stretch; text-align: left; }
+.mpage.mbuilder > h2, .mpage.mbuilder > .tag { text-align: center; }
+.mb-layout {
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr) 270px;
+  gap: 14px;
+  align-items: start;
+  width: 100%;
+}
+.mb-layout .panel { padding: 12px; margin: 0; max-height: 70vh; overflow-y: auto; }
+.mb-palette-groups { display: flex; flex-direction: column; gap: 9px; }
+.mb-pgroup-title { color: #8A98B8; font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; margin: 2px 0; }
+.mb-swatches { display: flex; flex-wrap: wrap; gap: 4px; }
+.mb-swatch {
+  width: 26px; height: 26px; border-radius: 3px; cursor: pointer;
+  border: 1px solid rgba(255,255,255,.14);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 800; color: #e8f0ff;
+  text-shadow: 0 1px 2px rgba(0,0,0,.8); padding: 0; width: 26px; min-width: 0;
+}
+.mb-swatch.sel { border-color: var(--teal, #6fd8f2); box-shadow: 0 0 0 2px rgba(111,216,242,.5); }
+.mb-selrow { margin-top: 10px; color: #c2cde0; font-size: 12px; }
+.mb-selrow .mb-selch { font-family: monospace; background: rgba(255,255,255,.1); padding: 1px 6px; border-radius: 3px; }
+
+.mb-center { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.mb-canvaswrap, .mb-previewwrap { background: rgba(8,10,16,.7); border: 1px solid rgba(54,160,138,.25); border-radius: 5px; padding: 8px; }
+#mbGrid { width: 100%; height: auto; display: block; image-rendering: pixelated; cursor: crosshair; background: #06070e; }
+#mbPreview { width: 100%; height: auto; display: block; background: #06070e; border-radius: 4px; }
+.mb-gridctl { flex-wrap: wrap; }
+.mb-gridctl label { color: #c2cde0; font-size: 12px; display: flex; align-items: center; gap: 4px; }
+.mb-gridctl input { width: 52px; }
+.mb-gridctl button { width: auto; padding: 8px 14px; font-size: 12px; }
+.mb-previewwrap .ptitle { margin-bottom: 6px; }
+.mb-note { color: var(--amber, #f0a93c); font-size: 12px; margin-top: 6px; min-height: 16px; }
+
+.mb-def .mb-field { margin: 7px 0; }
+.mb-def label { display: flex; flex-direction: column; gap: 3px; color: #8A98B8; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; }
+.mb-def input, .mb-def select { font-size: 13px; }
+.mb-subpanel { border-top: 1px solid rgba(255,255,255,.08); margin-top: 8px; padding-top: 6px; }
+.mb-subpanel .ptitle { font-size: 11px; }
+.mb-hint { color: #5E6B8C; font-size: 11px; line-height: 1.5; margin: 4px 0; text-transform: none; letter-spacing: 0; }
+.mb-actions { display: flex; gap: 8px; margin-top: 12px; }
+.mb-actions button { width: auto; flex: 1; padding: 9px 0; font-size: 13px; }
+.mb-problems { margin-top: 10px; font-size: 12px; line-height: 1.5; max-height: 160px; overflow-y: auto; }
+.mb-problems .ok { color: #7adf8a; }
+.mb-problems .bad { color: #e0556a; }
+.mb-problems ul { margin: 4px 0 0; padding-left: 18px; }
+.mb-problems li { color: #d99; margin: 2px 0; }
+
+/* form controls inside the builder share the input look used elsewhere */
+.mbuilder input[type="text"], .mbuilder input[type="number"], .mbuilder select {
+  background: rgba(255,255,255,.06); border: 1px solid rgba(54,160,138,.3);
+  border-radius: 3px; color: #eaf2ff; padding: 6px 8px; font-family: inherit; width: 100%;
+}
+.mbuilder select { cursor: pointer; }
+
+@media (max-width: 980px) {
+  .mb-layout { grid-template-columns: 1fr; }
+  .mb-layout .panel { max-height: none; }
+}

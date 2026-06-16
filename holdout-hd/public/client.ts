@@ -25,6 +25,16 @@ import { render, renderMinimap, addEventFX, initTextures, drawPortrait, drawWeap
 // ship independently — accessed via renderMod.* with runtime existence checks.
 import * as renderMod from './render.js';
 import { playEvent, playUi, setupAudioToggle, setMusicVolume, setVoiceVolume, setSfxVolume, playMusicBox, stopMusicBox } from './audio.js';
+// Map Builder (issue #5): the PURE assembly core + palette live in mapBuilder.ts
+// (DOM-free, node-smokeable); validateLevelDef is the shared validate-before-save
+// gate. Both are plain value imports — the editor shell below is the thin UI.
+import {
+  PALETTE, THEME_KEYS, BUILDER_MODES, BUILDER_OBJECTIVES, DIFFICULTIES, SIZE_LABELS,
+  GRID_MIN, GRID_MAX, TILE_BY_CHAR, emptyBuilderState, builderStateToLevelDef,
+  paintCell, resizeGrid, applyBorder, blankGrid,
+} from './mapBuilder.js';
+import type { BuilderState, BuilderMode, BuilderObjective } from './mapBuilder.js';
+import { validateLevelDef } from '/shared/mapValidate.js';
 
 // build-static.js rewrites the quoted /api/levels literal below to a relative
 // ./levels.json — that rewrite doubles as the static-build marker: no server
@@ -4190,6 +4200,314 @@ async function cmLaunch(summary: any, online: boolean) {
   session.lobby();
 }
 
+// ===========================================================================
+// MAP BUILDER (issue #5, Stage A) — the thin canvas/panel SHELL.
+//
+// All LevelDef assembly lives in the PURE builderStateToLevelDef() (mapBuilder.ts);
+// this shell only: (1) maintains `mbState`, (2) paints the grid canvas + handles
+// click/drag paint, (3) binds the def panel inputs, (4) drives the LIVE PREVIEW
+// through the REAL renderer (createGame -> snapshot -> drawFullMap, wrapped in
+// try/catch so an invalid in-progress def shows the raw grid + a note instead of
+// crashing), and (5) gates Export on validateLevelDef ok:true.
+// ===========================================================================
+let mbState: BuilderState | null = null;
+let mbSelTile = '.';            // the currently-selected palette char
+let mbPainting = false;        // mouse-down drag paint in progress
+let mbInited = false;          // one-time DOM wiring guard
+// a real character id to bind to captive ('c') tiles so the def fully validates
+const mbCaptiveCharId = startingRoster[0] || (characters[0] && characters[0].id);
+const mbAssembleCtx = { captiveCharId: mbCaptiveCharId };
+
+function mbDef(): any {
+  // assemble from the current state — the single source for preview + validate + export
+  return builderStateToLevelDef(mbState as BuilderState, mbAssembleCtx);
+}
+
+// ---- one-time wiring: build the palette + panel selects, bind every control ----
+function mbInit(): void {
+  if (mbInited) return;
+  mbInited = true;
+  mbState = emptyBuilderState(16, 12);
+  mbSelTile = '.';
+
+  // PALETTE — grouped swatches; click selects the paint tile
+  const pal = $('mbPalette');
+  pal.innerHTML = '';
+  for (const grp of PALETTE) {
+    const gt = document.createElement('div');
+    gt.className = 'mb-pgroup-title';
+    gt.textContent = grp.group;
+    pal.appendChild(gt);
+    const row = document.createElement('div');
+    row.className = 'mb-swatches';
+    for (const t of grp.tiles) {
+      const sw = document.createElement('button');
+      sw.type = 'button';
+      sw.className = 'mb-swatch';
+      sw.style.background = t.color;
+      sw.textContent = t.ch === '.' ? '·' : t.ch;
+      sw.title = `${t.name} (${t.ch})`;
+      sw.dataset.ch = t.ch;
+      sw.onclick = (e: any) => { e.currentTarget.blur(); mbSelectTile(t.ch); };
+      row.appendChild(sw);
+    }
+    pal.appendChild(row);
+  }
+  mbSelectTile('.');
+
+  // DEF PANEL selects
+  fillSelect('mbMode', BUILDER_MODES.map((m) => [m, mbModeLabel(m)]));
+  fillSelect('mbTheme', THEME_KEYS.map((t) => [t, t]));
+  fillSelect('mbObjective', BUILDER_OBJECTIVES.map((o) => [o, o === 'none' ? 'None' : o]));
+  fillSelect('mbDifficulty', DIFFICULTIES.map((d) => [String(d), String(d)]));
+  fillSelect('mbSize', SIZE_LABELS.map((s) => [s, s]));
+
+  // initial values from state
+  ($('mbName') as HTMLInputElement).value = mbState.name;
+  ($('mbMode') as HTMLSelectElement).value = mbState.mode;
+  ($('mbTheme') as HTMLSelectElement).value = String(mbState.theme);
+  ($('mbObjective') as HTMLSelectElement).value = mbState.objective;
+  ($('mbDifficulty') as HTMLSelectElement).value = String(mbState.difficulty);
+  ($('mbSize') as HTMLSelectElement).value = mbState.sizeLabel;
+  ($('mbW') as HTMLInputElement).value = String(mbState.grid[0].length);
+  ($('mbH') as HTMLInputElement).value = String(mbState.grid.length);
+  ($('mbNights') as HTMLInputElement).value = String(mbState.bastion.nights);
+  ($('mbWavesPerNight') as HTMLInputElement).value = String(mbState.bastion.wavesPerNight);
+  ($('mbBloodMoons') as HTMLInputElement).value = mbState.bastion.bloodMoons.join(',');
+  ($('mbRoster') as HTMLInputElement).value = mbState.bastion.roster.join('');
+  ($('mbEdges') as HTMLInputElement).value = mbState.bastion.edges.join(',');
+
+  // --- bind panel inputs back into state (each edit re-previews) ---
+  $('mbName').oninput = (e: any) => { mbState!.name = e.target.value; mbAfterEdit(false); };
+  $('mbMode').onchange = (e: any) => { mbState!.mode = e.target.value as BuilderMode; mbSyncPanelVis(); mbAfterEdit(); };
+  $('mbTheme').onchange = (e: any) => { mbState!.theme = e.target.value; mbAfterEdit(); };
+  $('mbObjective').onchange = (e: any) => { mbState!.objective = e.target.value as BuilderObjective; mbSyncPanelVis(); mbAfterEdit(); };
+  $('mbDifficulty').onchange = (e: any) => { mbState!.difficulty = e.target.value; mbAfterEdit(); };
+  $('mbSize').onchange = (e: any) => { mbState!.sizeLabel = e.target.value; mbAfterEdit(false); };
+  $('mbCapRadius').oninput = (e: any) => { mbState!.capture.radius = +e.target.value; mbAfterEdit(); };
+  $('mbCapDuration').oninput = (e: any) => { mbState!.capture.duration = +e.target.value; mbAfterEdit(); };
+  $('mbGateNeed').oninput = (e: any) => { mbState!.gate.need = +e.target.value; mbAfterEdit(); };
+  $('mbNights').oninput = (e: any) => { mbState!.bastion.nights = +e.target.value; mbAfterEdit(); };
+  $('mbWavesPerNight').oninput = (e: any) => { mbState!.bastion.wavesPerNight = +e.target.value; mbAfterEdit(); };
+  $('mbBloodMoons').oninput = (e: any) => { mbState!.bastion.bloodMoons = parseCsvInts(e.target.value); mbAfterEdit(); };
+  $('mbRoster').oninput = (e: any) => { mbState!.bastion.roster = e.target.value.split('').filter((c: string) => c.trim()); mbAfterEdit(); };
+  $('mbEdges').oninput = (e: any) => { mbState!.bastion.edges = e.target.value.split(/[,\s]+/).filter((c: string) => 'nsew'.includes(c)); mbAfterEdit(); };
+
+  // grid controls
+  $('mbResize').onclick = (e: any) => {
+    e.currentTarget.blur();
+    const w = clampI(+($('mbW') as HTMLInputElement).value, GRID_MIN, GRID_MAX);
+    const h = clampI(+($('mbH') as HTMLInputElement).value, GRID_MIN, GRID_MAX);
+    mbState!.grid = resizeGrid(mbState!.grid, w, h);
+    ($('mbW') as HTMLInputElement).value = String(w);
+    ($('mbH') as HTMLInputElement).value = String(h);
+    mbAfterEdit();
+  };
+  $('mbBorder').onclick = (e: any) => { e.currentTarget.blur(); mbState!.grid = applyBorder(mbState!.grid, '#'); mbAfterEdit(); };
+  $('mbClear').onclick = (e: any) => {
+    e.currentTarget.blur();
+    mbState!.grid = blankGrid(mbState!.grid[0].length, mbState!.grid.length);
+    mbAfterEdit();
+  };
+
+  // validate + export actions
+  $('mbValidate').onclick = (e: any) => { e.currentTarget.blur(); mbRunValidate(); };
+  $('mbExport').onclick = (e: any) => { e.currentTarget.blur(); mbExport(); };
+
+  // --- canvas paint: click + drag, mapped from CSS pixels to tile coords ---
+  const cv = $('mbGrid') as HTMLCanvasElement;
+  const paintAt = (ev: MouseEvent) => {
+    const rect = cv.getBoundingClientRect();
+    const w = mbState!.grid[0].length, h = mbState!.grid.length;
+    const tx = Math.floor(((ev.clientX - rect.left) / rect.width) * w);
+    const ty = Math.floor(((ev.clientY - rect.top) / rect.height) * h);
+    const next = paintCell(mbState!.grid, tx, ty, mbSelTile);
+    if (next !== mbState!.grid) { mbState!.grid = next; mbDrawGrid(); mbSchedulePreview(); }
+  };
+  cv.onmousedown = (ev: MouseEvent) => { mbPainting = true; paintAt(ev); };
+  cv.onmousemove = (ev: MouseEvent) => { if (mbPainting) paintAt(ev); };
+  window.addEventListener('mouseup', () => { if (mbPainting) { mbPainting = false; mbRunValidate(); } });
+}
+
+function mbModeLabel(m: BuilderMode): string {
+  return ({ bastion: 'Stronghold (bastion)', story: 'Story', siege: 'Siege (MOBA)', ctf: 'CTF', br: 'Battle Royale', family: 'Family' } as any)[m] || m;
+}
+function fillSelect(id: string, pairs: [string, string][]): void {
+  const sel = $(id) as HTMLSelectElement;
+  sel.innerHTML = '';
+  for (const [val, label] of pairs) {
+    const o = document.createElement('option');
+    o.value = val; o.textContent = label;
+    sel.appendChild(o);
+  }
+}
+function parseCsvInts(s: string): number[] {
+  return String(s).split(/[,\s]+/).map((p) => parseInt(p, 10)).filter((n) => Number.isInteger(n));
+}
+function clampI(v: number, lo: number, hi: number): number { return Math.max(lo, Math.min(hi, Math.round(v || 0))); }
+
+function mbSelectTile(ch: string): void {
+  mbSelTile = ch;
+  const t = TILE_BY_CHAR[ch];
+  $('mbSelName').textContent = t ? t.name : ch;
+  $('mbSelChar').textContent = ch;
+  for (const sw of document.querySelectorAll('#mbPalette .mb-swatch') as any) {
+    sw.classList.toggle('sel', sw.dataset.ch === ch);
+  }
+}
+
+// show/hide the objective-param + bastion sub-panels for the current selection
+function mbSyncPanelVis(): void {
+  const obj = mbState!.objective;
+  $('mbCaptureParams').hidden = obj !== 'capture';
+  $('mbGateParams').hidden = obj !== 'gate';
+  $('mbEscortNote').hidden = obj !== 'escort';
+  $('mbBastionParams').hidden = mbState!.mode !== 'bastion';
+}
+
+// open the page: lazy-init, sync panel visibility, paint + preview + validate
+function openMapBuilder(): void {
+  mbInit();
+  mbSyncPanelVis();
+  mbDrawGrid();
+  mbSchedulePreview();
+  mbRunValidate();
+}
+
+// after any state edit: repaint the grid, schedule a preview, refresh validation.
+// `reValidate` defaults true; text typing (name) passes false to stay snappy.
+function mbAfterEdit(reValidate = true): void {
+  mbDrawGrid();
+  mbSchedulePreview();
+  if (reValidate) mbRunValidate();
+}
+
+// ---- paint the editable ASCII grid onto #mbGrid (chunky swatches + glyphs) ----
+function mbDrawGrid(): void {
+  const cv = $('mbGrid') as HTMLCanvasElement;
+  const ctx = cv.getContext('2d')!;
+  const grid = mbState!.grid;
+  const w = grid[0].length, h = grid.length;
+  const cell = Math.max(6, Math.floor(Math.min(cv.width / w, cv.height / h)));
+  const gw = cell * w, gh = cell * h;
+  const ox = Math.floor((cv.width - gw) / 2), oy = Math.floor((cv.height - gh) / 2);
+  ctx.fillStyle = '#06070e';
+  ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `${Math.floor(cell * 0.62)}px monospace`;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const ch = grid[y][x];
+      const t = TILE_BY_CHAR[ch];
+      ctx.fillStyle = t ? t.color : '#1c242b';
+      ctx.fillRect(ox + x * cell, oy + y * cell, cell - 1, cell - 1);
+      // draw the glyph for any non-floor marker so structure/enemy/objective reads
+      if (ch !== '.' && ch !== ',' && ch !== ':' && ch !== ';' && ch !== '_') {
+        ctx.fillStyle = 'rgba(232,240,255,0.92)';
+        ctx.fillText(ch, ox + x * cell + cell / 2, oy + y * cell + cell / 2);
+      }
+    }
+  }
+  // grid lines for paint precision
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x <= w; x++) { ctx.beginPath(); ctx.moveTo(ox + x * cell + 0.5, oy); ctx.lineTo(ox + x * cell + 0.5, oy + gh); ctx.stroke(); }
+  for (let y = 0; y <= h; y++) { ctx.beginPath(); ctx.moveTo(ox, oy + y * cell + 0.5); ctx.lineTo(ox + gw, oy + y * cell + 0.5); ctx.stroke(); }
+}
+
+// ---- LIVE PREVIEW via the REAL renderer (debounced) ----
+let mbPreviewTimer: any = null;
+function mbSchedulePreview(): void {
+  if (mbPreviewTimer) clearTimeout(mbPreviewTimer);
+  mbPreviewTimer = setTimeout(mbDrawPreview, 120);
+}
+function mbDrawPreview(): void {
+  const cv = $('mbPreview') as HTMLCanvasElement;
+  const ctx = cv.getContext('2d')!;
+  const note = $('mbPreviewNote');
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  try {
+    if (!texturesReady) ensureTextures();
+    const def = mbDef();
+    // build a throwaway game from the in-progress def, snapshot it, and draw the
+    // whole map fit-to-canvas with the real cartographic renderer. drawFullMap
+    // with mask=null shows the entire map (no fog) — ideal for an author preview.
+    const g = createGame(def, [{ pid: 0, name: 'A', charId: mbCaptiveCharId }], charMap,
+      startingRoster.length ? startingRoster : (mbCaptiveCharId ? [mbCaptiveCharId] : []));
+    const snap = snapshot(g);
+    if (typeof renderMod.drawFullMap === 'function') {
+      renderMod.drawFullMap(ctx, snap, null, [], {});
+    } else {
+      mbDrawPreviewFallback(ctx, cv);
+    }
+    note.hidden = true;
+  } catch {
+    // invalid in-progress def: show the raw painted grid + a fix-errors note
+    // instead of crashing the page.
+    mbDrawPreviewFallback(ctx, cv);
+    note.hidden = false;
+    note.textContent = 'Preview unavailable — fix errors to preview (raw grid shown).';
+  }
+}
+// fallback: a plain swatch render of the raw painted grid (no sim needed)
+function mbDrawPreviewFallback(ctx: CanvasRenderingContext2D, cv: HTMLCanvasElement): void {
+  const grid = mbState!.grid;
+  const w = grid[0].length, h = grid.length;
+  const cell = Math.max(2, Math.floor(Math.min(cv.width / w, cv.height / h)));
+  const ox = Math.floor((cv.width - cell * w) / 2), oy = Math.floor((cv.height - cell * h) / 2);
+  ctx.fillStyle = '#06070e';
+  ctx.fillRect(0, 0, cv.width, cv.height);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const t = TILE_BY_CHAR[grid[y][x]];
+    ctx.fillStyle = t ? t.color : '#1c242b';
+    ctx.fillRect(ox + x * cell, oy + y * cell, cell, cell);
+  }
+}
+
+// ---- validate-before-save: run validateLevelDef, paint problems, gate Export ----
+function mbRunValidate(): { ok: boolean; problems: string[] } {
+  const box = $('mbProblems');
+  const exportBtn = $('mbExport') as HTMLButtonElement;
+  let res: { ok: boolean; problems: string[] };
+  try {
+    res = validateLevelDef(mbDef(), { charMap, characters });
+  } catch (e: any) {
+    res = { ok: false, problems: ['validator threw: ' + (e && e.message || e)] };
+  }
+  if (res.ok) {
+    box.innerHTML = '<span class="ok">&#10003; Valid — ready to export.</span>';
+    exportBtn.disabled = false;
+  } else {
+    box.innerHTML = `<span class="bad">&#10007; ${res.problems.length} problem(s):</span>`
+      + '<ul>' + res.problems.slice(0, 40).map((p) => `<li>${escapeHtml(p)}</li>`).join('') + '</ul>';
+    exportBtn.disabled = true;
+  }
+  return res;
+}
+function escapeHtml(s: string): string {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as any)[c]);
+}
+
+// ---- export: re-validate (block on !ok), then download the LevelDef as .json ----
+function mbExport(): void {
+  const res = mbRunValidate();
+  if (!res.ok) { playUi('locked'); return; } // BLOCKED until ok:true
+  const def = mbDef();
+  const json = JSON.stringify(def, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const safe = String(mbState!.name || 'map').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'map';
+  a.href = url;
+  a.download = `${safe}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  playUi('select');
+}
+
 // ---------- menu pages (MAIN / SINGLEPLAYER / VERSUS / ONLINE / SETTINGS /
 // REMAP / STRONGHOLD SELECT / BROWSE) — DOM screens inside #menu, pad-navigable ----
 const MENU_PARENT: Record<string, any> = {
@@ -4199,6 +4517,7 @@ const MENU_PARENT: Record<string, any> = {
   pageSettings: 'pageMain', pageRemap: 'pageSettings', pageSh: 'pageSingle',
   pageRank: 'pageMain', pageRankBoard: 'pageRank', pageBrowse: 'pageOnline',
   pageOperators: 'pageMain', pageAccount: 'pageSettings', pageCommunity: 'pagePlay',
+  pageBuilder: 'pagePlay',
 };
 let menuPageId = 'pageMain';
 let shPurpose = 'local'; // why the level select is open: 'local' | 'host'
@@ -4219,6 +4538,7 @@ function showMenuPage(id: any) {
   if (id === 'pageBrowse') startBrowse();         // 5s auto-refresh while open
   else stopBrowse();
   if (id === 'pageCommunity') startCommunity();   // fetch the first page of maps
+  if (id === 'pageBuilder') openMapBuilder();      // lazy-init the editor + paint a frame
   if (id === 'pageOperators') renderOperators();
   // re-trigger the entrance animation on the page that just became visible
   const pg = $(id);
@@ -4582,6 +4902,8 @@ $('btnTutorial').onclick = (e: any) => { e.currentTarget.blur(); startTutorial()
 $('btnBrowse').onclick = (e: any) => { e.currentTarget.blur(); showMenuPage('pageBrowse'); };
 // Community Maps: open the browser; filter/sort cyclers step on click + LEFT/RIGHT
 $('btnCommunity').onclick = (e: any) => { e.currentTarget.blur(); showMenuPage('pageCommunity'); };
+// Map Builder: open the visual editor (issue #5)
+$('btnMapBuilder').onclick = (e: any) => { e.currentTarget.blur(); showMenuPage('pageBuilder'); };
 $('btnCmBiome').onclick = (e: any) => { e.currentTarget.blur(); cmCycle('biome', 1); };
 $('btnCmObjective').onclick = (e: any) => { e.currentTarget.blur(); cmCycle('objective', 1); };
 $('btnCmMode').onclick = (e: any) => { e.currentTarget.blur(); cmCycle('mode', 1); };

@@ -237,6 +237,8 @@
           <button id="btnRandomMap">Random Map &mdash; Surprise Me</button>
           <!-- community maps: browse player-published levels and play them solo/couch -->
           <button id="btnCommunity">Community Maps</button>
+          <!-- visual map builder: author/edit a LevelDef without hand-writing JSON (issue #5) -->
+          <button id="btnMapBuilder">Map Builder</button>
           <button class="ghost mback">Back</button>
         </div>
 
@@ -448,6 +450,80 @@
           <button id="btnRankSort" class="ghost">Sort: Score</button>
           <div id="rankTable"></div>
           <button class="ghost mback" data-back="pageRank">Back</button>
+        </div>
+
+        <!-- MAP BUILDER — visual grid editor + live validation + export (issue #5) -->
+        <div class="mpage mbuilder" id="pageBuilder" hidden>
+          <h2>Map Builder</h2>
+          <p class="tag">paint a map &mdash; validate &mdash; export a LevelDef .json</p>
+          <div class="mb-layout">
+            <!-- LEFT: the tile palette, grouped per the authoring contract -->
+            <aside class="mb-palette panel">
+              <div class="ptitle">PALETTE</div>
+              <div id="mbPalette" class="mb-palette-groups"></div>
+              <div class="mb-selrow">Selected: <b id="mbSelName">Floor</b> <span id="mbSelChar" class="mb-selch">.</span></div>
+            </aside>
+
+            <!-- CENTER: the paint canvas + live preview + grid controls -->
+            <section class="mb-center">
+              <div class="mb-canvaswrap">
+                <canvas id="mbGrid" width="640" height="480"></canvas>
+              </div>
+              <div class="btnrow mb-gridctl">
+                <label>W <input id="mbW" type="number" min="8" max="64" value="16"></label>
+                <label>H <input id="mbH" type="number" min="8" max="64" value="12"></label>
+                <button id="mbResize" class="ghost">Resize</button>
+                <button id="mbBorder" class="ghost">Solid Border</button>
+                <button id="mbClear" class="ghost">Clear</button>
+              </div>
+              <div class="mb-previewwrap">
+                <div class="ptitle">LIVE PREVIEW</div>
+                <canvas id="mbPreview" width="640" height="300"></canvas>
+                <div id="mbPreviewNote" class="mb-note" hidden></div>
+              </div>
+            </section>
+
+            <!-- RIGHT: the def panel (name/mode/theme/objective/bastion/sizes) + actions -->
+            <aside class="mb-def panel">
+              <div class="ptitle">DEFINITION</div>
+              <div class="mb-field"><label>Name<input id="mbName" type="text" maxlength="48" value="Untitled Map"></label></div>
+              <div class="mb-field"><label>Mode<select id="mbMode"></select></label></div>
+              <div class="mb-field"><label>Theme<select id="mbTheme"></select></label></div>
+              <div class="mb-field"><label>Objective<select id="mbObjective"></select></label></div>
+              <div class="mb-field"><label>Difficulty<select id="mbDifficulty"></select></label></div>
+
+              <!-- objective params (shown for the active objective) -->
+              <div id="mbCaptureParams" class="mb-subpanel" hidden>
+                <div class="mb-field"><label>Capture radius<input id="mbCapRadius" type="number" min="1" max="12" value="3"></label></div>
+                <div class="mb-field"><label>Hold seconds<input id="mbCapDuration" type="number" min="5" max="600" value="30"></label></div>
+              </div>
+              <div id="mbGateParams" class="mb-subpanel" hidden>
+                <div class="mb-field"><label>Pylon quorum (need)<input id="mbGateNeed" type="number" min="1" max="12" value="1"></label></div>
+                <p class="mb-hint">need &le; the number of pylon build sites (B)</p>
+              </div>
+              <div id="mbEscortNote" class="mb-subpanel" hidden>
+                <p class="mb-hint">Escort maps are coreless &mdash; any K is dropped and a path is threaded spawn&rarr;centre. Refine waypoints in the exported JSON.</p>
+              </div>
+
+              <!-- bastion config (shown when mode === bastion) -->
+              <div id="mbBastionParams" class="mb-subpanel">
+                <div class="ptitle">BASTION</div>
+                <div class="mb-field"><label>Nights<input id="mbNights" type="number" min="1" max="25" value="5"></label></div>
+                <div class="mb-field"><label>Waves / night<input id="mbWavesPerNight" type="number" min="1" max="3" value="1"></label></div>
+                <div class="mb-field"><label>Size<select id="mbSize"></select></label></div>
+                <div class="mb-field"><label>Blood moons (csv nights)<input id="mbBloodMoons" type="text" placeholder="e.g. 3,5"></label></div>
+                <div class="mb-field"><label>Roster (enemy letters)<input id="mbRoster" type="text" value="grwz"></label></div>
+                <div class="mb-field"><label>Wave edges<input id="mbEdges" type="text" value="n,s,e,w"></label></div>
+              </div>
+
+              <div class="mb-actions">
+                <button id="mbValidate" class="ghost">Validate</button>
+                <button id="mbExport" disabled>Export .json</button>
+              </div>
+              <div id="mbProblems" class="mb-problems"></div>
+            </aside>
+          </div>
+          <button class="ghost mback" data-back="pagePlay">Back</button>
         </div>
       </div>
 
