@@ -15,7 +15,7 @@
 //                          presets.
 //
 // All shapes were read directly off shared/game.ts (parseLevel + createGame, the
-// // @ts-nocheck source of truth) and cross-checked against real level JSON in
+// source of truth) and cross-checked against real level JSON in
 // levels/{classic,ctf,br,siege,story,stronghold,family}. Optional fields are
 // preferred over guessing; fields the engine reads with `|| default` or `?? d`
 // are marked optional here.

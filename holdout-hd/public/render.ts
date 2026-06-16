@@ -3,7 +3,6 @@
 // BAKERS is first looked up as /assets/<key>.png (v2 keys, so the legacy
 // placeholder PNGs no longer apply); if missing, a procedural canvas is baked.
 // The world reads as cold moonlit frontier; warm LYTH light = safety/value.
-// @ts-ignore — absolute '/shared/...' specifier, resolved by the browser at runtime
 import { TILE } from '/shared/game.js';
 import { playEvent, setScene } from './audio.js'; // render-detected cues + ambience scene feed
 

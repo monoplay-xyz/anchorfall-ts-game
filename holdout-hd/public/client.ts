@@ -12,11 +12,9 @@ declare global {
     __dbg?: (...a: any[]) => any;
   }
 }
-// @ts-ignore — absolute '/shared/...' specifier, resolved by the browser at runtime
 import { TILE, createGame, step, snapshot, applyResults, charsById, dailyChallenge } from '/shared/game.js';
 // Namespace import so optional sim features (serializeGame/restoreGame for save
 // beacons) can ship independently — accessed via gameMod.* with runtime checks.
-// @ts-ignore — absolute '/shared/...' specifier, resolved by the browser at runtime
 import * as gameMod from '/shared/game.js';
 import { render, renderMinimap, addEventFX, initTextures, drawPortrait, drawWeaponIcon } from './render.js';
 // Namespace import so optional renderer features (cutscenes, menu backdrop) can
