@@ -1,4 +1,3 @@
-// @ts-nocheck — TS migration (issue #4): runtime-migrated to .ts, types pending.
 import assert from 'assert/strict';
 import fs from 'fs';
 import path from 'path';
@@ -9,13 +8,13 @@ import { MUSIC_DURATIONS, RELIC_WAVE_FALLBACK } from '../shared/music-durations.
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const characters = JSON.parse(fs.readFileSync(path.join(root, 'shared/characters.json'), 'utf8'));
 const charMap = charsById(characters);
-const startingRoster = characters.filter(c => c.starting).map(c => c.id);
+const startingRoster = characters.filter((c: any) => c.starting).map((c: any) => c.id);
 // levels/ is organized by category subdirectory (classic/story/stronghold/ctf/br);
 // the loader walks them recursively, classic-first so levels[0] stays level01,
 // and tags each def with its subdir name as def.category (mirroring the server).
 const levelsDir = path.join(root, 'levels');
 const CATEGORY_ORDER = ['classic', 'story', 'stronghold', 'ctf', 'br'];
-const catRank = c => { const i = CATEGORY_ORDER.indexOf(c); return i === -1 ? CATEGORY_ORDER.length : i; };
+const catRank = (c: any) => { const i = CATEGORY_ORDER.indexOf(c); return i === -1 ? CATEGORY_ORDER.length : i; };
 const levels = fs.readdirSync(levelsDir, { withFileTypes: true })
   .filter(d => d.isDirectory()).map(d => d.name)
   .sort((a, b) => catRank(a) - catRank(b) || (a < b ? -1 : a > b ? 1 : 0))
@@ -24,14 +23,14 @@ const levels = fs.readdirSync(levelsDir, { withFileTypes: true })
     .sort()
     .map(f => Object.assign(JSON.parse(fs.readFileSync(path.join(levelsDir, cat, f), 'utf8')), { category: cat })));
 
-function run(g, inputFn, seconds, dt = 1 / 30) {
+function run(g: any, inputFn: any, seconds: any, dt = 1 / 30) {
   const frames = Math.ceil(seconds / dt);
   for (let i = 0; i < frames && g.status === 'play'; i++) {
     step(g, inputFn(g, i * dt), dt);
   }
 }
 
-function aimAtNearest(g, p) {
+function aimAtNearest(g: any, p: any) {
   let target = null;
   let best = Infinity;
   for (const e of g.enemies) {
@@ -58,11 +57,11 @@ function aimAtNearest(g, p) {
 // A faithful-enough enemy entity for the sim's damage/kill paths (mirrors the
 // fields makeEnemy mints). hp matches ENEMY_STATS so the boss reads hp24, etc.
 const ENEMY_HP_FOR_TEST = { g: 2, a: 1, r: 3, s: 5, m: 5, n: 2, w: 1, b: 24 };
-function makeEnemyForTest(g, letter, x, y) {
-  const hp = ENEMY_HP_FOR_TEST[letter] ?? 2;
+function makeEnemyForTest(g: any, letter: any, x: any, y: any) {
+  const hp = (ENEMY_HP_FOR_TEST as any)[letter] ?? 2;
   const kindMap = { g: 'grunt', a: 'archer', r: 'charger', s: 'bulwark', m: 'spawner', n: 'sniper', w: 'skitter', b: 'boss' };
   return {
-    id: g.nextEnemyId++, letter, kind: kindMap[letter] || 'grunt', x, y,
+    id: g.nextEnemyId++, letter, kind: (kindMap as any)[letter] || 'grunt', x, y,
     // speed 0 pins the staged garrison in place (the AoE under test doesn't care
     // about movement, and the relic test map is small enough to auto-wake) so
     // nothing wanders out of the blast/storm zone and the asserts stay stable.
@@ -78,15 +77,15 @@ function testLevelsParse() {
   assert.equal(classics.length, 10, 'classic campaign keeps exactly its 10 missions');
   assert.ok(classics.every(l => !l.story && !l.expedition && !l.mode), 'classic dir holds only plain campaign maps');
   assert.ok(levels.length >= 11, 'at least one story/expedition level ships beside the classics');
-  const validChars = new Set(characters.map(c => c.id));
+  const validChars = new Set(characters.map((c: any) => c.id));
   const captiveIds = new Set();
   for (const [idx, level] of levels.entries()) {
     const w = level.tiles[0].length;
     // ctf/br/siege field no tile-enemies (siege spawns minions at runtime)
     const pvp = level.mode === 'ctf' || level.mode === 'br' || level.mode === 'siege';
-    assert.ok(level.tiles.every(r => r.length === w), `level ${idx + 1} rows have equal width`);
-    assert.ok(level.tiles.some(r => r.includes('P')), `level ${idx + 1} has a spawn`);
-    if (!pvp) assert.ok(level.tiles.some(r => /[garsmnwbzfqvxu]/.test(r)), `level ${idx + 1} has enemies`);
+    assert.ok(level.tiles.every((r: any) => r.length === w), `level ${idx + 1} rows have equal width`);
+    assert.ok(level.tiles.some((r: any) => r.includes('P')), `level ${idx + 1} has a spawn`);
+    if (!pvp) assert.ok(level.tiles.some((r: any) => /[garsmnwbzfqvxu]/.test(r)), `level ${idx + 1} has enemies`);
     for (const id of level.captiveChars || []) {
       assert.ok(validChars.has(id), `${id} is a valid captive character`);
       captiveIds.add(id);
@@ -97,8 +96,8 @@ function testLevelsParse() {
     // EVERY level (story, stronghold, classic alike): each openDoor reward id
     // referenced by quests/switchGroups/glyphGroups must name a real door in
     // def.doors — a phantom id would park forever and soft-lock the puzzle
-    const doorIds = new Set((level.doors || []).map((d, i) => d.id || 'door' + i));
-    const wantsDoor = (id, src) =>
+    const doorIds = new Set((level.doors || []).map((d: any, i: any) => d.id || 'door' + i));
+    const wantsDoor = (id: any, src: any) =>
       assert.ok(doorIds.has(id), `level ${idx + 1} (${level.name}): ${src} openDoor reward '${id}' exists in def.doors`);
     for (const q of level.quests || []) {
       if (q.reward && q.reward.openDoor) wantsDoor(q.reward.openDoor, `quest '${q.id}'`);
@@ -214,24 +213,24 @@ function testMusicBoxFeature() {
 
   const g = createGame(storyDef, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
   assert.ok(g.musicBox && g.musicBox.enabled, 'story level enables the music box');
-  assert.equal(g.musicBox.fragments.length, 4, 'four fragments seed');
+  assert.equal(g.musicBox.fragments!.length, 4, 'four fragments seed');
   assert.ok(g.musicBox.altar && Number.isFinite(g.musicBox.altar.x), 'an altar seeds');
   assert.equal(g.musicBox.mode, 'story', 'mode tag is story');
   assert.equal(g.musicBox.stem, 'ch03', 'stem derives from chapter when no key');
   assert.equal(g.musicBox.assembled, 0, 'nothing assembled at start');
-  assert.ok(g.musicBox.fragments.every(f => !f.placed && f.carrier == null), 'fragments start free');
+  assert.ok(g.musicBox.fragments!.every(f => !f.placed && f.carrier == null), 'fragments start free');
 
   // determinism: a second identical build places identically
   const g2 = createGame(storyDef, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
   assert.deepEqual(
-    g2.musicBox.fragments.map(f => [f.x, f.y]),
-    g.musicBox.fragments.map(f => [f.x, f.y]),
+    g2.musicBox!.fragments!.map(f => [f.x, f.y]),
+    g.musicBox.fragments!.map(f => [f.x, f.y]),
     'fragment placement is deterministic across builds');
-  assert.deepEqual([g2.musicBox.altar.x, g2.musicBox.altar.y], [g.musicBox.altar.x, g.musicBox.altar.y], 'altar placement is deterministic');
+  assert.deepEqual([g2.musicBox!.altar!.x, g2.musicBox!.altar!.y], [g.musicBox.altar.x, g.musicBox.altar.y], 'altar placement is deterministic');
 
   // stem from def.key (server-tagged) wins over chapter
   const keyed = createGame({ ...storyDef, key: 'story/ch07' }, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
-  assert.equal(keyed.musicBox.stem, 'ch07', 'stem comes from def.key when present');
+  assert.equal(keyed.musicBox!.stem, 'ch07', 'stem comes from def.key when present');
 
   // snapshot ships the musicBox block for story
   const snap = snapshot(g);
@@ -245,26 +244,26 @@ function testMusicBoxFeature() {
   const p = g.players[0];
   p.invuln = 999;
   g.graceT = 0;
-  const f0 = g.musicBox.fragments[0];
+  const f0 = g.musicBox.fragments![0];
   p.x = f0.x; p.y = f0.y;
   step(g, { 0: {} }, 1 / 30);
-  assert.equal(g.musicBox.fragments[0].carrier, 0, 'walking onto a fragment carries it');
+  assert.equal(g.musicBox.fragments![0].carrier, 0, 'walking onto a fragment carries it');
   // only one fragment per carrier: stand on a second, it stays free
-  const f1 = g.musicBox.fragments[1];
+  const f1 = g.musicBox.fragments![1];
   p.x = f1.x; p.y = f1.y;
   step(g, { 0: {} }, 1 / 30);
-  assert.equal(g.musicBox.fragments[1].carrier, null, 'a carrier cannot scoop a second fragment');
+  assert.equal(g.musicBox.fragments![1].carrier, null, 'a carrier cannot scoop a second fragment');
 
   // deposit: walk the carrier to the altar -> assembled increments, consumed
   p.x = g.musicBox.altar.x; p.y = g.musicBox.altar.y;
   step(g, { 0: {} }, 1 / 30);
   assert.equal(g.musicBox.assembled, 1, 'depositing at the altar increments assembled');
-  assert.ok(g.musicBox.fragments[0].placed, 'deposited fragment is marked placed');
-  assert.equal(g.musicBox.fragments[0].carrier, null, 'deposited fragment has no carrier');
+  assert.ok(g.musicBox.fragments![0].placed, 'deposited fragment is marked placed');
+  assert.equal(g.musicBox.fragments![0].carrier, null, 'deposited fragment has no carrier');
 
   // complete: carry + deposit the remaining three at the altar
   for (const idx of [1, 2, 3]) {
-    const fr = g.musicBox.fragments[idx];
+    const fr: any = g.musicBox!.fragments![idx];
     p.x = fr.x; p.y = fr.y;
     step(g, { 0: {} }, 1 / 30); // scoop it
     assert.equal(fr.carrier, 0, `fragment ${idx} picked up`);
@@ -279,15 +278,15 @@ function testMusicBoxFeature() {
   const dg = createGame(storyDef, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
   const dp = dg.players[0];
   dp.invuln = 999; dg.graceT = 0;
-  const df = dg.musicBox.fragments[0];
+  const df = dg.musicBox!.fragments![0];
   dp.x = df.x; dp.y = df.y;
   step(dg, { 0: {} }, 1 / 30);
-  assert.equal(dg.musicBox.fragments[0].carrier, 0, 'fragment carried before down');
-  const dropX = dg.musicBox.fragments[0].x;
+  assert.equal(dg.musicBox!.fragments![0].carrier, 0, 'fragment carried before down');
+  const dropX = dg.musicBox!.fragments![0].x;
   dp.state = 'down'; // simulate a downed carrier
   step(dg, { 0: {} }, 1 / 30);
-  assert.equal(dg.musicBox.fragments[0].carrier, null, 'a downed carrier drops the fragment, recoverable');
-  assert.ok(Math.abs(dg.musicBox.fragments[0].x - dropX) < TILE, 'fragment stays where the carrier fell');
+  assert.equal(dg.musicBox!.fragments![0].carrier, null, 'a downed carrier drops the fragment, recoverable');
+  assert.ok(Math.abs(dg.musicBox!.fragments![0].x - dropX) < TILE, 'fragment stays where the carrier fell');
 
   // other modes never gain the feature
   const classicDef = { name: 'Plain', time: 90, tiles, captiveChars: [] };
@@ -297,10 +296,10 @@ function testMusicBoxFeature() {
 
   // stronghold (mode bastion) enables it with the stronghold tag + sh stem
   const shDef = { name: 'MB Stronghold', mode: 'bastion', time: 600, tiles, captiveChars: [], stronghold: { level: 13, hpMult: 1 } };
-  const sg = createGame(shDef, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
-  assert.ok(sg.musicBox.enabled, 'stronghold (bastion) enables the music box');
-  assert.equal(sg.musicBox.mode, 'stronghold', 'stronghold mode tag');
-  assert.equal(sg.musicBox.stem, 'sh13', 'stronghold stem derives from level');
+  const sg = createGame(shDef as any, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  assert.ok(sg.musicBox!.enabled, 'stronghold (bastion) enables the music box');
+  assert.equal(sg.musicBox!.mode, 'stronghold', 'stronghold mode tag');
+  assert.equal(sg.musicBox!.stem, 'sh13', 'stronghold stem derives from level');
 }
 
 // --- STRANDED OPERATORS + SCRAP + DROP action: opt-in (def.stranded), gated so
@@ -342,7 +341,7 @@ function testStrandedOperatorsAndScrap() {
 
   // --- SCRAP is separate from the relic pool: pick up scrap, give it to an
   // operator, and the music-box assembled count must NOT move. ---
-  assert.equal(g.musicBox.assembled, 0, 'relic starts un-assembled');
+  assert.equal(g.musicBox!.assembled, 0, 'relic starts un-assembled');
   const sc = g.scrap[0];
   p.x = sc.x; p.y = sc.y;
   step(g, { 0: {} }, 1 / 30);
@@ -359,7 +358,7 @@ function testStrandedOperatorsAndScrap() {
   const scrapBefore = g.scrap.length;
   const followersBefore = g.followers.length;
   step(g, { 0: { drop: true } }, 1 / 30);
-  assert.equal(g.musicBox.assembled, 0, 'giving scrap NEVER changes the relic assembled count');
+  assert.equal(g.musicBox!.assembled, 0, 'giving scrap NEVER changes the relic assembled count');
   assert.ok(op0.recruited, 'the operator is recruited by the scrap');
   assert.equal(g.scrap.length, scrapBefore - 1, 'the scrap is consumed (not returned to any pool)');
   assert.equal(g.followers.length, followersBefore + 1, 'recruiting spawns one defender follower');
@@ -388,7 +387,7 @@ function testStrandedOperatorsAndScrap() {
   g.enemies.push(e);
   const eHp = e.hp;
   run(g, () => ({ 0: {} }), 4);
-  assert.ok(e.dead || e.hp < eHp, 'a defender shoots enemies that reach the base');
+  assert.ok((e as any).dead || e.hp < eHp, 'a defender shoots enemies that reach the base');
 
   // --- RESCUE PATH: carry a stranded operator to the base centre, DROP there
   // -> saved + recruited. ---
@@ -429,12 +428,12 @@ function testStrandedOperatorsAndScrap() {
   const ep = eg.players[0];
   ep.invuln = 999; eg.graceT = 0;
   ep.x = eg.w * TILE / 2; ep.y = eg.h * TILE / 2; // empty-handed, away from any scrap/op
-  const scrapN = eg.scrap.length, opRecruited = eg.stranded.filter(o => o.recruited).length, follN = eg.followers.length, asm = eg.musicBox.assembled;
+  const scrapN = eg.scrap.length, opRecruited = eg.stranded.filter(o => o.recruited).length, follN = eg.followers.length, asm = eg.musicBox!.assembled;
   step(eg, { 0: { drop: true } }, 1 / 30);
   assert.equal(eg.scrap.length, scrapN, 'empty-handed drop touches no scrap');
   assert.equal(eg.stranded.filter(o => o.recruited).length, opRecruited, 'empty-handed drop recruits nobody');
   assert.equal(eg.followers.length, follN, 'empty-handed drop spawns no defender');
-  assert.equal(eg.musicBox.assembled, asm, 'empty-handed drop never touches the relic pool');
+  assert.equal(eg.musicBox!.assembled, asm, 'empty-handed drop never touches the relic pool');
 
   // --- gating: an UNFLAGGED level seeds nothing and ships no keys ---
   const plainDef = { name: 'Plain', time: 90, tiles, captiveChars: [] };
@@ -498,15 +497,15 @@ function testScrapDropOnGroundPersists() {
 function testMusicBoxOnAllStoryAndStronghold() {
   for (const level of levels.filter(l => l.category === 'story' || l.category === 'stronghold')) {
     const g = createGame(level, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
-    assert.ok(g.musicBox.enabled, `${level.category} ${level.name}: music box enabled`);
-    assert.equal(g.musicBox.fragments.length, 4, `${level.name}: four fragments`);
+    assert.ok(g.musicBox!.enabled, `${level.category} ${level.name}: music box enabled`);
+    assert.equal(g.musicBox!.fragments!.length, 4, `${level.name}: four fragments`);
     // every fragment + altar sits on a walkable, non-lava floor tile
-    const onFloor = (x, y) => {
+    const onFloor = (x: any, y: any) => {
       const c = g.grid[Math.floor(y / TILE)][Math.floor(x / TILE)];
       return c !== '#' && c !== 'T' && c !== '~' && c !== 'o' && c !== '%' && c !== '!';
     };
-    for (const f of g.musicBox.fragments) assert.ok(onFloor(f.x, f.y), `${level.name}: fragment on walkable floor`);
-    assert.ok(onFloor(g.musicBox.altar.x, g.musicBox.altar.y), `${level.name}: altar on walkable floor`);
+    for (const f of g.musicBox!.fragments!) assert.ok(onFloor(f.x, f.y), `${level.name}: fragment on walkable floor`);
+    assert.ok(onFloor(g.musicBox!.altar!.x, g.musicBox!.altar!.y), `${level.name}: altar on walkable floor`);
     assert.ok(snapshot(g).musicBox, `${level.name}: snapshot ships musicBox`);
   }
 }
@@ -529,18 +528,18 @@ function testStrongholdCornerMounts() {
   tiles[2] = '#' + '.'.repeat(W - 6) + 'g' + '...#'; // a sleeping grunt keeps the field non-empty
   const shDef = { name: 'MB Bastion', mode: 'bastion', time: 600, tiles, captiveChars: [], stronghold: { level: 5, hpMult: 1 } };
 
-  const g = createGame(shDef, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
-  assert.ok(g.musicBox.enabled, 'stronghold enables the music box');
+  const g = createGame(shDef as any, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  assert.ok(g.musicBox!.enabled, 'stronghold enables the music box');
   assert.ok(g.core && Number.isFinite(g.core.x), 'the test bastion map seeds a central core');
-  assert.ok(Array.isArray(g.musicBox.mounts) && g.musicBox.mounts.length === 4, 'stronghold seeds four corner mounts');
-  assert.ok(g.musicBox.mounts.every(m => Number.isFinite(m.x) && Number.isFinite(m.y) && m.filled === false), 'mounts start unfilled with valid coords');
-  assert.equal(g.musicBox.fragments.length, 4, 'four shards still spawn for stronghold');
+  assert.ok(Array.isArray(g.musicBox!.mounts) && g.musicBox!.mounts.length === 4, 'stronghold seeds four corner mounts');
+  assert.ok(g.musicBox!.mounts.every(m => Number.isFinite(m.x) && Number.isFinite(m.y) && m.filled === false), 'mounts start unfilled with valid coords');
+  assert.equal(g.musicBox!.fragments!.length, 4, 'four shards still spawn for stronghold');
   // each mount clusters AROUND the base/core (a few tiles out, one per diagonal),
   // and emphatically NOT at the far map corners.
   const base = { x: g.core.x, y: g.core.y };
   const mapCorners = [[0, 0], [(W - 1) * TILE, 0], [0, (H - 1) * TILE], [(W - 1) * TILE, (H - 1) * TILE]];
   for (let i = 0; i < 4; i++) {
-    const m = g.musicBox.mounts[i];
+    const m = g.musicBox!.mounts[i];
     const distBase = Math.hypot(m.x - base.x, m.y - base.y);
     assert.ok(distBase <= 7 * TILE, `mount ${i} clusters near the base center (got ${Math.round(distBase / TILE)} tiles)`);
     const atMapCorner = mapCorners.some(([cx, cy]) => Math.hypot(m.x - cx, m.y - cy) < 3 * TILE);
@@ -548,40 +547,40 @@ function testStrongholdCornerMounts() {
   }
   // the four mounts straddle the base: at least one on each side of the core,
   // proving they fan out to the fortress's diagonal corners (not all bunched).
-  assert.ok(g.musicBox.mounts.some(m => m.x < base.x) && g.musicBox.mounts.some(m => m.x > base.x), 'mounts flank the base on both the left and right');
-  assert.ok(g.musicBox.mounts.some(m => m.y < base.y) && g.musicBox.mounts.some(m => m.y > base.y), 'mounts flank the base above and below');
+  assert.ok(g.musicBox!.mounts.some(m => m.x < base.x) && g.musicBox!.mounts.some(m => m.x > base.x), 'mounts flank the base on both the left and right');
+  assert.ok(g.musicBox!.mounts.some(m => m.y < base.y) && g.musicBox!.mounts.some(m => m.y > base.y), 'mounts flank the base above and below');
   // DETERMINISM: a second build of the same def seeds byte-identical mount coords.
-  const g3 = createGame(shDef, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
-  assert.deepEqual(g3.musicBox.mounts.map(m => [m.x, m.y]), g.musicBox.mounts.map(m => [m.x, m.y]), 'mount placement is deterministic');
+  const g3 = createGame(shDef as any, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  assert.deepEqual(g3.musicBox!.mounts!.map(m => [m.x, m.y]), g.musicBox!.mounts.map(m => [m.x, m.y]), 'mount placement is deterministic');
   // mounts ship in the snapshot (gated to stronghold)
   const snap = snapshot(g);
-  assert.ok(snap.musicBox.mounts && snap.musicBox.mounts.length === 4, 'snapshot carries the four mounts for stronghold');
+  assert.ok(snap.musicBox!.mounts && snap.musicBox!.mounts.length === 4, 'snapshot carries the four mounts for stronghold');
 
   // carry each shard to a corner mount -> assembled increments, mount fills, and
   // 4/4 completes the relic. Keep the operative invulnerable for the scripted run.
   const p = g.players[0];
   p.invuln = 999; g.graceT = 0;
   for (let i = 0; i < 4; i++) {
-    const fr = g.musicBox.fragments[i];
+    const fr = g.musicBox!.fragments![i];
     p.x = fr.x; p.y = fr.y;
     step(g, { 0: {} }, 1 / 30); // scoop
     assert.equal(fr.carrier, 0, `shard ${i} picked up`);
     // walk to the nearest unfilled mount and deposit
-    const target = g.musicBox.mounts.find(m => !m.filled);
-    p.x = target.x; p.y = target.y;
+    const target = g.musicBox!.mounts.find(m => !m.filled);
+    p.x = target!.x; p.y = target!.y;
     step(g, { 0: {} }, 1 / 30); // lock in
-    assert.equal(g.musicBox.assembled, i + 1, `assembled is ${i + 1} after locking shard ${i}`);
-    assert.ok(target.filled, `mount accepting shard ${i} is now filled`);
+    assert.equal(g.musicBox!.assembled, i + 1, `assembled is ${i + 1} after locking shard ${i}`);
+    assert.ok(target!.filled, `mount accepting shard ${i} is now filled`);
   }
-  assert.equal(g.musicBox.mounts.filter(m => m.filled).length, 4, 'all four corner mounts filled');
-  assert.ok(g.musicBox.complete, 'stronghold relic completes when all four mounts are filled');
+  assert.equal(g.musicBox!.mounts.filter(m => m.filled).length, 4, 'all four corner mounts filled');
+  assert.ok(g.musicBox!.complete, 'stronghold relic completes when all four mounts are filled');
 
   // STORY keeps the single-altar version: NO mounts.
   const storyDef = { name: 'MB Story', story: true, chapter: 2, time: 600, tiles, captiveChars: [] };
   const sg = createGame(storyDef, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
-  assert.ok(sg.musicBox.enabled, 'story enables the music box');
-  assert.ok(!sg.musicBox.mounts, 'story uses the single altar — no corner mounts');
-  assert.ok(!snapshot(sg).musicBox.mounts, 'story snapshot never ships mounts');
+  assert.ok(sg.musicBox!.enabled, 'story enables the music box');
+  assert.ok(!sg.musicBox!.mounts, 'story uses the single altar — no corner mounts');
+  assert.ok(!snapshot(sg).musicBox!.mounts, 'story snapshot never ships mounts');
 }
 
 // --- WALL PRICE: a single shard per fortified segment. The bastion shop stocks
@@ -597,7 +596,7 @@ function testWallCostsOneShard() {
   tiles[Math.floor(H / 2)] = '#' + '.'.repeat(6) + 'P' + '.'.repeat(W - 9) + '#';
   tiles[2] = '#' + '.'.repeat(10) + 'g' + '.'.repeat(W - 13) + '#';
   const shDef = { name: 'Wall Price', mode: 'bastion', time: 600, tiles, captiveChars: [], stronghold: { level: 5, hpMult: 1 } };
-  const g = createGame(shDef, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  const g = createGame(shDef as any, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
 
   // the stocked wall OFFER is 1 shard for 1 wall (was 5 for 3).
   const wallOffer = (g.shopOffers || []).find(o => o.what === 'wall');
@@ -606,7 +605,7 @@ function testWallCostsOneShard() {
   assert.equal(wallOffer.amount, 1, 'wall offer hands over a single wall');
   // CONTROL: the turret offer is unchanged, proving we only retuned the wall.
   const turretOffer = (g.shopOffers || []).find(o => o.what === 'turret');
-  assert.equal(turretOffer.cost, 8, 'turret offer is untouched (still 8 shards)');
+  assert.equal(turretOffer!.cost, 8, 'turret offer is untouched (still 8 shards)');
 
   // a LAID wall records exactly 1 shard of investment. Hand the operative a wall
   // in inventory and drive the RA2 buy-then-place flow through step(): enter
@@ -643,18 +642,18 @@ function testDayNightDefaults() {
 
   // INHERIT: no bastion.dayLen/nightLen -> the 120/60 defaults.
   const inheritDef = { name: 'Default Cycle', mode: 'bastion', time: 600, tiles, captiveChars: [], stronghold: { level: 1, hpMult: 1 } };
-  const g = createGame(inheritDef, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
-  assert.equal(g.bastion.dayLen, 120, 'default day length is 120s');
-  assert.equal(g.bastion.nightLen, 60, 'default night length is 60s');
-  assert.equal(g.cycle.phase, 'day', 'a bastion run opens on day');
-  assert.equal(g.cycle.t, 120, 'the opening day clock starts at 120s');
+  const g = createGame(inheritDef as any, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  assert.equal(g.bastion!.dayLen, 120, 'default day length is 120s');
+  assert.equal(g.bastion!.nightLen, 60, 'default night length is 60s');
+  assert.equal(g.cycle!.phase, 'day', 'a bastion run opens on day');
+  assert.equal(g.cycle!.t, 120, 'the opening day clock starts at 120s');
 
   // OVERRIDE: a deliberate long-night design twist keeps its own pair.
   const twistDef = { name: 'Long Night', mode: 'bastion', time: 600, tiles, captiveChars: [],
     bastion: { nights: 6, dayLen: 70, nightLen: 95 }, stronghold: { level: 14, hpMult: 1 } };
-  const tg = createGame(twistDef, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
-  assert.equal(tg.bastion.dayLen, 70, 'a level override keeps its short day');
-  assert.equal(tg.bastion.nightLen, 95, 'a level override keeps its long night');
+  const tg = createGame(twistDef as any, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  assert.equal(tg.bastion!.dayLen, 70, 'a level override keeps its short day');
+  assert.equal(tg.bastion!.nightLen, 95, 'a level override keeps its long night');
 
   // CONTROL: a classic (non-bastion) level has no cycle at all (byte-stable).
   const classicDef = { name: 'Plain', time: 90, tiles, captiveChars: [] };
@@ -674,9 +673,9 @@ function testHostedDifficultyScales() {
   for (let y = 1; y < H - 1; y++) tiles.push('#' + (y === 1 ? 'P' + '.'.repeat(W - 3) : y === 9 ? '.'.repeat(W - 3) + 'g.' : '.'.repeat(W - 2)) + '#');
   tiles.push('#'.repeat(W));
   // a host hands difficulty straight into the def (exactly server.js's clone).
-  const hostDef = (d) => ({ name: 'Hosted', time: 60, captiveChars: [], difficulty: d,
+  const hostDef = (d: any) => ({ name: 'Hosted', time: 60, captiveChars: [], difficulty: d,
     modifiers: { waves: [{ at: 0.5, letters: 'gggggggg', edge: 'n' }] }, tiles });
-  const waveCount = (d) => {
+  const waveCount = (d: any) => {
     const g = createGame(hostDef(d), [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
     g.graceT = 99999; g.players[0].invuln = 999;
     const before = g.enemies.length;
@@ -712,7 +711,7 @@ function testDevCheats() {
   // GOD MODE: a player with god on never goes down even when forced to 0 hp.
   const g = createGame(def, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
   g.cheats = { god: true, speed: 1, instantKill: false, instantBuild: false };
-  g.devMode = true; // enabling any cheat sets this sticky flag (client does it)
+  (g as any).devMode = true; // enabling any cheat sets this sticky flag (client does it)
   const p = g.players[0];
   p.invuln = 0; g.graceT = 0;
   p.x = (2.5) * TILE; p.y = (2.5) * TILE; // stand right under the grunt line
@@ -724,7 +723,7 @@ function testDevCheats() {
   // INSTANT KILL: any player-owned damage one-shots even tough enemies. Make
   // every grunt unkillably-tough (hp 99) so a normal scout can't whittle them
   // — only the one-shot cheat clears them under fire.
-  const mkTough = ik => {
+  const mkTough = (ik: any) => {
     const gg = createGame(def, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
     gg.cheats = { god: false, speed: 1, instantKill: ik, instantBuild: false };
     for (const e of gg.enemies) { e.hp = 99; e.maxHp = 99; e.dormant = false; e.awake = true; }
@@ -734,12 +733,12 @@ function testDevCheats() {
   // control: WITHOUT instant-kill the scout can't dent hp-99 grunts in 1.5s
   const ctrl = mkTough(false);
   const ctrlK0 = ctrl.kills;
-  run(ctrl, (gg) => ({ 0: aimAtNearest(gg, gg.players[0]) }), 1.5);
+  run(ctrl, (gg: any) => ({ 0: aimAtNearest(gg, gg.players[0]) }), 1.5);
   assert.equal(ctrl.kills, ctrlK0, 'without instant-kill, hp-99 grunts survive scout fire');
   // with instant-kill: a single landed player shot drops the enemy
   const g2 = mkTough(true);
   const killsBefore = g2.kills;
-  run(g2, (gg) => ({ 0: aimAtNearest(gg, gg.players[0]) }), 1.5);
+  run(g2, (gg: any) => ({ 0: aimAtNearest(gg, gg.players[0]) }), 1.5);
   assert.ok(g2.kills > killsBefore, 'instant-kill one-shots tough enemies under player fire');
 
   // SPEED: x10 moves the hero markedly farther per frame than x1.
@@ -767,7 +766,7 @@ function testDevCheats() {
   // sim guard is inert and behavior is unchanged.
   const plain = createGame(def, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
   assert.equal(plain.cheats, undefined, 'a normal run carries no cheats object');
-  assert.equal(plain.devMode, undefined, 'a normal run is not dev-dirty');
+  assert.equal((plain as any).devMode, undefined, 'a normal run is not dev-dirty');
 }
 
 // --- DEV "Pause Time" cheat (solo offline): freezes the WORLD — enemies stop
@@ -788,10 +787,10 @@ function testPauseTimeCheatFreezesWorld() {
 
   // Build twin runs that differ ONLY in the pauseTime flag, then drive both with
   // an empty input for a few ticks (the grunt walks itself toward the hero).
-  const mk = pauseTime => {
+  const mk = (pauseTime: any) => {
     const gg = createGame(def, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
     gg.cheats = { god: false, speed: 1, instantKill: false, instantBuild: false, pauseTime };
-    if (pauseTime) gg.devMode = true; // sticky dirty flag (client sets this too)
+    if (pauseTime) (gg as any).devMode = true; // sticky dirty flag (client sets this too)
     gg.graceT = 0;                    // skip the level-start grace so enemies act now
     gg.players[0].invuln = 999;       // keep the hero up regardless of contact
     return gg;
@@ -821,7 +820,7 @@ function testPauseTimeCheatFreezesWorld() {
 
   // Toggling the cheat OFF mid-run releases the world again (the same game keeps
   // simulating): the held enemy resumes its march.
-  froz.cheats.pauseTime = false;
+  froz.cheats!.pauseTime = false;
   const rx0 = froz.enemies[0].x;
   run(froz, () => ({ 0: {} }), 1.0);
   assert.notEqual(froz.enemies[0].x, rx0, 'clearing pause time resumes enemy movement');
@@ -850,7 +849,7 @@ function relicStoryDef(chapter = 4) {
 }
 
 // Drive the four shards into the altar so g.musicBox.complete flips true.
-function completeRelic(g) {
+function completeRelic(g: any) {
   const p = g.players[0];
   p.invuln = 1e9; g.graceT = 0;
   for (let idx = 0; idx < 4; idx++) {
@@ -874,10 +873,10 @@ function testRelicAwakeningHorde() {
   step(g, { 0: {} }, 1 / 30);
   assert.ok(g.horde, 'completing the relic latches g.horde');
   const expectDur = MUSIC_DURATIONS['story-ch04'] || RELIC_WAVE_FALLBACK;
-  assert.equal(g.horde.dur, expectDur, 'horde dur is the exact MUSIC_DURATIONS track length');
+  assert.equal((g.horde as any).dur, expectDur, 'horde dur is the exact MUSIC_DURATIONS track length');
   assert.equal(g.dark, true, 'the world darkens for the event');
   assert.equal(g.weather, 'thunderstorm', 'the thunderstorm rolls in');
-  assert.ok(g.horde.prevDark === false, 'pre-event dark is remembered for restore');
+  assert.ok((g.horde as any).prevDark === false, 'pre-event dark is remembered for restore');
   // the relicAwaken event fired (banner/audio cue for the client)
   const snapNow = snapshot(g);
   assert.ok(snapNow.horde && snapNow.horde.active, 'snapshot ships an active horde flag while live');
@@ -911,23 +910,23 @@ function testRelicAwakeningHorde() {
     completeRelic(ge);
     ge.players[0].invuln = 1e9;
     step(ge, { 0: {} }, 1 / 30); // latch + first (opening) burst
-    earlyPerEdge = (snapshot(ge).events.find(e => e.type === 'horde') || {}).count || 0;
+    earlyPerEdge = ((snapshot(ge).events.find(e => e.type === 'horde') || {}) as any).count || 0;
     // jump near the climax: shove the start clock back so progress ~0.9
-    ge.horde.startedAt = ge.elapsed - ge.horde.dur * 0.9;
-    ge.horde.nextAt = ge.elapsed; // force a burst now
+    ge.horde!.startedAt = ge.elapsed - ge.horde!.dur * 0.9;
+    ge.horde!.nextAt = ge.elapsed; // force a burst now
     for (const e of ge.enemies) e.dead = true; // clear the field for a clean read
     step(ge, { 0: {} }, 1 / 30);
-    latePerEdge = (snapshot(ge).events.find(e => e.type === 'horde') || {}).count || 0;
+    latePerEdge = ((snapshot(ge).events.find(e => e.type === 'horde') || {}) as any).count || 0;
   }
   assert.ok(latePerEdge > earlyPerEdge, `density escalates (${earlyPerEdge} -> ${latePerEdge} per edge)`);
 
   // END (survive): fast-forward past the track length with the squad alive.
   // Coarse dt just to walk the clock to the finish — determinism unaffected.
   run(g, () => { g.players[0].invuln = 1e9; return { 0: {} }; }, expectDur + 4, 0.5);
-  assert.ok(g.horde.ended, 'the horde ends once the song plays out');
-  assert.equal(g.horde.result, 'survived', 'the squad survives');
+  assert.ok((g.horde as any).ended, 'the horde ends once the song plays out');
+  assert.equal((g.horde as any).result, 'survived', 'the squad survives');
   assert.equal(g.dark, false, 'dark restores to its pre-event value');
-  assert.equal(g.weather, g.horde.prevWeather, 'weather restores to its pre-event value');
+  assert.equal(g.weather, (g.horde as any).prevWeather, 'weather restores to its pre-event value');
   // every leftover nightmare dissolved on the finish
   assert.equal(g.enemies.filter(e => !e.dead && ['spider', 'ghost', 'reaper', 'skeleton', 'zombie', 'hellhound', 'banshee'].includes(e.kind)).length, 0,
     'remaining nightmares dissolve when the event ends');
@@ -936,24 +935,24 @@ function testRelicAwakeningHorde() {
   // the full base bonus; a wounded run banks strictly less.
   const cleanBonus = HORDE_BASE_BONUS_FOR_TEST; // mirrored below
   // run two fresh events to the same finish, one clean, one battered.
-  function survivedScore({ hits, deaths }) {
+  function survivedScore({ hits, deaths }: any) {
     const gg = createGame(relicStoryDef(4), [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
     completeRelic(gg);
     step(gg, { 0: {} }, 1 / 30);
     const before = gg.score;
     // walk to a few seconds before the finish, then inject the hit/death tallies
     // the sim would have accrued, and step on until the bonus is awarded.
-    run(gg, () => { gg.players[0].invuln = 1e9; return { 0: {} }; }, gg.horde.dur - 5, 0.5);
-    assert.ok(!gg.horde.ended, 'still live just before the finish');
-    gg.horde.hits = hits; gg.horde.deaths = deaths;
+    run(gg, () => { gg.players[0].invuln = 1e9; return { 0: {} }; }, gg.horde!.dur - 5, 0.5);
+    assert.ok(!gg.horde!.ended, 'still live just before the finish');
+    gg.horde!.hits = hits; gg.horde!.deaths = deaths;
     let surv = null;
-    for (let i = 0; i < 40 && !gg.horde.ended; i++) {
+    for (let i = 0; i < 40 && !gg.horde!.ended; i++) {
       gg.players[0].invuln = 1e9;
       step(gg, { 0: {} }, 0.5);
       const ev = gg.events.find(e => e.type === 'relicSurvived');
       if (ev) surv = ev;
     }
-    assert.ok(gg.horde.ended && gg.horde.result === 'survived', 'event survived');
+    assert.ok(gg.horde!.ended && gg.horde!.result === 'survived', 'event survived');
     assert.ok(surv, 'a relicSurvived event carries the breakdown');
     return { awarded: gg.score - before, ev: surv };
   }
@@ -961,7 +960,7 @@ function testRelicAwakeningHorde() {
   const battered = survivedScore({ hits: 10, deaths: 1 });
   assert.equal(clean.ev.base, cleanBonus, 'clean run reports the base bonus');
   assert.equal(clean.awarded, cleanBonus, 'clean survival banks the full base bonus');
-  assert.equal(battered.awarded, cleanBonus - 10 * clean.ev.hitPenalty - 1 * clean.ev.deathPenalty,
+  assert.equal(battered.awarded, cleanBonus - 10 * (clean.ev.hitPenalty as any) - 1 * (clean.ev.deathPenalty as any),
     'each hit + death bleeds the bonus by the exact penalties');
   assert.ok(battered.awarded < clean.awarded, 'a battered run banks strictly less');
   assert.equal(battered.ev.hits, 10, 'breakdown carries the hit count');
@@ -985,7 +984,7 @@ function testRelicAwakeningHorde() {
   // GATING: a plain classic level never latches a horde even if forced.
   const cg = createGame({ name: 'Plain', time: 90, tiles: relicStoryDef().tiles, captiveChars: [] },
     [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
-  assert.equal(cg.musicBox.enabled, false, 'classic level has no music box');
+  assert.equal(cg.musicBox!.enabled, false, 'classic level has no music box');
   run(cg, () => ({ 0: {} }), 3, 1 / 30);
   assert.ok(!cg.horde, 'no music box -> stepHorde stays a no-op (no g.horde key)');
   assert.ok(!snapshot(cg).horde, 'classic snapshot never gains a horde key');
@@ -1000,7 +999,7 @@ const HORDE_BASE_BONUS_FOR_TEST = 5000;
 // setting (never sets g.devMode), so scores still count on every difficulty. ---
 function testDifficultySelector() {
   // a fresh relic level at a given difficulty.
-  const relicAt = (d) => ({ ...relicStoryDef(4), difficulty: d });
+  const relicAt = (d: any) => ({ ...relicStoryDef(4), difficulty: d });
 
   // BASELINE: omitting def.difficulty defaults to 'normal' (0.5).
   const dfDefault = createGame(relicStoryDef(4), [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
@@ -1016,19 +1015,19 @@ function testDifficultySelector() {
   // NOT A CHEAT: choosing any difficulty never flips the dev-dirty flag.
   for (const d of ['easy', 'normal', 'extreme']) {
     const g = createGame(relicAt(d), [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
-    assert.equal(g.devMode, undefined, `difficulty '${d}' does not set g.devMode (scores still count)`);
+    assert.equal((g as any).devMode, undefined, `difficulty '${d}' does not set g.devMode (scores still count)`);
   }
 
   // HORDE COUNT: force a single late-progress burst and total the nightmares
   // spawned that tick. EXTREME must reproduce the historical count exactly;
   // NORMAL spawns about half; EASY fewer still — never zero where 1 is needed.
-  function burstSpawns(d) {
+  function burstSpawns(d: any) {
     const g = createGame(relicAt(d), [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
     completeRelic(g);
     g.players[0].invuln = 1e9;
     step(g, { 0: {} }, 1 / 30);          // latch + opening burst
-    g.horde.startedAt = g.elapsed - g.horde.dur * 0.9; // jump to ~climax
-    g.horde.nextAt = g.elapsed;          // force a burst this tick
+    g.horde!.startedAt = g.elapsed - g.horde!.dur * 0.9; // jump to ~climax
+    g.horde!.nextAt = g.elapsed;          // force a burst this tick
     for (const e of g.enemies) e.dead = true; // clear the field for a clean read
     g.events.length = 0;                 // drop the opening-burst events first
     step(g, { 0: {} }, 1 / 30);
@@ -1040,17 +1039,17 @@ function testDifficultySelector() {
   const normalBurst = burstSpawns('normal');   // ~half: 2/edge * 4 = 8
   const easyBurst = burstSpawns('easy');        // fewer: 1/edge * 4 = 4
   assert.equal(extremeBurst, 12, 'extreme climax burst is the historical full count');
-  assert.ok(normalBurst >= 1 && normalBurst < extremeBurst,
+  assert.ok((normalBurst as any) >= 1 && (normalBurst as any) < extremeBurst,
     `normal spawns FEWER than extreme (saw ${normalBurst} < ${extremeBurst})`);
   // about half the relic horde (per-edge density carries a floor of 1, so the
   // climax lands near ~0.5-0.67 of extreme; the early bursts thin proportionally).
-  assert.ok(normalBurst <= Math.round(extremeBurst * 0.7) && normalBurst >= Math.round(extremeBurst * 0.4),
+  assert.ok((normalBurst as any) <= Math.round(extremeBurst * 0.7) && (normalBurst as any) >= Math.round(extremeBurst * 0.4),
     `normal is about HALF the relic horde (saw ${normalBurst} of ${extremeBurst})`);
-  assert.ok(easyBurst < normalBurst, `easy spawns fewer than normal (saw ${easyBurst} < ${normalBurst})`);
-  assert.ok(easyBurst >= 1, 'easy never drops the horde to zero');
+  assert.ok((easyBurst as any) < (normalBurst as any), `easy spawns fewer than normal (saw ${easyBurst} < ${normalBurst})`);
+  assert.ok((easyBurst as any) >= 1, 'easy never drops the horde to zero');
 
   // NORMAL WAVES scale too: an extreme 8-letter wave spawns all 8; normal ~half.
-  function waveCount(d) {
+  function waveCount(d: any) {
     const def = { name: 'WD', time: 60, captiveChars: [], difficulty: d,
       tiles: ['#'.repeat(40), ...Array.from({ length: 18 }, (_, i) =>
         i === 1 ? '#P' + '.'.repeat(37) + '#'
@@ -1104,7 +1103,7 @@ const DOWNED = new Set(['down', 'out', 'pick']);
 
 // Drive the awakening to a SURVIVED finish so g.superweaponUnlocked flips true.
 // Reuses the startedAt rewind trick to walk the clock to the end in one step.
-function unlockSuperweapon(g) {
+function unlockSuperweapon(g: any) {
   completeRelic(g);
   g.players[0].invuln = 1e9;
   step(g, { 0: {} }, 1 / 30); // latch g.horde
@@ -1115,7 +1114,7 @@ function unlockSuperweapon(g) {
 }
 
 // First open floor cell that is a legal build site (clear of wall/extract/spawn).
-function findSuperSite(g) {
+function findSuperSite(g: any) {
   for (let ty = 1; ty < g.h - 1; ty++) {
     for (let tx = 1; tx < g.w - 1; tx++) {
       const x = (tx + 0.5) * TILE, y = (ty + 0.5) * TILE;
@@ -1145,7 +1144,7 @@ function findSuperSite(g) {
 
 // Move the seat onto a site and channel the build to completion. Returns the
 // device. Keeps the operative invulnerable so the spawned mini-wave can't down it.
-function buildSuperweaponAt(g, kind, site) {
+function buildSuperweaponAt(g: any, kind: any, site: any) {
   const p = g.players[0];
   p.x = site.x; p.y = site.y; p.invuln = 1e9; g.graceT = 0;
   step(g, { 0: { superBuild: kind } }, 1 / 30); // edge: start the channel
@@ -1191,19 +1190,19 @@ function testSuperweaponBuildChargeAndTinyWave() {
   // snapshot carries the device + countdown for the HUD
   const snap = snapshot(g);
   assert.ok(snap.superweaponUnlocked, 'snapshot ships the unlock flag once earned');
-  assert.equal(snap.superweapon.state, 'charging', 'snapshot ships the charging device');
-  assert.ok(snap.superweapon.chargeT > 0, 'snapshot ships the live charge countdown');
+  assert.equal(snap.superweapon!.state, 'charging', 'snapshot ships the charging device');
+  assert.ok(snap.superweapon!.chargeT! > 0, 'snapshot ships the live charge countdown');
 
   // NOT USABLE BEFORE CHARGE: a fire attempt while charging does nothing.
-  g.players[0].x = site.x + TILE; g.players[0].y = site.y;
-  step(g, { 0: { superFire: true, aimX: site.x, aimY: site.y } }, 1 / 30);
-  assert.equal(g.superweapon.state, 'charging', 'a charging device cannot fire');
+  g.players[0].x = site!.x + TILE; g.players[0].y = site!.y;
+  step(g, { 0: { superFire: true, aimX: site!.x, aimY: site!.y } }, 1 / 30);
+  assert.equal(g.superweapon!.state, 'charging', 'a charging device cannot fire');
   assert.equal(g.hazards.length, 0, 'no strike lands before the device is ready');
 
   // CONTROL: let the charge run out — the device flips to ready.
-  g.superweapon.chargeT = 0.1;
+  g.superweapon!.chargeT = 0.1;
   run(g, () => { g.players[0].invuln = 1e9; return { 0: {} }; }, 0.5, 1 / 30);
-  assert.equal(g.superweapon.state, 'ready', 'the device goes live when the charge elapses');
+  assert.equal(g.superweapon!.state, 'ready', 'the device goes live when the charge elapses');
 }
 
 function testSuperweaponNukeClearsStronghold() {
@@ -1214,7 +1213,7 @@ function testSuperweaponNukeClearsStronghold() {
   const sw = buildSuperweaponAt(g, 'nuke', site);
   sw.chargeT = 0; // skip the wait
   run(g, () => { g.players[0].invuln = 1e9; return { 0: {} }; }, 0.2, 1 / 30);
-  assert.equal(g.superweapon.state, 'ready', 'device ready to fire');
+  assert.equal(g.superweapon!.state, 'ready', 'device ready to fire');
 
   // a CONTROL enemy parked far from the target proves the blast is local.
   const cx = (3 + 0.5) * TILE, cy = (11 + 0.5) * TILE; // far corner
@@ -1225,7 +1224,7 @@ function testSuperweaponNukeClearsStronghold() {
   // well away from the control, the spawn and the device.
   const tx = (16 + 0.5) * TILE, ty = (11 + 0.5) * TILE;
   const cluster = ['b', 'm', 'm', 's', 's', 'g', 'g', 'r', 'a'];
-  const garrisonIds = [];
+  const garrisonIds: any[] = [];
   for (let i = 0; i < cluster.length; i++) {
     const ang = (i / cluster.length) * Math.PI * 2;
     const ex = tx + Math.cos(ang) * TILE, ey = ty + Math.sin(ang) * TILE;
@@ -1238,12 +1237,12 @@ function testSuperweaponNukeClearsStronghold() {
   // FIRE: owner just TRIGGERS it (aimless) — the sim auto-targets the densest
   // hostile cluster, which is this 9-pack. The strike is telegraphed (flight
   // delay), then the blast resolves and wipes the cluster.
-  g.players[0].x = site.x; g.players[0].y = site.y; // owner near the device
+  g.players[0].x = site!.x; g.players[0].y = site!.y; // owner near the device
   step(g, { 0: { superFire: true } }, 1 / 30);
-  assert.equal(g.superweapon.state, 'spent', 'firing consumes the one use');
-  assert.equal(g.superweapon.used, true, 'the device is marked used');
+  assert.equal(g.superweapon!.state, 'spent', 'firing consumes the one use');
+  assert.equal(g.superweapon!.used, true, 'the device is marked used');
   // the auto-target landed on the dense cluster, not the lone far control
-  assert.ok((g.superweapon.targetX - tx) ** 2 + (g.superweapon.targetY - ty) ** 2 < (NUKE_RADIUS_TILES * TILE) ** 2,
+  assert.ok((g.superweapon!.targetX! - tx) ** 2 + (g.superweapon!.targetY! - ty) ** 2 < (NUKE_RADIUS_TILES * TILE) ** 2,
     'auto-target struck the dense cluster, not the lone far enemy');
   // the flight is in the air now (one-shot: a second trigger does nothing)
   step(g, { 0: { superFire: true } }, 1 / 30);
@@ -1268,13 +1267,13 @@ function runWeatherStorm() {
   const sw = buildSuperweaponAt(g, 'weather', site);
   sw.chargeT = 0;
   run(g, () => { g.players[0].invuln = 1e9; return { 0: {} }; }, 0.2, 1 / 30);
-  assert.equal(g.superweapon.state, 'ready', 'weather device ready');
+  assert.equal(g.superweapon!.state, 'ready', 'weather device ready');
 
   // a packed cluster of hp1-3 enemies (a "stronghold garrison") near the storm
   // center, away from the spawn / device / the map's sleeper. The center-biased
   // bolt scatter devastates a packed base over the duration.
   const tx = (10 + 0.5) * TILE, ty = (10 + 0.5) * TILE;
-  const ids = [];
+  const ids: any[] = [];
   for (let i = 0; i < 12; i++) {
     const ang = (i / 12) * Math.PI * 2, rr = TILE * (0.4 + (i % 4) * 0.5);
     const e = makeEnemyForTest(g, 'g', tx + Math.cos(ang) * rr, ty + Math.sin(ang) * rr);
@@ -1283,11 +1282,11 @@ function runWeatherStorm() {
 
   // FIRE: aimless trigger — the sim auto-targets the packed cluster and schedules
   // a lightning storm field over it (no instant blast).
-  g.players[0].x = site.x; g.players[0].y = site.y;
+  g.players[0].x = site!.x; g.players[0].y = site!.y;
   step(g, { 0: { superFire: true } }, 1 / 30);
-  assert.equal(g.superweapon.state, 'spent', 'firing consumes the one use');
+  assert.equal(g.superweapon!.state, 'spent', 'firing consumes the one use');
   assert.ok(g.hazards.some(h => h.kind === 'storm'), 'a storm field is scheduled');
-  assert.ok((g.superweapon.targetX - tx) ** 2 + (g.superweapon.targetY - ty) ** 2 < (STORM_RADIUS_TILES * TILE) ** 2,
+  assert.ok((g.superweapon!.targetX! - tx) ** 2 + (g.superweapon!.targetY! - ty) ** 2 < (STORM_RADIUS_TILES * TILE) ** 2,
     'storm auto-target landed on the packed cluster');
 
   // WARNING DELAY: during the LightningDeferment window NO bolt has struck yet.
@@ -1316,7 +1315,7 @@ function testSuperweaponWeatherStormsOverTime() {
   const g = createGame(relicStoryDef(4), [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
   unlockSuperweapon(g);
   const tx = (10 + 0.5) * TILE, ty = (10 + 0.5) * TILE;
-  const ids = [];
+  const ids: any[] = [];
   for (let i = 0; i < 12; i++) {
     const ang = (i / 12) * Math.PI * 2, rr = TILE * (0.4 + (i % 4) * 0.5);
     const e = makeEnemyForTest(g, 'g', tx + Math.cos(ang) * rr, ty + Math.sin(ang) * rr);
@@ -1333,7 +1332,7 @@ function testSuperweaponWeatherStormsOverTime() {
 // within the nuke blast (4.5t) and radiation crater (3t) / storm (5t), yet far
 // enough from the packed (speed-0) cluster that ordinary enemy melee can't reach
 // them — so the ONLY thing that could hurt them is the superweapon. It doesn't.
-function stageFriendliesAt(g, cx, cy) {
+function stageFriendliesAt(g: any, cx: any, cy: any) {
   const off = TILE * 2.3;
   const turret = { x: cx + off, y: cy, kind: 'turret', cost: 8, progress: 1, paid: 8, built: true, hp: 5, maxHp: 5, cool: 0, evT: 0, level: 1 };
   g.builds.push(turret);
@@ -1358,7 +1357,7 @@ function testSuperweaponNukeAutoTargetsFriendlySafe() {
   const sw = buildSuperweaponAt(g, 'nuke', site);
   sw.chargeT = 0;
   run(g, () => { g.players[0].invuln = 1e9; return { 0: {} }; }, 0.2, 1 / 30);
-  assert.equal(g.superweapon.state, 'ready', 'nuke ready');
+  assert.equal(g.superweapon!.state, 'ready', 'nuke ready');
 
   // CONTROL: a lone enemy parked far from everything. It must NOT be chosen over
   // the tight cluster, and (being outside the blast) must survive.
@@ -1367,7 +1366,7 @@ function testSuperweaponNukeAutoTargetsFriendlySafe() {
 
   // DENSE cluster of 8 grunts packed tight around a target cell.
   const cx = (15 + 0.5) * TILE, cy = (11 + 0.5) * TILE;
-  const clusterIds = [];
+  const clusterIds: any[] = [];
   for (let i = 0; i < 8; i++) {
     const ang = (i / 8) * Math.PI * 2;
     const e = makeEnemyForTest(g, 'g', cx + Math.cos(ang) * TILE * 0.8, cy + Math.sin(ang) * TILE * 0.8);
@@ -1380,8 +1379,8 @@ function testSuperweaponNukeAutoTargetsFriendlySafe() {
 
   // TRIGGER (no aim). Auto-target must hit the dense cluster, not the lone boss.
   step(g, { 0: { superFire: true } }, 1 / 30);
-  assert.equal(g.superweapon.state, 'spent', 'the trigger fired the device');
-  assert.ok((g.superweapon.targetX - cx) ** 2 + (g.superweapon.targetY - cy) ** 2 < (NUKE_RADIUS_TILES * TILE) ** 2,
+  assert.equal(g.superweapon!.state, 'spent', 'the trigger fired the device');
+  assert.ok((g.superweapon!.targetX! - cx) ** 2 + (g.superweapon!.targetY! - cy) ** 2 < (NUKE_RADIUS_TILES * TILE) ** 2,
     'auto-target chose the dense cluster, not the lone far boss');
   // the auto-target ignored the lone far boss (it must still be alive now).
   assert.ok(g.enemies.some(e => !e.dead && e.id === lone.id), 'the lone far enemy is never targeted');
@@ -1425,7 +1424,7 @@ function testSuperweaponWeatherAutoTargetsFriendlySafe() {
   const sw = buildSuperweaponAt(g, 'weather', site);
   sw.chargeT = 0;
   run(g, () => { g.players[0].invuln = 1e9; return { 0: {} }; }, 0.2, 1 / 30);
-  assert.equal(g.superweapon.state, 'ready', 'weather ready');
+  assert.equal(g.superweapon!.state, 'ready', 'weather ready');
 
   // CONTROL: a lone far enemy that must not be chosen over the cluster.
   const lone = makeEnemyForTest(g, 'b', (3 + 0.5) * TILE, (2 + 0.5) * TILE);
@@ -1434,7 +1433,7 @@ function testSuperweaponWeatherAutoTargetsFriendlySafe() {
   // a TIGHT 12-pack (within ~1 tile of center) so the storm shreds it AND the
   // friendlies staged 2.3 tiles out stay clear of any enemy melee/gnaw reach.
   const cx = (10 + 0.5) * TILE, cy = (10 + 0.5) * TILE;
-  const clusterIds = [];
+  const clusterIds: any[] = [];
   for (let i = 0; i < 12; i++) {
     const ang = (i / 12) * Math.PI * 2, rr = TILE * (0.3 + (i % 3) * 0.25);
     const e = makeEnemyForTest(g, 'g', cx + Math.cos(ang) * rr, cy + Math.sin(ang) * rr);
@@ -1443,10 +1442,10 @@ function testSuperweaponWeatherAutoTargetsFriendlySafe() {
   const { turret, defender, player, off } = stageFriendliesAt(g, cx, cy);
   assert.ok(off < STORM_RADIUS_TILES * TILE, 'the staged friendlies sit inside the storm footprint');
 
-  g.players[0].x = site.x; g.players[0].y = site.y;
+  g.players[0].x = site!.x; g.players[0].y = site!.y;
   step(g, { 0: { superFire: true } }, 1 / 30);
-  assert.equal(g.superweapon.state, 'spent', 'the trigger fired the device');
-  assert.ok((g.superweapon.targetX - cx) ** 2 + (g.superweapon.targetY - cy) ** 2 < (STORM_RADIUS_TILES * TILE) ** 2,
+  assert.equal(g.superweapon!.state, 'spent', 'the trigger fired the device');
+  assert.ok((g.superweapon!.targetX! - cx) ** 2 + (g.superweapon!.targetY! - cy) ** 2 < (STORM_RADIUS_TILES * TILE) ** 2,
     'weather auto-target chose the dense cluster, not the lone far enemy');
 
   // run the storm out. Hold the VULNERABLE player parked under the footprint;
@@ -1483,14 +1482,14 @@ function testSuperweaponAutoTargetNoEnemiesKeepsCharge() {
   const sw = buildSuperweaponAt(g, 'nuke', site);
   sw.chargeT = 0;
   run(g, () => { g.players[0].invuln = 1e9; return { 0: {} }; }, 0.2, 1 / 30);
-  assert.equal(g.superweapon.state, 'ready', 'nuke ready');
+  assert.equal(g.superweapon!.state, 'ready', 'nuke ready');
   // clear the field (incl. the map's lone sleeper) so there is nothing to hit.
   for (const e of g.enemies) e.dead = true;
   assert.ok(!g.strongholds || !g.strongholds.length, 'the story map seeds no stronghold to fall back on');
-  g.players[0].x = site.x; g.players[0].y = site.y;
+  g.players[0].x = site!.x; g.players[0].y = site!.y;
   step(g, { 0: { superFire: true } }, 1 / 30);
-  assert.equal(g.superweapon.state, 'ready', 'with nothing to hit the trigger is a no-op (charge kept)');
-  assert.equal(g.superweapon.used, false, 'the one-shot was not consumed on empty air');
+  assert.equal(g.superweapon!.state, 'ready', 'with nothing to hit the trigger is a no-op (charge kept)');
+  assert.equal(g.superweapon!.used, false, 'the one-shot was not consumed on empty air');
   assert.equal(g.hazards.length, 0, 'no strike was scheduled');
 }
 
@@ -1507,10 +1506,10 @@ function testRelicFreezesDayNightCycle() {
   // long day/night so neither dusk nor dawn fires during the scripted window;
   // the relic completion alone latches the horde we want to time the clock by.
   const def = bastionDef({ nights: 5, dayLen: 9000, nightLen: 9000, bloodMoons: [] });
-  const g = createGame(def, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
+  const g = createGame(def as any, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
   assert.ok(g.cycle, 'bastion seeds a day/night cycle');
   assert.equal(g.cycle.phase, 'day', 'cycle opens on the day phase');
-  assert.ok(g.musicBox.enabled && g.musicBox.mounts && g.musicBox.mounts.length === 4,
+  assert.ok(g.musicBox!.enabled && g.musicBox!.mounts && g.musicBox!.mounts.length === 4,
     'bastion seeds the relic with four corner mounts');
 
   // complete the relic: carry each shard to an unfilled mount (mirrors the
@@ -1518,19 +1517,19 @@ function testRelicFreezesDayNightCycle() {
   const p = g.players[0];
   p.invuln = 1e9; g.graceT = 0;
   for (let i = 0; i < 4; i++) {
-    const fr = g.musicBox.fragments[i];
+    const fr = g.musicBox!.fragments![i];
     p.x = fr.x; p.y = fr.y;
     step(g, { 0: {} }, 1 / 30); // scoop
-    const target = g.musicBox.mounts.find(m => !m.filled);
-    p.x = target.x; p.y = target.y;
+    const target = g.musicBox!.mounts.find(m => !m.filled);
+    p.x = target!.x; p.y = target!.y;
     step(g, { 0: {} }, 1 / 30); // lock in
   }
-  assert.ok(g.musicBox.complete, 'relic completes at 4/4 mounts');
+  assert.ok(g.musicBox!.complete, 'relic completes at 4/4 mounts');
 
   // one more step latches the horde (rising edge of complete) AND, this same
   // tick, stepCycle should ALREADY refuse to advance (stepHorde runs first).
   const tBeforeLatch = g.cycle.t;
-  p.x = g.musicBox.altar.x; p.y = g.musicBox.altar.y; // park away from any spawn
+  p.x = g.musicBox!.altar!.x; p.y = g.musicBox!.altar!.y; // park away from any spawn
   step(g, { 0: {} }, 1 / 30);
   assert.ok(g.horde && !g.horde.ended, 'completing the relic latches a live horde');
   assert.equal(g.cycle.t, tBeforeLatch, 'the clock does not advance on the latch tick');
@@ -1571,11 +1570,11 @@ function testRelicFreezesDayNightCycle() {
 }
 
 function testScriptedBotClearsLevelOne() {
-  const party = startingRoster.map((id, i) => ({ pid: i, name: id, charId: id }));
+  const party = startingRoster.map((id: any, i: any) => ({ pid: i, name: id, charId: id }));
   const g = createGame(levels[0], party, charMap, startingRoster);
   for (const p of g.players) p.invuln = 999;
   run(g, () => {
-    const inputs = {};
+    const inputs: any = {};
     for (const p of g.players) {
       if (p.state === 'active') inputs[p.pid] = aimAtNearest(g, p);
     }
@@ -1585,7 +1584,7 @@ function testScriptedBotClearsLevelOne() {
 }
 
 // --- big-map AI: enemies sleep until a player gets close ---
-function bigEmptyLevel(extraRows = []) {
+function bigEmptyLevel(extraRows: any[] = []) {
   // 40x20 = 800 tiles, above the arcade auto-wake threshold
   const tiles = [];
   tiles.push('#'.repeat(40));
@@ -1626,7 +1625,7 @@ function testPathfindingAroundWall() {
   // a wall splits the room; the enemy must route around the gap at the bottom.
   // Geometry keeps the straight-line distance inside the skitter's big-map
   // leash (aggro 10.5 * 1.8 tiles) while still forcing a long detour.
-  const rows = [];
+  const rows: any[] = [];
   rows.push('#'.repeat(40));
   for (let y = 1; y < 19; y++) {
     let r = '#' + '.'.repeat(38) + '#';
@@ -1683,7 +1682,7 @@ function testStoryLevelIntegrity() {
   for (const def of storyLevels) {
     const tag = def.name || 'story level';
     const w = def.tiles[0].length;
-    assert.ok(def.tiles.every(r => r.length === w), `${tag}: rows have equal width`);
+    assert.ok(def.tiles.every((r: any) => r.length === w), `${tag}: rows have equal width`);
     const parsed = parseLevel(def);
     // Mode maps (bastion/ctf/br) need no gate and no exit; ctf wants 4 spawns
     // per side, br fields no AI enemies at all.
@@ -1706,7 +1705,7 @@ function testStoryLevelIntegrity() {
       else if (!coreless) assert.ok(parsed.core, `${tag}: bastion maps carry a base core`);
     }
     // entity arrays must match their tile counts exactly
-    const tileCount = ch => def.tiles.reduce((n, r) => n + (r.split(ch).length - 1), 0);
+    const tileCount = (ch: any) => def.tiles.reduce((n: any, r: any) => n + (r.split(ch).length - 1), 0);
     assert.equal((def.captiveChars || []).length, tileCount('c'), `${tag}: captiveChars length matches 'c' tiles`);
     assert.equal((def.npcs || []).length, tileCount('N'), `${tag}: npcs length matches 'N' tiles`);
     assert.equal((def.builds || []).length, tileCount('B'), `${tag}: builds length matches 'B' tiles`);
@@ -1737,8 +1736,8 @@ function testStoryLevelIntegrity() {
       if (t.twin != null) assert.ok(parsed.teleports.some(o => o.id === t.twin), `${tag}: teleport '${t.id}' twin '${t.twin}' exists`);
     }
     // every openDoor reward (quests, quorums, glyph orders) names a real door
-    const doorIds = new Set((def.doors || []).map((d, i) => d.id || 'door' + i));
-    const wantsDoor = id => assert.ok(doorIds.has(id), `${tag}: openDoor reward '${id}' is a real door`);
+    const doorIds = new Set((def.doors || []).map((d: any, i: any) => d.id || 'door' + i));
+    const wantsDoor = (id: any) => assert.ok(doorIds.has(id), `${tag}: openDoor reward '${id}' is a real door`);
     for (const q2 of def.quests || []) if (q2.reward && q2.reward.openDoor) wantsDoor(q2.reward.openDoor);
     for (const sg of def.switchGroups || []) if (sg.reward && sg.reward.openDoor) wantsDoor(sg.reward.openDoor);
     for (const gg of def.glyphGroups || []) if (gg.reward && gg.reward.openDoor) wantsDoor(gg.reward.openDoor);
@@ -1746,21 +1745,21 @@ function testStoryLevelIntegrity() {
     for (const q of def.quests || []) {
       assert.ok(q.id && typeof q.title === 'string' && q.title.length > 0, `${tag}: quest has id and title`);
       assert.ok(QUEST_KINDS.has(q.kind), `${tag}: quest '${q.id}' kind '${q.kind}' is known`);
-      assert.ok((def.npcs || []).some(n => n.id === q.giver), `${tag}: quest '${q.id}' giver '${q.giver}' is an npc on the map`);
+      assert.ok((def.npcs || []).some((n: any) => n.id === q.giver), `${tag}: quest '${q.id}' giver '${q.giver}' is an npc on the map`);
       if (q.kind === 'fetch') {
         assert.ok(q.item, `${tag}: fetch quest '${q.id}' names its item`);
-        assert.ok((def.qitems || []).some(it => (it.kind || 'fragment') === q.item),
+        assert.ok((def.qitems || []).some((it: any) => (it.kind || 'fragment') === q.item),
           `${tag}: fetch quest '${q.id}' item '${q.item}' exists among the map's qitems`);
       }
     }
     if (def.gate) {
-      const pylons = (def.builds || []).filter(b => b.kind === 'pylon').length;
+      const pylons = (def.builds || []).filter((b: any) => b.kind === 'pylon').length;
       assert.ok(def.gate.need <= pylons, `${tag}: gate.need ${def.gate.need} <= ${pylons} pylon sites`);
     }
     // walkable connectivity (BFS) from the first spawn to every objective
     // ('T' trees and '%' void block movement; crystals are parsed out and
     // never block; '=' sand, '!' lava and '^' ice are walkable terrain)
-    const pass = c => c !== '#' && c !== 'T' && c !== '~' && c !== 'o' && c !== '%';
+    const pass = (c: any) => c !== '#' && c !== 'T' && c !== '~' && c !== 'o' && c !== '%';
     // doors must cover walkable floor inside the map (the rect is a route
     // once the door opens; the BFS below deliberately walks through closed
     // doors — the validator assumes solvable puzzles open them eventually)
@@ -1778,7 +1777,7 @@ function testStoryLevelIntegrity() {
     seen.add(sx + ',' + sy);
     const flood = () => {
       while (q.length) {
-        const [x, y] = q.pop();
+        const [x, y] = q.pop()!;
         for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
           const nx = x + dx, ny = y + dy;
           if (nx < 0 || ny < 0 || nx >= parsed.w || ny >= parsed.h) continue;
@@ -1805,7 +1804,7 @@ function testStoryLevelIntegrity() {
       }
       if (!changed) break;
     }
-    const reach = (px, py, what) =>
+    const reach = (px: any, py: any, what: any) =>
       assert.ok(seen.has(Math.floor(px / TILE) + ',' + Math.floor(py / TILE)), `${tag}: ${what} reachable from spawn`);
     for (let y = 0; y < parsed.h; y++)
       for (let x = 0; x < parsed.w; x++)
@@ -1822,7 +1821,7 @@ function testStoryLevelIntegrity() {
       .filter(v => v.kind === 'skiff' && seen.has(Math.floor(v.x / TILE) + ',' + Math.floor(v.y / TILE)))
       .map(v => [Math.floor(v.x / TILE), Math.floor(v.y / TILE)]);
     while (seaQ.length) {
-      const [x, y] = seaQ.pop();
+      const [x, y] = seaQ.pop()!;
       for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
         const nx = x + dx, ny = y + dy;
         if (nx < 0 || ny < 0 || nx >= parsed.w || ny >= parsed.h) continue;
@@ -1890,7 +1889,7 @@ function testArcadeSpawnCapsPreserved() {
 
 function testEnemiesShootAcrossWater() {
   // sight stops at walls only: an archer must fire over a river, like its arrows do
-  const rows = [];
+  const rows: any[] = [];
   rows.push('#'.repeat(40));
   for (let y = 1; y < 19; y++) rows.push('#' + '.'.repeat(38) + '#');
   rows.push('#'.repeat(40));
@@ -1984,7 +1983,7 @@ function testLeashReturnAndResleep() {
 function testEnemyStronghold() {
   // a big map with an authored keep at tile (34,16), far from the (1,2) spawn.
   const level = bigEmptyLevel([[2, '#P' + '.'.repeat(36) + '#']]);
-  level.enemyStrongholds = [{ at: [34, 16], garrison: 'gggg', ring: 2,
+  (level as any).enemyStrongholds = [{ at: [34, 16], garrison: 'gggg', ring: 2,
     aggro: 6, leash: 11 }];
   const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   g.graceT = 0;
@@ -2040,7 +2039,7 @@ function testEnemyStronghold() {
   assert.ok(Number.isFinite(snap.strongholds[0].x) && Number.isFinite(snap.strongholds[0].y),
     'keep exposes a target position');
   for (const e of garrison) { e.dead = true; e.hp = 0; }
-  assert.equal(snapshot(g, false).strongholds[0].cleared, true, 'keep clears when the garrison falls');
+  assert.equal(snapshot(g, false).strongholds![0]!.cleared, true, 'keep clears when the garrison falls');
 
   // --- gating: a level WITHOUT enemyStrongholds never gains the key ---
   const plain = bigEmptyLevel([[17, '#' + '.'.repeat(35) + 'g..#']]);
@@ -2050,7 +2049,7 @@ function testEnemyStronghold() {
 
   // --- auto placement (corner-scan) seeds away from the base too ---
   const autoLvl = bigEmptyLevel([[2, '#P' + '.'.repeat(36) + '#']]);
-  autoLvl.enemyStrongholds = { count: 1, garrison: 'gg' };
+  (autoLvl as any).enemyStrongholds = { count: 1, garrison: 'gg' };
   const ag = createGame(autoLvl, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   assert.ok(ag.strongholds && ag.strongholds.length === 1, 'auto-count seeds one keep');
   assert.ok(Math.hypot(ag.strongholds[0].x - ag.players[0].x, ag.strongholds[0].y - ag.players[0].y) > 18 * TILE,
@@ -2065,7 +2064,7 @@ function testShardDropMagnetPickup() {
   ]);
   const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   g.players[0].invuln = 999;
-  run(g, gg => {
+  run(g, (gg: any) => {
     const p = gg.players[0];
     p.fx = 1; p.fy = 0;
     return { 0: { fire: true } };
@@ -2096,7 +2095,7 @@ function testPylonOpensGateAndGatesExtraction() {
     builds: [{ kind: 'pylon', cost: 14 }],
     tiles,
   };
-  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const g = createGame(def as any, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   assert.equal(g.arcade, false, 'synthetic gate map is big-map class');
   assert.deepEqual(snapshot(g, false).gate, { need: 1, after: 0, built: 0, open: false, charging: false }, 'snapshot carries the dormant gate');
   const b = g.builds[0];
@@ -2116,7 +2115,7 @@ function testPylonOpensGateAndGatesExtraction() {
   assert.ok(g.events.some(ev => ev.type === 'build'), 'build progress events fired');
   assert.ok(g.events.some(ev => ev.type === 'built' && ev.kind === 'pylon'), 'built event fired');
   assert.ok(g.events.some(ev => ev.type === 'gateOpen'), 'gateOpen event fired');
-  assert.equal(g.gate.open, true, 'pylon quorum opens the gate');
+  assert.equal(g.gate!.open, true, 'pylon quorum opens the gate');
   // the built pylon blocks movement
   p.x = b.x - TILE; p.y = b.y;
   run(g, () => ({ 0: { right: true } }), 1);
@@ -2171,13 +2170,13 @@ function testEveryCharacterSpecial() {
   // weapon special throws (forward, twin-opposed, 360, curved, lobbed), its
   // projectiles must cross the ring and connect with something
   const ringTiles = (() => {
-    const rows = [];
+    const rows: any[] = [];
     for (let y = 0; y < 15; y++) {
       let r = '';
       for (let x = 0; x < 15; x++) r += (x === 0 || y === 0 || x === 14 || y === 14) ? '#' : '.';
       rows.push(r);
     }
-    const put = (x, y, c) => { rows[y] = rows[y].slice(0, x) + c + rows[y].slice(x + 1); };
+    const put = (x: any, y: any, c: any) => { rows[y] = rows[y].slice(0, x) + c + rows[y].slice(x + 1); };
     put(7, 7, 'P');
     for (let dy = -2; dy <= 2; dy++) {
       for (let dx = -2; dx <= 2; dx++) {
@@ -2205,7 +2204,7 @@ function testEveryCharacterSpecial() {
       assert.ok(p.specialCool > 0, 'dash starts the cooldown');
     } else if (sp.kind === 'stim') {
       const level = { name: 'Stim', time: 20, captiveChars: [], tiles: ['##########', '#PP.....g#', '##########'] };
-      const allyId = startingRoster.find(id => id !== ch.id) || startingRoster[0];
+      const allyId = startingRoster.find((id: any) => id !== ch.id) || startingRoster[0];
       const g = createGame(level, [
         { pid: 0, name: ch.name, charId: ch.id },
         { pid: 1, name: 'Ally', charId: allyId },
@@ -2222,7 +2221,7 @@ function testEveryCharacterSpecial() {
       const level = { name: 'Special', time: 30, captiveChars: [], tiles: ringTiles };
       const g = createGame(level, [{ pid: 0, name: ch.name, charId: ch.id }], charMap, [ch.id]);
       g.players[0].invuln = 999;
-      run(g, (gg, t) => ({ 0: { special: Math.round(t * 30) % 2 === 0 } }), 15);
+      run(g, (gg: any, t: any) => ({ 0: { special: Math.round(t * 30) % 2 === 0 } }), 15);
       assert.ok(g.kills >= 1 || g.status === 'cleared', `${ch.name}'s special (${sp.name}) can kill a grunt`);
       assert.ok(g.events.some(ev => ev.type === 'special' && ev.who === 'p'), 'weapon special event emitted');
     }
@@ -2238,7 +2237,7 @@ function testCrystalBreakDropsShards() {
   const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   assert.equal(g.crystals.length, 1, 'crystal parsed from the grid');
   g.players[0].invuln = 999;
-  run(g, gg => {
+  run(g, (gg: any) => {
     const p = gg.players[0];
     p.fx = 1; p.fy = 0;
     return { 0: { fire: true } };
@@ -2256,13 +2255,13 @@ function testCrystalBreakDropsShards() {
 // --- big-map spawn tuning: sustained brooding stays under the global 90 cap ---
 function testBigMapSpawnerPopulationCap() {
   const W2 = 70, H2 = 30;
-  const rows = [];
+  const rows: any[] = [];
   for (let y = 0; y < H2; y++) {
     let r = '';
     for (let x = 0; x < W2; x++) r += (x === 0 || y === 0 || x === W2 - 1 || y === H2 - 1) ? '#' : '.';
     rows.push(r);
   }
-  const put = (x, y, c) => { rows[y] = rows[y].slice(0, x) + c + rows[y].slice(x + 1); };
+  const put = (x: any, y: any, c: any) => { rows[y] = rows[y].slice(0, x) + c + rows[y].slice(x + 1); };
   put(35, 15, 'P');
   for (const [x, y] of [[48, 15], [44, 24], [35, 27], [26, 24], [22, 15], [26, 6], [35, 3], [44, 6]]) put(x, y, 'm');
   const level = { name: 'Brood Test', time: 300, captiveChars: [], tiles: rows };
@@ -2280,12 +2279,12 @@ function testBigMapSpawnerPopulationCap() {
 // --- determinism: identical scripted co-op runs on the expedition match exactly ---
 function testDeterministicExpeditionRun() {
   const def = levels.find(l => l.expedition);
-  const party = startingRoster.map((id, i) => ({ pid: i, name: id, charId: id }));
+  const party = startingRoster.map((id: any, i: any) => ({ pid: i, name: id, charId: id }));
   const runOnce = () => {
     const g = createGame(def, party, charMap, startingRoster);
     const dt = 1 / 30;
     for (let i = 0; i < 900 && g.status === 'play'; i++) {
-      const inputs = {};
+      const inputs: any = {};
       for (const p of g.players) {
         inputs[p.pid] = {
           right: (i % 50) < 35,
@@ -2322,8 +2321,8 @@ function testRespawnPickFlow() {
   step(g, { 0: {}, 1: {} }, 1 / 30);
   assert.equal(a.state, 'pick', 'fallen player enters character pick after the respawn delay');
   const snapMe = snapshot(g).players.find(q => q.pid === 0);
-  assert.ok(Array.isArray(snapMe.pick?.choices) && snapMe.pick.choices.length >= 2, 'snapshot carries the pick choices');
-  const choices = snapMe.pick.choices;
+  assert.ok(Array.isArray(snapMe!.pick?.choices) && snapMe!.pick.choices.length >= 2, 'snapshot carries the pick choices');
+  const choices = snapMe!.pick.choices;
   // a held button must not auto-confirm; cycle right with a clean edge
   step(g, { 0: { right: false, fire: false }, 1: {} }, 1 / 30);
   step(g, { 0: { right: true }, 1: {} }, 1 / 30);
@@ -2336,13 +2335,13 @@ function testRespawnPickFlow() {
 
 // --- dark modifier: aggro radii x0.75, lit behavior untouched ---
 function testDarkAggroShrink() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   // grunt aggro is 9 tiles; the player stands 8 tiles away in clear sight
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(r, 4, 'P'), 12, 'g');
-  const make = dark => {
+  const make = (dark: any) => {
     const def = bigEmptyLevel([[5, r]]);
-    if (dark) def.modifiers = { dark: true };
+    if (dark) (def as any).modifiers = { dark: true };
     const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
     g.graceT = 0;
     g.players[0].invuln = 999;
@@ -2365,14 +2364,14 @@ function testDarkAggroShrink() {
 
 // --- dark modifier: sight (canSee) additionally capped at 8 tiles ---
 function testDarkSightCap() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   // sniper aggro is 12.5 tiles (9.375 in the dark); the player stands 9 tiles
   // out — inside the dark aggro radius, but beyond the 8-tile sight cap
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(r, 4, 'P'), 13, 'n');
-  const make = dark => {
+  const make = (dark: any) => {
     const def = bigEmptyLevel([[5, r]]);
-    if (dark) def.modifiers = { dark: true };
+    if (dark) (def as any).modifiers = { dark: true };
     const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
     g.graceT = 0;
     g.players[0].invuln = 999;
@@ -2393,7 +2392,7 @@ function testDarkSightCap() {
 // --- dark modifier: snapshots carry top-level dark:true, classics stay clean ---
 function testDarkSnapshotFlag() {
   const def = bigEmptyLevel([[17, '#....................................g#']]);
-  def.modifiers = { dark: true };
+  (def as any).modifiers = { dark: true };
   const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   assert.equal(snapshot(g, true).dark, true, 'full snapshot carries dark:true');
   assert.equal(snapshot(g, false).dark, true, 'lite snapshot carries dark:true');
@@ -2402,15 +2401,15 @@ function testDarkSnapshotFlag() {
 }
 
 // --- waves: timed deterministic edge spawns ---
-function waveLevel(waves) {
+function waveLevel(waves: any) {
   const def = bigEmptyLevel([
     [10, '#P....................................#'],
     [17, '#....................................g#'], // keeps the level alive
   ]);
-  def.modifiers = { waves };
+  (def as any).modifiers = { waves };
   // EXTREME pins the historical (no-op) wave counts so exact-count assertions
   // below stay the baseline; difficulty scaling is exercised in its own test.
-  def.difficulty = 'extreme';
+  (def as any).difficulty = 'extreme';
   return def;
 }
 
@@ -2449,10 +2448,10 @@ function testWaveEdgeBands() {
   // 40x20 map: each edge's spawns must land in its own 2-tile band and the
   // event must point at that band's center
   const cases = {
-    n: { band: e => e.y < TILE * 2, cx: 20 * TILE, cy: TILE },
-    s: { band: e => e.y > 18 * TILE, cx: 20 * TILE, cy: 19 * TILE },
-    w: { band: e => e.x < TILE * 2, cx: TILE, cy: 10 * TILE },
-    e: { band: e => e.x > 38 * TILE, cx: 39 * TILE, cy: 10 * TILE },
+    n: { band: (e: any) => e.y < TILE * 2, cx: 20 * TILE, cy: TILE },
+    s: { band: (e: any) => e.y > 18 * TILE, cx: 20 * TILE, cy: 19 * TILE },
+    w: { band: (e: any) => e.x < TILE * 2, cx: TILE, cy: 10 * TILE },
+    e: { band: (e: any) => e.x > 38 * TILE, cx: 39 * TILE, cy: 10 * TILE },
   };
   for (const [edge, want] of Object.entries(cases)) {
     const def = waveLevel([{ at: 1, letters: 'gg', edge }]);
@@ -2465,9 +2464,9 @@ function testWaveEdgeBands() {
     assert.equal(spawned.length, 2, `edge ${edge}: both letters spawned`);
     for (const e of spawned) assert.ok(want.band(e), `edge ${edge}: spawn inside the 2-tile band`);
     const ev = g.events.find(v => v.type === 'wave');
-    assert.equal(ev.edge, edge, `edge ${edge}: event edge`);
-    assert.equal(ev.x, want.cx, `edge ${edge}: event x at band center`);
-    assert.equal(ev.y, want.cy, `edge ${edge}: event y at band center`);
+    assert.equal(ev!.edge, edge, `edge ${edge}: event edge`);
+    assert.equal(ev!.x, want.cx, `edge ${edge}: event x at band center`);
+    assert.equal(ev!.y, want.cy, `edge ${edge}: event y at band center`);
   }
 }
 
@@ -2484,7 +2483,7 @@ function testWaveFiresOnce() {
 
 function testWaveRespectsGlobalCap() {
   // 88 pre-placed grunts: a 5-letter wave may only add 2 before the 90 cap
-  const rows = [];
+  const rows: any[] = [];
   rows.push('#'.repeat(40));
   for (let y = 1; y < 19; y++) rows.push('#' + '.'.repeat(38) + '#');
   rows.push('#'.repeat(40));
@@ -2504,7 +2503,7 @@ function testWaveRespectsGlobalCap() {
   run(g, () => ({ 0: {} }), 2);
   assert.equal(g.enemies.length, 90, 'wave overflow is dropped at the global 90 cap');
   const ev = g.events.find(v => v.type === 'wave');
-  assert.equal(ev.count, 2, 'wave event reports the post-cap spawned count');
+  assert.equal(ev!.count, 2, 'wave event reports the post-cap spawned count');
 }
 
 testLevelsParse();
@@ -2553,7 +2552,7 @@ testBigMapSpawnerPopulationCap();
 testDeterministicExpeditionRun();
 function testEnemyPathsAroundBuiltPylon() {
   // a built pylon mid-corridor must not wedge chasers — A* routes around it
-  const rows = [];
+  const rows: any[] = [];
   rows.push('#'.repeat(40));
   for (let y = 1; y < 19; y++) rows.push('#' + '.'.repeat(38) + '#');
   rows.push('#'.repeat(40));
@@ -2563,7 +2562,7 @@ function testEnemyPathsAroundBuiltPylon() {
     builds: [{ kind: 'pylon', cost: 1 }],
     tiles: rows,
   };
-  const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const g = createGame(level as any, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   g.shards = 10;
   const p = g.players[0];
   p.invuln = 999;
@@ -2587,7 +2586,7 @@ function testStructureRepairUpgradeDismantle() {
     [4, '#P..B.................................#'],
     [17, '#....................................g#'],
   ]);
-  level.builds = [{ kind: 'barricade', cost: 4 }];
+  (level as any).builds = [{ kind: 'barricade', cost: 4 }];
   const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   const p = g.players[0];
   const site = g.builds[0];
@@ -2638,11 +2637,11 @@ function testStructureRepairUpgradeDismantle() {
 
 // --- turret levels: damage 1/2/3, targeting range 5.5/6/6.5 tiles, 0.55s cadence ---
 function testTurretLevels() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(put(r, 2, 'P'), 10, 'B'), 16, 'g'); // grunt exactly 6 tiles from the turret
   const level = bigEmptyLevel([[5, r], [17, '#....................................g#']]);
-  level.builds = [{ kind: 'turret', cost: 5 }];
+  (level as any).builds = [{ kind: 'turret', cost: 5 }];
   const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   const p = g.players[0];
   const b = g.builds[0];
@@ -2676,7 +2675,7 @@ function testTurretLevels() {
   const shots0 = g.events.filter(ev => ev.type === 'shoot' && ev.weapon === 'turret').length;
   run(g, watch, 1.5);
   assert.ok(seen, 'level 2 turret (6-tile reach) fires');
-  assert.equal(seen.dmg, 2, 'level 2 turret deals 2 damage');
+  assert.equal((seen as any).dmg, 2, 'level 2 turret deals 2 damage');
   const volleys = g.events.filter(ev => ev.type === 'shoot' && ev.weapon === 'turret').length - shots0;
   assert.ok(volleys >= 3, `0.55s cadence lands >= 3 shots in 1.5s (saw ${volleys})`);
   seen = null;
@@ -2685,12 +2684,12 @@ function testTurretLevels() {
   e.x = b.x + TILE * 6.3; // beyond L2's reach, inside L3's 6.5
   const hp0 = e.hp;
   run(g, watch, 1.5);
-  assert.ok(seen && seen.dmg === 3, 'level 3 turret deals 3 damage at 6.3 tiles');
+  assert.ok(seen && (seen as any).dmg === 3, 'level 3 turret deals 3 damage at 6.3 tiles');
   assert.ok(e.hp < hp0, 'the +0.5-tile flight buffer carries the round to an edge-of-range target');
 }
 
 function testGateTimeLock() {
-  const rows = [];
+  const rows: any[] = [];
   rows.push('#'.repeat(30));
   for (let y = 1; y < 9; y++) rows.push('#' + '.'.repeat(28) + '#');
   rows.push('#'.repeat(30));
@@ -2701,7 +2700,7 @@ function testGateTimeLock() {
     gate: { need: 1, after: 6 },
     tiles: rows,
   };
-  const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const g = createGame(level as any, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   g.shards = 5;
   const p = g.players[0];
   p.invuln = 999;
@@ -2709,11 +2708,11 @@ function testGateTimeLock() {
   p.x = site.x - TILE; p.y = site.y;
   run(g, () => ({ 0: { act: true } }), 2);
   assert.ok(site.built, 'pylon built before the time lock');
-  assert.equal(g.gate.open, false, 'gate stays shut at full quorum until `after` elapses');
+  assert.equal(g.gate!.open, false, 'gate stays shut at full quorum until `after` elapses');
   const snapCharging = snapshot(g, false).gate;
-  assert.equal(snapCharging.charging, true, 'snapshot reports the charging state');
+  assert.equal(snapCharging!.charging, true, 'snapshot reports the charging state');
   run(g, () => ({ 0: {} }), 5);
-  assert.equal(g.gate.open, true, 'gate opens once the time lock elapses');
+  assert.equal(g.gate!.open, true, 'gate opens once the time lock elapses');
   assert.equal(snapshot(g).events !== undefined, true);
 }
 
@@ -2721,14 +2720,14 @@ function testGateTimeLock() {
 
 // An enemy arrow parked on the player: the cheapest deterministic way to land
 // exactly one hit through the public step().
-function enemyShotAt(g, p) {
+function enemyShotAt(g: any, p: any) {
   g.shots.push({
     id: g.nextShotId++, x: p.x, y: p.y, vx: 0, vy: 0, ttl: 0.5, dmg: 1,
     who: 'e', overWalls: true, pierce: 0, aoeRadius: 0, curve: 0, radius: 5, kind: 'arrow', hits: [],
   });
 }
 
-function playerShotAt(g, e, dmg = 1, extra = {}) {
+function playerShotAt(g: any, e: any, dmg = 1, extra = {}) {
   g.shots.push({
     id: g.nextShotId++, x: e.x, y: e.y, vx: 0, vy: 0, ttl: 0.5, dmg,
     who: 'p', overWalls: true, pierce: 0, aoeRadius: 0, curve: 0, radius: 5, kind: 'test', hits: [],
@@ -2853,7 +2852,7 @@ function testItemMedkitAndShield() {
 
 // --- lure cracker: 4-tile lob, 3s lure that overrides targeting, then boom ---
 function testCrackerLureAndBoom() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(r, 4, 'P'), 12, 'w'); // skitter 8 tiles right of the player
   const level = bigEmptyLevel([[5, r]]);
@@ -2868,7 +2867,7 @@ function testCrackerLureAndBoom() {
   step(g, { 0: { item: true } }, 1 / 30);
   assert.equal(p.item, null, 'cracker thrown and consumed');
   assert.equal(g.crackers.length, 1, 'cracker in flight');
-  assert.ok(snapshot(g, false).crackers.length === 1, 'snapshot carries the cracker');
+  assert.ok(snapshot(g, false).crackers!.length === 1, 'snapshot carries the cracker');
   run(g, () => ({ 0: {} }), 0.6);
   const out = g.events.find(ev => ev.type === 'crackerOut');
   assert.ok(out, 'crackerOut fires on landing');
@@ -2886,22 +2885,22 @@ function testCrackerLureAndBoom() {
 
 // --- chests: act-open, loot table, def binding, act priority over npcs ---
 function testChestLootAndPriority() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
   r = put(r, 2, 'P');
   for (const x of [4, 8, 12, 16, 20]) r = put(r, x, 'C');
   r = put(r, 5, 'N'); // npc right beside the first chest
   const level = bigEmptyLevel([[5, r], [17, '#....................................g#']]);
-  level.chests = [
+  (level as any).chests = [
     { loot: 'shards', amount: 9 }, { loot: 'medkit' }, { loot: 'shield' },
     { loot: 'token' }, { loot: 'cracker' },
   ];
-  level.npcs = [{ id: 'jo', name: 'Jo', lines: ['hey'] }];
+  (level as any).npcs = [{ id: 'jo', name: 'Jo', lines: ['hey'] }];
   const g = createGame(level, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
   assert.equal(g.chests.length, 5, 'chests parsed from C tiles');
   const p = g.players[0];
   p.invuln = 999;
-  const goTo = i => { p.x = g.chests[i].x; p.y = g.chests[i].y; };
+  const goTo = (i: any) => { p.x = g.chests[i].x; p.y = g.chests[i].y; };
   const act = () => {
     step(g, { 0: {} }, 1 / 30);
     step(g, { 0: { act: true } }, 1 / 30);
@@ -2913,8 +2912,8 @@ function testChestLootAndPriority() {
   assert.equal(g.shards, 9, 'shard chest pays into the pool');
   assert.ok(!g.events.some(ev => ev.type === 'talk'), 'chest takes act priority over the npc');
   const chestEv = g.events.find(ev => ev.type === 'chest');
-  assert.equal(chestEv.loot, 'shards');
-  assert.equal(chestEv.amount, 9);
+  assert.equal(chestEv!.loot, 'shards');
+  assert.equal(chestEv!.amount, 9);
   // same spot again: chest is spent, npc gets the press
   act();
   assert.equal(g.shards, 9, 'opened chest never pays twice');
@@ -2934,7 +2933,7 @@ function testChestLootAndPriority() {
   goTo(4);
   act();
   assert.deepEqual(p.item, { kind: 'cracker', count: 2 }, 'cracker chest pays 2 and swaps out the old kind');
-  assert.equal(snapshot(g, false).chests.filter(c => c.opened).length, 5, 'snapshot tracks opened chests');
+  assert.equal(snapshot(g, false).chests!.filter(c => c.opened).length, 5, 'snapshot tracks opened chests');
   // default loot when def.chests is missing: fixed cycle by index
   const dflt = parseLevel({ tiles: ['#######', '#PCCCg#', '#######'] });
   assert.deepEqual(dflt.chests.map(c => c.loot), ['shards', 'cracker', 'medkit'], 'default loot cycles deterministically');
@@ -2942,7 +2941,7 @@ function testChestLootAndPriority() {
 }
 
 // --- bastion: a 40x20 base map with the core mid-field ---
-function bastionDef(b = {}, extraRows = []) {
+function bastionDef(b: any = {}, extraRows: any[] = []) {
   const tiles = [];
   tiles.push('#'.repeat(40));
   for (let y = 1; y < 19; y++) tiles.push('#' + '.'.repeat(38) + '#');
@@ -2962,13 +2961,13 @@ function bastionDef(b = {}, extraRows = []) {
 
 // --- bastion: cycle events, wave rotation/composition, mutations, win ---
 function testBastionCycleWavesAndWin() {
-  const g = createGame(bastionDef(), [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const g = createGame(bastionDef() as any, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   assert.equal(g.mode, 'bastion');
   assert.deepEqual(g.core, { x: 20.5 * TILE, y: 10.5 * TILE, hp: 30, maxHp: 30 }, 'K parses into the core');
   const s0 = snapshot(g, false);
   assert.equal(s0.mode, 'bastion', 'snapshot carries the mode');
   assert.deepEqual(s0.cycle, { phase: 'day', nightNo: 0, t: 5, bloodMoon: false, nights: 2 }, 'snapshot carries the cycle');
-  assert.equal(s0.core.hp, 30, 'snapshot carries the core');
+  assert.equal(s0.core!.hp, 30, 'snapshot carries the core');
   g.graceT = 1e9; // freeze enemy AI: this test inspects spawns and the clock
   g.players[0].invuln = 999;
   // an empty field must NOT auto-clear a bastion map
@@ -2983,7 +2982,7 @@ function testBastionCycleWavesAndWin() {
   assert.ok(dusk1, 'dusk event fired');
   assert.equal(dusk1.nightNo, 1);
   assert.equal(dusk1.bloodMoon, false);
-  assert.equal(g.cycle.phase, 'night');
+  assert.equal(g.cycle!.phase, 'night');
   const wave1 = g.enemies.slice();
   assert.equal(wave1.length, 5, 'night 1 solo wave is 5 enemies (base 6 x 0.8)');
   assert.deepEqual(wave1.map(e => e.letter), ['z', 'z', 'w', 'z', 'z'], 'night 1 is husk fodder and skitters');
@@ -3011,7 +3010,7 @@ function testBastionCycleWavesAndWin() {
   assert.ok(dawn1, 'dawn event fired');
   assert.equal(dawn1.nightNo, 1);
   assert.equal(g.status, 'play', 'not cleared yet: one night to go');
-  assert.equal(g.cycle.phase, 'day');
+  assert.equal(g.cycle!.phase, 'day');
   run(g, () => ({ 0: {} }), 1);
   const warn = g.events.find(ev => ev.type === 'bloodWarn');
   assert.ok(warn, 'bloodWarn fires inside 30s of a blood-moon dusk');
@@ -3033,7 +3032,7 @@ function testBastionCycleWavesAndWin() {
   assert.ok(wave2.every(e => e.mutation), 'every blood moon enemy is mutated');
   // night 2 blends z z w u (+ one trailing f per edge); +1 hp on base stats
   const bloodHp = { z: 2, w: 2, u: 3, f: 4 };
-  assert.ok(wave2.filter(e => e.mutation !== 'bulk').every(e => e.hp === bloodHp[e.letter]), 'blood moon adds +1 hp');
+  assert.ok(wave2.filter(e => e.mutation !== 'bulk').every(e => e.hp === (bloodHp as any)[e.letter]), 'blood moon adds +1 hp');
   assert.ok(wave2.some(e => e.letter === 'u') && wave2.some(e => e.letter === 'f'),
     'night 2 mixes in Pyre Beetles and a Fork Alpha');
   assert.equal(g.events.filter(ev => ev.type === 'wave').length, 2, 'one wave event per blood-moon entry edge');
@@ -3047,19 +3046,19 @@ function testBastionCycleWavesAndWin() {
 // --- bastion: the wave marches on the core; core 0 fails the mission ---
 function testCoreSiegeAndLoss() {
   const def = bastionDef({ nights: 1, dayLen: 1, nightLen: 300, bloodMoons: [] });
-  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const g = createGame(def as any, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   g.graceT = 0;
   g.players[0].invuln = 999;
   run(g, () => ({ 0: {} }), 90);
   assert.ok(g.events.some(ev => ev.type === 'coreHit'), 'wave enemies gnaw the core on contact');
-  assert.ok(g.core.hp <= 0, 'core falls to the siege');
+  assert.ok(g.core!.hp <= 0, 'core falls to the siege');
   assert.equal(g.status, 'failed', 'core destruction fails the mission');
   assert.ok(g.events.some(ev => ev.type === 'coreDown'), 'coreDown event fired');
 }
 
 // --- mutants: volatile pops on death, split twins out ---
 function testMutantDeathEffects() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(put(r, 4, 'P'), 5, 'g'), 12, 'g');
   const level = bigEmptyLevel([[5, r]]);
@@ -3090,11 +3089,11 @@ function testMutantDeathEffects() {
 
 // --- farms: stage growth, farmer speed-up, harvest, night trampling ---
 function testFarmGrowHarvestTrample() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   const def = bastionDef({ nights: 1, dayLen: 1000, nightLen: 1000, bloodMoons: [] }, []);
   def.tiles[5] = put(put('#' + '.'.repeat(38) + '#', 4, 'B'), 30, 'g');
-  def.builds = [{ kind: 'farm', cost: 6 }];
-  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  (def as any).builds = [{ kind: 'farm', cost: 6 }];
+  const g = createGame(def as any, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   const p = g.players[0];
   const b = g.builds[0];
   const e = g.enemies[0];
@@ -3144,16 +3143,16 @@ function testFarmGrowHarvestTrample() {
   step(g, { 0: { act: true } }, 1 / 30);
   assert.equal(g.events.filter(ev => ev.type === 'slotFull').length, 1, 'held act does not respam the cue');
   // night trampling: an enemy crossing the plot flattens it
-  g.cycle.phase = 'night';
-  g.cycle.nightNo = 1;
-  g.cycle.t = 500;
+  g.cycle!.phase = 'night';
+  g.cycle!.nightNo = 1;
+  g.cycle!.t = 500;
   b.stage = 2;
   e.x = b.x; e.y = b.y;
   step(g, { 0: {} }, 1 / 30);
   assert.equal(b.stage, 0, 'night crossing tramples the farm');
   assert.ok(g.events.some(ev => ev.type === 'trample'), 'trample event fired');
   // daytime crossings are harmless
-  g.cycle.phase = 'day';
+  g.cycle!.phase = 'day';
   b.stage = 2;
   step(g, { 0: {} }, 1 / 30);
   assert.equal(b.stage, 2, 'daytime crossing does not trample');
@@ -3192,29 +3191,29 @@ function testParseNewLetters() {
   for (const row of lvl.grid) assert.ok(!/[CVKWSHD]/.test(row), 'every new letter resolves to floor');
   const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   const s = snapshot(g, false);
-  assert.equal(s.chests.length, 1, 'snapshot ships chests');
-  assert.equal(s.vehicles.length, 2, 'snapshot ships vehicles');
-  assert.equal(s.towers.length, 1, 'snapshot ships towers');
-  assert.equal(s.shops.length, 1, 'snapshot ships shops');
-  assert.equal(s.hires.length, 2, 'snapshot ships hires');
-  assert.equal(s.flags.length, 2, 'snapshot ships flags');
-  assert.equal(s.core.maxHp, 30, 'snapshot ships the core');
+  assert.equal(s.chests!.length, 1, 'snapshot ships chests');
+  assert.equal(s.vehicles!.length, 2, 'snapshot ships vehicles');
+  assert.equal(s.towers!.length, 1, 'snapshot ships towers');
+  assert.equal(s.shops!.length, 1, 'snapshot ships shops');
+  assert.equal(s.hires!.length, 2, 'snapshot ships hires');
+  assert.equal(s.flags!.length, 2, 'snapshot ships flags');
+  assert.equal(s.core!.maxHp, 30, 'snapshot ships the core');
 }
 
 // --- determinism: identical scripted bastion runs match snapshot-for-snapshot ---
 function testDeterministicBastionRun() {
   const def = bastionDef({ nights: 2, dayLen: 6, nightLen: 8, bloodMoons: [2] });
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   def.tiles[4] = put(put('#' + '.'.repeat(38) + '#', 6, 'C'), 9, 'C');
-  const party = startingRoster.slice(0, 2).map((id, i) => ({ pid: i, name: id, charId: id }));
+  const party = startingRoster.slice(0, 2).map((id: any, i: any) => ({ pid: i, name: id, charId: id }));
   const runOnce = () => {
-    const g = createGame(def, party, charMap, startingRoster);
+    const g = createGame(def as any, party, charMap, startingRoster);
     g.players[0].item = { kind: 'cracker', count: 2 };
     g.players[1].item = { kind: 'medkit', count: 1 };
     const dt = 1 / 30;
     const h = [];
     for (let i = 0; i < 900 && g.status === 'play'; i++) {
-      const inputs = {};
+      const inputs: any = {};
       for (const p of g.players) {
         inputs[p.pid] = {
           right: (i % 50) < 30, down: p.pid === 0 && (i % 70) < 25, up: p.pid === 1 && (i % 70) < 25,
@@ -3232,7 +3231,7 @@ function testDeterministicBastionRun() {
 
 // --- melee contact damage routes through the survival hp pool ---
 function testContactDamageNonArcade() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(r, 4, 'P'), 6, 'g');
   const level = bigEmptyLevel([[5, r]]);
@@ -3250,7 +3249,7 @@ function testContactDamageNonArcade() {
 
 // --- watchtowers: occupy at the base, boosted overWalls fire, leave on act ---
 function testTowerOccupyAndFire() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(r, 4, 'P'), 10, 'W');
   const level = bigEmptyLevel([[5, r], [17, '#....................................g#']]);
@@ -3273,7 +3272,7 @@ function testTowerOccupyAndFire() {
   assert.ok(p.x === t.x && p.y === t.y, 'occupant snaps to the tower center');
   const snapT = snapshot(g, false);
   assert.equal(snapT.players[0].towerId, 0, 'snapshot carries towerId');
-  assert.equal(snapT.towers[0].occupant, 0, 'snapshot towers carry the occupant');
+  assert.equal(snapT.towers![0].occupant, 0, 'snapshot towers carry the occupant');
   // movement is locked but the gunner still swivels
   run(g, () => ({ 0: { right: true } }), 1);
   assert.ok(p.x === t.x && p.y === t.y, 'occupant cannot walk off the platform');
@@ -3314,7 +3313,7 @@ function testTowerOccupyAndFire() {
 // --- watchtowers are structures: gnawed by melee, repairable, upgradable,
 // destroyed ones eject the gunner and rebuild for 10 shards ---
 function testTowerSiegeRepairRebuild() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(put(r, 4, 'P'), 10, 'W'), 12, 'g');
   const level = bigEmptyLevel([[5, r], [17, '#....................................g#']]);
@@ -3364,7 +3363,7 @@ function testTowerSiegeRepairRebuild() {
 
 // --- shop: act-hold carousel with movement lock, left/right browse, fire buys ---
 function testShopCarousel() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(r, 4, 'P'), 10, 'S');
   const level = bigEmptyLevel([[5, r], [17, '#....................................g#']]);
@@ -3440,16 +3439,16 @@ function testShopCarousel() {
 
 // --- hire posts: act+shards hires; smith/engineer/farmer work deterministic ticks ---
 function testHireJobs() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(put(put(put(r, 4, 'P'), 8, 'H'), 10, 'H'), 12, 'H'), 20, 'B');
   const level = bigEmptyLevel([[5, r], [17, '#....................................g#']]);
-  level.hires = [
+  (level as any).hires = [
     { job: 'smith', cost: 5, name: 'Bo' },
     { job: 'engineer', cost: 7, name: 'Ada' },
     { job: 'farmer', cost: 6, name: 'Fae' },
   ];
-  level.builds = [{ kind: 'farm', cost: 6 }];
+  (level as any).builds = [{ kind: 'farm', cost: 6 }];
   const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   const p = g.players[0];
   const [smith, engineer, farmer] = g.hires;
@@ -3469,8 +3468,8 @@ function testHireJobs() {
   assert.equal(smith.hired, true, 'smith hired');
   assert.equal(g.shards, 7, 'hire cost paid');
   const hiredEv = g.events.find(ev => ev.type === 'hired');
-  assert.deepEqual({ name: hiredEv.name, job: hiredEv.job }, { name: 'Bo', job: 'smith' }, 'hired event names the operator');
-  assert.equal(snapshot(g, false).hires[0].hired, true, 'snapshot tracks hired posts');
+  assert.deepEqual({ name: hiredEv!.name, job: hiredEv!.job }, { name: 'Bo', job: 'smith' }, 'hired event names the operator');
+  assert.equal(snapshot(g, false).hires![0]!.hired, true, 'snapshot tracks hired posts');
   // smith: +1 shard to the pool every 20s
   const pool0 = g.shards;
   run(g, () => ({ 0: {} }), 20.1);
@@ -3511,11 +3510,11 @@ function testHireJobs() {
 
 // --- stag: shared land mount, x2.2 speed, no fire/special, act dismounts ---
 function testVehicleStag() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(r, 4, 'P'), 8, 'V');
   const level = bigEmptyLevel([[5, r], [17, '#....................................g#']]);
-  level.vehicles = [{ kind: 'stag' }];
+  (level as any).vehicles = [{ kind: 'stag' }];
   const g = createGame(level, [
     { pid: 0, name: 'A', charId: 'scout' },
     { pid: 1, name: 'B', charId: startingRoster[1] },
@@ -3576,11 +3575,11 @@ function testVehicleSkiff() {
   tiles.push('#'.repeat(40));
   tiles[2] = '#P' + '.'.repeat(9) + '~~~~' + '.'.repeat(24) + '#';
   tiles[17] = '#' + '.'.repeat(10) + '~~~~' + '.'.repeat(23) + 'g#';
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   tiles[5] = put(tiles[5], 11, 'V');
   const level = { name: 'Skiff Test', time: 300, captiveChars: [], vehicles: [{ kind: 'skiff' }], tiles };
   const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
-  const tileAt = (gg, x, y) => gg.grid[Math.floor(y / TILE)][Math.floor(x / TILE)];
+  const tileAt = (gg: any, x: any, y: any) => gg.grid[Math.floor(y / TILE)][Math.floor(x / TILE)];
   const p = g.players[0];
   const v = g.vehicles[0];
   assert.equal(v.kind, 'skiff', 'skiff parsed');
@@ -3626,7 +3625,7 @@ function testVehicleSkiff() {
 }
 
 // helper: a parked pvp shot owned by a player (pid/team), like enemyShotAt
-function pvpShotAt(g, target, pid, team, dmg = 1) {
+function pvpShotAt(g: any, target: any, pid: any, team: any, dmg = 1) {
   g.shots.push({
     id: g.nextShotId++, x: target.x, y: target.y, vx: 0, vy: 0, ttl: 0.5, dmg,
     who: 'p', pid, team, overWalls: true, pierce: 0, aoeRadius: 0, curve: 0, radius: 5, kind: 'test', hits: [],
@@ -3634,7 +3633,7 @@ function pvpShotAt(g, target, pid, team, dmg = 1) {
 }
 
 function ctfDef() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   const tiles = [];
   tiles.push('#'.repeat(40));
   for (let y = 1; y < 19; y++) tiles.push('#' + '.'.repeat(38) + '#');
@@ -3648,7 +3647,7 @@ function ctfDef() {
 // --- ctf: teams, friendly fire off, carry/drop/return/capture, respawns ---
 function testCtfMatch() {
   const party = [0, 1, 2, 3].map(i => ({ pid: i, name: 'P' + i, charId: startingRoster[i % startingRoster.length] }));
-  const g = createGame(ctfDef(), party, charMap, startingRoster);
+  const g = createGame(ctfDef() as any, party, charMap, startingRoster);
   assert.equal(g.mode, 'ctf');
   assert.equal(g.arcade, false, 'mode maps are never arcade class');
   assert.equal(g.enemies.length, 0, 'ctf fields no AI enemies');
@@ -3657,7 +3656,7 @@ function testCtfMatch() {
   const s0 = snapshot(g, false);
   assert.deepEqual(s0.caps, [0, 0], 'snapshot carries caps');
   assert.equal(s0.players[1].team, 1, 'snapshot players carry team');
-  assert.equal(s0.flags.length, 2, 'snapshot carries both flags');
+  assert.equal(s0.flags!.length, 2, 'snapshot carries both flags');
   const [p0, p1, p2, p3] = g.players;
   const [f0, f1] = g.flags;
   for (const p of g.players) p.invuln = 0;
@@ -3694,7 +3693,7 @@ function testCtfMatch() {
   const cx0 = p1.x;
   run(g, () => ({ 1: { right: true } }), 1);
   const carried = p1.x - cx0;
-  const expectedCarry = charMap[p1.charId].speed * TILE * 0.85;
+  const expectedCarry = charMap[p1.charId!].speed * TILE * 0.85;
   assert.ok(Math.abs(carried - expectedCarry) < 3, `carrier slowed to 85% (got ${carried.toFixed(1)} vs ${expectedCarry.toFixed(1)})`);
   // downing the carrier drops the flag where they fell (8s to return)
   p1.invuln = 0; p1.shield = 0; p1.hp = 1;
@@ -3743,7 +3742,7 @@ function testCtfMatch() {
   assert.equal(g.status, 'cleared', 'third capture ends the match');
   assert.equal(g.winner, 0, 'team 0 wins');
   const endEv = g.events.find(ev => ev.type === 'matchEnd');
-  assert.ok(endEv && endEv.winner === 0 && endEv.caps[0] === 3, 'matchEnd carries winner and caps');
+  assert.ok(endEv && endEv.winner === 0 && (endEv.caps as any)[0] === 3, 'matchEnd carries winner and caps');
   assert.equal(snapshot(g, false).winner, 0, 'snapshot carries the winner');
   // pvp never touches the campaign roster
   assert.deepEqual(applyResults(startingRoster, g).roster, startingRoster, 'ctf leaves the roster untouched');
@@ -3753,7 +3752,7 @@ function testCtfMatch() {
 function testCtfTimerAndSuddenDeath() {
   const party = [0, 1].map(i => ({ pid: i, name: 'P' + i, charId: startingRoster[i] }));
   // leader at the horn wins outright
-  let g = createGame(ctfDef(), party, charMap, startingRoster);
+  let g = createGame(ctfDef() as any, party, charMap, startingRoster);
   g.caps = [0, 2];
   g.timeLeft = 0.05;
   run(g, () => ({}), 0.2);
@@ -3761,7 +3760,7 @@ function testCtfTimerAndSuddenDeath() {
   assert.equal(g.winner, 1, 'the leading team wins at the horn');
   assert.equal(g.timeLeft, 0, 'clock stops at zero');
   // a tie freezes the clock and the next capture takes it all
-  g = createGame(ctfDef(), party, charMap, startingRoster);
+  g = createGame(ctfDef() as any, party, charMap, startingRoster);
   g.caps = [1, 1];
   g.timeLeft = 0.05;
   run(g, () => ({}), 0.3);
@@ -3793,7 +3792,7 @@ function testBrZoneAndWinner() {
     tiles,
   };
   const party = [0, 1, 2].map(i => ({ pid: i, name: 'P' + i, charId: startingRoster[i] }));
-  const g = createGame(def, party, charMap, startingRoster);
+  const g = createGame(def as any, party, charMap, startingRoster);
   assert.equal(g.mode, 'br');
   assert.deepEqual(g.players.map(p => p.team), [0, 1, 2], 'br teams are the pids');
   const z = g.zone;
@@ -3815,7 +3814,7 @@ function testBrZoneAndWinner() {
   run(g, () => ({}), 11);
   assert.equal(z.r, 4 * TILE, 'ring settles at the target radius');
   // outside: 1 damage every 2s, shield first
-  assert.ok(p2.shield === 0 || p2.hp < 3, 'zone damage landed on the straggler');
+  assert.ok(p2.shield === 0 || p2.hp! < 3, 'zone damage landed on the straggler');
   assert.ok(g.events.some(ev => ev.type === 'playerHit' && ev.pid === 2), 'zone damage routes through playerHit');
   // keep burning until elimination — no down state, no captive, just out
   run(g, () => ({}), 8);
@@ -3838,12 +3837,12 @@ function testBrZoneAndWinner() {
 
 // --- ctf: per-team shard pools (collectors credit, spenders debit); br keeps one pool ---
 function testCtfTeamShardPools() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   const def = ctfDef();
   def.tiles[8] = put(put(def.tiles[8], 10, 'C'), 14, 'S');
-  def.chests = [{ loot: 'shards', amount: 9 }];
+  (def as any).chests = [{ loot: 'shards', amount: 9 }];
   const party = [0, 1, 2, 3].map(i => ({ pid: i, name: 'P' + i, charId: startingRoster[i % startingRoster.length] }));
-  const g = createGame(def, party, charMap, startingRoster);
+  const g = createGame(def as any, party, charMap, startingRoster);
   assert.deepEqual(g.teamShards, [0, 0], 'ctf opens with empty per-team pools');
   assert.deepEqual(snapshot(g, false).teamShards, [0, 0], 'snapshot carries teamShards');
   const [p0, p1] = g.players;
@@ -3884,7 +3883,7 @@ function testCtfTeamShardPools() {
   tiles2[2] = '#PP' + '.'.repeat(36) + '#';
   tiles2[8] = put(tiles2[8], 10, 'C');
   const def2 = { name: 'BR Pool', time: 300, mode: 'br', captiveChars: [], br: { shrinks: [] }, chests: [{ loot: 'shards', amount: 7 }], tiles: tiles2 };
-  const g2 = createGame(def2, [0, 1].map(i => ({ pid: i, name: 'P' + i, charId: startingRoster[i] })), charMap, startingRoster);
+  const g2 = createGame(def2 as any, [0, 1].map(i => ({ pid: i, name: 'P' + i, charId: startingRoster[i] })), charMap, startingRoster);
   assert.equal(g2.teamShards, null, 'br has no per-team pools');
   assert.equal(snapshot(g2, false).teamShards, undefined, 'br snapshot ships no teamShards');
   const q0 = g2.players[0];
@@ -3899,7 +3898,7 @@ function testCtfTeamShardPools() {
 // --- and downing an enemy credits the attacker with a kill ---
 function testPvpAoeStimAndKillCredit() {
   const party = [0, 1, 2, 3].map(i => ({ pid: i, name: 'P' + i, charId: startingRoster[i % startingRoster.length] }));
-  const g = createGame(ctfDef(), party, charMap, startingRoster);
+  const g = createGame(ctfDef() as any, party, charMap, startingRoster);
   const [p0, p1, p2, p3] = g.players; // teams 0,1,0,1
   for (const p of g.players) p.invuln = 0;
   assert.deepEqual(g.players.map(p => p.kills), [0, 0, 0, 0], 'pvp players open with 0 kills');
@@ -3936,8 +3935,8 @@ function testPvpAoeStimAndKillCredit() {
   assert.equal(p2.hp, 3, 'cracker boom never wounds the owner team');
   assert.equal(p0.kills, 2, 'boom kills credit the thrower');
   // medic stim wards SAME-team players only
-  const medicId = characters.find(c => c.special?.kind === 'stim').id;
-  const g2 = createGame(ctfDef(), [
+  const medicId = characters.find((c: any) => c.special?.kind === 'stim').id;
+  const g2 = createGame(ctfDef() as any, [
     { pid: 0, name: 'M', charId: medicId },           // team 0
     { pid: 1, name: 'E', charId: startingRoster[0] }, // team 1
     { pid: 2, name: 'A', charId: startingRoster[1] }, // team 0
@@ -3955,12 +3954,12 @@ function testPvpAoeStimAndKillCredit() {
 
 // --- ctf: mounting a stag drops a carried flag at the mount point ---
 function testCtfFlagDropOnMount() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   const def = ctfDef();
   def.tiles[8] = put(def.tiles[8], 20, 'V');
-  def.vehicles = [{ kind: 'stag' }];
+  (def as any).vehicles = [{ kind: 'stag' }];
   const party = [0, 1].map(i => ({ pid: i, name: 'P' + i, charId: startingRoster[i] }));
-  const g = createGame(def, party, charMap, startingRoster);
+  const g = createGame(def as any, party, charMap, startingRoster);
   const [p0, p1] = g.players;
   const f1 = g.flags[1];
   const v = g.vehicles[0];
@@ -3987,21 +3986,21 @@ function testCtfFlagDropOnMount() {
 // --- ctf: the 180s sudden-death cap rules an endless overtime ---
 function testCtfSuddenDeathCap() {
   const party = [0, 1].map(i => ({ pid: i, name: 'P' + i, charId: startingRoster[i] }));
-  const arm = g => { // tie at the horn -> sudden death armed
+  const arm = (g: any) => { // tie at the horn -> sudden death armed
     g.caps = [1, 1];
     g.timeLeft = 0.05;
     run(g, () => ({}), 0.2);
     assert.equal(g.suddenDeath, true, 'sudden death armed');
   };
   // grabs are counted from the whole match: a pickup increments the team
-  let g = createGame(ctfDef(), party, charMap, startingRoster);
+  let g = createGame(ctfDef() as any, party, charMap, startingRoster);
   const p0 = g.players[0];
   p0.invuln = 0;
   p0.x = g.flags[1].homeX; p0.y = g.flags[1].homeY;
   step(g, { 0: {}, 1: {} }, 1 / 30);
   assert.deepEqual(g.grabs, [1, 0], 'flag pickup counts a grab for the taking team');
   // more grabs wins at the cap
-  g = createGame(ctfDef(), party, charMap, startingRoster);
+  g = createGame(ctfDef() as any, party, charMap, startingRoster);
   arm(g);
   g.grabs = [2, 3];
   g.suddenT = 179.9;
@@ -4009,7 +4008,7 @@ function testCtfSuddenDeathCap() {
   assert.equal(g.status, 'cleared', 'the 180s cap ends overtime');
   assert.equal(g.winner, 1, 'more grabs takes the match');
   // tied grabs: the team that grabbed FIRST in sudden death takes it
-  g = createGame(ctfDef(), party, charMap, startingRoster);
+  g = createGame(ctfDef() as any, party, charMap, startingRoster);
   arm(g);
   const q1 = g.players[1];
   q1.invuln = 0;
@@ -4021,7 +4020,7 @@ function testCtfSuddenDeathCap() {
   run(g, () => ({}), 0.3);
   assert.equal(g.winner, 1, 'tied grabs go to the first sudden-death grabber');
   // zero grabs anywhere: team 0 by definition
-  g = createGame(ctfDef(), party, charMap, startingRoster);
+  g = createGame(ctfDef() as any, party, charMap, startingRoster);
   arm(g);
   g.suddenT = 179.9;
   run(g, () => ({}), 0.3);
@@ -4042,24 +4041,24 @@ function testBrFinalCollapseAndKillTiebreak() {
     tiles,
   };
   const party = [0, 1].map(i => ({ pid: i, name: 'P' + i, charId: startingRoster[i] }));
-  const g = createGame(def, party, charMap, startingRoster);
+  const g = createGame(def as any, party, charMap, startingRoster);
   const z = g.zone;
   const [p0, p1] = g.players;
-  for (const p of g.players) { p.invuln = 0; p.x = z.x; p.y = z.y; }
-  p1.x = z.x + TILE;
+  for (const p of g.players) { p.invuln = 0; p.x = z!.x; p.y = z!.y; }
+  p1.x = z!.x + TILE;
   p1.kills = 2; // p1 leads the match scoreboard
   // shrink fires at 1s, settles by 11s at 4 tiles; no collapse before +30s
   run(g, () => ({}), 12);
-  assert.equal(z.r, 4 * TILE, 'scheduled shrink settled');
+  assert.equal(z!.r, 4 * TILE, 'scheduled shrink settled');
   run(g, () => ({}), 25);
-  assert.equal(z.r, 4 * TILE, 'no final collapse during the 30s grace');
+  assert.equal(z!.r, 4 * TILE, 'no final collapse during the 30s grace');
   assert.equal(g.status, 'play', 'match still live');
   // grace over (T+41s): continuous 8 px/s collapse
   run(g, () => ({}), 6);
-  assert.ok(z.r < 4 * TILE, 'final collapse under way');
-  const r1 = z.r;
+  assert.ok(z!.r < 4 * TILE, 'final collapse under way');
+  const r1 = z!.r;
   run(g, () => ({}), 2);
-  assert.ok(Math.abs((r1 - z.r) - 16) < 1, `collapse runs at 8 px/s (closed ${(r1 - z.r).toFixed(1)}px in 2s)`);
+  assert.ok(Math.abs((r1 - z!.r) - 16) < 1, `collapse runs at 8 px/s (closed ${(r1 - z!.r).toFixed(1)}px in 2s)`);
   // both survivors sit at the center: once r < 60 everyone burns, and the
   // simultaneous wipe goes to the kill leader
   run(g, () => ({}), 40);
@@ -4068,10 +4067,10 @@ function testBrFinalCollapseAndKillTiebreak() {
   assert.equal(p1.state, 'out', 'p1 burned');
   assert.equal(g.winner, 1, 'simultaneous wipe goes to the player with more kills');
   // tie on kills: lower pid
-  const g2 = createGame(def, party, charMap, startingRoster);
+  const g2 = createGame(def as any, party, charMap, startingRoster);
   const z2 = g2.zone;
-  for (const p of g2.players) { p.invuln = 0; p.x = z2.x; p.y = z2.y; }
-  g2.players[1].x = z2.x + TILE;
+  for (const p of g2.players) { p.invuln = 0; p.x = z2!.x; p.y = z2!.y; }
+  g2.players[1].x = z2!.x + TILE;
   run(g2, () => ({}), 90);
   assert.equal(g2.status, 'cleared', 'tie run also ends');
   assert.equal(g2.winner, 0, 'kill tie goes to the lower pid');
@@ -4080,15 +4079,15 @@ function testBrFinalCollapseAndKillTiebreak() {
 // --- bastion: night waves scale with the squad size (global 90 cap holds) ---
 function testBastionWaveScaling() {
   const party4 = [0, 1, 2, 3].map(i => ({ pid: i, name: 'P' + i, charId: startingRoster[i % startingRoster.length] }));
-  const g = createGame(bastionDef(), party4, charMap, startingRoster);
+  const g = createGame(bastionDef() as any, party4, charMap, startingRoster);
   g.graceT = 1e9;
   for (const p of g.players) p.invuln = 999;
   run(g, () => ({}), 5.5); // dusk at 5s
-  assert.equal(g.cycle.phase, 'night', 'night 1 fell');
+  assert.equal(g.cycle!.phase, 'night', 'night 1 fell');
   assert.equal(g.enemies.length, 9, 'night 1 wave for 4P is ceil(6 * 1.4) = 9');
   // duo keeps the original night-1 size exactly (6 * 1.0)
   const party2 = party4.slice(0, 2);
-  const g2 = createGame(bastionDef(), party2, charMap, startingRoster);
+  const g2 = createGame(bastionDef() as any, party2, charMap, startingRoster);
   g2.graceT = 1e9;
   for (const p of g2.players) p.invuln = 999;
   run(g2, () => ({}), 5.5);
@@ -4135,7 +4134,7 @@ function testChaseStuckRepathsThenResleeps() {
   // The player is sealed inside a walled cell: no LoS, no route. A waked
   // grunt must force a repath after 3 stuck seconds and give up (re-sleep
   // in place, like the returning giveup) 3 stuck seconds later. No teleports.
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   const tiles = [];
   tiles.push('#'.repeat(40));
   for (let y = 1; y < 19; y++) tiles.push('#' + '.'.repeat(38) + '#');
@@ -4168,13 +4167,13 @@ function testChaseStuckRepathsThenResleeps() {
 
 // --- act priority: nearest mount outranks chests; the shop-engage press is consumed ---
 function testActPriorityMountShopAndNearestVehicle() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
   // chest at 8, stag at 9, second stag at 12 — P walks between them
   r = put(put(put(put(r, 4, 'P'), 8, 'C'), 9, 'V'), 12, 'V');
   const level = bigEmptyLevel([[5, r], [17, '#....................................g#']]);
-  level.vehicles = [{ kind: 'stag' }, { kind: 'stag' }];
-  level.chests = [{ loot: 'shards', amount: 5 }];
+  (level as any).vehicles = [{ kind: 'stag' }, { kind: 'stag' }];
+  (level as any).chests = [{ loot: 'shards', amount: 5 }];
   const g = createGame(level, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
   const p = g.players[0];
   const chest = g.chests[0];
@@ -4201,7 +4200,7 @@ function testActPriorityMountShopAndNearestVehicle() {
   let r2 = '#' + '.'.repeat(38) + '#';
   r2 = put(put(put(r2, 4, 'P'), 8, 'C'), 9, 'S');
   const level2 = bigEmptyLevel([[5, r2], [17, '#....................................g#']]);
-  level2.chests = [{ loot: 'shards', amount: 5 }];
+  (level2 as any).chests = [{ loot: 'shards', amount: 5 }];
   const g2 = createGame(level2, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
   const q = g2.players[0];
   q.invuln = 999;
@@ -4224,7 +4223,7 @@ function testActPriorityMountShopAndNearestVehicle() {
 
 // --- xp: kill credit pays score/25 to the owning seat; levels at 12/34/70 ---
 function testXpThresholdsAndLevelUps() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(put(put(put(put(r, 4, 'P'), 12, 'g'), 16, 'g'), 20, 'g'), 24, 'g'), 28, 'g');
   const level = bigEmptyLevel([[5, r]]);
@@ -4246,7 +4245,7 @@ function testXpThresholdsAndLevelUps() {
   step(g, { 0: {} }, 1 / 30);
   assert.equal(p.level, 2, '12 xp reaches L2');
   assert.equal(p.maxHp, 4, 'L2 grants +1 max hp');
-  assert.equal(p.hp, hp0 + 1, 'L2 heals 1 on the spot');
+  assert.equal(p.hp, hp0! + 1, 'L2 heals 1 on the spot');
   assert.ok(g.events.some(ev => ev.type === 'levelUp' && ev.pid === 0 && ev.level === 2 && ev.perk === 'hp'),
     'levelUp event carries pid/level/perk');
   e2.score = 550; // +22 -> 34: L3 unlocks the evolution
@@ -4270,7 +4269,7 @@ function testXpThresholdsAndLevelUps() {
 
 // --- evolutions: every branch at L3 and L4, stacking with shop dmgBonus ---
 function testEvolutionBranchesAndDmgBonusStack() {
-  const evoGame = charId => {
+  const evoGame = (charId: any) => {
     const level = bigEmptyLevel([[17, '#....................................g#']]);
     const g = createGame(level, [{ pid: 0, name: 'T', charId }], charMap, [charId]);
     g.players[0].invuln = 999;
@@ -4279,7 +4278,7 @@ function testEvolutionBranchesAndDmgBonusStack() {
     g.graceT = 1e9;
     return g;
   };
-  const fireOnce = (g, btn = 'fire') => {
+  const fireOnce = (g: any, btn = 'fire') => {
     const p = g.players[0];
     p.cool = 0;
     p.specialCool = 0;
@@ -4343,7 +4342,7 @@ function testEvolutionBranchesAndDmgBonusStack() {
 
 // --- burn: 1 dmg/s for 3s, contact chains once, L4 corpses pool fire ---
 function testBurnSpreadChainAndGroundPatches() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(put(r, 10, 'g'), 14, 'g'), 18, 'g');
   const level = bigEmptyLevel([[5, r], [2, '#P....................................#']]);
@@ -4357,11 +4356,11 @@ function testBurnSpreadChainAndGroundPatches() {
   c.x = a.x + 50; c.y = a.y;
   playerShotAt(g, a, 1, { ignite: true, ownerPid: 0 });
   step(g, { 0: {} }, 1 / 30);
-  assert.ok(a.burnT > 2.9, 'the hit ignited A for ~3s');
+  assert.ok(a.burnT! > 2.9, 'the hit ignited A for ~3s');
   assert.equal(a.hp, 1, 'the shot itself dealt its 1 damage');
   run(g, () => ({ 0: {} }), 0.2);
-  assert.ok(b.burnT > 0 && b.chainBurned, 'contact chained the burn to B once');
-  assert.ok(c.burnT > 0 && c.chainBurned, 'and on to C — a spread chain');
+  assert.ok(b.burnT! > 0 && b.chainBurned, 'contact chained the burn to B once');
+  assert.ok(c.burnT! > 0 && c.chainBurned, 'and on to C — a spread chain');
   // dot: 1 dmg/s — A (1 hp left) dies at the first tick, crediting the igniter
   run(g, () => ({ 0: {} }), 1.0);
   assert.ok(a.dead || !g.enemies.includes(a), 'burn damage killed A');
@@ -4379,9 +4378,9 @@ function testBurnSpreadChainAndGroundPatches() {
   assert.equal(g2.patches.length, 1, 'the L4 corpse left a ground burn patch');
   assert.equal(g2.patches[0].kind, 'burn');
   assert.ok(g2.events.some(ev => ev.type === 'patch' && ev.kind === 'burn'), 'patch event fired');
-  assert.equal(snapshot(g2, false).patches.length, 1, 'snapshot ships live patches');
+  assert.equal(snapshot(g2, false).patches!.length, 1, 'snapshot ships live patches');
   step(g2, { 0: {} }, 1 / 30);
-  assert.ok(b2.burnT > 0, 'standing in the burn patch ignites');
+  assert.ok(b2.burnT! > 0, 'standing in the burn patch ignites');
   // players are never hurt by burn patches (PvE clarity)
   const p2 = g2.players[0];
   p2.invuln = 0;
@@ -4395,7 +4394,7 @@ function testBurnSpreadChainAndGroundPatches() {
 
 // --- toxin: pools slow everyone, dot 0.5/s for 2s, contact spread ---
 function testToxinSlowAndSpread() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(put(r, 4, 'P'), 30, 'g'), 34, 'g');
   const level = bigEmptyLevel([[5, r]]);
@@ -4418,9 +4417,9 @@ function testToxinSlowAndSpread() {
   a.x = pa.x + 60; a.y = pa.y; // inside the 76.8px pool
   b.x = pa.x + 85; b.y = pa.y; // outside the pool, 25px from A (contact ring)
   step(g, { 0: {} }, 1 / 30);
-  assert.ok(a.toxT > 0, 'the pool intoxicates enemies inside');
+  assert.ok(a.toxT! > 0, 'the pool intoxicates enemies inside');
   run(g, () => ({ 0: {} }), 0.2);
-  assert.ok(b.toxT > 0 && b.chainToxed, 'toxin spreads on contact like burn');
+  assert.ok(b.toxT! > 0 && b.chainToxed, 'toxin spreads on contact like burn');
   const hpA = a.hp;
   run(g, () => ({ 0: {} }), 1.1);
   assert.equal(a.hp, hpA - 0.5, 'toxin ticks 0.5 damage per second');
@@ -4467,12 +4466,12 @@ function testStunHaltsEnemies() {
   step(g2, { 0: {} }, 1 / 30);
   assert.equal(e2.hp, 1, 'the direct hit took its full damage');
   assert.equal(buddy.hp, 1.5, 'the arc dealt half damage to the neighbor');
-  assert.ok(buddy.stunT > 0, 'the arc stuns like a direct shock hit');
+  assert.ok(buddy.stunT! > 0, 'the arc stuns like a direct shock hit');
   assert.ok(g2.events.some(ev => ev.type === 'shockArc'), 'shockArc event fired');
 }
 
 // Helper: stamp a parsed turret site as already built with a chosen type.
-function forceTurret(b, ttype) {
+function forceTurret(b: any, ttype: any) {
   b.built = true;
   b.progress = 1;
   b.hp = b.maxHp;
@@ -4486,12 +4485,12 @@ function forceTurret(b, ttype) {
 // (+1/feeder, cap +3). A control case asserts the master beam is stronger AND
 // that supporters stay silent. ---
 function testPrismTurretAdjacency() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   // lone prism: base damage only — and the nerfed base is just 1 (was 2)
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(put(r, 2, 'P'), 10, 'B'), 15, 'g');
   let level = bigEmptyLevel([[5, r]]);
-  level.builds = [{ kind: 'turret', cost: 5 }];
+  (level as any).builds = [{ kind: 'turret', cost: 5 }];
   let g = createGame(level, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
   g.players[0].invuln = 999;
   g.graceT = 1e9;
@@ -4508,7 +4507,7 @@ function testPrismTurretAdjacency() {
   r = '#' + '.'.repeat(38) + '#';
   r = put(put(put(put(put(put(put(r, 2, 'P'), 10, 'B'), 11, 'B'), 12, 'B'), 13, 'B'), 14, 'B'), 18, 'g');
   level = bigEmptyLevel([[5, r]]);
-  level.builds = [1, 2, 3, 4, 5].map(() => ({ kind: 'turret', cost: 5 }));
+  (level as any).builds = [1, 2, 3, 4, 5].map(() => ({ kind: 'turret', cost: 5 }));
   g = createGame(level, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
   g.players[0].invuln = 999;
   g.graceT = 1e9;
@@ -4529,12 +4528,12 @@ function testPrismTurretAdjacency() {
 // far below the 10-hp gun/tesla/toxin turret. Driven through the real carousel
 // (the supported confirm path) so the HP re-clamp on confirm is exercised. ---
 function testPrismFragile() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   // a far, asleep grunt keeps the mission in play (an empty field extracts)
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(put(r, 4, 'P'), 10, 'B'), 35, 'g');
   const level = bigEmptyLevel([[5, r]]);
-  level.builds = [{ kind: 'turret', cost: 5 }];
+  (level as any).builds = [{ kind: 'turret', cost: 5 }];
   const g = createGame(level, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
   const p = g.players[0];
   const b = g.builds[0];
@@ -4577,11 +4576,11 @@ function testPrismFragile() {
 
 // --- tesla turrets: 1.5s chain-zap, up to 3 targets for 2/1/1, each stunned ---
 function testTeslaChainAndStun() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(put(put(put(r, 2, 'P'), 10, 'B'), 11, 'g'), 12, 'g'), 13, 'g');
   const level = bigEmptyLevel([[5, r]]);
-  level.builds = [{ kind: 'turret', cost: 5 }];
+  (level as any).builds = [{ kind: 'turret', cost: 5 }];
   const g = createGame(level, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
   g.players[0].invuln = 999;
   g.graceT = 1e9;
@@ -4591,21 +4590,21 @@ function testTeslaChainAndStun() {
   step(g, { 0: {} }, 1 / 30);
   const zap = g.events.find(ev => ev.type === 'teslaZap');
   assert.ok(zap, 'tesla zapped');
-  assert.equal(zap.targets.length, 3, 'the chain hit all three grunts in reach');
+  assert.equal((zap.targets as any).length, 3, 'the chain hit all three grunts in reach');
   assert.ok(e1.dead || !g.enemies.includes(e1), 'first target took 2 (a grunt dies)');
   assert.equal(e2.hp, 1, 'second chain hop took 1');
   assert.equal(e3.hp, 1, 'third chain hop took 1');
-  assert.ok(e2.stunT > 0 && e3.stunT > 0, 'every zapped enemy is stunned 0.4s');
-  assert.ok(snapshot(g, false).enemies.every(e => e.stunT > 0), 'snapshot ships live stun clocks');
+  assert.ok(e2.stunT! > 0 && e3.stunT! > 0, 'every zapped enemy is stunned 0.4s');
+  assert.ok(snapshot(g, false).enemies.every(e => e.stunT! > 0), 'snapshot ships live stun clocks');
 }
 
 // --- toxin turrets: lob a pool onto the nearest awake enemy every 3s ---
 function testToxinTurretPools() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(put(r, 2, 'P'), 10, 'B'), 14, 'g');
   const level = bigEmptyLevel([[5, r]]);
-  level.builds = [{ kind: 'turret', cost: 5 }];
+  (level as any).builds = [{ kind: 'turret', cost: 5 }];
   const g = createGame(level, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
   g.players[0].invuln = 999;
   g.graceT = 1e9;
@@ -4618,19 +4617,19 @@ function testToxinTurretPools() {
   assert.equal(g.patches[0].kind, 'toxin');
   assert.ok(Math.abs(g.patches[0].x - e.x) < 1, 'the pool lands on the target');
   step(g, { 0: {} }, 1 / 30);
-  assert.ok(e.toxT > 0, 'the pool intoxicates');
+  assert.ok(e.toxT! > 0, 'the pool intoxicates');
   run(g, () => ({ 0: {} }), 3.05);
   assert.equal(g.patches.length, 2, 'another pool every 3 seconds');
 }
 
 // --- turret typeSelect: carousel UX, default after 8s, act priority ---
 function testTurretTypeSelectCarousel() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(put(put(r, 4, 'P'), 10, 'B'), 12, 'C'), 13, 'g');
   const level = bigEmptyLevel([[5, r], [17, '#....................................g#']]);
-  level.builds = [{ kind: 'turret', cost: 5 }];
-  level.chests = [{ loot: 'shards', amount: 5 }];
+  (level as any).builds = [{ kind: 'turret', cost: 5 }];
+  (level as any).chests = [{ loot: 'shards', amount: 5 }];
   const g = createGame(level, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
   const p = g.players[0];
   const b = g.builds[0];
@@ -4686,7 +4685,7 @@ function testTurretTypeSelectCarousel() {
   // build sites outrank the carousel: a neighboring open site claims the hold
   const r3 = put(put(put('#' + '.'.repeat(38) + '#', 4, 'P'), 10, 'B'), 11, 'B');
   const level3 = bigEmptyLevel([[5, r3], [17, '#....................................g#']]);
-  level3.builds = [{ kind: 'turret', cost: 2 }, { kind: 'barricade', cost: 8 }];
+  (level3 as any).builds = [{ kind: 'turret', cost: 2 }, { kind: 'barricade', cost: 8 }];
   const g3 = createGame(level3, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
   const p3 = g3.players[0];
   const [tur, barr] = g3.builds;
@@ -4708,13 +4707,13 @@ function testTurretTypeSelectCarousel() {
 
 // --- followers: hire, formation, engage, limits, death, restock ---
 function testFollowersLifecycle() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(put(put(r, 4, 'P'), 5, 'P'), 8, 'H'), 12, 'H');
   let r2 = '#' + '.'.repeat(38) + '#';
   r2 = put(r2, 16, 'H');
   const level = bigEmptyLevel([[5, r], [7, r2], [17, '#...........g........................g#']]);
-  level.hires = [
+  (level as any).hires = [
     { job: 'hound', cost: 6, name: 'Fang' },
     { job: 'archer', cost: 6, name: 'Fletch' },
     { job: 'caster', cost: 6, name: 'Gale' },
@@ -4746,7 +4745,7 @@ function testFollowersLifecycle() {
   const sy = p0.y - p0.fy * TILE * 1.1 - p0.fx * TILE * 0.8;
   assert.ok(Math.hypot(hound.x - sx, hound.y - sy) < TILE * 0.6,
     `the hound holds its formation slot (off by ${(Math.hypot(hound.x - sx, hound.y - sy) / TILE).toFixed(2)} tiles)`);
-  assert.equal(snapshot(g, false).followers.length, 1, 'snapshot ships followers');
+  assert.equal(snapshot(g, false).followers!.length, 1, 'snapshot ships followers');
   // adrift: 12+ tiles from the owner teleports it home
   hound.x = p0.x + TILE * 13; hound.y = p0.y;
   step(g, { 0: {} }, 1 / 30);
@@ -4798,16 +4797,16 @@ function testFollowersLifecycle() {
   assert.ok(sawArrow, 'the archer follower fires arrows');
   // death: enemy fire downs it; the post restocks 20s later
   const dog = g.followers.find(f => f.kind === 'hound');
-  dog.hp = 1;
-  dog.invulnT = 0;
+  dog!.hp = 1;
+  dog!.invulnT = 0;
   g.shots.push({
-    id: g.nextShotId++, x: dog.x, y: dog.y, vx: 0, vy: 0, ttl: 0.5, dmg: 1,
+    id: g.nextShotId++, x: dog!.x, y: dog!.y, vx: 0, vy: 0, ttl: 0.5, dmg: 1,
     who: 'e', overWalls: true, pierce: 0, aoeRadius: 0, curve: 0, radius: 5, kind: 'arrow', hits: [],
   });
   step(g, { 0: {}, 1: {} }, 1 / 30);
   assert.ok(!g.followers.some(f => f.kind === 'hound' && f.owner === 0), 'enemy shots kill followers');
   assert.ok(g.events.some(ev => ev.type === 'followerDown'), 'followerDown evented');
-  assert.ok(hPost.restockT > 19, 'the post begins its 20s restock');
+  assert.ok(hPost.restockT! > 19, 'the post begins its 20s restock');
   assert.equal(hPost.hired, true, 'no re-hire until the restock lands');
   run(g, () => ({ 0: {}, 1: {} }), 20.1);
   assert.equal(hPost.hired, false, 'the post restocked');
@@ -4819,7 +4818,7 @@ function testFollowersLifecycle() {
 
 // --- mind control: convert the nearest non-boss for 10s, then it burns out ---
 function testControllerConvertAndExpiry() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(put(r, 4, 'P'), 6, 'b'), 7, 'g');
   const level = bigEmptyLevel([[10, r]]);
@@ -4831,25 +4830,25 @@ function testControllerConvertAndExpiry() {
   g.graceT = 0;
   p.item = { kind: 'controller', count: 1 };
   step(g, { 0: { item: true } }, 1 / 30);
-  assert.ok(grunt.convertedT > 9.9, 'the nearest NON-boss converts');
-  assert.ok(!(boss.convertedT > 0), 'bosses cannot be controlled');
+  assert.ok(grunt!.convertedT! > 9.9, 'the nearest NON-boss converts');
+  assert.ok(!(boss!.convertedT! > 0), 'bosses cannot be controlled');
   assert.equal(p.item, null, 'the controller burned its single use');
   assert.ok(g.events.some(ev => ev.type === 'converted' && ev.kind === 'grunt'), 'converted event fired');
   // player fire passes over the converted ally
   playerShotAt(g, grunt, 5, { ownerPid: 0 });
   step(g, { 0: {} }, 1 / 30);
-  assert.equal(grunt.hp, 2, 'player shots pass through a converted enemy');
+  assert.equal(grunt!.hp, 2, 'player shots pass through a converted enemy');
   // it attacks its own: the boss takes melee bites
-  const bossHp = boss.hp;
+  const bossHp = boss!.hp;
   run(g, () => ({ 0: {} }), 3);
-  assert.ok(boss.hp < bossHp, 'the converted grunt fights its own side');
+  assert.ok(boss!.hp < bossHp, 'the converted grunt fights its own side');
   assert.equal(p.xp, 0, 'converted kills/damage pay no seat xp');
   // expiry: the husk burns out and dies quietly (a 0-point death, no drop)
   run(g, () => ({ 0: {} }), 7.5);
-  assert.ok(!g.enemies.includes(grunt), 'the husk died at the 10s burnout');
+  assert.ok(!g.enemies.includes(grunt as any), 'the husk died at the 10s burnout');
   assert.ok(g.events.some(ev => ev.type === 'die' && ev.kind === 'grunt' && ev.points === 0),
     'the burnout is a quiet 0-point death');
-  assert.ok(!g.drops.some(d => Math.hypot(d.x - grunt.x, d.y - grunt.y) < 2),
+  assert.ok(!g.drops.some(d => Math.hypot(d.x - grunt!.x, d.y - grunt!.y) < 2),
     'a burned-out husk drops no shards');
   // no target in reach: the use is refused, the item kept
   const g2 = createGame(bigEmptyLevel([[17, '#....................................g#']]),
@@ -4863,7 +4862,7 @@ function testControllerConvertAndExpiry() {
 
 // --- the seal: water is open ground (x0.7, +50% fire cooldown), others sink ---
 function testSealSwimsCaptiveTrails() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   const tiles = [];
   tiles.push('#'.repeat(40));
   for (let y = 1; y < 19; y++) {
@@ -4931,7 +4930,7 @@ function testSealRecruitableInBasin() {
   const parsed = parseLevel(basin);
   const cap = parsed.captives.find(c => c.charId === 'seal');
   assert.ok(cap, 'the seal parses as a rescuable captive');
-  assert.ok(basin.tiles.some(row => row.includes('~')), 'the basin holds water for the swimmer');
+  assert.ok(basin.tiles.some((row: any) => row.includes('~')), 'the basin holds water for the swimmer');
   // land-reachable: at least one neighboring tile is open ground, so any
   // character can walk up and free the seal (the causeway-end hummock)
   const tx = Math.floor(cap.x / TILE), ty = Math.floor(cap.y / TILE);
@@ -4944,13 +4943,13 @@ function testSealRecruitableInBasin() {
 
 // --- arcade fidelity: classic levels replay lockstep and gain no new keys ---
 function testArcadeFidelityLockstep() {
-  const party = startingRoster.slice(0, 2).map((id, i) => ({ pid: i, name: id, charId: id }));
+  const party = startingRoster.slice(0, 2).map((id: any, i: any) => ({ pid: i, name: id, charId: id }));
   const runOnce = () => {
     const g = createGame(levels[0], party, charMap, startingRoster);
     const dt = 1 / 30;
     const h = [];
     for (let i = 0; i < 450 && g.status === 'play'; i++) {
-      const inputs = {};
+      const inputs: any = {};
       for (const p of g.players) {
         inputs[p.pid] = {
           right: (i % 50) < 25, down: (i % 70) < 30, fire: (i % 5) < 2,
@@ -4981,7 +4980,7 @@ function testArcadeFidelityLockstep() {
 
 // --- pvp: evolutions fire, hire posts are inert, patches slow-all/no burn ---
 function testPvpCombatDepthRules() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   const tiles = [];
   tiles.push('#'.repeat(40));
   for (let y = 1; y < 19; y++) tiles.push('#' + '.'.repeat(38) + '#');
@@ -4995,10 +4994,10 @@ function testPvpCombatDepthRules() {
     tiles,
   };
   const party = [0, 1].map(i => ({ pid: i, name: 'P' + i, charId: startingRoster[i] }));
-  const g = createGame(def, party, charMap, startingRoster);
+  const g = createGame(def as any, party, charMap, startingRoster);
   const [p0, p1] = g.players;
   const post = g.hires[0];
-  g.teamShards[0] = 50;
+  g.teamShards![0] = 50;
   p0.invuln = 999;
   p1.invuln = 999;
   // hire posts are inert in pvp: no follower, no spend, post stays open
@@ -5007,7 +5006,7 @@ function testPvpCombatDepthRules() {
   step(g, { 0: { act: true }, 1: {} }, 1 / 30);
   assert.equal(post.hired, false, 'pvp hire posts are inert');
   assert.equal(g.followers.length, 0, 'no followers in pvp');
-  assert.equal(g.teamShards[0], 50, 'no shards spent');
+  assert.equal(g.teamShards![0], 50, 'no shards spent');
   // evolutions still work: a L3 scout fires its extra shot
   p0.x = 10 * TILE; p0.y = 5 * TILE;
   p0.level = 3;
@@ -5024,8 +5023,8 @@ function testPvpCombatDepthRules() {
   const x00 = p0.x, x10 = p1.x;
   run(g, () => ({ 0: { right: true }, 1: { right: true } }), 0.3);
   const d0 = p0.x - x00, d1 = p1.x - x10;
-  assert.ok(Math.abs(d0 - charMap[p0.charId].speed * TILE * 0.3 * 0.6) < 4, 'toxin slows team 0');
-  assert.ok(Math.abs(d1 - charMap[p1.charId].speed * TILE * 0.3 * 0.6) < 4, 'toxin slows team 1 just the same');
+  assert.ok(Math.abs(d0 - charMap[p0.charId!].speed * TILE * 0.3 * 0.6) < 4, 'toxin slows team 0');
+  assert.ok(Math.abs(d1 - charMap[p1.charId!].speed * TILE * 0.3 * 0.6) < 4, 'toxin slows team 1 just the same');
   // burn patches never hurt players — either team
   g.patches.length = 0;
   g.patches.push({ x: p1.x, y: p1.y, kind: 'burn', r: 1.6 * TILE, ttl: 30, pid: 0 });
@@ -5039,11 +5038,11 @@ function testPvpCombatDepthRules() {
 function testDeterministicCtfRun() {
   const party = [0, 1, 2, 3].map(i => ({ pid: i, name: 'P' + i, charId: startingRoster[i % startingRoster.length] }));
   const runOnce = () => {
-    const g = createGame(ctfDef(), party, charMap, startingRoster);
+    const g = createGame(ctfDef() as any, party, charMap, startingRoster);
     const dt = 1 / 30;
     const h = [];
     for (let i = 0; i < 600 && g.status === 'play'; i++) {
-      const inputs = {};
+      const inputs: any = {};
       for (const p of g.players) {
         inputs[p.pid] = {
           right: p.team === 0 && (i % 40) < 30,
@@ -5067,7 +5066,7 @@ function testDeterministicCtfRun() {
 // --- converted allies: squad damage (patches, cracker) passes over them;
 // cracker kills credit the thrower's seat with xp like other items ---
 function testConvertedImmunityAndCrackerXp() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(put(r, 4, 'P'), 12, 'g'), 14, 'g');
   const level = bigEmptyLevel([[5, r], [17, '#....................................g#']]);
@@ -5081,11 +5080,11 @@ function testConvertedImmunityAndCrackerXp() {
   const mx = (a.x + b.x) / 2;
   g.patches.push({ x: mx, y: a.y, kind: 'toxin', r: 1.6 * TILE, ttl: 30, pid: 0 });
   step(g, { 0: {} }, 1 / 30);
-  assert.ok(a.toxT > 0, 'the pool intoxicates the hostile grunt');
-  assert.ok(!(b.toxT > 0), 'the converted ally is spared by patches');
+  assert.ok(a.toxT! > 0, 'the pool intoxicates the hostile grunt');
+  assert.ok(!(b.toxT! > 0), 'the converted ally is spared by patches');
   g.patches.length = 0;
   // a cracker boom centered between them kills only the hostile, paying xp
-  g.crackers.push({ x: mx, y: a.y, landed: true, fuse: 0.01, pid: 0 });
+  g.crackers.push({ x: mx, y: a.y, landed: true, fuse: 0.01, pid: 0 } as any);
   step(g, { 0: {} }, 1 / 30);
   assert.ok(a.dead || !g.enemies.includes(a), 'the cracker killed the hostile grunt');
   assert.equal(b.hp, 2, 'the converted ally is spared by the boom');
@@ -5094,7 +5093,7 @@ function testConvertedImmunityAndCrackerXp() {
 
 // --- respawnSpot: a swimming ally mid-lake must not strand a walker on '~' ---
 function testRespawnSpotAvoidsWater() {
-  const rows = [];
+  const rows: any[] = [];
   rows.push('#'.repeat(40));
   for (let y = 1; y < 19; y++) {
     let r = '#' + '.'.repeat(38) + '#';
@@ -5129,7 +5128,7 @@ function testRespawnSpotAvoidsWater() {
 
 // --- followers wait ashore instead of teleporting onto water after a swimmer ---
 function testFollowerWaitsAshore() {
-  const rows = [];
+  const rows: any[] = [];
   rows.push('#'.repeat(40));
   for (let y = 1; y < 19; y++) {
     let r = '#' + '.'.repeat(38) + '#';
@@ -5166,11 +5165,11 @@ function testFollowerWaitsAshore() {
 
 // --- formation slots: a rehire takes the lowest slot a LIVING follower freed ---
 function testFollowerSlotReuseAfterRehire() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(put(r, 4, 'P'), 8, 'H'), 12, 'H');
   const level = bigEmptyLevel([[5, r], [17, '#....................................g#']]);
-  level.hires = [
+  (level as any).hires = [
     { job: 'hound', cost: 6, name: 'Fang' },
     { job: 'archer', cost: 6, name: 'Fletch' },
   ];
@@ -5210,7 +5209,7 @@ function testFollowerSlotReuseAfterRehire() {
 
 // --- burnPatch flag clears when a survived burn expires (no stale death patch) ---
 function testStaleBurnPatchCleared() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(r, 4, 'P'), 12, 'g');
   const level = bigEmptyLevel([[5, r], [17, '#....................................g#']]);
@@ -5236,7 +5235,7 @@ function testStaleBurnPatchCleared() {
 
 // --- squad assist xp: other active seats within 8 tiles earn floor(half) ---
 function testSquadAssistXp() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(put(put(put(r, 4, 'P'), 5, 'P'), 6, 'P'), 12, 'g'), 16, 'g');
   const level = bigEmptyLevel([[5, r], [17, '#....................................g#']]);
@@ -5265,11 +5264,11 @@ function testSquadAssistXp() {
 
 // --- snapshot ships typeSelectT and player-shot ownerPid (renderer fields) ---
 function testSnapshotTypeSelectTAndShotOwnerPid() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(r, 4, 'P'), 20, 'B');
   const level = bigEmptyLevel([[5, r], [17, '#....................................g#']]);
-  level.builds = [{ kind: 'turret', cost: 5 }];
+  (level as any).builds = [{ kind: 'turret', cost: 5 }];
   const g = createGame(level, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
   const b = g.builds[0];
   g.players[0].invuln = 999;
@@ -5291,13 +5290,13 @@ function testSnapshotTypeSelectTAndShotOwnerPid() {
   const s2 = snapshot(g, false);
   const mine = s2.shots.find(sh => sh.who === 'p');
   const theirs = s2.shots.find(sh => sh.who === 'e');
-  assert.equal(mine.ownerPid, 0, 'player shots ship ownerPid');
+  assert.equal(mine!.ownerPid, 0, 'player shots ship ownerPid');
   assert.ok(theirs && !('ownerPid' in theirs), 'enemy shots gain no ownerPid key');
 }
 
 // --- night waves: marchers engage a player seen within 6 tiles, resume at 9 ---
 function testNightWaveEngageAndResume() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   const tiles = [];
   tiles.push('#'.repeat(40));
   for (let y = 1; y < 19; y++) tiles.push('#' + '.'.repeat(38) + '#');
@@ -5333,7 +5332,7 @@ function testNightWaveEngageAndResume() {
 
 // --- sealed camp: a core-marcher whose A* fails gnaws the blocking barricade ---
 function testSealedCampGnawFallback() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   const tiles = [];
   tiles.push('#'.repeat(40));
   for (let y = 1; y < 19; y++) tiles.push('#' + '.'.repeat(38) + '#');
@@ -5351,7 +5350,7 @@ function testSealedCampGnawFallback() {
     builds: [{ kind: 'barricade', cost: 4 }],
     tiles,
   };
-  const g = createGame(level, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
+  const g = createGame(level as any, [{ pid: 0, name: 'T', charId: 'scout' }], charMap, ['scout']);
   const p = g.players[0];
   const site = g.builds[0];
   site.built = true;
@@ -5368,12 +5367,12 @@ function testSealedCampGnawFallback() {
   assert.ok(g.events.some(ev => ev.type === 'buildHit'), 'the sealed-out marcher gnawed the barricade (no corner pile-up)');
   assert.ok(g.events.some(ev => ev.type === 'buildDown' && ev.kind === 'barricade'), 'it chewed the barricade down');
   assert.ok(g.events.some(ev => ev.type === 'coreHit'), 'then resumed the march and reached the core');
-  assert.ok(g.core.hp < 30, 'the core is under siege');
+  assert.ok(g.core!.hp < 30, 'the core is under siege');
 }
 
 // --- bastion difficulty: night>=3 waves +15% hp; blood moons +1 hp, x1.15 speed, 60% second edge ---
 function testBloodMoonAndLateNightBuffs() {
-  const g = createGame(bastionDef({ nights: 4, dayLen: 2, nightLen: 2, bloodMoons: [4] }),
+  const g = createGame(bastionDef({ nights: 4, dayLen: 2, nightLen: 2, bloodMoons: [4] }) as any,
     [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   g.graceT = 1e9; // freeze the field: this test inspects spawn stats only
   g.players[0].invuln = 999;
@@ -5442,15 +5441,15 @@ function testFrontierLettersParse() {
   const lvl = parseLevel(def);
   assert.deepEqual(lvl.enemies.map(e => e.kind), ['husk', 'alpha', 'acolyte', 'wraith', 'stalker', 'beetle'],
     'z f q v x u parse row-major into the six new kinds');
-  const by = k => lvl.enemies.find(e => e.kind === k);
-  assert.equal(by('husk').hp, 1, 'husk hp 1');
-  assert.equal(by('husk').score, 40, 'husk score 40');
-  assert.equal(by('alpha').hp, 3, 'fork alpha hp 3');
-  assert.equal(by('alpha').speed, 1.7 * TILE, 'fork alpha speed 1.7');
-  assert.equal(by('acolyte').range, 5 * TILE, 'acolyte support range 5 tiles');
-  assert.equal(by('wraith').range, 6 * TILE, 'wraith zap range 6 tiles');
-  assert.equal(by('stalker').blinkT, 3.5 + (4 % 4) * 0.35, 'stalker blink clock staggered by id');
-  assert.equal(by('beetle').score, 130, 'beetle score 130');
+  const by = (k: any) => lvl.enemies.find(e => e.kind === k);
+  assert.equal(by('husk')!.hp, 1, 'husk hp 1');
+  assert.equal(by('husk')!.score, 40, 'husk score 40');
+  assert.equal(by('alpha')!.hp, 3, 'fork alpha hp 3');
+  assert.equal(by('alpha')!.speed, 1.7 * TILE, 'fork alpha speed 1.7');
+  assert.equal(by('acolyte')!.range, 5 * TILE, 'acolyte support range 5 tiles');
+  assert.equal(by('wraith')!.range, 6 * TILE, 'wraith zap range 6 tiles');
+  assert.equal(by('stalker')!.blinkT, 3.5 + (4 % 4) * 0.35, 'stalker blink clock staggered by id');
+  assert.equal(by('beetle')!.score, 130, 'beetle score 130');
   assert.deepEqual(lvl.pickups, [{ id: 'fw0', x: 3.5 * TILE, y: 2.5 * TILE, kind: 'railcannon', ammo: 3 }],
     'A binds def.pickups row-major (kind + ammo)');
   assert.deepEqual(lvl.qitems, [{ id: 'frag1', kind: 'fragment', x: 6.5 * TILE, y: 2.5 * TILE, carrier: null }],
@@ -5468,8 +5467,8 @@ function testFrontierLettersParse() {
   // populated maps ship the new keys; classics never gain them
   const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   const s = snapshot(g, false);
-  assert.equal(s.pickups.length, 1, 'snapshot ships pickups');
-  assert.equal(s.qitems.length, 1, 'snapshot ships qitems');
+  assert.equal(s.pickups!.length, 1, 'snapshot ships pickups');
+  assert.equal(s.qitems!.length, 1, 'snapshot ships qitems');
   const classic = snapshot(createGame(levels[0], [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster), false);
   for (const key of ['pickups', 'qitems', 'quests', 'untimed', 'elapsed']) {
     assert.ok(!(key in classic), `classic snapshots never gain '${key}'`);
@@ -5491,8 +5490,8 @@ function testAlphaSplitAndFrontierWaves() {
   assert.ok(g.kills >= 3 || g.status === 'cleared', 'the twins were hunted down too');
   // new letters spawn from scripted waves exactly like the classics
   const wlevel = bigEmptyLevel([[17, '#....................................g#']]);
-  wlevel.modifiers = { waves: [{ at: 0.5, letters: 'zu', edge: 'n' }] };
-  wlevel.difficulty = 'extreme'; // pin: both wave letters must spawn for the kind check
+  (wlevel as any).modifiers = { waves: [{ at: 0.5, letters: 'zu', edge: 'n' }] };
+  (wlevel as any).difficulty = 'extreme'; // pin: both wave letters must spawn for the kind check
   const wg = createGame(wlevel, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   wg.players[0].invuln = 999;
   run(wg, () => ({ 0: {} }), 1);
@@ -5514,29 +5513,29 @@ function testAcolyteShieldHealAndPacifism() {
   g.graceT = 0;
   // acolyte id 1: first pulse lands at 2.5 + 0.25s
   run(g, () => ({ 0: {} }), 3);
-  assert.equal(grunt.shielded, true, 'the acolyte warded its nearest packmate');
+  assert.equal(grunt!.shielded, true, 'the acolyte warded its nearest packmate');
   assert.ok(g.events.some(ev => ev.type === 'enemyShield' && ev.kind === 'grunt'), 'enemyShield cue fired');
-  assert.equal(snapshot(g, false).enemies.find(e => e.kind === 'grunt').shielded, true, 'snapshot flags the ward');
+  assert.equal(snapshot(g, false).enemies.find(e => e.kind === 'grunt')!.shielded, true, 'snapshot flags the ward');
   // the ward soaks exactly one hit, leaving hp untouched
   g.graceT = 1e9; // freeze the field and line up a clean shot at the grunt
-  p.x = grunt.x + 3 * TILE;
-  p.y = grunt.y;
+  p.x = grunt!.x + 3 * TILE;
+  p.y = grunt!.y;
   p.fx = -1; p.fy = 0;
   for (let i = 0; i < 60 && !g.events.some(ev => ev.type === 'shieldPop'); i++) {
     step(g, { 0: { fire: true } }, 1 / 30);
   }
   assert.ok(g.events.some(ev => ev.type === 'shieldPop' && ev.kind === 'grunt'), 'the ward popped under fire');
-  assert.equal(grunt.shielded, false, 'one absorb charge only');
-  assert.equal(grunt.hp, 2, 'the warded hit cost no hp');
+  assert.equal(grunt!.shielded, false, 'one absorb charge only');
+  assert.equal(grunt!.hp, 2, 'the warded hit cost no hp');
   // mend: every 4th pulse heals the nearest wounded packmate 1 hp
   const g2 = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   g2.players[0].invuln = 999;
   g2.graceT = 0;
   const hurt = g2.enemies.find(e => e.kind === 'grunt');
-  hurt.hp = 1;
+  hurt!.hp = 1;
   run(g2, () => ({ 0: {} }), 11);
   assert.ok(g2.events.some(ev => ev.type === 'enemyHeal' && ev.kind === 'grunt'), 'the 4th pulse mended the packmate');
-  assert.equal(hurt.hp, 2, 'mend restored exactly 1 hp');
+  assert.equal(hurt!.hp, 2, 'mend restored exactly 1 hp');
   // pacifism: an acolyte alone never lays a hand on a player
   const g3 = createGame({
     name: 'Pacifist', time: 30, captiveChars: [],
@@ -5551,7 +5550,7 @@ function testAcolyteShieldHealAndPacifism() {
 
 // --- volt wraith: chain-zap stings and roots; a shield pip soaks the lot ---
 function testWraithZapStunAndShieldAbsorb() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   const mk = () => {
     let r = '#' + '.'.repeat(38) + '#';
     r = put(put(r, 4, 'P'), 9, 'v');
@@ -5565,7 +5564,7 @@ function testWraithZapStunAndShieldAbsorb() {
   for (let i = 0; i < 150 && !g.events.some(ev => ev.type === 'playerHit'); i++) step(g, { 0: {} }, 1 / 30);
   assert.ok(g.events.some(ev => ev.type === 'playerHit'), 'the zap landed');
   assert.equal(p.hp, 2, 'zap costs 1 hp');
-  assert.ok(p.stunT > 0, 'an unshielded operative is rooted');
+  assert.ok(p.stunT! > 0, 'an unshielded operative is rooted');
   const x0 = p.x;
   step(g, { 0: { right: true } }, 1 / 30);
   assert.equal(p.x, x0, 'rooted feet hold still');
@@ -5578,12 +5577,12 @@ function testWraithZapStunAndShieldAbsorb() {
   for (let i = 0; i < 150 && !g2.events.some(ev => ev.type === 'playerHit'); i++) step(g2, { 0: {} }, 1 / 30);
   assert.equal(p2.hp, 3, 'shield pip soaked the damage');
   assert.equal(p2.shield, 1, 'one pip spent');
-  assert.ok(!(p2.stunT > 0), 'shield absorbs the stun too');
+  assert.ok(!(p2.stunT! > 0), 'shield absorbs the stun too');
 }
 
 // --- phase stalker: deterministic 3-tile blinks toward its prey, then melee ---
 function testStalkerBlinkAndMelee() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(r, 4, 'P'), 18, 'x');
   const g = createGame(bigEmptyLevel([[5, r]]), [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
@@ -5596,7 +5595,7 @@ function testStalkerBlinkAndMelee() {
   run(g, () => ({ 0: {} }), 3.6);
   const blink = g.events.find(ev => ev.type === 'blink');
   assert.ok(blink, 'the stalker blinked on its 3.5s cadence');
-  assert.ok(Math.abs(Math.hypot(blink.tx - blink.x, blink.ty - blink.y) - 3 * TILE) < 1,
+  assert.ok(Math.abs(Math.hypot((blink.tx as any) - blink.x!, (blink.ty as any) - blink.y!) - 3 * TILE) < 1,
     'a full blink covers exactly 3 tiles');
   run(g, () => ({ 0: {} }), 8);
   assert.ok(g.events.some(ev => ev.type === 'playerHit'), 'the stalker closed and mauled in melee');
@@ -5604,7 +5603,7 @@ function testStalkerBlinkAndMelee() {
 
 // --- pyre beetle: death burst — 1 dmg AoE plus a hostile burn patch ---
 function testBeetleBurstAndHostilePatch() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(put(r, 4, 'P'), 5, 'u'), 6, 'g');
   const g = createGame(bigEmptyLevel([[5, r]]), [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
@@ -5614,9 +5613,9 @@ function testBeetleBurstAndHostilePatch() {
   g.graceT = 1e9; // freeze the field: this test inspects the death burst only
   p.invuln = 0;
   p.fx = 1; p.fy = 0;
-  beetle.hp = 1;
-  for (let i = 0; i < 30 && !beetle.dead; i++) step(g, { 0: { fire: true } }, 1 / 30);
-  assert.ok(beetle.dead, 'the beetle fell to fire');
+  beetle!.hp = 1;
+  for (let i = 0; i < 30 && !beetle!.dead; i++) step(g, { 0: { fire: true } }, 1 / 30);
+  assert.ok(beetle!.dead, 'the beetle fell to fire');
   const burst = g.events.find(ev => ev.type === 'pyreBurst');
   assert.ok(burst, 'pyreBurst fired');
   assert.equal(burst.radius, 1.2 * TILE, 'burst radius is 1.2 tiles');
@@ -5624,23 +5623,23 @@ function testBeetleBurstAndHostilePatch() {
   const patch = g.patches.find(pa => pa.kind === 'burn');
   assert.ok(patch && patch.hostile, 'a hostile burn patch pools at the corpse');
   assert.equal(patch.r, 1.2 * TILE, 'patch radius is 1.2 tiles');
-  assert.ok(snapshot(g, false).patches[0].hostile, 'snapshot flags the hostile patch');
+  assert.ok(snapshot(g, false).patches![0]!.hostile, 'snapshot flags the hostile patch');
   // the patch sears players (~1/s through the hit grace), never enemies
   run(g, () => ({ 0: {} }), 1.3);
   assert.equal(p.hp, 1, 'standing in the fire costs ~1 hp per second');
-  assert.ok(!(grunt.burnT > 0), 'hostile patches pass clean over enemies');
+  assert.ok(!(grunt!.burnT! > 0), 'hostile patches pass clean over enemies');
 }
 
 // --- field weapons: pickup, fire override, ammo, evaporation ---
 function testFieldWeaponPickupOverrideAndAmmo() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(r, 4, 'P'), 5, 'A');
   const level = bigEmptyLevel([[5, r], [17, '#....................................g#']]);
-  level.pickups = [{ kind: 'railcannon', ammo: 2 }];
+  (level as any).pickups = [{ kind: 'railcannon', ammo: 2 }];
   const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   const p = g.players[0];
-  const ch = charMap[p.charId];
+  const ch = charMap[p.charId!];
   p.invuln = 999;
   p.dmgBonus = 1;
   p.level = 4; // evolutions must NOT touch field weapons
@@ -5672,11 +5671,11 @@ function testFieldWeaponPickupOverrideAndAmmo() {
 
 // --- field weapons: 0.8s ITEM-hold drop, teammate sharing, downed drop ---
 function testFieldWeaponDropShareAndDownedDrop() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
   r = put(r, 4, 'P');
   const level = bigEmptyLevel([[5, r], [17, '#....................................g#']]);
-  const party = startingRoster.slice(0, 2).map((id, i) => ({ pid: i, name: id, charId: id }));
+  const party = startingRoster.slice(0, 2).map((id: any, i: any) => ({ pid: i, name: id, charId: id }));
   const g = createGame(level, party, charMap, startingRoster);
   const [p0, p1] = g.players;
   p0.invuln = 999;
@@ -5753,13 +5752,13 @@ function testFieldWeaponDropShareAndDownedDrop() {
 
 // --- quests: fetch lifecycle — hidden, active, carried fragment, done ---
 function testQuestFetchLifecycle() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(put(r, 4, 'P'), 8, 'N'), 20, 'I');
   const level = bigEmptyLevel([[5, r], [17, '#....................................g#']]);
-  level.npcs = [{ id: 'sefa', name: 'Elder Tenwright', lines: ['Seven I can settle. Six I can only mourn.'] }];
-  level.qitems = [{ id: 'frag1', kind: 'fragment' }];
-  level.quests = [{
+  (level as any).npcs = [{ id: 'sefa', name: 'Elder Tenwright', lines: ['Seven I can settle. Six I can only mourn.'] }];
+  (level as any).qitems = [{ id: 'frag1', kind: 'fragment' }];
+  (level as any).quests = [{
     id: 'count1', main: true, title: 'The Count', giver: 'sefa', kind: 'fetch',
     item: 'fragment', count: 1, reward: { shards: 7 }, hint: 'Six is not a quorum.',
   }];
@@ -5815,17 +5814,17 @@ function testQuestFetchLifecycle() {
 
 // --- quests: kill/build/reach progress, rewards, openDoor parking, hooks ---
 function testQuestKillBuildReachAndRewards() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(put(put(put(r, 4, 'P'), 10, 'z'), 12, 'z'), 14, 'z'), 8, 'N');
   let r2 = '#' + '.'.repeat(38) + '#';
   r2 = put(r2, 4, 'B');
   // a far sleeping grunt keeps the field from auto-clearing once husks fall
   const level = bigEmptyLevel([[5, r], [8, r2], [17, '#....................................g#']]);
-  level.npcs = [{ id: 'sefa', name: 'Elder Tenwright', lines: ['Put them down kindly.'] }];
-  level.builds = [{ kind: 'barricade', cost: 2 }];
-  level.doors = [{ id: 'door1', x: 34, y: 14 }];
-  level.quests = [
+  (level as any).npcs = [{ id: 'sefa', name: 'Elder Tenwright', lines: ['Put them down kindly.'] }];
+  (level as any).builds = [{ kind: 'barricade', cost: 2 }];
+  (level as any).doors = [{ id: 'door1', x: 34, y: 14 }];
+  (level as any).quests = [
     { id: 'cull', title: 'Cull the Husks', giver: 'sefa', kind: 'kill', target: 'z', count: 2, reward: { openDoor: 'door1' } },
     { id: 'wall', title: 'Raise the Wall', giver: 'sefa', kind: 'build', target: 'barricade', count: 1, reward: { item: 'medkit' } },
     { id: 'ridge', title: 'Reach the Ridge', giver: 'sefa', kind: 'reach', target: { x: 30, y: 12 }, count: 1, reward: { weapon: 'stormgun' } },
@@ -5837,7 +5836,7 @@ function testQuestKillBuildReachAndRewards() {
   p.invuln = 999;
   g.graceT = 0;
   g.shards = 10;
-  const qById = id => g.quests.find(q => q.id === id);
+  const qById = (id: any) => g.quests.find(q => q.id === id);
   // kills before activation earn nothing
   for (let i = 0; i < 240 && g.kills < 1; i++) step(g, { 0: aimAtNearest(g, p) }, 1 / 30);
   assert.ok(g.kills >= 1, 'a husk fell before the quest was taken');
@@ -5849,10 +5848,10 @@ function testQuestKillBuildReachAndRewards() {
   p.y = npc.y;
   talk();
   assert.ok(g.quests.every(q => q.state === 'active'), 'one talk hands out every quest the giver holds');
-  assert.equal(qById('cull').progress, 0, 'pre-activation kills never count');
+  assert.equal(qById('cull')!.progress, 0, 'pre-activation kills never count');
   // cull two more husks
   for (let i = 0; i < 600 && g.kills < 3; i++) step(g, { 0: aimAtNearest(g, p) }, 1 / 30);
-  assert.equal(qById('cull').progress, 2, 'kill quests count the target letter');
+  assert.equal(qById('cull')!.progress, 2, 'kill quests count the target letter');
   assert.ok(g.events.some(ev => ev.type === 'questProgress' && ev.id === 'cull' && ev.progress === 2), 'progress events fired');
   // raise the wall (hold act on the site)
   const site = g.builds[0];
@@ -5860,15 +5859,15 @@ function testQuestKillBuildReachAndRewards() {
   p.y = site.y;
   run(g, () => ({ 0: { act: true } }), 2.5);
   assert.ok(site.built, 'the barricade went up');
-  assert.equal(qById('wall').progress, 1, 'build quests count completed structures');
+  assert.equal(qById('wall')!.progress, 1, 'build quests count completed structures');
   // reach the ridge
   p.x = (30 + 0.5) * TILE;
   p.y = (12 + 0.5) * TILE;
   step(g, { 0: {} }, 1 / 30);
-  assert.equal(qById('ridge').progress, 1, 'reach quests trip on standing at the target tile');
+  assert.equal(qById('ridge')!.progress, 1, 'reach quests trip on standing at the target tile');
   // the puzzle-system hook (switch/glyph/destroy/craft resolutions call this)
   questProgress(g, 'destroy', ['pillar'], 0, 0);
-  assert.equal(qById('mig').progress, 1, 'exported questProgress drives linked-system quests');
+  assert.equal(qById('mig')!.progress, 1, 'exported questProgress drives linked-system quests');
   // settle all four with the giver
   p.x = npc.x + TILE;
   p.y = npc.y;
@@ -5882,7 +5881,7 @@ function testQuestKillBuildReachAndRewards() {
   assert.deepEqual(p.fieldWeapon, { kind: 'stormgun', ammo: 24 }, 'weapon rewards arrive fully loaded');
   assert.equal(g.events.filter(ev => ev.type === 'quest' && ev.state === 'done').length, 4, 'four done events');
   const s = snapshot(g, false);
-  assert.ok(s.quests.every(q => q.state === 'done'), 'snapshot tracks quest completion');
+  assert.ok(s.quests!.every(q => q.state === 'done'), 'snapshot tracks quest completion');
 
   // --- main-quest gate + binary 'reach' finale (fresh field) ---------------
   // The extermination auto-clear must hold while a MAIN quest is in flight,
@@ -5891,8 +5890,8 @@ function testQuestKillBuildReachAndRewards() {
   let rm = '#' + '.'.repeat(38) + '#';
   rm = put(put(put(rm, 4, 'P'), 8, 'N'), 12, 'z');
   const level2 = bigEmptyLevel([[5, rm]]);
-  level2.npcs = [{ id: 'brakka', name: 'Sel Brakka', lines: ['Walk in and prove it.'] }];
-  level2.quests = [
+  (level2 as any).npcs = [{ id: 'brakka', name: 'Sel Brakka', lines: ['Walk in and prove it.'] }];
+  (level2 as any).quests = [
     { id: 'm-cull', main: true, title: 'Cull the Husk', giver: 'brakka', kind: 'kill', target: 'z', count: 1 },
     { id: 'm-core', main: true, title: 'Reach the Core', giver: 'brakka', kind: 'reach', target: { x: 30, y: 5 }, count: 3 },
   ];
@@ -5918,7 +5917,7 @@ function testQuestKillBuildReachAndRewards() {
   p2.x = npc2.x + TILE;
   p2.y = npc2.y;
   talk2();
-  assert.equal(g2.quests.find(q => q.id === 'm-cull').state, 'done', 'the kill main settled');
+  assert.equal(g2.quests.find(q => q.id === 'm-cull')!.state, 'done', 'the kill main settled');
   run(g2, () => ({ 0: {} }), 0.5);
   assert.equal(g2.status, 'play', 'the un-tripped reach finale still holds the field open');
   // step into the ring: count 3 completes in ONE tick, and the finale clears
@@ -5926,7 +5925,7 @@ function testQuestKillBuildReachAndRewards() {
   p2.y = (5 + 0.5) * TILE;
   step(g2, { 0: {} }, 1 / 30);
   const mq = g2.quests.find(q => q.id === 'm-core');
-  assert.equal(mq.progress, 3, 'reach quests are binary: progress jumps straight to count');
+  assert.equal(mq!.progress, 3, 'reach quests are binary: progress jumps straight to count');
   assert.equal(g2.events.filter(ev => ev.type === 'questProgress' && ev.id === 'm-core').length, 1,
     'one progress event total — never 1 per tick');
   assert.equal(g2.status, 'cleared', "the settled main chain's reach finale clears the chapter at the ring");
@@ -5938,8 +5937,8 @@ function testUntimedStoryAndBastion() {
   const mkLevel = () => {
     const level = bigEmptyLevel([[17, '#....................................g#']]);
     level.time = 3;
-    level.story = true;
-    level.modifiers = { waves: [{ at: 5, letters: 'z', edge: 'n' }] };
+    (level as any).story = true;
+    (level as any).modifiers = { waves: [{ at: 5, letters: 'z', edge: 'n' }] };
     return level;
   };
   const g = createGame(mkLevel(), [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
@@ -5952,11 +5951,11 @@ function testUntimedStoryAndBastion() {
   assert.ok(g.enemies.some(e => e.kind === 'husk'), 'waves keep firing on elapsed time (at 5s > time 3)');
   const s = snapshot(g, false);
   assert.equal(s.untimed, true, 'snapshot flags untimed');
-  assert.ok(s.elapsed > 6 && s.elapsed < 7, 'snapshot ships elapsed for the count-up clock');
+  assert.ok(s.elapsed! > 6 && s.elapsed! < 7, 'snapshot ships elapsed for the count-up clock');
   // def.timed:true opts a story level back into the countdown
   const tLevel = mkLevel();
-  tLevel.timed = true;
-  tLevel.modifiers = undefined;
+  (tLevel as any).timed = true;
+  (tLevel as any).modifiers = undefined;
   const tg = createGame(tLevel, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   assert.equal(tg.untimed, false, 'timed:true restores the countdown');
   tg.players[0].invuln = 999;
@@ -5964,10 +5963,10 @@ function testUntimedStoryAndBastion() {
   assert.equal(tg.status, 'failed', 'the opted-in countdown still fails the level');
   assert.ok(tg.events.some(ev => ev.type === 'lowTime'), 'lowTime still cues on timed levels');
   // bastion maps are untimed by definition; classics keep their countdown
-  const bg = createGame(bastionDef(), [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const bg = createGame(bastionDef() as any, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   assert.equal(bg.untimed, true, 'bastion maps run untimed');
   assert.equal(snapshot(bg, false).untimed, true, 'bastion snapshot flags untimed');
-  const cg = createGame(levels[0], startingRoster.map((id, i) => ({ pid: i, name: id, charId: id })), charMap, startingRoster);
+  const cg = createGame(levels[0], startingRoster.map((id: any, i: any) => ({ pid: i, name: id, charId: id })), charMap, startingRoster);
   assert.equal(cg.untimed, false, 'classics never run untimed');
   run(cg, () => ({}), 1);
   assert.ok(cg.timeLeft < levels[0].time, 'classic countdowns are untouched');
@@ -5975,7 +5974,7 @@ function testUntimedStoryAndBastion() {
 
 // --- determinism: identical scripted runs over every frontier system ---
 function testDeterministicFrontierRun() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r5 = '#' + '.'.repeat(38) + '#';
   r5 = put(put(put(put(r5, 4, 'P'), 5, 'P'), 14, 'z'), 18, 'f');
   let r8 = '#' + '.'.repeat(38) + '#';
@@ -5983,17 +5982,17 @@ function testDeterministicFrontierRun() {
   let r11 = '#' + '.'.repeat(38) + '#';
   r11 = put(put(put(r11, 8, 'N'), 24, 'x'), 28, 'u');
   const level = bigEmptyLevel([[5, r5], [8, r8], [11, r11]]);
-  level.story = true;
-  level.npcs = [{ id: 'hask', name: 'Hask Embervein', lines: ['Bring me fragments, not promises.'] }];
-  level.qitems = [{ id: 'frag1', kind: 'fragment' }];
-  level.quests = [{ id: 'forge', title: 'The Combining', giver: 'hask', kind: 'fetch', item: 'fragment', count: 1, reward: { shards: 5 } }];
-  const party = startingRoster.slice(0, 2).map((id, i) => ({ pid: i, name: id, charId: id }));
+  (level as any).story = true;
+  (level as any).npcs = [{ id: 'hask', name: 'Hask Embervein', lines: ['Bring me fragments, not promises.'] }];
+  (level as any).qitems = [{ id: 'frag1', kind: 'fragment' }];
+  (level as any).quests = [{ id: 'forge', title: 'The Combining', giver: 'hask', kind: 'fetch', item: 'fragment', count: 1, reward: { shards: 5 } }];
+  const party = startingRoster.slice(0, 2).map((id: any, i: any) => ({ pid: i, name: id, charId: id }));
   const runOnce = () => {
     const g = createGame(level, party, charMap, startingRoster);
     const dt = 1 / 30;
     const h = [];
     for (let i = 0; i < 900 && g.status === 'play'; i++) {
-      const inputs = {};
+      const inputs: any = {};
       for (const p of g.players) {
         inputs[p.pid] = {
           right: (i % 60) < 35, down: p.pid === 0 && (i % 80) < 30, up: p.pid === 1 && (i % 80) < 30,
@@ -6023,7 +6022,7 @@ function testPuzzleLettersParse() {
       '############',
     ],
   };
-  const lvl = parseLevel(def);
+  const lvl = parseLevel(def as any);
   assert.deepEqual(lvl.switches, [
     { id: 'swA', x: 3.5 * TILE, y: 1.5 * TILE, on: false, group: 'g1' },
     { id: 'sw1', x: 4.5 * TILE, y: 1.5 * TILE, on: false, group: 'g1' },
@@ -6046,13 +6045,13 @@ function testPuzzleLettersParse() {
   const odd = parseLevel({ tiles: ['#####', '#POO#', '#.O.#', '#####'] });
   assert.deepEqual(odd.teleports.map(t => t.twin), ['tp1', 'tp0', null], 'an odd trailing pad has no twin (inert)');
   // populated maps ship the new snapshot keys; classics never gain them
-  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const g = createGame(def as any, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   const s = snapshot(g, false);
-  assert.equal(s.switches.length, 2, 'snapshot ships switches');
-  assert.equal(s.glyphs.length, 1, 'snapshot ships glyphs');
-  assert.equal(s.pillars.length, 1, 'snapshot ships pillars');
-  assert.equal(s.forges.length, 1, 'snapshot ships forges');
-  assert.equal(s.teleports.length, 2, 'snapshot ships teleports');
+  assert.equal(s.switches!.length, 2, 'snapshot ships switches');
+  assert.equal(s.glyphs!.length, 1, 'snapshot ships glyphs');
+  assert.equal(s.pillars!.length, 1, 'snapshot ships pillars');
+  assert.equal(s.forges!.length, 1, 'snapshot ships forges');
+  assert.equal(s.teleports!.length, 2, 'snapshot ships teleports');
   assert.deepEqual(s.doors, [{ id: 'gate', x: 9, y: 2, w: 1, h: 1, open: false, sealLock: true }], 'snapshot ships doors');
   const classic = snapshot(createGame(levels[0], [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster), false);
   for (const key of ['switches', 'switchGroups', 'glyphs', 'pillars', 'forges', 'teleports', 'doors']) {
@@ -6062,13 +6061,13 @@ function testPuzzleLettersParse() {
 
 // --- relay switches: act toggles ON, the cluster quorum, window resets ---
 function testSwitchQuorumWindowAndReset() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(put(put(r, 4, 'P'), 8, 'Q'), 16, 'Q'), 24, 'Q');
   const level = bigEmptyLevel([[5, r], [17, '#....................................g#']]);
-  level.switches = [{ group: 'g1' }, { group: 'g1' }, { group: 'g1' }];
-  level.switchGroups = [{ group: 'g1', need: 2, of: 3, window: 2, reward: { openDoor: 'gateA' } }];
-  level.doors = [{ id: 'gateA', x: 34, y: 5 }];
+  (level as any).switches = [{ group: 'g1' }, { group: 'g1' }, { group: 'g1' }];
+  (level as any).switchGroups = [{ group: 'g1', need: 2, of: 3, window: 2, reward: { openDoor: 'gateA' } }];
+  (level as any).doors = [{ id: 'gateA', x: 34, y: 5 }];
   const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   const p = g.players[0];
   p.invuln = 999;
@@ -6077,7 +6076,7 @@ function testSwitchQuorumWindowAndReset() {
     id: 'sq', main: false, title: 'Bring the Cluster Online', giver: 'none', kind: 'switch',
     target: 'g1', count: 1, reward: null, hint: '', state: 'active', progress: 0,
   });
-  const throwAt = sw => {
+  const throwAt = (sw: any) => {
     p.x = sw.x - TILE;
     p.y = sw.y;
     step(g, { 0: {} }, 1 / 30);
@@ -6097,7 +6096,7 @@ function testSwitchQuorumWindowAndReset() {
   throwAt(g.switches[2]);
   assert.equal(g.switchGroups[0].done, true, 'need-of-of online completes the quorum');
   assert.ok(g.events.some(ev => ev.type === 'quorum' && ev.group === 'g1'), 'quorum event fired');
-  assert.equal(g.quests.find(q => q.id === 'sq').progress, 1, "the quorum drove the 'switch' quest");
+  assert.equal(g.quests.find(q => q.id === 'sq')!.progress, 1, "the quorum drove the 'switch' quest");
   step(g, { 0: {} }, 1 / 30);
   assert.equal(g.doors[0].open, true, 'the quorum reward opened its door');
   assert.equal(g.switchGroups[0].windowT, 0, 'a completed quorum stops its clock');
@@ -6108,19 +6107,19 @@ function testSwitchQuorumWindowAndReset() {
   throwAt(g.switches[0]);
   assert.equal(g.events.filter(ev => ev.type === 'switch').length, n, 'an ON relay consumes no press');
   const s = snapshot(g, false);
-  assert.equal(s.switches.filter(sw => sw.on).length, 2, 'snapshot tracks relay state');
-  assert.equal(s.switchGroups[0].done, true, 'snapshot tracks quorum completion');
+  assert.equal(s.switches!.filter(sw => sw.on).length, 2, 'snapshot tracks relay state');
+  assert.equal(s.switchGroups![0].done, true, 'snapshot tracks quorum completion');
 }
 
 // --- glyph stones: exact order lights the group; a wrong stone resets it ---
 function testGlyphOrderAndReset() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(put(put(r, 4, 'P'), 8, 'J'), 16, 'J'), 24, 'J');
   const level = bigEmptyLevel([[5, r], [17, '#....................................g#']]);
-  level.glyphs = [{ symbol: 3, group: 'runes' }, { symbol: 5, group: 'runes' }, { symbol: 1, group: 'runes' }];
-  level.glyphGroups = [{ group: 'runes', order: [5, 3, 1], reward: { openDoor: 'vault' } }];
-  level.doors = [{ id: 'vault', x: 34, y: 5 }];
+  (level as any).glyphs = [{ symbol: 3, group: 'runes' }, { symbol: 5, group: 'runes' }, { symbol: 1, group: 'runes' }];
+  (level as any).glyphGroups = [{ group: 'runes', order: [5, 3, 1], reward: { openDoor: 'vault' } }];
+  (level as any).doors = [{ id: 'vault', x: 34, y: 5 }];
   const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   const p = g.players[0];
   p.invuln = 999;
@@ -6129,16 +6128,16 @@ function testGlyphOrderAndReset() {
     id: 'gq', main: false, title: 'Read the Stones', giver: 'none', kind: 'glyph',
     target: 'runes', count: 1, reward: null, hint: '', state: 'active', progress: 0,
   });
-  const lightAt = gl => {
+  const lightAt = (gl: any) => {
     p.x = gl.x - TILE;
     p.y = gl.y;
     step(g, { 0: {} }, 1 / 30);
     step(g, { 0: { act: true } }, 1 / 30);
   };
-  const bySym = sym => g.glyphs.find(o => o.symbol === sym);
+  const bySym = (sym: any) => g.glyphs.find(o => o.symbol === sym);
   // right first stone (rune 5), then a wrong one (rune 1 before 3): reset
   lightAt(bySym(5));
-  assert.equal(bySym(5).lit, true, 'the ordered first stone lights');
+  assert.equal(bySym(5)!.lit, true, 'the ordered first stone lights');
   assert.ok(g.events.some(ev => ev.type === 'glyph' && ev.symbol === 5), 'glyph event fired');
   lightAt(bySym(1));
   assert.equal(g.glyphs.every(o => !o.lit), true, 'a wrong stone snuffs the whole group');
@@ -6150,21 +6149,21 @@ function testGlyphOrderAndReset() {
   lightAt(bySym(1));
   assert.equal(g.glyphGroups[0].done, true, 'the exact order completes the group');
   assert.ok(g.events.some(ev => ev.type === 'glyphDone' && ev.group === 'runes'), 'glyphDone event fired');
-  assert.equal(g.quests.find(q => q.id === 'gq').progress, 1, "the completed order drove the 'glyph' quest");
+  assert.equal(g.quests.find(q => q.id === 'gq')!.progress, 1, "the completed order drove the 'glyph' quest");
   step(g, { 0: {} }, 1 / 30);
   assert.equal(g.doors[0].open, true, 'the glyph reward opened its door');
   const s = snapshot(g, false);
-  assert.equal(s.glyphs.filter(o => o.lit).length, 3, 'snapshot tracks lit stones');
+  assert.equal(s.glyphs!.filter(o => o.lit).length, 3, 'snapshot tracks lit stones');
 }
 
 // --- BLS pillars: player fire alone cracks them; 'destroy' quests count ---
 function testPillarDestructionAndQuest() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(put(r, 4, 'P'), 8, 'X'), 12, 'N');
   const level = bigEmptyLevel([[5, r], [17, '#....................................g#']]);
-  level.npcs = [{ id: 'tela', name: 'Tela of the Loop', lines: ['Smash the old ciphers.'] }];
-  level.quests = [{ id: 'bls', title: 'Obsolete Cryptography', giver: 'tela', kind: 'destroy', target: 'pillar', count: 1 }];
+  (level as any).npcs = [{ id: 'tela', name: 'Tela of the Loop', lines: ['Smash the old ciphers.'] }];
+  (level as any).quests = [{ id: 'bls', title: 'Obsolete Cryptography', giver: 'tela', kind: 'destroy', target: 'pillar', count: 1 }];
   const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   const p = g.players[0];
   const pillar = g.pillars[0];
@@ -6180,7 +6179,7 @@ function testPillarDestructionAndQuest() {
     g.shots.push({
       id: g.nextShotId++, x: pillar.x - 2 * TILE, y: pillar.y, vx: 8 * TILE, vy: 0,
       ttl: 1, dmg: 1, who: 'e', pierce: 0, aoeRadius: 0, radius: 5, kind: 'arrow', hits: [],
-    });
+    } as any);
   };
   eshotN();
   run(g, () => ({ 0: {} }), 1);
@@ -6201,15 +6200,15 @@ function testPillarDestructionAndQuest() {
 // rides its OWN field (never the item slot), opens sealLock doors on touch
 // and flags hasSeal for the phantom reveal; item-slot writes can't kill it ---
 function testSealForgeAndLythsealDoors() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(put(put(r, 4, 'P'), 8, 'Z'), 12, 'I'), 16, 'C');
   // a wall line at y=10 with a floor gap at x=20, sealed by a sealLock door
   const wall = '#'.repeat(20) + '.' + '#'.repeat(19);
   const level = bigEmptyLevel([[5, r], [10, wall], [17, '#....................................g#']]);
-  level.qitems = [{ id: 'proof1', kind: 'fragment' }];
-  level.chests = [{ loot: 'controller' }]; // an item-slot loot: the seal's old killer
-  level.doors = [{ id: 'sealgate', x: 20, y: 10, sealLock: true }];
+  (level as any).qitems = [{ id: 'proof1', kind: 'fragment' }];
+  (level as any).chests = [{ loot: 'controller' }]; // an item-slot loot: the seal's old killer
+  (level as any).doors = [{ id: 'sealgate', x: 20, y: 10, sealLock: true }];
   const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   const p = g.players[0];
   const forge = g.forges[0];
@@ -6239,7 +6238,7 @@ function testSealForgeAndLythsealDoors() {
   assert.equal(g.shards, 5, 'the forge consumed 20 shards');
   assert.equal(g.qitems.length, 0, 'the proof fragment was consumed');
   assert.ok(g.events.some(ev => ev.type === 'sealForged' && ev.pid === 0), 'sealForged event fired');
-  assert.equal(g.quests.find(q => q.id === 'cq').progress, 1, "forging drove the 'craft' quest");
+  assert.equal(g.quests.find(q => q.id === 'cq')!.progress, 1, "forging drove the 'craft' quest");
   const sp = snapshot(g, false).players[0];
   assert.equal(sp.hasSeal, true, 'snapshot flags the carrier for the phantom reveal');
   assert.equal(sp.lythseal, true, 'snapshot ships the lythseal field for the HUD');
@@ -6279,14 +6278,14 @@ function testSealForgeAndLythsealDoors() {
 // --- doors: closed rects block movement, sight, shots and A*; openers work ---
 function testDoorsBlockMoveSightShotsAndPath() {
   // a wall line at y=10 with a floor gap at x=20, shut by a plain door
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   const wall = '#'.repeat(20) + '.' + '#'.repeat(19);
   let r13 = '#' + '.'.repeat(38) + '#';
   r13 = put(r13, 20, 'P');
   let r7 = '#' + '.'.repeat(38) + '#';
   r7 = put(r7, 20, 'g');
   const level = bigEmptyLevel([[13, r13], [10, wall], [7, r7]]);
-  level.doors = [{ id: 'd1', x: 20, y: 10 }];
+  (level as any).doors = [{ id: 'd1', x: 20, y: 10 }];
   const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   const p = g.players[0];
   const e = g.enemies[0];
@@ -6327,7 +6326,7 @@ function testDoorsBlockMoveSightShotsAndPath() {
 
 // --- teleport pads: 0.8s channel, blink with cargo, 2s cooldown, no enemies ---
 function testTeleportPads() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r5 = '#' + '.'.repeat(38) + '#';
   r5 = put(put(put(put(r5, 4, 'P'), 8, 'O'), 6, 'c'), 10, 'I');
   let r15 = '#' + '.'.repeat(38) + '#';
@@ -6337,10 +6336,10 @@ function testTeleportPads() {
   let r17 = '#' + '.'.repeat(38) + '#';
   r17 = put(put(put(r17, 10, 'O'), 20, 'O'), 11, 'g');
   const level = bigEmptyLevel([[5, r5], [15, r15], [17, r17]]);
-  level.captiveChars = ['sniper'];
-  level.qitems = [{ id: 'frag1', kind: 'fragment' }];
+  (level as any).captiveChars = ['sniper'];
+  (level as any).qitems = [{ id: 'frag1', kind: 'fragment' }];
   // a closed door squats on tp3 (tile 20,17): its twin tp2 must refuse to channel
-  level.doors = [{ id: 'dgate', x: 20, y: 17 }];
+  (level as any).doors = [{ id: 'dgate', x: 20, y: 17 }];
   const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   const p = g.players[0];
   const [padA, padB, padC, padD] = g.teleports;
@@ -6394,7 +6393,7 @@ function testTeleportPads() {
   run(g, () => ({ 0: {} }), 1.2);
   assert.equal(g.events.filter(ev => ev.type === 'teleport').length, trips,
     'the channel refuses while the twin sits inside a closed door');
-  assert.ok(!(p.channelT > 0), 'the hold never even charges');
+  assert.ok(!(p.channelT! > 0), 'the hold never even charges');
   // the moment the door opens, the pad answers again
   g.pendingDoorOpens.push('dgate');
   run(g, () => ({ 0: {} }), 1);
@@ -6405,11 +6404,11 @@ function testTeleportPads() {
 
 // --- save beacons: cost-10 build sites that announce themselves when raised ---
 function testBeaconBuildAndEvent() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(r, 4, 'P'), 8, 'B');
   const level = bigEmptyLevel([[5, r], [17, '#....................................g#']]);
-  level.builds = [{ kind: 'beacon', cost: 10 }];
+  (level as any).builds = [{ kind: 'beacon', cost: 10 }];
   const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   const p = g.players[0];
   const b = g.builds[0];
@@ -6439,14 +6438,14 @@ function testBeaconBuildAndEvent() {
 // in perfect lockstep with the original for 30 more seconds ---
 function testSerializeRestoreRoundTrip() {
   const level = bastionDef({ nights: 3, dayLen: 20, nightLen: 30, bloodMoons: [2] });
-  const party = startingRoster.slice(0, 2).map((id, i) => ({ pid: i, name: id, charId: id }));
-  const g = createGame(level, party, charMap, startingRoster);
-  g.core.hp = 5000;
-  g.core.maxHp = 5000;
+  const party = startingRoster.slice(0, 2).map((id: any, i: any) => ({ pid: i, name: id, charId: id }));
+  const g = createGame(level as any, party, charMap, startingRoster);
+  g.core!.hp = 5000;
+  g.core!.maxHp = 5000;
   for (const p of g.players) p.invuln = 1e9;
   const dt = 1 / 30;
-  const inputsAt = i => {
-    const inputs = {};
+  const inputsAt = (i: any) => {
+    const inputs: any = {};
     for (const pid of [0, 1]) {
       inputs[pid] = {
         right: (i % 50) < 25, left: (i % 50) >= 40,
@@ -6490,7 +6489,7 @@ function testSerializeRestoreRoundTrip() {
 function testStrongholdDefIntegrity() {
   const shs = levels.filter(l => l.category === 'stronghold');
   assert.ok(shs.length >= 1, 'stronghold dir ships at least sh01');
-  const validChars = new Set(characters.map(c => c.id));
+  const validChars = new Set(characters.map((c: any) => c.id));
   const BUILD_KINDS = new Set(['pylon', 'barricade', 'turret', 'farm', 'beacon', 'wall', 'comm']);
   // map-overhaul adds 4 new floor tiles (+ cinder, - packed-snow, @ peat-bog,
   // / unstable-slab) and 9 new biome enemy letters (d e h i j k l y $).
@@ -6525,12 +6524,12 @@ function testStrongholdDefIntegrity() {
     if (sh.hpMult !== undefined) assert.ok(sh.hpMult >= 1 && sh.hpMult <= 2, `${tag}: hpMult 1..2`);
     if (sh.unlock !== undefined) assert.ok(validChars.has(sh.unlock), `${tag}: unlock '${sh.unlock}' is a real character`);
     assert.ok(typeof sh.blurb === 'string' && sh.blurb.length > 0, `${tag}: blurb set`);
-    assert.ok(Array.isArray(sh.newFeatures) && sh.newFeatures.every(s => typeof s === 'string'), `${tag}: newFeatures are strings`);
+    assert.ok(Array.isArray(sh.newFeatures) && sh.newFeatures.every((s: any) => typeof s === 'string'), `${tag}: newFeatures are strings`);
     assert.ok(Array.isArray(def.intro) && def.intro.length >= 1, `${tag}: stronghold levels ship an intro slide`);
     for (const row of def.tiles) {
       for (const c of row) assert.ok(LEGAL_TILES.has(c), `${tag}: tile '${c}' is a legal letter`);
     }
-    const ks = def.tiles.reduce((n2, r) => n2 + (r.split('K').length - 1), 0);
+    const ks = def.tiles.reduce((n2: any, r: any) => n2 + (r.split('K').length - 1), 0);
     // escort_push (def.escort) and pure survive_timer (def.bastion.survival) maps
     // are intentionally coreless — their lose condition is anchor-hp / party wipe.
     const shColess = def.escort || (def.bastion && def.bastion.survival);
@@ -6552,8 +6551,8 @@ function testStrongholdDefIntegrity() {
     // claim the hold (structureInReach) — a stall parked beside a build
     // site/tower silently feeds repairs instead of opening the carousel
     // (the sh17 'shop does not respond' report). Keep them 2.5+ tiles apart.
-    const stalls = [], works = [];
-    def.tiles.forEach((row, y) => {
+    const stalls: any[] = [], works: any[] = [];
+    def.tiles.forEach((row: any, y: any) => {
       for (let x = 0; x < row.length; x++) {
         if (row[x] === 'S') stalls.push([x, y]);
         else if (row[x] === 'B' || row[x] === 'W') works.push([x, y]);
@@ -6570,15 +6569,15 @@ function testStrongholdDefIntegrity() {
 
 // --- fortified walls: the wall kind, prebuilt structures, upgrade ladder ---
 function testWallsAndPrebuilt() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   const def = bastionDef({ nights: 1, dayLen: 1000, nightLen: 10, bloodMoons: [] });
   def.tiles[5] = put(put(put('#' + '.'.repeat(38) + '#', 4, 'B'), 8, 'B'), 12, 'B');
-  def.builds = [
+  (def as any).builds = [
     { kind: 'wall', cost: 5, prebuilt: true },
     { kind: 'wall', cost: 5 },
     { kind: 'turret', cost: 8, prebuilt: true, ttype: 'tesla' },
   ];
-  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const g = createGame(def as any, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   const [w1, w2, tu] = g.builds;
   assert.equal(w1.built, true, 'prebuilt wall ships standing');
   assert.equal(w1.hp, 20, 'wall L1 has 20 hp');
@@ -6612,7 +6611,7 @@ function testWallsAndPrebuilt() {
 // --- inventory: buying a placeable (turret/wall) lands it in the per-player
 // inventory (NOT the item slot), and inp.invSel cycles the selection. ---
 function testBuyPlaceableToInventory() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(put(r, 4, 'P'), 10, 'S'), 35, 'g');
   const level = bigEmptyLevel([[5, r]]);
@@ -6662,7 +6661,7 @@ function testBuyPlaceableToInventory() {
 // follows the arrows, cancel exits WITHOUT consuming, confirm drops the
 // structure and consumes exactly one. ---
 function testPlacementModeFreezesAndConsumes() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(r, 10, 'P'), 35, 'g');
   const level = bigEmptyLevel([[5, r]]);
@@ -6720,7 +6719,7 @@ function testPlacementModeFreezesAndConsumes() {
 // ghost previews a line, the second confirm lays a connected run of wall
 // segments (one per inventory count) that block movement. ---
 function testWallDragLine() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   let r = '#' + '.'.repeat(38) + '#';
   r = put(put(r, 6, 'P'), 35, 'g');
   const level = bigEmptyLevel([[5, r]]);
@@ -6775,15 +6774,15 @@ function testWallDragLine() {
 // official shoot-your-way-out self-rescue. Pylons/beacons immune, splash
 // immune, ownerless (turret) fire immune. ---
 function testShootYourWayOut() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   const def = bastionDef({ nights: 1, dayLen: 1000, nightLen: 10, bloodMoons: [] });
   // player pocket: a prebuilt barricade due east of the operative
   def.tiles[10] = put(put(def.tiles[10], 6, 'B'), 10, 'B');
-  def.builds = [
+  (def as any).builds = [
     { kind: 'barricade', cost: 4, prebuilt: true },
     { kind: 'pylon', cost: 10, prebuilt: true },
   ];
-  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const g = createGame(def as any, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   const [bar, pyl] = g.builds;
   const p = g.players[0];
   p.invuln = 1e9;
@@ -6822,8 +6821,8 @@ function testShootYourWayOut() {
   // AoE splash never hurts structures: an exploding shot beside a wall
   const def2 = bastionDef({ nights: 1, dayLen: 1000, nightLen: 10, bloodMoons: [] });
   def2.tiles[10] = put(def2.tiles[10], 6, 'B');
-  def2.builds = [{ kind: 'wall', cost: 5, prebuilt: true }];
-  const g2 = createGame(def2, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  (def2 as any).builds = [{ kind: 'wall', cost: 5, prebuilt: true }];
+  const g2 = createGame(def2 as any, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   const wall2 = g2.builds[0];
   g2.shots.push({
     id: g2.nextShotId++, x: wall2.x - 40, y: wall2.y, vx: 0, vy: 0, ttl: 0,
@@ -6843,8 +6842,8 @@ function testShootYourWayOut() {
 }
 
 // --- beacon-defense variant: a 40x20 field with four 'K' monoliths ---
-function beaconsDef(b = {}, extraRows = []) {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+function beaconsDef(b: any = {}, extraRows: any[] = []) {
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   const tiles = [];
   tiles.push('#'.repeat(40));
   for (let y = 1; y < 19; y++) tiles.push('#' + '.'.repeat(38) + '#');
@@ -6866,23 +6865,23 @@ function beaconsDef(b = {}, extraRows = []) {
 // all-dark loss ---
 function testBeaconSiegeDarkRelightAndLoss() {
   const def = beaconsDef();
-  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const g = createGame(def as any, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   const p = g.players[0];
   p.invuln = 1e9;
   assert.equal(g.core, null, 'the variant nulls the single core');
-  assert.equal(g.cores.length, 4, 'four monoliths parse into g.cores');
-  assert.ok(g.cores.every(c => c.lit && c.hp === 30), 'all four ship lit at full hp');
+  assert.equal(g.cores!.length, 4, 'four monoliths parse into g.cores');
+  assert.ok(g.cores!.every(c => c.lit && c.hp === 30), 'all four ship lit at full hp');
   const s0 = snapshot(g, false);
   assert.equal(s0.core, undefined, 'no single-core key on variant snapshots');
-  assert.equal(s0.cores.length, 4, 'snapshot ships the cores array');
-  assert.ok(s0.cores.every(c => c.lit === true), 'snapshot carries HUD-ready lit flags');
+  assert.equal(s0.cores!.length, 4, 'snapshot ships the cores array');
+  assert.ok(s0.cores!.every(c => c.lit === true), 'snapshot carries HUD-ready lit flags');
   // dusk 1: the wave splits round-robin across the four LIT beacons
   run(g, () => ({ 0: {} }), 5.2);
   const wave = g.enemies.slice();
   assert.ok(wave.length >= 5, 'the night wave spawned');
   assert.deepEqual(wave.slice(0, 4).map(e => e.coreI), [0, 1, 2, 3], 'wave targets split across the lit beacons');
   // gnaw beacon 0 dark: it goes DARK, never destroyed
-  const c0 = g.cores[0];
+  const c0 = g.cores![0];
   c0.hp = 1;
   const gnawer = wave[0];
   gnawer.x = c0.x - TILE * 0.5;
@@ -6892,13 +6891,13 @@ function testBeaconSiegeDarkRelightAndLoss() {
   run(g, () => ({ 0: {} }), 1);
   assert.equal(c0.lit, false, 'a beacon at 0 hp goes dark');
   assert.equal(c0.hp, 0);
-  assert.equal(g.cores.length, 4, 'dark beacons are never destroyed');
+  assert.equal(g.cores!.length, 4, 'dark beacons are never destroyed');
   assert.ok(g.events.some(ev => ev.type === 'beaconDown' && ev.idx === 0), 'beaconDown event fired');
   assert.ok(g.events.some(ev => ev.type === 'coreHit' && ev.idx === 0), 'beacon gnaws fire indexed coreHit');
   assert.equal(g.status, 'play', 'one dark beacon never loses the mission');
   // its besiegers retarget the next lit monolith
   run(g, () => ({ 0: {} }), 0.2);
-  assert.ok(g.enemies.filter(e => !e.dead && e.targetCore).every(e => g.cores[e.coreI].lit),
+  assert.ok(g.enemies.filter(e => !e.dead && e.targetCore).every(e => g.cores![e.coreI!].lit),
     'enemies abandon dark beacons for lit ones');
   // relight refuses at NIGHT, even with shards and a held act
   g.shards = 20;
@@ -6907,8 +6906,8 @@ function testBeaconSiegeDarkRelightAndLoss() {
   run(g, () => ({ 0: { act: true } }), 3);
   assert.equal(c0.lit, false, 'no relighting under the night sky');
   // by day, hold-act + 8 shards relights at full hp
-  g.cycle.phase = 'day';
-  g.cycle.t = 500;
+  g.cycle!.phase = 'day';
+  g.cycle!.t = 500;
   run(g, () => ({ 0: { act: true } }), 2);
   assert.equal(c0.lit, true, 'a day act-hold relights the beacon');
   assert.equal(c0.hp, c0.maxHp, 'relit beacons stand at full hp');
@@ -6922,7 +6921,7 @@ function testBeaconSiegeDarkRelightAndLoss() {
   assert.equal(c0.lit, false, '7 shards cannot pay the 8-shard relight');
   // LOSE: dropping below the difficulty threshold (default normal = keep 2 of 4)
   // starts a 10s recovery grace; failing to recover ends the mission.
-  for (const c of g.cores) { c.lit = false; c.hp = 0; }
+  for (const c of g.cores!) { c.lit = false; c.hp = 0; }
   step(g, { 0: {} }, 1 / 30);
   assert.equal(g.status, 'play', 'falling below the threshold starts a grace, not an instant loss');
   assert.ok(g.events.some(ev => ev.type === 'beaconWarn'), 'beaconWarn event fired');
@@ -6935,11 +6934,11 @@ function testBeaconSiegeDarkRelightAndLoss() {
 // --- beacons: surviving to the final dawn with >=1 lit clears ---
 function testBeaconFinalDawnWin() {
   const def = beaconsDef({ nights: 1, dayLen: 2, nightLen: 3, bloodMoons: [] });
-  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const g = createGame(def as any, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   g.players[0].invuln = 1e9;
   g.graceT = 1e9; // hold the wave still: this test is about the clock
   // three beacons dark, one lit: still a win at the final dawn
-  for (const c of g.cores.slice(1)) { c.lit = false; c.hp = 0; }
+  for (const c of g.cores!.slice(1)) { c.lit = false; c.hp = 0; }
   run(g, () => ({ 0: {} }), 6);
   assert.equal(g.status, 'cleared', 'final dawn with one lit beacon wins');
   assert.ok(g.events.length === 0 || true, 'sanity');
@@ -6949,40 +6948,40 @@ function testBeaconFinalDawnWin() {
 // launches an immediate full-clear ---
 function testAnchorcraftEarlyExtraction() {
   const def = beaconsDef({ nights: 4, dayLen: 2, nightLen: 1000, bloodMoons: [] });
-  const party = startingRoster.slice(0, 2).map((id, i) => ({ pid: i, name: id, charId: id }));
-  const g = createGame(def, party, charMap, startingRoster);
+  const party = startingRoster.slice(0, 2).map((id: any, i: any) => ({ pid: i, name: id, charId: id }));
+  const g = createGame(def as any, party, charMap, startingRoster);
   for (const p of g.players) p.invuln = 1e9;
   g.graceT = 1e9; // the wave holds; beacons stay lit
   // night 1, all four lit: the ship does NOT land before night 2
   run(g, () => ({ 0: {}, 1: {} }), 3);
-  assert.equal(g.cycle.phase, 'night');
-  assert.ok(g.cores.every(c => c.lit), 'all four still lit');
+  assert.equal(g.cycle!.phase, 'night');
+  assert.ok(g.cores!.every(c => c.lit), 'all four still lit');
   assert.equal(g.ship, null, 'night 1 never lands the ship');
   // night 2 with all four lit: touchdown
-  g.cycle.nightNo = 2;
+  g.cycle!.nightNo = 2;
   step(g, { 0: {}, 1: {} }, 1 / 30);
-  assert.ok(g.ship && g.ship.landed, 'the Anchorcraft lands on the all-lit night feat');
+  assert.ok(g.ship && (g.ship as any).landed, 'the Anchorcraft lands on the all-lit night feat');
   assert.ok(g.events.some(ev => ev.type === 'shipDown'), 'shipDown event fired');
   const s = snapshot(g, false);
-  assert.deepEqual(s.ship, { x: g.ship.x, y: g.ship.y, landed: true }, 'snapshot ships the landed vessel');
+  assert.deepEqual(s.ship, { x: (g.ship as any).x, y: (g.ship as any).y, landed: true }, 'snapshot ships the landed vessel');
   // a dark beacon afterwards never recalls the landed ship
-  g.cores[0].lit = false;
+  g.cores![0].lit = false;
   step(g, { 0: {}, 1: {} }, 1 / 30);
   assert.ok(g.ship, 'the ship persists once landed');
-  g.cores[0].lit = true;
+  g.cores![0].lit = true;
   // player 0 boards (act within 1.5 tiles); the match keeps playing
   const [p0, p1] = g.players;
-  p0.x = g.ship.x - TILE;
-  p0.y = g.ship.y;
+  p0.x = (g.ship as any).x - TILE;
+  p0.y = (g.ship as any).y;
   step(g, { 0: { act: true }, 1: {} }, 1 / 30);
   assert.equal(p0.aboard, true, 'acting at the ramp marks the operative aboard');
   assert.ok(g.events.some(ev => ev.type === 'shipBoard' && ev.pid === 0), 'shipBoard event fired');
   assert.equal(g.status, 'play', 'one aboard of two active: still playing');
-  assert.ok(snapshot(g, false).players.find(q => q.pid === 0).aboard, 'snapshot flags the boarded seat');
+  assert.ok(snapshot(g, false).players.find(q => q.pid === 0)!.aboard, 'snapshot flags the boarded seat');
   // player 1 boards: launch, immediate clear with the full-clear bonus
   const score0 = g.score;
-  p1.x = g.ship.x + TILE;
-  p1.y = g.ship.y;
+  p1.x = (g.ship as any).x + TILE;
+  p1.y = (g.ship as any).y;
   step(g, { 0: {}, 1: { act: true } }, 1 / 30);
   assert.equal(g.status, 'cleared', 'all active aboard launches an immediate clear');
   assert.ok(g.events.some(ev => ev.type === 'shipLaunch'), 'shipLaunch event fired');
@@ -6992,11 +6991,11 @@ function testAnchorcraftEarlyExtraction() {
 
 // --- stronghold hp scaling: def.stronghold.hpMult raises every spawn ---
 function testStrongholdHpMult() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   const def = bastionDef({ nights: 1, dayLen: 2, nightLen: 100, bloodMoons: [] });
   def.tiles[15] = put('#' + '.'.repeat(38) + '#', 30, 'g');
-  def.stronghold = { level: 9, name: 'Scaled', sizeLabel: 'M', difficulty: 3, waves: 1, hpMult: 1.5, blurb: 'x', newFeatures: [] };
-  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  (def as any).stronghold = { level: 9, name: 'Scaled', sizeLabel: 'M', difficulty: 3, waves: 1, hpMult: 1.5, blurb: 'x', newFeatures: [] };
+  const g = createGame(def as any, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   const grunt = g.enemies[0];
   assert.equal(grunt.maxHp, 3, 'initial grunt pool scales ceil(2 x 1.5) = 3');
   assert.equal(grunt.hp, 3);
@@ -7010,7 +7009,7 @@ function testStrongholdHpMult() {
   assert.deepEqual(wave.map(e => e.maxHp), [2, 4, 2, 2, 2], 'wave pools ride the multiplier (bulk doubles the scaled pool)');
   // vanilla bastion: base pools byte-identical
   const def2 = bastionDef({ nights: 1, dayLen: 2, nightLen: 100, bloodMoons: [] });
-  const g2 = createGame(def2, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const g2 = createGame(def2 as any, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   g2.players[0].invuln = 1e9;
   g2.graceT = 1e9;
   run(g2, () => ({ 0: {} }), 2.2);
@@ -7019,7 +7018,7 @@ function testStrongholdHpMult() {
 
 // --- '=' sand: players AND enemies stride at x0.85 ---
 function testSandSlowsEveryone() {
-  const mk = sand => {
+  const mk = (sand: any) => {
     const fill = sand ? '=' : '.';
     // the skitter sits 13.5 tiles out: inside its 18.9-tile leash, outside
     // melee reach for the test's duration
@@ -7045,7 +7044,7 @@ function testSandSlowsEveryone() {
 
 // --- '^' ice: x1.05 pace plus 60% drift momentum, players and enemies ---
 function testIceDriftAndPace() {
-  const mk = ice => {
+  const mk = (ice: any) => {
     const fill = ice ? '^' : '.';
     const row = '#P' + fill.repeat(13) + 'w' + fill.repeat(23) + '#';
     const level = bigEmptyLevel([[5, row]]);
@@ -7072,7 +7071,7 @@ function testIceDriftAndPace() {
 // --- '!' lava: sears players 1 hp/0.8s (shield absorbs, sizzle throttled),
 // enemies 1 hp/s; enemy pathing routes AROUND the flows ---
 function testLavaSearsAndPathsAround() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   const level = bigEmptyLevel([
     [2, '#P' + '.'.repeat(37) + '#'],
     [5, '#' + '!'.repeat(5) + '.'.repeat(33) + '#'],
@@ -7147,13 +7146,13 @@ function testVoidBlocksAll() {
 
 // --- weather: fog/ashstorm sight cap, snow slow, rain douses burn patches ---
 function testWeatherFogSnowRain() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
-  const sniperWakes = weather => {
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
+  const sniperWakes = (weather: any) => {
     const level = bigEmptyLevel([
       [2, '#P' + '.'.repeat(37) + '#'],
       [10, put('#' + '.'.repeat(38) + '#', 25, 'n')],
     ]);
-    if (weather) level.weather = weather;
+    if (weather) (level as any).weather = weather;
     const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
     g.graceT = 0;
     g.players[0].invuln = 1e9;
@@ -7166,12 +7165,12 @@ function testWeatherFogSnowRain() {
   assert.equal(sniperWakes('fog'), false, 'fog caps all sight at 9 tiles');
   assert.equal(sniperWakes('ashstorm'), false, 'ashstorm caps all sight at 9 tiles');
   // snow: every entity strides at x0.92 (a far sentry keeps the field live)
-  const sprint = weather => {
+  const sprint = (weather: any) => {
     const level = bigEmptyLevel([
       [5, '#P' + '.'.repeat(37) + '#'],
       [17, put('#' + '.'.repeat(38) + '#', 36, 'g')],
     ]);
-    if (weather) level.weather = weather;
+    if (weather) (level as any).weather = weather;
     const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
     const x0 = g.players[0].x;
     run(g, () => ({ 0: { right: true } }), 1.5);
@@ -7180,12 +7179,12 @@ function testWeatherFogSnowRain() {
   const clearD = sprint(null), snowD = sprint('snow');
   assert.ok(Math.abs(snowD - clearD * 0.92) < 6, `snow slows the stride to x0.92 (got ${(snowD / clearD).toFixed(3)})`);
   // rain: burn patches expire twice as fast; toxin pools are untouched
-  const mkRain = weather => {
+  const mkRain = (weather: any) => {
     const level = bigEmptyLevel([
       [5, '#P' + '.'.repeat(37) + '#'],
       [17, put('#' + '.'.repeat(38) + '#', 36, 'g')],
     ]);
-    if (weather) level.weather = weather;
+    if (weather) (level as any).weather = weather;
     const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
     g.patches.push({ x: 30 * TILE, y: 10 * TILE, kind: 'burn', r: TILE, ttl: 3 });
     g.patches.push({ x: 34 * TILE, y: 10 * TILE, kind: 'toxin', r: TILE, ttl: 3 });
@@ -7202,13 +7201,13 @@ function testWeatherFogSnowRain() {
 
 // --- alive world: patrols, group alert, sniper spotters ---
 function testPatrolsGroupAlertAndSpotters() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   // patrol: a sleeping sentry walks its loop at 0.6x and still spots
   const level = bigEmptyLevel([
     [2, '#P' + '.'.repeat(37) + '#'],
     [10, put('#' + '.'.repeat(38) + '#', 10, 'g')],
   ]);
-  level.patrols = [{ at: [10, 10], points: [[13, 10], [10, 10]] }];
+  (level as any).patrols = [{ at: [10, 10], points: [[13, 10], [10, 10]] }];
   const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   g.graceT = 0;
   g.players[0].invuln = 1e9;
@@ -7231,7 +7230,7 @@ function testPatrolsGroupAlertAndSpotters() {
     [2, '#P' + '.'.repeat(37) + '#'],
     [10, campRow],
   ]);
-  level2.groups = [[[8, 10], [18, 10]]];
+  (level2 as any).groups = [[[8, 10], [18, 10]]];
   const g2 = createGame(level2, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   g2.graceT = 0;
   g2.players[0].invuln = 1e9;
@@ -7241,7 +7240,7 @@ function testPatrolsGroupAlertAndSpotters() {
   step(g2, { 0: {} }, 1 / 30);
   assert.equal(a2.awake, true, 'the seen member wakes at once');
   assert.equal(b2.awake, false, 'its camp-mate (10 tiles off) is not instantly awake');
-  assert.ok(b2.groupWakeT > 0, 'but the staggered alarm is running');
+  assert.ok(b2.groupWakeT! > 0, 'but the staggered alarm is running');
   run(g2, () => ({ 0: {} }), 1.1);
   assert.equal(b2.awake, true, 'the whole camp is up within a second');
   // a silent long-range kill never trips the camp
@@ -7251,7 +7250,7 @@ function testPatrolsGroupAlertAndSpotters() {
   playerShotAt(g3, a3, 5);
   step(g3, { 0: {} }, 1 / 30);
   assert.ok(a3.dead, 'one shot from beyond their eyes');
-  assert.ok(!(b3.groupWakeT > 0), 'no group alarm from a silent kill');
+  assert.ok(!(b3.groupWakeT! > 0), 'no group alarm from a silent kill');
   run(g3, () => ({ 0: {} }), 2);
   assert.equal(b3.awake, false, 'the camp sleeps on — stealth play stands');
   // sniper spotters: +4 tiles of aggro inside 8 tiles of a LIVING sniper
@@ -7259,16 +7258,16 @@ function testPatrolsGroupAlertAndSpotters() {
     [2, '#PP' + '.'.repeat(36) + '#'],
     [10, put(put('#' + '.'.repeat(38) + '#', 25, 'g'), 28, 'n')],
   ]);
-  level3.groups = [[[25, 10], [28, 10]]];
-  const gruntMarks = killSniper => {
+  (level3 as any).groups = [[[25, 10], [28, 10]]];
+  const gruntMarks = (killSniper: any) => {
     const g4 = createGame(level3, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
     g4.graceT = 0;
     g4.players[0].invuln = 1e9;
-    if (killSniper) g4.enemies.find(e2 => e2.kind === 'sniper').dead = true;
+    if (killSniper) g4.enemies.find(e2 => e2.kind === 'sniper')!.dead = true;
     g4.players[0].x = 12.9 * TILE; // 12.6 tiles from the grunt: 9 < 12.6 < 9+4
     g4.players[0].y = 10.5 * TILE;
     run(g4, () => ({ 0: {} }), 0.5);
-    return g4.enemies.find(e2 => e2.kind === 'grunt').awake;
+    return g4.enemies.find(e2 => e2.kind === 'grunt')!.awake;
   };
   assert.equal(gruntMarks(false), true, 'the sniper calls targets: the grunt marks at 12.6 tiles');
   assert.equal(gruntMarks(true), false, 'sniper down first: the camp is blind again');
@@ -7276,14 +7275,14 @@ function testPatrolsGroupAlertAndSpotters() {
 
 // --- toxic air + masks: the bleed, the chest stock, the stall offer ---
 function testToxicAirAndMasks() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   const level = bigEmptyLevel([
     [2, '#P' + '.'.repeat(37) + '#'],
     [4, put(put('#' + '.'.repeat(38) + '#', 6, 'C'), 10, 'S')],
     [17, put('#' + '.'.repeat(38) + '#', 36, 'g')],
   ]);
-  level.modifiers = { toxicAir: { until: 60 } };
-  level.chests = [{ loot: 'mask' }];
+  (level as any).modifiers = { toxicAir: { until: 60 } };
+  (level as any).chests = [{ loot: 'mask' }];
   const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   const p = g.players[0];
   step(g, { 0: {} }, 1 / 30);
@@ -7307,7 +7306,7 @@ function testToxicAirAndMasks() {
   // the stall stocks a sixth offer on toxic-air levels: the mask
   assert.equal(g.shopOffers.length, 6, 'toxic-air levels extend the stall');
   assert.equal(g.shopOffers[5].what, 'mask');
-  assert.equal(snapshot(g, false).shopOffers.length, 6, 'extended offers ship in the snapshot');
+  assert.equal(snapshot(g, false).shopOffers!.length, 6, 'extended offers ship in the snapshot');
   g.shards = 10;
   p.mask = false; // fresh lungs so the stall will sell
   p.shopIdx = 5;
@@ -7326,15 +7325,15 @@ function testToxicAirAndMasks() {
 
 // --- comm masts: the build kind behind 'repair the comm tower' missions ---
 function testCommRepairQuest() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   const level = bigEmptyLevel([
     [2, '#P' + '.'.repeat(37) + '#'],
     [5, put(put('#' + '.'.repeat(38) + '#', 5, 'N'), 9, 'B')],
     [15, put('#' + '.'.repeat(38) + '#', 30, 'g')],
   ]);
-  level.npcs = [{ id: 'eva', name: 'EVA', lines: ['Raise the mast before dusk.'] }];
-  level.builds = [{ kind: 'comm', cost: 6 }];
-  level.quests = [{ id: 'fixcomm', main: true, title: 'Repair the comm tower', giver: 'eva', kind: 'build', target: 'comm', count: 1 }];
+  (level as any).npcs = [{ id: 'eva', name: 'EVA', lines: ['Raise the mast before dusk.'] }];
+  (level as any).builds = [{ kind: 'comm', cost: 6 }];
+  (level as any).quests = [{ id: 'fixcomm', main: true, title: 'Repair the comm tower', giver: 'eva', kind: 'build', target: 'comm', count: 1 }];
   const g = createGame(level, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   g.graceT = 1e9;
   const p = g.players[0];
@@ -7367,16 +7366,16 @@ function testCommRepairQuest() {
 function testMapThemes() {
   // a lava theme: implies a fire ambient hazard, ships theme in the snapshot,
   // stocks the mask, and bleeds the unmasked operative on the toxic-air clock
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   const lava = bigEmptyLevel([
     [2, '#P' + '.'.repeat(37) + '#'],
     [4, put('#' + '.'.repeat(38) + '#', 6, 'C')],
     [17, put('#' + '.'.repeat(38) + '#', 36, 'g')],
   ]);
-  lava.theme = 'lava';
+  (lava as any).theme = 'lava';
   const g = createGame(lava, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   assert.equal(g.theme, 'lava', 'g.theme set from def.theme');
-  assert.equal(g.ambientHazard.kind, 'fire', 'lava theme arms a fire ambient hazard');
+  assert.equal(g.ambientHazard!.kind, 'fire', 'lava theme arms a fire ambient hazard');
   assert.equal(g.shopOffers.length, 6, 'an immune-item hazard extends the stall with the mask');
   const s = snapshot(g, false);
   assert.equal(s.theme, 'lava', 'theme rides the snapshot');
@@ -7393,7 +7392,7 @@ function testMapThemes() {
 
   // a storm theme implies rain weather + a dark grade, no ambient hazard
   const storm = bigEmptyLevel([[2, '#P' + '.'.repeat(37) + '#']]);
-  storm.theme = 'storm';
+  (storm as any).theme = 'storm';
   const gs = createGame(storm, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   const ss = snapshot(gs, true);
   assert.equal(ss.weather, 'rain', 'storm theme implies rain weather');
@@ -7412,9 +7411,9 @@ function testMapThemes() {
 // --- ambience/weather/new-mode keys ship only where they belong ---
 function testAmbienceWeatherSnapshotPassthrough() {
   const def = bastionDef();
-  def.ambience = 'swamp';
-  def.weather = 'rain';
-  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  (def as any).ambience = 'swamp';
+  (def as any).weather = 'rain';
+  const g = createGame(def as any, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   const s = snapshot(g, false);
   assert.equal(s.ambience, 'swamp', 'def.ambience rides every snapshot');
   assert.equal(s.weather, 'rain', 'def.weather rides every snapshot');
@@ -7431,10 +7430,10 @@ function testAmbienceWeatherSnapshotPassthrough() {
 // --- stronghold difficulty knobs: wavesPerNight and waveMult ---
 function testWavesPerNightAndWaveMult() {
   const def = bastionDef({ nights: 1, dayLen: 2, nightLen: 30, bloodMoons: [], wavesPerNight: 2, waveMult: 2 });
-  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const g = createGame(def as any, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   g.players[0].invuln = 1e9;
-  g.core.hp = 100000;
-  g.core.maxHp = 100000;
+  g.core!.hp = 100000;
+  g.core!.maxHp = 100000;
   run(g, () => ({ 0: {} }), 2.2);
   assert.equal(g.enemies.length, 10, 'waveMult 2 doubles the dusk wave (ceil(6 x 0.8 x 2))');
   assert.equal(g.events.filter(ev => ev.type === 'wave').length, 1, 'one wave at dusk');
@@ -7448,10 +7447,10 @@ function testWavesPerNightAndWaveMult() {
 // waves never duplicate it; unlisted nights stay boss-free ---
 function testBossNightsMarchTheBoss() {
   const def = bastionDef({ nights: 2, dayLen: 2, nightLen: 10, bloodMoons: [2], wavesPerNight: 2, bossNights: [2] });
-  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const g = createGame(def as any, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   g.players[0].invuln = 1e9;
-  g.core.hp = 100000;
-  g.core.maxHp = 100000;
+  g.core!.hp = 100000;
+  g.core!.maxHp = 100000;
   run(g, () => ({ 0: {} }), 2.2); // dusk 1: an unlisted night
   assert.equal(g.enemies.filter(e => e.kind === 'boss').length, 0, 'night 1 is not a boss night');
   run(g, () => ({ 0: {} }), 10 + 2 + 0.5); // through dawn, day 2, dusk 2
@@ -7464,10 +7463,10 @@ function testBossNightsMarchTheBoss() {
   // a PACKED field (global 90 cap pinned) still fields the scheduled boss —
   // the one-slot exception — while the rest of the wave stays capped
   const def2 = bastionDef({ nights: 1, dayLen: 2, nightLen: 10, bloodMoons: [], bossNights: [1] });
-  const g2 = createGame(def2, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const g2 = createGame(def2 as any, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   g2.players[0].invuln = 1e9;
-  g2.core.hp = 100000;
-  g2.core.maxHp = 100000;
+  g2.core!.hp = 100000;
+  g2.core!.maxHp = 100000;
   while (g2.enemies.length < 90) {
     const e = { ...g2.enemies[0], id: g2.nextEnemyId++, x: TILE * 2, y: TILE * 2 };
     g2.enemies.push(e);
@@ -7481,12 +7480,12 @@ function testBossNightsMarchTheBoss() {
 function testDeterministicBeaconsRun() {
   const runOnce = () => {
     const def = beaconsDef({ nights: 2, dayLen: 4, nightLen: 8, bloodMoons: [] });
-    const party = startingRoster.slice(0, 2).map((id, i) => ({ pid: i, name: id, charId: id }));
-    const g = createGame(def, party, charMap, startingRoster);
+    const party = startingRoster.slice(0, 2).map((id: any, i: any) => ({ pid: i, name: id, charId: id }));
+    const g = createGame(def as any, party, charMap, startingRoster);
     const dt = 1 / 30;
     const h = [];
     for (let i = 0; i < 900 && g.status === 'play'; i++) {
-      const inputs = {};
+      const inputs: any = {};
       for (const p of g.players) {
         inputs[p.pid] = {
           right: (i % 40) < 20, down: (i % 60) < 25, fire: (i % 6) < 2,
@@ -7621,7 +7620,7 @@ testSerializeRestoreRoundTrip();
 // =============================================================================
 
 // Handcrafted enemy round (mirrors fireWeapon's shape, hostile side).
-function craftEnemyShot(g, x, y, vx, vy, extra = {}) {
+function craftEnemyShot(g: any, x: any, y: any, vx: any, vy: any, extra = {}) {
   const s = { id: g.nextShotId++, x, y, vx, vy, ttl: 3, dmg: 1, who: 'e', pierce: 0, hits: [], kind: 'test', ...extra };
   g.shots.push(s);
   return s;
@@ -7630,15 +7629,15 @@ function craftEnemyShot(g, x, y, vx, vy, extra = {}) {
 // --- built blocking structures soak enemy fire (1 dmg, round dies); pylons
 // block without damage; overWalls arcs sail over; beacons/core are physical ---
 function testEnemyShotsBlockedByStructures() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   const def = bastionDef({ nights: 1, dayLen: 1000, nightLen: 10, bloodMoons: [] });
   def.tiles[10] = put(def.tiles[10], 10, 'B'); // wall, on the core's row
   def.tiles[14] = put(def.tiles[14], 10, 'B'); // pylon
-  def.builds = [
+  (def as any).builds = [
     { kind: 'wall', cost: 5, prebuilt: true },
     { kind: 'pylon', cost: 4, prebuilt: true },
   ];
-  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const g = createGame(def as any, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   const [wall, pylon] = g.builds;
   // 1) an enemy round dies on a built wall and chips it for exactly 1
   craftEnemyShot(g, wall.x - TILE, wall.y, TILE * 10, 0);
@@ -7662,15 +7661,15 @@ function testEnemyShotsBlockedByStructures() {
   assert.equal(wall.hp, wall.maxHp - 1, 'the wall was not touched again');
   g.shots.length = 0;
   // 4) the base core is physical: an enemy round chips it (coreHit)
-  const coreHp = g.core.hp;
-  craftEnemyShot(g, g.core.x - TILE, g.core.y, TILE * 10, 0);
+  const coreHp = g.core!.hp;
+  craftEnemyShot(g, g.core!.x - TILE, g.core!.y, TILE * 10, 0);
   run(g, () => ({ 0: {} }), 0.5);
-  assert.equal(g.core.hp, coreHp - 1, 'enemy round chips the core');
+  assert.equal(g.core!.hp, coreHp - 1, 'enemy round chips the core');
   assert.ok(g.events.some(ev => ev.type === 'coreHit'), 'coreHit announced');
   // 5) beacon monoliths: lit takes the hit (indexed), dark just stops it
   const bdef = beaconsDef({ nights: 1, dayLen: 1000, nightLen: 10, bloodMoons: [] });
-  const g2 = createGame(bdef, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
-  const c0 = g2.cores[0];
+  const g2 = createGame(bdef as any, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const c0 = g2.cores![0];
   craftEnemyShot(g2, c0.x - TILE, c0.y, TILE * 10, 0);
   run(g2, () => ({ 0: {} }), 0.5);
   assert.equal(c0.hp, c0.maxHp - 1, 'enemy round chips a lit monolith');
@@ -7688,28 +7687,28 @@ function testEnemyShotsBlockedByStructures() {
 // --- core/beacon gnawing is for night waves (targetCore) or enemies whose
 // target is sealed off (pathFailed) — never a passing camp chaser ---
 function testCoreGnawNeedsWaveOrSealedTarget() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   const def = bastionDef({ nights: 1, dayLen: 1000, nightLen: 10, bloodMoons: [] });
   def.tiles[10] = put(def.tiles[10], 24, 'z');
-  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const g = createGame(def as any, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   g.graceT = 0;
   g.players[0].invuln = 1e9;
   const e = g.enemies[0];
   e.awake = true;
   e.aggro *= 100; // hunter: never leashes home
   // parked in core contact with a REACHABLE player across the yard: no gnaw
-  e.x = g.core.x + 30;
-  e.y = g.core.y;
+  e.x = g.core!.x + 30;
+  e.y = g.core!.y;
   run(g, () => ({ 0: {} }), 1.5);
-  assert.equal(g.core.hp, 30, 'a wandering chaser never gnaws the core');
+  assert.equal(g.core!.hp, 30, 'a wandering chaser never gnaws the core');
   assert.ok(!g.events.some(ev => ev.type === 'coreHit'), 'no coreHit from a passer-by');
   // the same enemy as a WAVE marcher gnaws like always
-  e.x = g.core.x + 30;
-  e.y = g.core.y;
+  e.x = g.core!.x + 30;
+  e.y = g.core!.y;
   e.targetCore = true;
   run(g, () => ({ 0: {} }), 1.5);
   assert.ok(g.events.some(ev => ev.type === 'coreHit'), 'a night-wave marcher gnaws the core');
-  assert.ok(g.core.hp < 30, 'the core took gnaw damage');
+  assert.ok(g.core!.hp < 30, 'the core took gnaw damage');
   // an enemy whose only target is SEALED OFF may gnaw too (pathFailed)
   const def2 = bastionDef({ nights: 1, dayLen: 1000, nightLen: 10, bloodMoons: [] }, [
     [1, '####' + '.'.repeat(35) + '#'],
@@ -7717,14 +7716,14 @@ function testCoreGnawNeedsWaveOrSealedTarget() {
     [3, '####' + '.'.repeat(35) + '#'],
   ]);
   def2.tiles[10] = put(def2.tiles[10], 24, 'z');
-  const g3 = createGame(def2, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const g3 = createGame(def2 as any, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   g3.graceT = 0;
   g3.players[0].invuln = 1e9;
   const e3 = g3.enemies[0];
   e3.awake = true;
   e3.aggro *= 100;
-  e3.x = g3.core.x + 30;
-  e3.y = g3.core.y;
+  e3.x = g3.core!.x + 30;
+  e3.y = g3.core!.y;
   run(g3, () => ({ 0: {} }), 3);
   assert.equal(e3.pathFailed, true, 'the sealed-off player marks the search failed');
   assert.ok(g3.events.some(ev => ev.type === 'coreHit'), 'a sealed-off chaser falls back to gnawing');
@@ -7734,21 +7733,21 @@ function testCoreGnawNeedsWaveOrSealedTarget() {
 // damage to the base core/center. Control: the identical wave marcher gnaws the
 // core down without the cheat (mirrors testCoreGnawNeedsWaveOrSealedTarget). ---
 function testCoreIntegrityCheatNullifiesCoreDamage() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   // CONTROL: no cheat — a night-wave marcher parked on the core gnaws it down.
   const ctrlDef = bastionDef({ nights: 1, dayLen: 1000, nightLen: 10, bloodMoons: [] });
   ctrlDef.tiles[10] = put(ctrlDef.tiles[10], 24, 'z');
-  const gc = createGame(ctrlDef, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const gc = createGame(ctrlDef as any, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   gc.graceT = 0;
   gc.players[0].invuln = 1e9;
   const ec = gc.enemies[0];
   ec.awake = true;
   ec.aggro *= 100;
   ec.targetCore = true;
-  ec.x = gc.core.x + 30;
-  ec.y = gc.core.y;
+  ec.x = gc.core!.x + 30;
+  ec.y = gc.core!.y;
   run(gc, () => ({ 0: {} }), 2);
-  assert.ok(gc.core.hp < gc.core.maxHp, 'control: the core takes gnaw damage without the cheat');
+  assert.ok(gc.core!.hp < gc.core!.maxHp, 'control: the core takes gnaw damage without the cheat');
   assert.ok(gc.events.some(ev => ev.type === 'coreHit'), 'control: a coreHit fired');
 
   // CHEAT ON: identical setup, but g.cheats.coreInvuln = true — the center is
@@ -7756,7 +7755,7 @@ function testCoreIntegrityCheatNullifiesCoreDamage() {
   // hp never drops and no coreHit event ever fires.
   const cheatDef = bastionDef({ nights: 1, dayLen: 1000, nightLen: 10, bloodMoons: [] });
   cheatDef.tiles[10] = put(cheatDef.tiles[10], 24, 'z');
-  const g = createGame(cheatDef, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const g = createGame(cheatDef as any, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   g.graceT = 0;
   g.cheats = { god: false, speed: 1, instantKill: false, instantBuild: false, coreInvuln: true };
   g.players[0].invuln = 1e9;
@@ -7764,10 +7763,10 @@ function testCoreIntegrityCheatNullifiesCoreDamage() {
   e.awake = true;
   e.aggro *= 100;
   e.targetCore = true;
-  e.x = g.core.x + 30;
-  e.y = g.core.y;
+  e.x = g.core!.x + 30;
+  e.y = g.core!.y;
   run(g, () => ({ 0: {} }), 2);
-  assert.equal(g.core.hp, g.core.maxHp, 'core integrity: the center takes no gnaw damage');
+  assert.equal(g.core!.hp, g.core!.maxHp, 'core integrity: the center takes no gnaw damage');
   assert.ok(!g.events.some(ev => ev.type === 'coreHit'), 'core integrity: no coreHit event fires');
 }
 
@@ -7775,14 +7774,14 @@ function testCoreIntegrityCheatNullifiesCoreDamage() {
 // per-mission progression — level 4, the L2 +1 maxHp perk applied, full hp.
 // Control: a fresh non-arcade seat starts at level 1 with base maxHp. ---
 function testMaxOutPlayerCheat() {
-  const g = createGame(bastionDef(), [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const g = createGame(bastionDef() as any, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   const p = g.players[0];
   // baseline (control): a fresh seat is level 1 with the base hp pool
   assert.equal(p.level, 1, 'control: a fresh seat starts at level 1');
   const baseMaxHp = p.maxHp;
   maxOutPlayer(g, p.pid);
   assert.equal(p.level, 4, 'max out: the seat reaches the top level (4)');
-  assert.ok(p.maxHp > baseMaxHp, 'max out: the L2 perk raised max hp above baseline');
+  assert.ok(p.maxHp! > baseMaxHp!, 'max out: the L2 perk raised max hp above baseline');
   assert.equal(p.hp, p.maxHp, 'max out: the seat arrives at full health');
   // the level-up climb fired its events exactly like an earned one would
   assert.ok(g.events.some(ev => ev.type === 'levelUp' && ev.level === 4 && ev.pid === p.pid),
@@ -7799,13 +7798,13 @@ function testMaxOutPlayerCheat() {
 // walking out of board reach un-boards; launch needs everyone at the vessel ---
 function testShipBoardingEdgeWalkAwayAndLaunch() {
   const def = beaconsDef({ nights: 4, dayLen: 2, nightLen: 1000, bloodMoons: [] });
-  const party = startingRoster.slice(0, 2).map((id, i) => ({ pid: i, name: id, charId: id }));
-  const g = createGame(def, party, charMap, startingRoster);
+  const party = startingRoster.slice(0, 2).map((id: any, i: any) => ({ pid: i, name: id, charId: id }));
+  const g = createGame(def as any, party, charMap, startingRoster);
   const dtt = 1 / 30;
   for (const p of g.players) p.invuln = 1e9;
   g.graceT = 1e9;
   run(g, () => ({ 0: {}, 1: {} }), 3);
-  g.cycle.nightNo = 2;
+  g.cycle!.nightNo = 2;
   step(g, { 0: {}, 1: {} }, dtt);
   assert.ok(g.ship && g.ship.landed, 'the Anchorcraft landed on the all-lit feat');
   const [p0, p1] = g.players;
@@ -7853,13 +7852,13 @@ function testCornerPinnedMarcherReachesCore() {
   // BFS the passable grid from the core; the far corner reachable from it is the
   // pin start (a wave marcher that spawns at a corner must still reach the core).
   const parsed = parseLevel(def);
-  const cx = Math.floor(g.core.x / TILE), cy = Math.floor(g.core.y / TILE);
+  const cx = Math.floor(g.core!.x / TILE), cy = Math.floor(g.core!.y / TILE);
   const W = parsed.w, H = parsed.h, grid = parsed.grid;
-  const pass = c => !'#T~o%'.includes(c);
+  const pass = (c: any) => !'#T~o%'.includes(c);
   const seen = new Set([cx + ',' + cy]);
   const st = [[cx, cy]];
   while (st.length) {
-    const [x, y] = st.pop();
+    const [x, y] = st.pop()!;
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const nx = x + dx, ny = y + dy, k = nx + ',' + ny;
       if (nx < 0 || ny < 0 || nx >= W || ny >= H || seen.has(k) || !pass(grid[ny][nx])) continue;
@@ -7881,9 +7880,9 @@ function testCornerPinnedMarcherReachesCore() {
   e.awake = true;
   e.targetCore = true;
   e.aggro *= 100;
-  const d0 = Math.hypot(e.x - g.core.x, e.y - g.core.y);
+  const d0 = Math.hypot(e.x - g.core!.x, e.y - g.core!.y);
   run(g, () => ({ 0: {} }), 25);
-  const d1 = Math.hypot(e.x - g.core.x, e.y - g.core.y);
+  const d1 = Math.hypot(e.x - g.core!.x, e.y - g.core!.y);
   assert.ok(d1 < d0 - TILE * 10,
     `the pinned marcher crossed the corner (closed ${((d0 - d1) / TILE).toFixed(1)} tiles)`);
 }
@@ -7892,7 +7891,7 @@ function testCornerPinnedMarcherReachesCore() {
 // verdicts cached, permanently-unreachable enemies go dormant and wake on
 // terrain change or player proximity ---
 function testPathBudgetThrottleAndDormancy() {
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   const def = bastionDef({ nights: 1, dayLen: 1000, nightLen: 10, bloodMoons: [] }, [
     [1, '####' + '.'.repeat(35) + '#'],
     [2, '#PP#' + '.'.repeat(35) + '#'],
@@ -7904,7 +7903,7 @@ function testPathBudgetThrottleAndDormancy() {
   let row = def.tiles[14];
   for (let i = 0; i < 10; i++) row = put(row, 20 + i * 2, 'z');
   def.tiles[14] = row;
-  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const g = createGame(def as any, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   g.graceT = 0;
   g.players[0].invuln = 1e9;
   assert.equal(g.enemies.length, 10);
@@ -7943,18 +7942,18 @@ function testPathBudgetThrottleAndDormancy() {
 
 // --- snapshot cycle.nextBloodMoon: the DAY before a blood-moon dusk only ---
 function testNextBloodMoonCountdownFlag() {
-  const g = createGame(bastionDef(), [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const g = createGame(bastionDef() as any, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   g.players[0].invuln = 1e9;
   let s = snapshot(g, false);
-  assert.ok(!('nextBloodMoon' in s.cycle), 'day before a NORMAL night: no flag (classic snapshots stay byte-stable)');
+  assert.ok(!('nextBloodMoon' in s.cycle!), 'day before a NORMAL night: no flag (classic snapshots stay byte-stable)');
   run(g, () => ({ 0: {} }), 5.2); // dusk 1 (normal night)
-  assert.equal(g.cycle.phase, 'night');
+  assert.equal(g.cycle!.phase, 'night');
   s = snapshot(g, false);
-  assert.ok(!('nextBloodMoon' in s.cycle), 'night snapshots never carry the flag');
+  assert.ok(!('nextBloodMoon' in s.cycle!), 'night snapshots never carry the flag');
   run(g, () => ({ 0: {} }), 4.2); // dawn -> the day before night 2, the blood moon
-  assert.equal(g.cycle.phase, 'day');
+  assert.equal(g.cycle!.phase, 'day');
   s = snapshot(g, false);
-  assert.equal(s.cycle.nextBloodMoon, true, 'the day before a blood moon flags the countdown');
+  assert.equal(s.cycle!.nextBloodMoon, true, 'the day before a blood moon flags the countdown');
 }
 
 // --- revivePlayer: a held-out seat re-enters via the existing respawn-pick
@@ -8016,11 +8015,11 @@ function testRevivePlayerRejoinFlow() {
 // drop timer halves at +60s, snapshot ships the HUD level, 180s cap holds ---
 function testCtfOvertimeEscalation() {
   const party = [0, 1].map(i => ({ pid: i, name: 'P' + i, charId: startingRoster[i] }));
-  const g = createGame(ctfDef(), party, charMap, startingRoster);
+  const g = createGame(ctfDef() as any, party, charMap, startingRoster);
   const [p0, p1] = g.players;
   const [f0, f1] = g.flags;
   for (const p of g.players) p.invuln = 0;
-  const resetFlag = f => { f.carrier = null; f.atBase = true; f.x = f.homeX; f.y = f.homeY; f.dropT = 0; };
+  const resetFlag = (f: any) => { f.carrier = null; f.atBase = true; f.x = f.homeX; f.y = f.homeY; f.dropT = 0; };
   // regulation: no overtime key, standard 5s respawn and 8s drop timer
   assert.ok(!('overtime' in snapshot(g, false)), 'regulation snapshots never carry overtime');
   p0.x = f1.homeX; p0.y = f1.homeY;
@@ -8080,55 +8079,55 @@ function testCtfOvertimeEscalation() {
 // rides the parallel hold rail (stepHorn) — never the act edge chain.
 function testHornCallsTheNightEarly() {
   const def = bastionDef({ nights: 2, dayLen: 60, nightLen: 4, bloodMoons: [2] });
-  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const g = createGame(def as any, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   g.graceT = 1e9; // freeze enemy AI: this test inspects the horn and the clock
   const p = g.players[0];
   p.invuln = 1e9;
-  p.x = g.core.x + TILE;
-  p.y = g.core.y;
+  p.x = g.core!.x + TILE;
+  p.y = g.core!.y;
   const shards0 = g.shards;
   // out of reach: a held act far from the core never charges the horn
-  p.x = g.core.x + TILE * 4;
+  p.x = g.core!.x + TILE * 4;
   run(g, () => ({ 0: { act: true } }), 2);
   assert.ok(!g.events.some(ev => ev.type === 'horn'), 'no horn from beyond reach');
-  assert.equal(g.cycle.hornT, 0, 'out-of-reach holds never accumulate');
+  assert.equal(g.cycle!.hornT, 0, 'out-of-reach holds never accumulate');
   // at the core: 1.5s of act-hold sounds it — 45 ticks in, cy.t reads 58.5,
   // so the call skips 53.5 day-seconds and banks floor(53.5/6) = 8 shards
-  p.x = g.core.x + TILE;
+  p.x = g.core!.x + TILE;
   run(g, () => ({ 0: { act: true } }), 1.6);
   const horn = g.events.find(ev => ev.type === 'horn');
   assert.ok(horn, 'the horn sounded');
   assert.equal(horn.nightNo, 1, 'the horn names the night it calls');
   assert.equal(horn.bonus, 8, 'bonus = floor(skipped day seconds / 6)');
   assert.equal(g.shards, shards0 + 8, 'the bonus lands in the squad pool');
-  assert.ok(Math.abs(g.cycle.t - 5) < 0.2, 'the day collapses to the 5s dusk warning');
-  assert.equal(g.cycle.phase, 'day', 'the warning seconds still elapse as day');
+  assert.ok(Math.abs(g.cycle!.t - 5) < 0.2, 'the day collapses to the 5s dusk warning');
+  assert.equal(g.cycle!.phase, 'day', 'the warning seconds still elapse as day');
   // a second hold inside the warning window cannot double-call (t <= 5)
   run(g, () => ({ 0: { act: true } }), 2);
   assert.equal(g.events.filter(ev => ev.type === 'horn').length, 1, 'one horn per day');
   run(g, () => ({ 0: {} }), 3.5);
   const dusk = g.events.find(ev => ev.type === 'dusk');
-  assert.ok(dusk && g.cycle.phase === 'night' && g.cycle.nightNo === 1,
+  assert.ok(dusk && (g.cycle!.phase as string) === 'night' && g.cycle!.nightNo === 1,
     'night begins ~5s after the horn');
   snapshot(g, false); // drain
   // NIGHT: the horn post is silent
   run(g, () => ({ 0: { act: true } }), 2);
   assert.ok(!g.events.some(ev => ev.type === 'horn'), 'no horn at night');
-  assert.equal(g.cycle.hornT, 0, 'night holds never accumulate');
+  assert.equal(g.cycle!.hornT, 0, 'night holds never accumulate');
   // day 2 leads the BLOOD moon (night 2): inside the 30s warning window the
   // horn refuses — the moonrise keeps its own drama
   run(g, () => ({ 0: {} }), 2.2); // dawn -> day 2 (t 60)
-  assert.equal(g.cycle.phase, 'day');
+  assert.equal(g.cycle!.phase, 'day');
   run(g, () => ({ 0: {} }), 31); // t ~29: bloodWarn has fired, warned = true
   assert.ok(g.events.some(ev => ev.type === 'bloodWarn'), 'the blood warning sounded');
   run(g, () => ({ 0: { act: true } }), 2.5);
   assert.ok(!g.events.some(ev => ev.type === 'horn'), 'no horn inside a blood-moon warning window');
   // MIN BONUS: a short day pays the floor of 3
-  const g2 = createGame(bastionDef({ nights: 1, dayLen: 12, nightLen: 4, bloodMoons: [] }),
+  const g2 = createGame(bastionDef({ nights: 1, dayLen: 12, nightLen: 4, bloodMoons: [] }) as any,
     [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   g2.players[0].invuln = 1e9;
-  g2.players[0].x = g2.core.x + TILE;
-  g2.players[0].y = g2.core.y;
+  g2.players[0].x = g2.core!.x + TILE;
+  g2.players[0].y = g2.core!.y;
   const pool2 = g2.shards;
   run(g2, () => ({ 0: { act: true } }), 1.6);
   const horn2 = g2.events.find(ev => ev.type === 'horn');
@@ -8136,22 +8135,22 @@ function testHornCallsTheNightEarly() {
   assert.equal(horn2.bonus, 3, 'skipping under 18s pays the 3-shard floor');
   assert.equal(g2.shards, pool2 + 3);
   // LAST 5s: nothing left to skip — the hold never completes
-  const g3 = createGame(bastionDef({ nights: 1, dayLen: 6.2, nightLen: 4, bloodMoons: [] }),
+  const g3 = createGame(bastionDef({ nights: 1, dayLen: 6.2, nightLen: 4, bloodMoons: [] }) as any,
     [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   g3.players[0].invuln = 1e9;
-  g3.players[0].x = g3.core.x + TILE;
-  g3.players[0].y = g3.core.y;
+  g3.players[0].x = g3.core!.x + TILE;
+  g3.players[0].y = g3.core!.y;
   run(g3, () => ({ 0: { act: true } }), 6.5);
   assert.ok(!g3.events.some(ev => ev.type === 'horn'), 'no horn inside a day\'s last 5s');
   assert.ok(g3.events.some(ev => ev.type === 'dusk'), 'the natural dusk still arrives');
   // CLAIM RULE: a held act with a NEARER (or tied) hold-claimant in reach —
   // here an unbuilt barricade site beside the core — must never charge the
   // horn; the same hold from the core's far side (site out of reach) does
-  const put = (str, x, c) => str.slice(0, x) + c + str.slice(x + 1);
+  const put = (str: any, x: any, c: any) => str.slice(0, x) + c + str.slice(x + 1);
   const def4 = bastionDef({ nights: 1, dayLen: 60, nightLen: 4, bloodMoons: [] });
   def4.tiles[10] = put(def4.tiles[10], 21, 'B'); // site one tile east of the K core
-  def4.builds = [{ kind: 'barricade', cost: 4 }];
-  const g4 = createGame(def4, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  (def4 as any).builds = [{ kind: 'barricade', cost: 4 }];
+  const g4 = createGame(def4 as any, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   g4.graceT = 1e9;
   g4.shards = 10; // fund the barricade so the claimed hold visibly works it
   g4.players[0].invuln = 1e9;
@@ -8160,8 +8159,8 @@ function testHornCallsTheNightEarly() {
   run(g4, () => ({ 0: { act: true } }), 2.5);
   assert.ok(!g4.events.some(ev => ev.type === 'horn'), 'a hold claimed by nearer structure work never horns');
   assert.ok(g4.builds[0].progress > 0, 'the hold went to the barricade build');
-  g4.players[0].x = g4.core.x - TILE; // far side of the core: the site is out of reach
-  g4.players[0].y = g4.core.y;
+  g4.players[0].x = g4.core!.x - TILE; // far side of the core: the site is out of reach
+  g4.players[0].y = g4.core!.y;
   run(g4, () => ({ 0: { act: true } }), 1.6);
   assert.ok(g4.events.some(ev => ev.type === 'horn'), 'clear of claimants, the same hold sounds the horn');
 }
@@ -8169,32 +8168,32 @@ function testHornCallsTheNightEarly() {
 // --- the horn on the beacon variant: any LIT monolith is a horn post --------
 function testHornAtLitBeacon() {
   const def = beaconsDef({ nights: 2, dayLen: 60, nightLen: 4, bloodMoons: [] });
-  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const g = createGame(def as any, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   const p = g.players[0];
   p.invuln = 1e9;
   // douse beacon 0 and empty the pool so the relight rail stays inert too
-  g.cores[0].lit = false;
-  g.cores[0].hp = 0;
+  g.cores![0].lit = false;
+  g.cores![0].hp = 0;
   g.shards = 0;
-  p.x = g.cores[0].x + TILE;
-  p.y = g.cores[0].y;
+  p.x = g.cores![0].x + TILE;
+  p.y = g.cores![0].y;
   run(g, () => ({ 0: { act: true } }), 2);
   assert.ok(!g.events.some(ev => ev.type === 'horn'), 'a DARK beacon is no horn post');
-  assert.equal(g.cycle.phase, 'day', 'day still running');
+  assert.equal(g.cycle!.phase, 'day', 'day still running');
   // a lit one answers: serialize mid-hold first — the charge survives a
   // beacon save/restore and the twin finishes the call identically
-  p.x = g.cores[1].x + TILE;
-  p.y = g.cores[1].y;
+  p.x = g.cores![1].x + TILE;
+  p.y = g.cores![1].y;
   run(g, () => ({ 0: { act: true } }), 1.0);
-  assert.ok(g.cycle.hornT > 0.9, 'mid-hold charge accumulating');
+  assert.ok(g.cycle!.hornT > 0.9, 'mid-hold charge accumulating');
   const twin = restoreGame(serializeGame(g), charMap);
   for (const gx of [g, twin]) run(gx, () => ({ 0: { act: true } }), 0.6);
   for (const gx of [g, twin]) {
-    const horn = gx.events.find(ev => ev.type === 'horn');
+    const horn = gx.events.find((ev: any) => ev.type === 'horn');
     assert.ok(horn, 'the lit beacon sounds the horn (original and restored twin)');
     assert.equal(horn.x, gx.cores[1].x, 'the event marks the post that called it');
   }
-  assert.equal(snapshot(g, false).cycle.t, snapshot(twin, false).cycle.t,
+  assert.equal(snapshot(g, false).cycle!.t, snapshot(twin, false).cycle!.t,
     'twin clocks agree after the call');
 }
 
@@ -8204,7 +8203,7 @@ function testHornAtLitBeacon() {
 // aggro/leash and are never core-targeted.
 function testDayEventsProbeAndSupplyDrop() {
   const def = bastionDef({ nights: 2, dayLen: 90, nightLen: 4, bloodMoons: [], dayEvents: true });
-  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const g = createGame(def as any, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   g.players[0].invuln = 1e9;
   run(g, () => ({ 0: {} }), 24);
   assert.equal(g.enemies.length, 0, 'nothing prowls before day+25s');
@@ -8225,7 +8224,7 @@ function testDayEventsProbeAndSupplyDrop() {
     assert.equal(e.returning, true, 'prowling = walking home to the base ring');
     assert.ok(!e.targetCore, 'NEVER core-targeted');
     assert.ok(e.aggro < TILE * 50, 'normal aggro (no x100 hunter bump)');
-    const dHome = Math.hypot(e.homeX - g.core.x, e.homeY - g.core.y) / TILE;
+    const dHome = Math.hypot(e.homeX - g.core!.x, e.homeY - g.core!.y) / TILE;
     assert.ok(dHome >= 4 && dHome <= 10, `prowl home rings the base (${dHome.toFixed(1)} tiles)`);
   }
   // supply drop at day+45s: a loot chest 8-14 tiles off the base
@@ -8239,9 +8238,9 @@ function testDayEventsProbeAndSupplyDrop() {
   assert.equal(chest.opened, false);
   assert.equal(chest.loot, 'shards', 'day 0 drops shards');
   assert.equal(chest.amount, 10, 'day 0 pays 10');
-  const dBase = Math.hypot(chest.x - g.core.x, chest.y - g.core.y) / TILE;
+  const dBase = Math.hypot(chest.x - g.core!.x, chest.y - g.core!.y) / TILE;
   assert.ok(dBase >= 7 && dBase <= 15, `landing band 8-14 tiles (tile-rounded: ${dBase.toFixed(1)})`);
-  assert.ok(snapshot(g, false).chests.some(c => c.x === chest.x && !c.opened), 'snapshot ships the chest');
+  assert.ok(snapshot(g, false).chests!.some(c => c.x === chest.x && !c.opened), 'snapshot ships the chest');
   // the saved twin replays both beats to the same field
   run(twin, () => ({ 0: {} }), 22.5);
   const sg = snapshot(g, false), st = snapshot(twin, false);
@@ -8250,30 +8249,30 @@ function testDayEventsProbeAndSupplyDrop() {
   // by late day the pack has prowled in and bedded down on the base ring
   run(g, () => ({ 0: {} }), 35);
   assert.ok(g.enemies.some(e => !e.awake), 'scavengers bed down at the perimeter');
-  assert.ok(g.core.hp === 30, 'the core was never their target');
+  assert.ok(g.core!.hp === 30, 'the core was never their target');
 }
 
 // --- day events: a horn-called day skips its unfired beats; dawns re-arm ----
 function testDayEventsSkippedByHornAndRearm() {
   const def = bastionDef({ nights: 2, dayLen: 90, nightLen: 4, bloodMoons: [], dayEvents: true });
-  const g = createGame(def, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
+  const g = createGame(def as any, [{ pid: 0, name: 'T', charId: startingRoster[0] }], charMap, startingRoster);
   g.graceT = 1e9; // freeze enemy AI: scheduling only — the night wave must not eat the core
   const p = g.players[0];
   p.invuln = 1e9;
-  p.x = g.core.x + TILE;
-  p.y = g.core.y;
+  p.x = g.core!.x + TILE;
+  p.y = g.core!.y;
   // call the night at once: day 1's probe AND drop never fire
-  const inputs = gx => ({ 0: { act: gx.cycle.phase === 'day' && gx.cycle.nightNo === 0 } });
+  const inputs = (gx: any) => ({ 0: { act: gx.cycle.phase === 'day' && gx.cycle.nightNo === 0 } });
   run(g, inputs, 8); // horn ~1.5s, warning 5s, dusk
   assert.ok(g.events.some(ev => ev.type === 'horn'), 'horn called');
-  assert.equal(g.cycle.phase, 'night');
+  assert.equal(g.cycle!.phase, 'night');
   assert.ok(!g.events.some(ev => ev.type === 'probe'), 'horn skipped the unfired probe');
   assert.ok(!g.events.some(ev => ev.type === 'supplyDrop'), 'horn skipped the unfired drop');
   assert.equal(g.chests.length, 0, 'no chest landed on the skipped day');
   snapshot(g, false); // drain night-1 events
   // dawn re-arms day 2 (nightNo 1): probe at +25s off the north edge, 3 strong
   run(g, () => ({ 0: {} }), 4.5); // through the night
-  assert.equal(g.cycle.phase, 'day');
+  assert.equal(g.cycle!.phase, 'day');
   const before = g.enemies.length;
   run(g, () => ({ 0: {} }), 26);
   const probe = g.events.find(ev => ev.type === 'probe');
@@ -8300,9 +8299,9 @@ function party32() {
 
 // helper: would a walker stand clear at (x, y)? Mirrors the sim's collides():
 // rock/trees/water/skiff-moor/void block, checked at the player-circle corners.
-function stuckAt(g, x, y) {
-  const blocked = c => c === '#' || c === 'T' || c === '~' || c === 'o' || c === '%';
-  const tile = (px, py) => {
+function stuckAt(g: any, x: any, y: any) {
+  const blocked = (c: any) => c === '#' || c === 'T' || c === '~' || c === 'o' || c === '%';
+  const tile = (px: any, py: any) => {
     const tx = Math.floor(px / TILE), ty = Math.floor(py / TILE);
     if (tx < 0 || ty < 0 || tx >= g.w || ty >= g.h) return '#';
     return g.grid[ty][tx];
@@ -8344,49 +8343,49 @@ function testSprintStamina() {
 
   // CONTROL: no sprint input -> no meter ever minted (byte-stable), normal travel
   const [gc, pc] = mk();
-  const cx0 = pc.x;
+  const cx0 = (pc as any).x;
   run(gc, () => ({ 0: { right: true } }), RUN);
-  const ctrlDist = pc.x - cx0;
-  assert.equal(pc.stamina, undefined, 'no sprint input ever mints the stamina field (byte-stable control)');
-  assert.ok(!('stamina' in snapshot(gc, false).players[0]), 'control snapshot ships no stamina key');
+  const ctrlDist = (pc as any).x - cx0;
+  assert.equal((pc as any).stamina, undefined, 'no sprint input ever mints the stamina field (byte-stable control)');
+  assert.ok(!('stamina' in snapshot(gc as any, false).players[0]), 'control snapshot ships no stamina key');
   assert.ok(ctrlDist > 0, 'control seat actually moved right');
 
   // SPRINT: holding sprint while moving drains the meter AND travels farther
   const [gs, ps] = mk();
-  const sx0 = ps.x;
+  const sx0 = (ps as any).x;
   run(gs, () => ({ 0: { right: true, sprint: true } }), RUN);
-  const sprintDist = ps.x - sx0;
-  assert.ok(ps.stamina !== undefined, 'sprinting mints the stamina field');
-  assert.ok(ps.stamina < ps.staminaMax, `sprint drains the meter (got ${ps.stamina}/${ps.staminaMax})`);
+  const sprintDist = (ps as any).x - sx0;
+  assert.ok((ps as any).stamina !== undefined, 'sprinting mints the stamina field');
+  assert.ok((ps as any).stamina < (ps as any).staminaMax, `sprint drains the meter (got ${(ps as any).stamina}/${(ps as any).staminaMax})`);
   assert.ok(sprintDist > ctrlDist * 1.3, `sprint covers more ground than walking (${sprintDist} vs ${ctrlDist})`);
-  assert.ok('stamina' in snapshot(gs, false).players[0], 'sprinting seat snapshot ships the stamina key');
+  assert.ok('stamina' in snapshot(gs as any, false).players[0], 'sprinting seat snapshot ships the stamina key');
 
   // AT ZERO: an empty meter caps the seat back to normal speed. Wound the seat
   // so the recovery gate stays shut and the meter holds at 0 across the burst.
   const [gz, pz] = mk();
-  step(gz, { 0: { sprint: true } }, DT);     // mint the field with a single press
-  pz.stamina = 0;                            // hand-drain it
-  pz.hp = pz.maxHp - 1;                       // below full -> no recovery
-  const zx0 = pz.x;
+  step(gz as any, { 0: { sprint: true } }, DT);     // mint the field with a single press
+  (pz as any).stamina = 0;                            // hand-drain it
+  (pz as any).hp = (pz as any).maxHp - 1;                       // below full -> no recovery
+  const zx0 = (pz as any).x;
   run(gz, () => ({ 0: { right: true, sprint: true } }), RUN);
-  const zeroDist = pz.x - zx0;
+  const zeroDist = (pz as any).x - zx0;
   assert.ok(Math.abs(zeroDist - ctrlDist) < 0.01, `at 0 stamina sprint is normal speed (${zeroDist} vs ${ctrlDist})`);
-  assert.equal(pz.stamina, 0, 'an empty meter stays empty (no boost, no recovery below full hp)');
+  assert.equal((pz as any).stamina, 0, 'an empty meter stays empty (no boost, no recovery below full hp)');
 
   // RECOVERY GATE — below full hp the meter does NOT climb back
   const [gh, ph] = mk();
-  step(gh, { 0: { right: true, sprint: true } }, DT); // mint + drain a touch
-  const drained = ph.stamina;
-  assert.ok(drained < ph.staminaMax, 'meter is below full after a sprint tick');
-  ph.hp = ph.maxHp - 1;                                // wounded
+  step(gh as any, { 0: { right: true, sprint: true } }, DT); // mint + drain a touch
+  const drained = (ph as any).stamina;
+  assert.ok(drained < (ph as any).staminaMax, 'meter is below full after a sprint tick');
+  (ph as any).hp = (ph as any).maxHp - 1;                                // wounded
   run(gh, () => ({ 0: {} }), 1.0);                     // idle, healed? no — still hurt
-  assert.equal(ph.stamina, drained, 'stamina does NOT recover while below full hp');
+  assert.equal((ph as any).stamina, drained, 'stamina does NOT recover while below full hp');
 
   // RECOVERY — at full hp the meter climbs back
-  ph.hp = ph.maxHp;
+  (ph as any).hp = (ph as any).maxHp;
   run(gh, () => ({ 0: {} }), 0.5);
-  assert.ok(ph.stamina > drained, `stamina recovers once at full hp (${ph.stamina} > ${drained})`);
-  assert.ok(ph.stamina <= ph.staminaMax, 'recovery never overfills the meter');
+  assert.ok((ph as any).stamina > drained, `stamina recovers once at full hp (${(ph as any).stamina} > ${drained})`);
+  assert.ok((ph as any).stamina <= (ph as any).staminaMax, 'recovery never overfills the meter');
 }
 
 // --- POWER-UP DROPS (Black Ops Zombies-style): rare deterministic drops, a
@@ -8401,7 +8400,7 @@ function powerupHostLevel() {
     [2, '#PP..................................#'],
     [17, '#..................................g#'], // one far sleeper: field never auto-clears
   ]);
-  level.story = true; level.chapter = 4; level.time = 9000; level.untimed = true;
+  (level as any).story = true; (level as any).chapter = 4; level.time = 9000; (level as any).untimed = true;
   return level;
 }
 function powerupParty() {
@@ -8429,7 +8428,7 @@ function testPowerupDropRollDeterministicAndGated() {
   for (let id = 1; id <= 4000 && (dropId === null || noDropId === null); id++) {
     const probe = createGame(powerupHostLevel(), powerupParty(), charMap, startingRoster);
     probe.powerupKills = 7; probe.elapsed = 3.5;
-    maybeDropPowerup(probe, { id, x: 100, y: 100 });
+    maybeDropPowerup(probe, { id, x: 100, y: 100 } as any);
     if (probe.powerups.length && dropId === null) dropId = id;
     else if (!probe.powerups.length && noDropId === null) noDropId = id;
   }
@@ -8439,8 +8438,8 @@ function testPowerupDropRollDeterministicAndGated() {
   const a = createGame(powerupHostLevel(), powerupParty(), charMap, startingRoster);
   const b = createGame(powerupHostLevel(), powerupParty(), charMap, startingRoster);
   a.powerupKills = 7; a.elapsed = 3.5; b.powerupKills = 7; b.elapsed = 3.5;
-  maybeDropPowerup(a, { id: dropId, x: 100, y: 100 });
-  maybeDropPowerup(b, { id: dropId, x: 100, y: 100 });
+  maybeDropPowerup(a, { id: dropId, x: 100, y: 100 } as any);
+  maybeDropPowerup(b, { id: dropId, x: 100, y: 100 } as any);
   assert.equal(a.powerups.length, 1, 'the dropping id drops exactly one floater');
   assert.equal(a.powerups[0].type, b.powerups[0].type, 'the rolled type is deterministic');
   assert.equal(a.powerups[0].ttl, b.powerups[0].ttl, 'the floater ttl is deterministic');
@@ -8451,7 +8450,7 @@ function testPowerupDropRollDeterministicAndGated() {
   // the per-game kill counter advanced even when nothing dropped (no-drop id)
   const ng = createGame(powerupHostLevel(), powerupParty(), charMap, startingRoster);
   const k0 = ng.powerupKills;
-  maybeDropPowerup(ng, { id: noDropId, x: 0, y: 0 });
+  maybeDropPowerup(ng, { id: noDropId, x: 0, y: 0 } as any);
   assert.equal(ng.powerupKills, k0 + 1, 'the kill counter advances on every kill (drop or not)');
 }
 
@@ -8464,7 +8463,7 @@ function testPowerupWeightedDistributionFavorsFullHealth() {
   for (let id = 1; id <= 40000 && drops < 800; id++) {
     const g = createGame(powerupHostLevel(), powerupParty(), charMap, startingRoster);
     g.powerupKills = id; g.elapsed = id * 0.013; // spread the seed widely
-    maybeDropPowerup(g, { id, x: 0, y: 0 });
+    maybeDropPowerup(g, { id, x: 0, y: 0 } as any);
     if (g.powerups.length) { tally[g.powerups[0].type]++; drops++; }
   }
   assert.ok(drops > 200, `gathered a healthy drop sample (got ${drops})`);
@@ -8479,13 +8478,13 @@ function testPowerupHordeBoostsRate() {
   // The same fixed (id, kills, elapsed) seed that does NOT clear the base gate
   // CAN clear the x3 horde-boosted gate. Count drops over a sweep with and
   // without the awakening active and assert the boosted run drops strictly more.
-  const sweep = (activateHorde) => {
+  const sweep = (activateHorde: any) => {
     let drops = 0;
     for (let id = 1; id <= 3000; id++) {
       const g = createGame(relicStoryDef(4), [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
       if (activateHorde) { completeRelic(g); step(g, { 0: {} }, 1 / 30); } // latch the horde
       g.powerupKills = id; g.elapsed = 50 + id * 0.01;
-      maybeDropPowerup(g, { id, x: 0, y: 0 });
+      maybeDropPowerup(g, { id, x: 0, y: 0 } as any);
       drops += g.powerups.length;
     }
     return drops;
@@ -8500,7 +8499,7 @@ function testPowerupWalkOverPickupAndTeamWideEffects() {
   const DT = 1 / 30;
   // Helper: stand both seats at a known spot, drop a powerup of a chosen type
   // right under seat 0, step once so the walk-over fires, return [g, p0, p1].
-  const setup = (type) => {
+  const setup = (type: any) => {
     const g = createGame(powerupHostLevel(), powerupParty(), charMap, startingRoster);
     const [p0, p1] = g.players;
     p0.invuln = 1e9; p1.invuln = 1e9; g.graceT = 0;
@@ -8513,43 +8512,43 @@ function testPowerupWalkOverPickupAndTeamWideEffects() {
   // FULL HEALTH: both seats (incl the idle one) restore to max — team-wide.
   {
     const [g, p0, p1] = setup('fullhealth');
-    p0.hp = 1; p1.hp = 1;
-    step(g, { 0: {}, 1: {} }, DT);
-    assert.equal(g.powerups.length, 0, 'fullhealth: the floater is consumed on walk-over');
-    assert.equal(p0.hp, p0.maxHp, 'fullhealth: the picker is restored');
-    assert.equal(p1.hp, p1.maxHp, 'fullhealth: the IDLE teammate is also restored (team-wide)');
-    assert.ok(g.events.some(ev => ev.type === 'powerup' && ev.ptype === 'fullhealth'),
+    (p0 as any).hp = 1; (p1 as any).hp = 1;
+    step(g as any, { 0: {}, 1: {} }, DT);
+    assert.equal((g.powerups as any).length, 0, 'fullhealth: the floater is consumed on walk-over');
+    assert.equal((p0 as any).hp, (p0 as any).maxHp, 'fullhealth: the picker is restored');
+    assert.equal((p1 as any).hp, (p1 as any).maxHp, 'fullhealth: the IDLE teammate is also restored (team-wide)');
+    assert.ok((g.events as any).some((ev: any) => ev.type === 'powerup' && ev.ptype === 'fullhealth'),
       'a powerup event fires for FX/audio');
   }
 
   // MAX AMMO (full upgrade): every friendly seat hits the top level.
   {
     const [g, p0, p1] = setup('maxammo');
-    assert.equal(p0.level, 1, 'control: seats start at level 1 before max-ammo');
-    step(g, { 0: {}, 1: {} }, DT);
-    assert.equal(p0.level, 4, 'maxammo: the picker maxes to top level');
-    assert.equal(p1.level, 4, 'maxammo: the IDLE teammate maxes too (team-wide)');
+    assert.equal((p0 as any).level, 1, 'control: seats start at level 1 before max-ammo');
+    step(g as any, { 0: {}, 1: {} }, DT);
+    assert.equal((p0 as any).level, 4, 'maxammo: the picker maxes to top level');
+    assert.equal((p1 as any).level, 4, 'maxammo: the IDLE teammate maxes too (team-wide)');
   }
 
   // STAMINA: 30s of free sprint, suppressing drain, then resuming after expiry.
   {
     const [g, p0] = setup('stamina');
-    step(g, { 0: {}, 1: {} }, DT);
-    assert.ok(Math.abs(g.freeSprintT - 30 + DT) < 1e-6 || g.freeSprintT > 29,
+    step(g as any, { 0: {}, 1: {} }, DT);
+    assert.ok(Math.abs((g.freeSprintT as any) - 30 + DT) < 1e-6 || (g.freeSprintT as any) > 29,
       `stamina: free-sprint timer arms ~30s (got ${g.freeSprintT})`);
     // arm the meter, then sprint hard: drain is suppressed while the timer runs
-    p0.x = 4 * TILE; p0.y = 10 * TILE; p0.hp = p0.maxHp - 1; // wounded: no recovery masking
-    step(g, { 0: { right: true, sprint: true } }, DT);       // mint the meter at full
-    const before = p0.stamina;
+    (p0 as any).x = 4 * TILE; (p0 as any).y = 10 * TILE; (p0 as any).hp = (p0 as any).maxHp - 1; // wounded: no recovery masking
+    step(g as any, { 0: { right: true, sprint: true } }, DT);       // mint the meter at full
+    const before = (p0 as any).stamina;
     run(g, () => ({ 0: { right: true, sprint: true } }), 0.5);
-    assert.equal(p0.stamina, before, 'stamina: free sprint does NOT drain the meter');
+    assert.equal((p0 as any).stamina, before, 'stamina: free sprint does NOT drain the meter');
     // burn the 30s down, then a final sprint DOES drain again
     g.freeSprintT = 0.0001;
-    step(g, { 0: {} }, DT);
+    step(g as any, { 0: {} }, DT);
     assert.equal(g.freeSprintT, 0, 'stamina: the free-sprint timer expires');
-    p0.x = 4 * TILE;
+    (p0 as any).x = 4 * TILE;
     run(g, () => ({ 0: { right: true, sprint: true } }), 0.3);
-    assert.ok(p0.stamina < before, 'stamina: drain resumes once free sprint expires');
+    assert.ok((p0 as any).stamina < before, 'stamina: drain resumes once free sprint expires');
   }
 
   // FIRE SALE: arming + expiry off the pickup. The 10s timer arms on walk-over
@@ -8557,10 +8556,10 @@ function testPowerupWalkOverPickupAndTeamWideEffects() {
   // below (testPowerupFireSaleFreeBuilds), where placeable offers are stocked.
   {
     const [g] = setup('firesale');
-    step(g, { 0: {}, 1: {} }, DT);
-    assert.ok(g.fireSaleT > 9, `firesale: timer arms ~10s (got ${g.fireSaleT})`);
+    step(g as any, { 0: {}, 1: {} }, DT);
+    assert.ok((g.fireSaleT as any) > 9, `firesale: timer arms ~10s (got ${g.fireSaleT})`);
     g.fireSaleT = 0.0001;
-    step(g, { 0: {}, 1: {} }, DT);
+    step(g as any, { 0: {}, 1: {} }, DT);
     assert.equal(g.fireSaleT, 0, 'firesale: the timer expires after its window');
   }
 
@@ -8569,18 +8568,18 @@ function testPowerupWalkOverPickupAndTeamWideEffects() {
   // identity: the 10 NEAREST ids are gone, the 10 FARTHEST survive.
   {
     const [g, p0] = setup('nuke');
-    g.enemies.length = 0; // clear the lone sleeper so the count is exact
+    (g.enemies as any).length = 0; // clear the lone sleeper so the count is exact
     for (let i = 0; i < 20; i++) {
-      const e = makeEnemyForTest(g, 'g', p0.x + (i + 1) * 6, p0.y); // increasing distance
-      g.enemies.push(e);
+      const e = makeEnemyForTest(g, 'g', (p0 as any).x + (i + 1) * 6, (p0 as any).y); // increasing distance
+      (g.enemies as any).push(e);
     }
-    assert.equal(g.enemies.length, 20, 'control: 20 live enemies before the nuke');
-    const byDist = g.enemies.slice().sort((a, b) => a.x - b.x);
-    const nearestIds = new Set(byDist.slice(0, 10).map(e => e.id));
-    const farthestIds = new Set(byDist.slice(10).map(e => e.id));
-    step(g, { 0: {}, 1: {} }, DT);
+    assert.equal((g.enemies as any).length, 20, 'control: 20 live enemies before the nuke');
+    const byDist = (g.enemies as any).slice().sort((a: any, b: any) => a.x - b.x);
+    const nearestIds = new Set(byDist.slice(0, 10).map((e: any) => e.id));
+    const farthestIds = new Set(byDist.slice(10).map((e: any) => e.id));
+    step(g as any, { 0: {}, 1: {} }, DT);
     assert.equal(g.kills, 10, 'nuke: exactly 10 enemies die (never the whole field)');
-    const survivorIds = new Set(g.enemies.map(e => e.id));
+    const survivorIds = new Set((g.enemies as any).map((e: any) => e.id));
     assert.equal(survivorIds.size, 10, 'nuke: 10 of 20 survive');
     assert.ok([...nearestIds].every(id => !survivorIds.has(id)), 'nuke: the 10 nearest the picker die');
     assert.ok([...farthestIds].every(id => survivorIds.has(id)), 'nuke: the 10 farthest survive');
@@ -8594,7 +8593,7 @@ function testPowerupNukeFewerThanTen() {
   p0.x = 10 * TILE; p0.y = 10 * TILE;
   g.enemies.length = 0;
   for (let i = 0; i < 3; i++) g.enemies.push(makeEnemyForTest(g, 'g', p0.x + (i + 1) * 6, p0.y));
-  triggerPowerup(g, { id: 'x', x: p0.x, y: p0.y, type: 'nuke' }, p0);
+  triggerPowerup(g, { id: 'x', x: p0.x, y: p0.y, type: 'nuke' } as any, p0);
   assert.equal(g.enemies.filter(e => !e.dead).length, 0, 'nuke with <10 alive kills all of them');
 }
 
@@ -8605,7 +8604,7 @@ function testPowerupNukeFewerThanTen() {
 function testPowerupTeamScopedAndFriendlySafeInCtf() {
   const party = [0, 1, 2, 3].map(i =>
     ({ pid: i, name: 'P' + i, charId: startingRoster[i % startingRoster.length], team: i % 2 }));
-  const g = createGame(ctfDef(), party, charMap, startingRoster);
+  const g = createGame(ctfDef() as any, party, charMap, startingRoster);
   assert.equal(g.enemies.length, 0, 'control: ctf fields no AI enemies at create');
   const team0 = g.players.filter(p => p.team === 0);
   const team1 = g.players.filter(p => p.team === 1);
@@ -8613,7 +8612,7 @@ function testPowerupTeamScopedAndFriendlySafeInCtf() {
   const picker = team0[0];
 
   // FULL HEALTH picked up by a team-0 seat heals team 0 only — team 1 stays hurt.
-  triggerPowerup(g, { id: 'fh', x: picker.x, y: picker.y, type: 'fullhealth' }, picker);
+  triggerPowerup(g, { id: 'fh', x: picker.x, y: picker.y, type: 'fullhealth' } as any, picker);
   assert.ok(team0.every(p => p.hp === p.maxHp), 'fullhealth: the picker team is fully restored');
   assert.ok(team1.every(p => p.hp === 1), 'fullhealth: the OPPOSING team is NOT healed (team-scoped)');
 
@@ -8621,13 +8620,13 @@ function testPowerupTeamScopedAndFriendlySafeInCtf() {
   // EITHER team takes damage — players are never in g.enemies, so it is friendly-safe.
   for (let i = 0; i < 4; i++) g.enemies.push(makeEnemyForTest(g, 'g', picker.x + (i + 1) * 6, picker.y));
   const hpBefore = g.players.map(p => p.hp);
-  triggerPowerup(g, { id: 'nk', x: picker.x, y: picker.y, type: 'nuke' }, picker);
+  triggerPowerup(g, { id: 'nk', x: picker.x, y: picker.y, type: 'nuke' } as any, picker);
   assert.equal(g.enemies.filter(e => !e.dead).length, 0, 'nuke: every staged hostile dies');
   // friendly-safe: no seat on EITHER team loses HP (the kill XP may HEAL the
   // owner via a level-up, but the blast never damages a player — they are not
   // in g.enemies, which is the only list damageEnemy touches).
   for (const p of g.players) {
-    assert.ok(p.hp >= hpBefore[p.pid], `nuke: seat ${p.pid} (team ${p.team}) takes no damage (friendly-safe)`);
+    assert.ok(p.hp! >= hpBefore[p.pid]!, `nuke: seat ${p.pid} (team ${p.team}) takes no damage (friendly-safe)`);
   }
 }
 
@@ -8636,7 +8635,7 @@ function testPowerupFireSaleFreeBuilds() {
   // active a BROKE seat (0 shards) buys a turret for FREE; with it off the same
   // buy is refused. CONTROL: a non-placeable offer (token, cost 20) is NOT free
   // even during the sale (the sale is scoped to builds/placeables only).
-  const put = (s, x, c) => s.slice(0, x) + c + s.slice(x + 1);
+  const put = (s: any, x: any, c: any) => s.slice(0, x) + c + s.slice(x + 1);
   const W = 20, H = 12;
   const tiles = ['#'.repeat(W)];
   for (let y = 1; y < H - 1; y++) tiles.push('#' + '.'.repeat(W - 2) + '#');
@@ -8644,7 +8643,7 @@ function testPowerupFireSaleFreeBuilds() {
   tiles[5] = put(put(tiles[5], 4, 'P'), 10, 'S'); // spawn + shop stall
   tiles[2] = put(tiles[2], 14, 'g');              // a sleeper so the field never auto-clears
   const def = { name: 'Fire Sale Shop', mode: 'bastion', time: 600, tiles, captiveChars: [], stronghold: { level: 1, hpMult: 1 } };
-  const g = createGame(def, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
+  const g = createGame(def as any, [{ pid: 0, name: 'A', charId: 'scout' }], charMap, ['scout']);
   const p = g.players[0];
   const shop = g.shops[0];
   p.invuln = 1e9; g.graceT = 0;
@@ -8674,7 +8673,7 @@ function testPowerupFireSaleFreeBuilds() {
     'firesale: a broke seat buys the turret for free');
   assert.equal(g.shards, 0, 'firesale: no shards were debited for the free buy');
   const freeBuy = g.events.filter(ev => ev.type === 'buy' && ev.what === 'turret').pop();
-  assert.equal(freeBuy.cost, 0, 'firesale: the buy event records cost 0');
+  assert.equal(freeBuy!.cost, 0, 'firesale: the buy event records cost 0');
 
   // CONTROL within the sale: a NON-placeable (token, cost 20) is still NOT free.
   p.shopIdx = tokenIdx;
@@ -8728,7 +8727,7 @@ function testPowerupPresentationTablesCoverSimTypes() {
     const g = createGame(powerupHostLevel(), powerupParty(), charMap, startingRoster);
     const p0 = g.players[0];
     p0.x = 10 * TILE; p0.y = 10 * TILE;
-    triggerPowerup(g, { id: 'pt', x: p0.x, y: p0.y, type: t }, p0);
+    triggerPowerup(g, { id: 'pt', x: p0.x, y: p0.y, type: t } as any, p0);
     assert.ok(g.events.some(ev => ev.type === 'powerup' && ev.ptype === t),
       `sim dispatches a 'powerup' event for ${t}`);
   }
@@ -8764,14 +8763,14 @@ function testPowerupPresentationTablesCoverSimTypes() {
 // above inspect their source TEXT. Read the .ts source of truth when present:
 // the esbuild-emitted .js artifact normalizes quote style / whitespace, but the
 // hand-written .ts retains the literal code these assertions match against.
-function webModuleSrc(rel) {
+function webModuleSrc(rel: any) {
   const ts = path.join(root, rel.replace(/\.js$/, '.ts'));
   return fs.readFileSync(fs.existsSync(ts) ? ts : path.join(root, rel), 'utf8');
 }
 
 // Tiny brace-matched key scraper for a top-level `const NAME = { ... }` literal.
 // Good enough for the flat one-line-per-entry tables this test guards.
-function objectLiteralKeys(src, name) {
+function objectLiteralKeys(src: any, name: any) {
   const start = src.indexOf(`const ${name} = {`);
   assert.ok(start >= 0, `${name} object literal is present`);
   let i = src.indexOf('{', start), depth = 0, end = -1;
@@ -8801,7 +8800,7 @@ function testModeCaps() {
 // --- ctf: same-team character duplicates are allowed at the sim level ---
 function testCtfSameTeamDuplicates() {
   const dup = startingRoster[0];
-  const g = createGame(ctfDef(), [
+  const g = createGame(ctfDef() as any, [
     { pid: 0, name: 'A', charId: dup, team: 0 },
     { pid: 1, name: 'B', charId: dup, team: 0 }, // same char, same team
     { pid: 2, name: 'C', charId: dup, team: 1 }, // and across teams too
@@ -8837,8 +8836,8 @@ function testCtfSpawnRings16PerStand() {
       assert.equal(spots.size, 16, `${tag}: team ${team}'s 16 seats land on 16 distinct ring slots`);
       for (const p of mates) {
         assert.ok(!stuckAt(g, p.x, p.y), `${tag}: seat ${p.pid} deploys unstuck`);
-        const dOwn = Math.hypot(p.x - stand.homeX, p.y - stand.homeY) / TILE;
-        const dFoe = Math.hypot(p.x - foe.homeX, p.y - foe.homeY) / TILE;
+        const dOwn = Math.hypot(p.x - stand!.homeX, p.y - stand!.homeY) / TILE;
+        const dFoe = Math.hypot(p.x - foe!.homeX, p.y - foe!.homeY) / TILE;
         assert.ok(dOwn <= 3.5, `${tag}: seat ${p.pid} rings its own stand (${dOwn.toFixed(1)} tiles)`);
         assert.ok(dFoe > dOwn, `${tag}: seat ${p.pid} deploys at its OWN base`);
       }
@@ -8850,7 +8849,7 @@ function testCtfSpawnRings16PerStand() {
   }
   // respawn reuses the seat's ring slot: down a seat, wait out the 5s, and it
   // lands exactly where it deployed — then walks free (not overlap-stuck)
-  const g = createGame(ctfDef(), party32(), charMap, startingRoster);
+  const g = createGame(ctfDef() as any, party32(), charMap, startingRoster);
   const p = g.players[6]; // team 0, ring seat 3
   const home = { x: p.x, y: p.y };
   p.invuln = 0; p.shield = 0; p.hp = 1;
@@ -8870,7 +8869,7 @@ function testCtfSpawnRings16PerStand() {
 // --- addPlayerMidGame: pick-state insertion at the team stand, caps, dups ---
 function testAddPlayerMidGame() {
   const party = [0, 1, 2, 3].map(i => ({ pid: i, name: 'P' + i, charId: startingRoster[i % startingRoster.length] }));
-  const g = createGame(ctfDef(), party, charMap, startingRoster);
+  const g = createGame(ctfDef() as any, party, charMap, startingRoster);
   run(g, () => ({}), 1); // a live, mid-match field
   // refusals first: wrong mode, bad team, duplicate pid
   assert.equal(addPlayerMidGame(g, { pid: 50, name: 'X', team: 2 }), false, 'team must be 0 or 1');
@@ -8879,7 +8878,7 @@ function testAddPlayerMidGame() {
   assert.equal(addPlayerMidGame(classic, { pid: 9, name: 'X', team: 0 }), false, 'classic refuses mid-game joins');
   const brDef = { ...ctfDef(), name: 'BR Join', mode: 'br', br: { shrinks: [] } };
   brDef.tiles = brDef.tiles.map(r => r.replace(/D/g, '.')); // br fields no stands
-  const br = createGame(brDef, party.slice(0, 2), charMap, startingRoster);
+  const br = createGame(brDef as any, party.slice(0, 2), charMap, startingRoster);
   assert.equal(addPlayerMidGame(br, { pid: 9, name: 'X', team: 0 }), false,
     'br refuses mid-game joins — eliminated is eliminated');
   // the join: lands in the respawn-pick state on the team-1 stand ring
@@ -8892,12 +8891,12 @@ function testAddPlayerMidGame() {
   assert.deepEqual([joiner.hp, joiner.maxHp, joiner.shield, joiner.kills, joiner.xp, joiner.level],
     [3, 3, 0, 0, 0, 1], 'survival + pvp seat fields ride the insert');
   const stand1 = g.flags.find(f => f.team === 1);
-  assert.ok(Math.hypot(joiner.x - stand1.homeX, joiner.y - stand1.homeY) <= TILE * 3.5,
+  assert.ok(Math.hypot(joiner.x - stand1!.homeX, joiner.y - stand1!.homeY) <= TILE * 3.5,
     'joiner waits on the team stand ring');
   // pvp pick choices: the FULL roster, duplicates included (identity is
   // name + team color) — teammates' fielded chars stay choosable
   const sj = snapshot(g, false).players.find(p => p.pid === 50);
-  assert.deepEqual(sj.pick.choices, startingRoster, 'pick offers the full roster in pvp');
+  assert.deepEqual(sj!.pick!.choices, startingRoster, 'pick offers the full roster in pvp');
   // a button held through the join can't instantly confirm (down-flow rule)
   step(g, { 50: { fire: true } }, 1 / 30);
   assert.equal(joiner.state, 'pick', 'held fire does not confirm');
@@ -8906,7 +8905,7 @@ function testAddPlayerMidGame() {
   assert.equal(joiner.state, 'active', 'released-then-pressed fire confirms the pick');
   assert.equal(joiner.charId, startingRoster[0], 'joiner fields the cursor operative');
   assert.ok(joiner.invuln > 3, 'fresh deploy lands with spawn grace');
-  assert.ok(Math.hypot(joiner.x - stand1.homeX, joiner.y - stand1.homeY) <= TILE * 3.5,
+  assert.ok(Math.hypot(joiner.x - stand1!.homeX, joiner.y - stand1!.homeY) <= TILE * 3.5,
     'the confirmed deploy is on the team ring too');
   // same-team duplicate via the pick: pid 1 (team 1) already fields roster[1];
   // a second joiner cursors right once and fields the same operative
@@ -8915,24 +8914,24 @@ function testAddPlayerMidGame() {
   step(g, { 51: { right: true } }, 1 / 30); // cursor 0 -> 1
   step(g, { 51: {} }, 1 / 30);
   step(g, { 51: { fire: true } }, 1 / 30);
-  assert.equal(j2.charId, startingRoster[1], 'duplicate pick confirms');
+  assert.equal((j2 as any).charId, startingRoster[1], 'duplicate pick confirms');
   assert.equal(g.players.filter(p => p.team === 1 && p.charId === startingRoster[1]).length, 2,
     'two team-1 seats field the same operative');
   // mid-join determinism + snapshot integrity: a serialize/restore twin taken
   // right after an insert replays snapshot-for-snapshot
-  const g3 = createGame(ctfDef(), party, charMap, startingRoster);
+  const g3 = createGame(ctfDef() as any, party, charMap, startingRoster);
   run(g3, () => ({}), 0.5);
   addPlayerMidGame(g3, { pid: 70, name: 'Mid', team: 0 });
   assert.ok(!Number.isNaN(JSON.stringify(snapshot(g3, false)).length), 'post-insert snapshot serializes');
   const twin = restoreGame(serializeGame(g3), charMap);
-  const script = i => {
-    const inputs = {};
+  const script = (i: any) => {
+    const inputs: any = {};
     for (const p of [0, 1, 2, 3, 70]) {
       inputs[p] = { right: p % 2 === 0, left: p % 2 === 1, fire: (i * 30 % 5) < 2 };
     }
     return inputs;
   };
-  const h = [[], []];
+  const h: any[][] = [[], []];
   [g3, twin].forEach((gx, gi) => {
     for (let i = 0; i < 60; i++) {
       step(gx, script(i / 30), 1 / 30);
@@ -8947,7 +8946,7 @@ function testAddPlayerMidGameCaps() {
   // 31 seats: 16 on team 0 (full), 15 on team 1
   const party = Array.from({ length: 31 }, (_, i) =>
     ({ pid: i, name: 'P' + i, charId: startingRoster[i % startingRoster.length], team: i < 16 ? 0 : 1 }));
-  const g = createGame(ctfDef(), party, charMap, startingRoster);
+  const g = createGame(ctfDef() as any, party, charMap, startingRoster);
   assert.equal(addPlayerMidGame(g, { pid: 100, name: 'X', team: 0 }), false,
     'a full team (16) refuses even below the room cap');
   const ok = addPlayerMidGame(g, { pid: 100, name: 'X', team: 1 });
@@ -8985,12 +8984,12 @@ function testBr16SeatsDeployUnstuck() {
 
 // --- 32-player ctf smoke: 60s of scripted 16v16 chaos, bytes/tick report ---
 function test32PlayerCtfSmoke() {
-  const g = createGame(ctfDef(), party32(), charMap, startingRoster);
+  const g = createGame(ctfDef() as any, party32(), charMap, startingRoster);
   const full = JSON.stringify({ t: 'levelStart', s: snapshot(g, true) }).length;
   const dt = 1 / 30;
   let bytes = 0, maxBytes = 0, ticks = 0;
   for (let i = 0; i < 1800 && g.status === 'play'; i++) {
-    const inputs = {};
+    const inputs: any = {};
     for (const p of g.players) {
       const adv = (i % 240) < 150; // advance waves, then regroup
       inputs[p.pid] = {
@@ -9039,18 +9038,18 @@ const anchorlineDef = () => siegeLevels.find(l => l.name === 'Anchorline');
 // is the i===0 minion of each spawn batch — i.e. the LOWEST id among the minions
 // born this tick (ids >= the id watermark from before the spawn). kind absent ===
 // 'grunt'. A huge cap keeps a wave from being throttled so the lead always spawns.
-function siegeLeadKinds(def, team, waveCount) {
+function siegeLeadKinds(def: any, team: any, waveCount: any) {
   const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, [startingRoster[0]]);
-  g.siege.interval = 0.5;
-  g.siege.spawnT = [0.5, 0.5];
-  g.siege.cap = 99;
+  g.siege!.interval = 0.5;
+  g.siege!.spawnT = [0.5, 0.5];
+  g.siege!.cap = 99;
   const leads = [];
   for (let i = 0; i < 6000 && leads.length < waveCount; i++) {
-    const before = g.siege.waveNo[team];
-    const idMark = g.siege.nextMinionId; // ids assigned this step are >= idMark
+    const before = g.siege!.waveNo[team];
+    const idMark = g.siege!.nextMinionId; // ids assigned this step are >= idMark
     step(g, { 0: {} }, 1 / 30);
-    if (g.siege.waveNo[team] === before + 1) {
-      const block = g.siege.minions.filter(m => m.team === team && m.id >= idMark).sort((a, b) => a.id - b.id);
+    if (g.siege!.waveNo[team] === before + 1) {
+      const block = g.siege!.minions.filter(m => m.team === team && m.id >= idMark).sort((a, b) => a.id - b.id);
       const lead = block[0];
       leads.push(lead ? (lead.kind || 'grunt') : 'grunt');
     }
@@ -9060,7 +9059,7 @@ function siegeLeadKinds(def, team, waveCount) {
 
 // the PURE rule the sim spawns from: waveNo%3===2 -> tank (wins ties),
 // waveNo%5===4 -> warmonger, else grunt.
-function expectedLead(waveNo) {
+function expectedLead(waveNo: any) {
   if (waveNo % 3 === 2) return 'tank';
   if (waveNo % 5 === 4) return 'warmonger';
   return 'grunt';
@@ -9093,10 +9092,10 @@ function testSiegeMinionKindsDeterministic() {
 function testSiegeTankStatsVsGrunt() {
   const def = anchorlineDef();
   const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, [startingRoster[0]]);
-  g.siege.interval = 0.5; g.siege.spawnT = [0.5, 0.5]; g.siege.cap = 99;
+  g.siege!.interval = 0.5; g.siege!.spawnT = [0.5, 0.5]; g.siege!.cap = 99;
   // run long enough to see a tank lead (waveNo 2) and a war monger (waveNo 4)
-  for (let i = 0; i < 6000 && g.siege.waveNo[0] < 6; i++) step(g, { 0: {} }, 1 / 30);
-  const team0 = g.siege.minions.filter(m => m.team === 0);
+  for (let i = 0; i < 6000 && g.siege!.waveNo[0] < 6; i++) step(g, { 0: {} }, 1 / 30);
+  const team0 = g.siege!.minions.filter(m => m.team === 0);
   const grunt = team0.find(m => !m.kind);
   const tank = team0.find(m => m.kind === 'tank');
   const monger = team0.find(m => m.kind === 'warmonger');
@@ -9114,15 +9113,15 @@ function testSiegeTankStatsVsGrunt() {
   // along its lane than a grunt born the same instant. Spawn one of each at the
   // start of lane 0 and integrate movement for 1s.
   const g2 = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, [startingRoster[0]]);
-  g2.siege.minions = [];
-  const start = g2.siege.lanes[0].waypoints[0];
-  g2.siege.minions.push({ id: 1, team: 0, laneI: 0, x: start.x, y: start.y, hp: 4, maxHp: 4, pathIdx: 1, score: 10 });
-  g2.siege.minions.push({ id: 2, team: 0, laneI: 0, x: start.x, y: start.y, hp: 16, maxHp: 16, pathIdx: 1, score: 20, kind: 'tank' });
+  g2.siege!.minions = [];
+  const start = g2.siege!.lanes[0].waypoints[0];
+  g2.siege!.minions.push({ id: 1, team: 0, laneI: 0, x: start.x, y: start.y, hp: 4, maxHp: 4, pathIdx: 1, score: 10 });
+  g2.siege!.minions.push({ id: 2, team: 0, laneI: 0, x: start.x, y: start.y, hp: 16, maxHp: 16, pathIdx: 1, score: 20, kind: 'tank' });
   for (let i = 0; i < 30; i++) step(g2, { 0: {} }, 1 / 30); // 1 second
-  const gm = g2.siege.minions.find(m => m.id === 1);
-  const tm = g2.siege.minions.find(m => m.id === 2);
-  const gd = Math.hypot(gm.x - start.x, gm.y - start.y);
-  const td = Math.hypot(tm.x - start.x, tm.y - start.y);
+  const gm = g2.siege!.minions.find(m => m.id === 1);
+  const tm = g2.siege!.minions.find(m => m.id === 2);
+  const gd = Math.hypot(gm!.x - start.x, gm!.y - start.y);
+  const td = Math.hypot(tm!.x - start.x, tm!.y - start.y);
   assert.ok(td < gd, `tank crawls slower: tank moved ${td.toFixed(1)}px vs grunt ${gd.toFixed(1)}px in 1s`);
 }
 
@@ -9135,7 +9134,7 @@ function testSiegeThemedArenasMirrorAnchorline() {
     // tower / core / waypoint counts MIRROR anchorline exactly (only theme differs)
     assert.equal(def.towers.length, anchor.towers.length, `${name} has the same tower count as Anchorline`);
     assert.equal(def.siege.lanes.length, anchor.siege.lanes.length, `${name} has the same lane count`);
-    assert.deepEqual(def.siege.lanes.map(l => l.waypoints.length), anchor.siege.lanes.map(l => l.waypoints.length),
+    assert.deepEqual(def.siege.lanes.map((l: any) => l.waypoints.length), anchor.siege.lanes.map((l: any) => l.waypoints.length),
       `${name} mirrors Anchorline's per-lane waypoint counts`);
     assert.deepEqual(def.siege.lanes, anchor.siege.lanes, `${name} reuses Anchorline's exact lane waypoints`);
     assert.deepEqual(def.towers, anchor.towers, `${name} reuses Anchorline's exact tower layout`);
@@ -9143,18 +9142,18 @@ function testSiegeThemedArenasMirrorAnchorline() {
     const parsed = parseLevel(def);
     assert.equal(parsed.cores.length, 2, `${name} parses exactly 2 cores`);
     const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, [startingRoster[0]]);
-    assert.equal(g.cores.length, 2, `${name} builds 2 team cores`);
-    assert.deepEqual(g.cores.map(c => c.team).sort(), [0, 1], `${name} cores are team 0 and team 1`);
-    assert.equal(g.siegeTowers.length, 8, `${name} builds 8 lane towers`);
+    assert.equal(g.cores!.length, 2, `${name} builds 2 team cores`);
+    assert.deepEqual(g.cores!.map(c => c.team).sort(), [0, 1], `${name} cores are team 0 and team 1`);
+    assert.equal(g.siegeTowers!.length, 8, `${name} builds 8 lane towers`);
     // every lane waypoint and tower sits on walkable floor (no lava/void/wall) so
     // minions path the lane; and a 60s sim breaks an enemy tower (lane traversal).
-    const HAZ = c => c === '!' || c === '%' || c === '#';
+    const HAZ = (c: any) => c === '!' || c === '%' || c === '#';
     for (const lane of def.siege.lanes) for (const [x, y] of lane.waypoints) {
       assert.ok(!HAZ(def.tiles[y][x]), `${name} waypoint (${x},${y}) is walkable, not '${def.tiles[y][x]}'`);
     }
     for (const tw of def.towers) assert.ok(!HAZ(def.tiles[tw.y][tw.x]), `${name} tower (${tw.x},${tw.y}) sits on floor`);
     let towersHurt = false;
-    for (let i = 0; i < 60 * 30; i++) { step(g, { 0: {} }, 1 / 30); if (g.siegeTowers.some(t => t.destroyed || t.hp < t.maxHp)) towersHurt = true; }
+    for (let i = 0; i < 60 * 30; i++) { step(g, { 0: {} }, 1 / 30); if (g.siegeTowers!.some(t => t.destroyed || t.hp < t.maxHp)) towersHurt = true; }
     assert.ok(towersHurt, `${name}: minions traverse a lane and chew an enemy tower`);
   }
 }
@@ -9189,13 +9188,13 @@ function testSiegePrismSeedingAndGating() {
     const lvl = parseLevel(d);
     assert.equal(lvl.siegePrisms.length, 2, `${name} parses exactly two 'p' prisms`);
     const g = createGame(d, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, [startingRoster[0]]);
-    assert.equal(g.siegePrisms.length, 2, `${name} builds two siege prisms`);
+    assert.equal(g.siegePrisms!.length, 2, `${name} builds two siege prisms`);
     // monotonic, distinct ids from g.nextSiegeId; full hp; flanking the mid shop
-    const ids = g.siegePrisms.map(p => p.id);
+    const ids = g.siegePrisms!.map(p => p.id);
     assert.deepEqual(ids, [...new Set(ids)], `${name} prism ids are distinct`);
     assert.ok(ids.every((v, i) => i === 0 || v > ids[i - 1]), `${name} prism ids are monotonic`);
     assert.ok(g.nextSiegeId > Math.max(...ids), `${name} nextSiegeId advanced past the seeded prisms`);
-    for (const pr of g.siegePrisms) {
+    for (const pr of g.siegePrisms!) {
       assert.ok(pr.hp > 0 && pr.hp === pr.maxHp, `${name} prism spawns at full hp`);
       // sits on the mid row beside the central shop (tile y 24, flanking x 21/27)
       const tx = Math.round(pr.x / TILE - 0.5), ty = Math.round(pr.y / TILE - 0.5);
@@ -9204,16 +9203,16 @@ function testSiegePrismSeedingAndGating() {
     }
     // snapshot ships the prisms with hp, gated inside the siege block
     const s = snapshot(g, false);
-    assert.ok(Array.isArray(s.siege.prisms), `${name} snapshot ships siege.prisms`);
-    assert.equal(s.siege.prisms.length, 2, `${name} snapshot ships both prisms`);
-    for (const sp of s.siege.prisms) assert.ok('hp' in sp && 'maxHp' in sp && 'id' in sp, `${name} prism snapshot carries id+hp`);
+    assert.ok(Array.isArray(s.siege!.prisms), `${name} snapshot ships siege.prisms`);
+    assert.equal(s.siege!.prisms.length, 2, `${name} snapshot ships both prisms`);
+    for (const sp of s.siege!.prisms) assert.ok('hp' in sp && 'maxHp' in sp && 'id' in sp, `${name} prism snapshot carries id+hp`);
   }
   // a prism-less siege snapshot gains NO 'prisms' key (byte-stable). Forge one by
   // stripping the prisms from a live siege game.
   const g0 = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, [startingRoster[0]]);
   g0.siegePrisms = [];
   const s0 = snapshot(g0, false);
-  assert.equal('prisms' in s0.siege, false, 'a prism-less siege snapshot ships no prisms key');
+  assert.equal('prisms' in s0.siege!, false, 'a prism-less siege snapshot ships no prisms key');
   // a classic (non-siege) game never carries the prism state at all
   const classic = createGame(levels.find(l => l.category === 'classic'), [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, [startingRoster[0]]);
   assert.equal(classic.siegePrisms, null, 'a classic game has no siege prisms');
@@ -9228,15 +9227,15 @@ function testSiegePrismFiresWeak() {
   const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, [startingRoster[0]]);
   // isolate one prism: drop the lane minion waves and the second prism, park the
   // operative far away so it can't muddy the target pick.
-  g.siege.minions = [];
-  g.siege.spawnT = [1e9, 1e9]; // no fresh waves during the probe
-  g.siegePrisms = [g.siegePrisms[0]];
+  g.siege!.minions = [];
+  g.siege!.spawnT = [1e9, 1e9]; // no fresh waves during the probe
+  g.siegePrisms = [g.siegePrisms![0]];
   const pr = g.siegePrisms[0];
   g.players[0].x = pr.x + 40 * TILE; g.players[0].y = pr.y + 40 * TILE; // out of everything
   // plant a single FAT minion right on the prism so it stays in range while we
   // count beams (fat enough to survive many chips so it never despawns mid-probe)
   const m = { id: 1, team: 0, laneI: 0, x: pr.x, y: pr.y, hp: 999, maxHp: 999, pathIdx: 99, score: 10 };
-  g.siege.minions.push(m);
+  g.siege!.minions.push(m);
   // step() drains nothing — events accrue on g.events until snapshot() splices
   // them; clear the array before each probe window and count what the step added.
   const beamsLastStep = () => g.events.filter(e => e.type === 'prismBeam' && e.siege).length;
@@ -9260,12 +9259,12 @@ function testSiegePrismFiresWeak() {
   assert.ok(fired >= 1, 'the prism re-fires once its slow cadence elapses');
   // SHORT REACH: a lone minion ~5 tiles away (past the 3-4 tile reach) is ignored.
   const g2 = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, [startingRoster[0]]);
-  g2.siege.minions = []; g2.siege.spawnT = [1e9, 1e9];
-  g2.siegePrisms = [g2.siegePrisms[0]];
+  g2.siege!.minions = []; g2.siege!.spawnT = [1e9, 1e9];
+  g2.siegePrisms = [g2.siegePrisms![0]];
   const pr2 = g2.siegePrisms[0];
   g2.players[0].x = pr2.x + 40 * TILE; g2.players[0].y = pr2.y + 40 * TILE;
   const fm = { id: 2, team: 0, laneI: 0, x: pr2.x + 5 * TILE, y: pr2.y, hp: 999, maxHp: 999, pathIdx: 99, score: 10 };
-  g2.siege.minions.push(fm);
+  g2.siege!.minions.push(fm);
   let far = 0;
   for (let i = 0; i < 90; i++) { fm.x = pr2.x + 5 * TILE; fm.y = pr2.y; g2.events.length = 0; step(g2, { 0: {} }, 1 / 30); far += g2.events.filter(e => e.type === 'prismBeam' && e.siege).length; }
   assert.equal(far, 0, 'a target 5 tiles out is beyond the neutral prism reach — no beam');
@@ -9276,8 +9275,8 @@ function testSiegePrismFiresWeak() {
 function testSiegePrismKillable() {
   const def = anchorlineDef();
   const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, [startingRoster[0]]);
-  g.siege.minions = []; g.siege.spawnT = [1e9, 1e9];
-  g.siegePrisms = [g.siegePrisms[0]];
+  g.siege!.minions = []; g.siege!.spawnT = [1e9, 1e9];
+  g.siegePrisms = [g.siegePrisms![0]];
   const pr = g.siegePrisms[0];
   const startHp = pr.hp;
   assert.ok(startHp > 1, 'a fresh prism has multi-hit hp');
@@ -9288,7 +9287,7 @@ function testSiegePrismKillable() {
   let downs = 0, steps = 0;
   while (pr.hp > 0 && steps < 400) {
     g.shots.push({ id: g.nextShotId++, x: pr.x, y: pr.y, vx: 0, vy: 0, ttl: 1, dmg: 1, who: 'p',
-      team: p.team, pid: p.pid, ownerPid: p.pid, pierce: 0, radius: 4, hits: [] });
+      team: p.team, pid: p.pid, ownerPid: p.pid, pierce: 0, radius: 4, hits: [] } as any);
     g.events.length = 0;
     step(g, { 0: {} }, 1 / 30);
     downs += g.events.filter(e => e.type === 'prismDown').length;
@@ -9298,14 +9297,14 @@ function testSiegePrismKillable() {
   assert.equal(downs, 1, 'destruction fires exactly one prismDown event');
   // a dead prism never fires again, even with a minion sat on it
   const km = { id: 9, team: 0, laneI: 0, x: pr.x, y: pr.y, hp: 999, maxHp: 999, pathIdx: 99, score: 10 };
-  g.siege.minions.push(km);
+  g.siege!.minions.push(km);
   let after = 0;
   for (let i = 0; i < 120; i++) { km.x = pr.x; km.y = pr.y; g.events.length = 0; step(g, { 0: {} }, 1 / 30); after += g.events.filter(e => e.type === 'prismBeam' && e.siege).length; }
   assert.equal(after, 0, 'a destroyed prism never beams again');
   // and it drops off the wire (snapshot ships only living prisms... it stays in
   // the array at hp 0 but reads dead — the render culls it; the kill is the event)
   const s = snapshot(g, false);
-  const sp = (s.siege.prisms || []).find(x => x.id === pr.id);
+  const sp = (s.siege!.prisms || []).find(x => x.id === pr.id);
   if (sp) assert.equal(sp.hp, 0, 'a downed prism reads hp 0 on the wire');
 }
 
@@ -9323,7 +9322,7 @@ function testSiegePickupSpawner() {
       g.events.length = 0;
       step(g, { 0: {} }, 1 / 30);
       for (const e of g.events) if (e.type === 'siegePickup') {
-        dropsSeen.push({ kind: e.kind, x: Math.round(e.x), y: Math.round(e.y),
+        dropsSeen.push({ kind: e.kind, x: Math.round(e.x as any), y: Math.round(e.y as any),
           drops: g.drops.length, pickups: g.pickups.length });
       }
     }
@@ -9335,7 +9334,7 @@ function testSiegePickupSpawner() {
   assert.deepEqual(a, b, 'the neutral pickup schedule is deterministic across runs');
   // the lane-mid cells: lane 0 mid waypoint then lane 1 mid waypoint
   const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, [startingRoster[0]]);
-  const mid = lane => { const w = g.siege.lanes[lane].waypoints; return w[Math.floor(w.length / 2)]; };
+  const mid = (lane: any) => { const w = g.siege!.lanes[lane].waypoints; return w[Math.floor(w.length / 2)]; };
   const m0 = mid(0), m1 = mid(1);
   assert.equal(a[0].kind, 'shards', 'the first drop (counter 0) is a shard cache');
   assert.equal(a[0].x, Math.round(m0.x), 'first drop sits on lane 0 mid x');
@@ -9356,9 +9355,9 @@ function testSiegePickupSpawner() {
 function quietSiege(name = 'Anchorline') {
   const def = siegeLevels.find(l => l.name === name);
   const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, [startingRoster[0]]);
-  g.siege.minions = [];
-  g.siege.spawnT = [1e9, 1e9];
-  g.siege.pickupT = 1e9;
+  g.siege!.minions = [];
+  g.siege!.spawnT = [1e9, 1e9];
+  g.siege!.pickupT = 1e9;
   return g;
 }
 
@@ -9368,7 +9367,7 @@ function quietSiege(name = 'Anchorline') {
 // never carries siege trap state at all.
 function testSiegeTrapSeedingAndGating() {
   const anchor = anchorlineDef();
-  const HAZ = c => c === '!' || c === '%' || c === '#' || c === 'K' || c === 'P' || c === 'S' || c === 'p';
+  const HAZ = (c: any) => c === '!' || c === '%' || c === '#' || c === 'K' || c === 'P' || c === 'S' || c === 'p';
   for (const name of ['Anchorline', 'Emberlane', 'Glacier']) {
     const d = siegeLevels.find(l => l.name === name);
     const lvl = parseLevel(d);
@@ -9391,12 +9390,12 @@ function testSiegeTrapSeedingAndGating() {
     // replaces the marker with '.', so check the marker isn't on a hazard tile)
     for (const [x, y] of trapCells) assert.equal(HAZ(d.tiles[y][x]), false, `${name} trap (${x},${y}) is on open floor`);
     const g = createGame(d, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, [startingRoster[0]]);
-    assert.equal(g.siegeTraps.length, 4, `${name} builds four siege traps`);
+    assert.equal(g.siegeTraps!.length, 4, `${name} builds four siege traps`);
     // monotonic distinct ids drawn from the same g.nextSiegeId source as prisms
-    const ids = g.siegeTraps.map(t => t.id);
+    const ids = g.siegeTraps!.map(t => t.id);
     assert.deepEqual(ids, [...new Set(ids)], `${name} trap ids are distinct`);
     assert.ok(g.nextSiegeId > Math.max(...ids), `${name} nextSiegeId advanced past the traps`);
-    for (const tr of g.siegeTraps) {
+    for (const tr of g.siegeTraps!) {
       assert.equal(tr.team, -1, `${name} traps start unclaimed`);
       assert.equal(tr.armed, false, `${name} traps start disarmed`);
       assert.equal(tr.cool, 0, `${name} traps start off cooldown`);
@@ -9405,15 +9404,15 @@ function testSiegeTrapSeedingAndGating() {
     assert.ok(g.pickups.length >= 2, `${name} fields the two 'A' pickups`);
     // snapshot ships the traps inside the siege block (gated)
     const s = snapshot(g, false);
-    assert.ok(Array.isArray(s.siege.traps), `${name} snapshot ships siege.traps`);
-    assert.equal(s.siege.traps.length, 4, `${name} snapshot ships all four traps`);
-    for (const st of s.siege.traps) assert.ok('id' in st && 'team' in st && 'armed' in st, `${name} trap snapshot carries id+team+armed`);
+    assert.ok(Array.isArray(s.siege!.traps), `${name} snapshot ships siege.traps`);
+    assert.equal(s.siege!.traps.length, 4, `${name} snapshot ships all four traps`);
+    for (const st of s.siege!.traps) assert.ok('id' in st && 'team' in st && 'armed' in st, `${name} trap snapshot carries id+team+armed`);
   }
   // a trap-less siege snapshot gains NO 'traps' key (byte-stable)
   const g0 = quietSiege();
   g0.siegeTraps = [];
   const s0 = snapshot(g0, false);
-  assert.equal('traps' in s0.siege, false, 'a trap-less siege snapshot ships no traps key');
+  assert.equal('traps' in s0.siege!, false, 'a trap-less siege snapshot ships no traps key');
   // a classic (non-siege) game never carries trap state, and never gains a siege key
   const classic = createGame(levels.find(l => l.category === 'classic'), [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, [startingRoster[0]]);
   assert.equal(classic.siegeTraps, null, 'a classic game has no siege traps');
@@ -9425,12 +9424,12 @@ function testSiegeTrapSeedingAndGating() {
 function testSiegeTrapArmingRequiresOwnTeamHold() {
   // no hold -> no arm, no event
   const gIdle = quietSiege();
-  const trI = gIdle.siegeTraps[0];
+  const trI = gIdle.siegeTraps![0];
   for (let i = 0; i < 90; i++) step(gIdle, { 0: {} }, 1 / 30);
   assert.equal(trI.armed, false, 'an un-held trap never arms');
   // a FOE hold can't arm a trap already CLAIMED by the other team
   const gFoe = quietSiege();
-  const trF = gFoe.siegeTraps[0];
+  const trF = gFoe.siegeTraps![0];
   trF.team = 0; // claimed by team 0
   const pF = gFoe.players[0]; pF.team = 1; pF.x = trF.x; pF.y = trF.y;
   let foeArm = 0;
@@ -9439,7 +9438,7 @@ function testSiegeTrapArmingRequiresOwnTeamHold() {
   assert.equal(foeArm, 0, 'no trapArm event under a foe hold');
   // an OWN-TEAM hold arms it: armed flag flips, team claimed, exactly one event
   const g = quietSiege();
-  const tr = g.siegeTraps[0];
+  const tr = g.siegeTraps![0];
   const p = g.players[0]; p.team = 0; p.x = tr.x; p.y = tr.y;
   let armEv = 0, steps = 0;
   while (!tr.armed && steps < 120) { g.events.length = 0; step(g, { 0: { act: true } }, 1 / 30); armEv += g.events.filter(e => e.type === 'trapArm').length; steps++; }
@@ -9447,19 +9446,19 @@ function testSiegeTrapArmingRequiresOwnTeamHold() {
   assert.equal(tr.team, 0, 'arming claims the trap for the holder team');
   assert.equal(armEv, 1, 'arming fires exactly one trapArm event');
   // the snapshot reflects the armed/claimed state
-  const st = snapshot(g, false).siege.traps.find(x => x.id === tr.id);
-  assert.equal(st.armed, true, 'snapshot reports the trap armed');
-  assert.equal(st.team, 0, 'snapshot reports the claiming team');
+  const st = snapshot(g, false).siege!.traps!.find(x => x.id === tr.id);
+  assert.equal(st!.armed, true, 'snapshot reports the trap armed');
+  assert.equal(st!.team, 0, 'snapshot reports the claiming team');
 }
 
 // A FOE tripping an armed trap spawns a team-tagged DAMAGING patch and drops the
 // trap onto cooldown; the patch sears the foe (minion + hero) and SPARES the owner.
 function testSiegeTrapTripDamagesFoeAndCools() {
   const g = quietSiege();
-  const tr = g.siegeTraps[0];
+  const tr = g.siegeTraps![0];
   tr.team = 0; tr.armed = true;
   // a team-1 (foe) minion steps onto the armed trap
-  g.siege.minions.push({ id: 1, team: 1, laneI: 0, x: tr.x, y: tr.y, hp: 99, maxHp: 99, pathIdx: 99, score: 10 });
+  g.siege!.minions.push({ id: 1, team: 1, laneI: 0, x: tr.x, y: tr.y, hp: 99, maxHp: 99, pathIdx: 99, score: 10 });
   g.events.length = 0;
   step(g, { 0: {} }, 1 / 30);
   const trips = g.events.filter(e => e.type === 'trapTrip');
@@ -9473,33 +9472,33 @@ function testSiegeTrapTripDamagesFoeAndCools() {
   assert.equal(pa.team, 0, 'the patch carries the owner team');
   assert.equal(pa.hostile, true, 'the patch is hostile');
   // it ships on the wire with a team tag (siege patch), gated
-  const sp = snapshot(g, false).patches.find(x => x.kind === 'trap');
+  const sp = snapshot(g, false).patches!.find(x => x.kind === 'trap');
   assert.ok(sp && sp.team === 0, 'snapshot ships the trap patch with its team');
   // the patch damages the FOE minion sitting in it over the next second
-  const fm = g.siege.minions[0]; const mhp0 = fm.hp;
-  for (let i = 0; i < 30; i++) { if (g.siege.minions[0]) { g.siege.minions[0].x = tr.x; g.siege.minions[0].y = tr.y; } step(g, { 0: {} }, 1 / 30); }
-  const fmNow = g.siege.minions[0];
+  const fm = g.siege!.minions[0]; const mhp0 = fm.hp;
+  for (let i = 0; i < 30; i++) { if (g.siege!.minions[0]) { g.siege!.minions[0].x = tr.x; g.siege!.minions[0].y = tr.y; } step(g, { 0: {} }, 1 / 30); }
+  const fmNow = g.siege!.minions[0];
   assert.ok(!fmNow || fmNow.hp < mhp0, 'the trap patch sears the foe minion');
   // and it SPARES the owner's own minion sitting in the same spot. Pull the lane
   // towers so a nearby foe tower can't muddy the "spared" reading — the only thing
   // that can touch the planted minion in this probe is the trap patch itself.
   const g2 = quietSiege();
   g2.siegeTowers = [];
-  const tr2 = g2.siegeTraps[0]; tr2.team = 0; tr2.armed = true;
-  g2.siege.minions.push({ id: 9, team: 1, laneI: 0, x: tr2.x, y: tr2.y, hp: 4, maxHp: 4, pathIdx: 99, score: 10 }); // trips it
+  const tr2 = g2.siegeTraps![0]; tr2.team = 0; tr2.armed = true;
+  g2.siege!.minions.push({ id: 9, team: 1, laneI: 0, x: tr2.x, y: tr2.y, hp: 4, maxHp: 4, pathIdx: 99, score: 10 }); // trips it
   step(g2, { 0: {} }, 1 / 30);
   assert.ok(g2.patches.some(x => x.kind === 'trap'), 'the trip left a trap patch to test against');
-  g2.siege.minions = []; // clear the foe, plant an OWN (team 0) minion in the patch
+  g2.siege!.minions = []; // clear the foe, plant an OWN (team 0) minion in the patch
   const own = { id: 10, team: 0, laneI: 0, x: tr2.x, y: tr2.y, hp: 99, maxHp: 99, pathIdx: 99, score: 10 };
-  g2.siege.minions.push(own); const ohp0 = own.hp;
+  g2.siege!.minions.push(own); const ohp0 = own.hp;
   for (let i = 0; i < 30; i++) { own.x = tr2.x; own.y = tr2.y; step(g2, { 0: {} }, 1 / 30); }
   assert.equal(own.hp, ohp0, 'the owner team is spared by its own trap patch');
   // an armed trap on cooldown does NOT re-trip while cooling
   const g3 = quietSiege();
-  const tr3 = g3.siegeTraps[0]; tr3.team = 0; tr3.cool = 3; tr3.armed = false;
-  g3.siege.minions.push({ id: 1, team: 1, laneI: 0, x: tr3.x, y: tr3.y, hp: 99, maxHp: 99, pathIdx: 99, score: 10 });
+  const tr3 = g3.siegeTraps![0]; tr3.team = 0; tr3.cool = 3; tr3.armed = false;
+  g3.siege!.minions.push({ id: 1, team: 1, laneI: 0, x: tr3.x, y: tr3.y, hp: 99, maxHp: 99, pathIdx: 99, score: 10 });
   let trips3 = 0;
-  for (let i = 0; i < 30; i++) { g3.siege.minions[0].x = tr3.x; g3.siege.minions[0].y = tr3.y; g3.events.length = 0; step(g3, { 0: {} }, 1 / 30); trips3 += g3.events.filter(e => e.type === 'trapTrip').length; }
+  for (let i = 0; i < 30; i++) { g3.siege!.minions[0].x = tr3.x; g3.siege!.minions[0].y = tr3.y; g3.events.length = 0; step(g3, { 0: {} }, 1 / 30); trips3 += g3.events.filter(e => e.type === 'trapTrip').length; }
   assert.equal(trips3, 0, 'a cooling trap never trips');
   assert.ok(tr3.cool < 3, 'the cooldown counts down');
 }
@@ -9510,67 +9509,67 @@ function testSiegeSuperChargeAndBlast() {
   // a minion kill credited to team 0 adds charge; the meter clamps at superMax
   const g = quietSiege();
   const p = g.players[0]; p.team = 0;
-  assert.equal(g.siege.superCharge[0], 0, 'super charge starts empty');
+  assert.equal(g.siege!.superCharge[0], 0, 'super charge starts empty');
   let kills = 0;
-  while (g.siege.superCharge[0] < g.siege.superMax && kills < 400) {
+  while (g.siege!.superCharge[0] < g.siege!.superMax && kills < 400) {
     const m = { id: 2000 + kills, team: 1, laneI: 0, x: p.x + TILE, y: p.y, hp: 1, maxHp: 1, pathIdx: 99, score: 10 };
-    g.siege.minions.push(m);
-    g.shots.push({ id: g.nextShotId++, x: m.x, y: m.y, vx: 0, vy: 0, ttl: 1, dmg: 5, who: 'p', team: 0, pid: 0, ownerPid: 0, pierce: 0, radius: 8, hits: [] });
+    g.siege!.minions.push(m);
+    g.shots.push({ id: g.nextShotId++, x: m.x, y: m.y, vx: 0, vy: 0, ttl: 1, dmg: 5, who: 'p', team: 0, pid: 0, ownerPid: 0, pierce: 0, radius: 8, hits: [] } as any);
     step(g, { 0: {} }, 1 / 30);
     kills++;
   }
-  assert.equal(g.siege.superCharge[0], g.siege.superMax, 'minion kills fill team 0 super meter to the cap');
-  assert.equal(g.siege.superCharge[1], 0, 'team 1 earns no charge from team 0 kills');
+  assert.equal(g.siege!.superCharge[0], g.siege!.superMax, 'minion kills fill team 0 super meter to the cap');
+  assert.equal(g.siege!.superCharge[1], 0, 'team 1 earns no charge from team 0 kills');
   // overfill clamps: another kill does not exceed the cap
   const over = { id: 9999, team: 1, laneI: 0, x: p.x + TILE, y: p.y, hp: 1, maxHp: 1, pathIdx: 99, score: 10 };
-  g.siege.minions.push(over);
-  g.shots.push({ id: g.nextShotId++, x: over.x, y: over.y, vx: 0, vy: 0, ttl: 1, dmg: 5, who: 'p', team: 0, pid: 0, ownerPid: 0, pierce: 0, radius: 8, hits: [] });
+  g.siege!.minions.push(over);
+  g.shots.push({ id: g.nextShotId++, x: over.x, y: over.y, vx: 0, vy: 0, ttl: 1, dmg: 5, who: 'p', team: 0, pid: 0, ownerPid: 0, pierce: 0, radius: 8, hits: [] } as any);
   step(g, { 0: {} }, 1 / 30);
-  assert.equal(g.siege.superCharge[0], g.siege.superMax, 'super charge clamps at the cap');
+  assert.equal(g.siege!.superCharge[0], g.siege!.superMax, 'super charge clamps at the cap');
   // full meter + own-core act-hold -> exactly one superBlast, charge resets
-  const core = g.cores.find(c => c.team === 0); p.x = core.x; p.y = core.y;
-  g.siege.minions = [];
+  const core = g.cores!.find(c => c.team === 0); p.x = core!.x; p.y = core!.y;
+  g.siege!.minions = [];
   let blast = 0, steps = 0;
   while (!blast && steps < 90) { g.events.length = 0; step(g, { 0: { act: true } }, 1 / 30); blast += g.events.filter(e => e.type === 'superBlast').length; steps++; }
   assert.equal(blast, 1, 'a full meter + own-core act-hold fires exactly one superBlast');
-  assert.equal(g.siege.superCharge[0], 0, 'firing the super resets that team charge');
+  assert.equal(g.siege!.superCharge[0], 0, 'firing the super resets that team charge');
   // a NON-full meter never fires even with a core act-hold
   const g2 = quietSiege();
-  const c2 = g2.cores.find(c => c.team === 0); const p2 = g2.players[0]; p2.team = 0; p2.x = c2.x; p2.y = c2.y;
-  g2.siege.superCharge[0] = g2.siege.superMax - 1;
+  const c2 = g2.cores!.find(c => c.team === 0); const p2 = g2.players[0]; p2.team = 0; p2.x = c2!.x; p2.y = c2!.y;
+  g2.siege!.superCharge[0] = g2.siege!.superMax - 1;
   let nope = 0;
   for (let i = 0; i < 90; i++) { g2.events.length = 0; step(g2, { 0: { act: true } }, 1 / 30); nope += g2.events.filter(e => e.type === 'superBlast').length; }
   assert.equal(nope, 0, 'an un-full meter never fires a super');
   // tower/hero kills also charge the meter (bigger increments than a minion)
   const g3 = quietSiege();
-  const before = g3.siege.superCharge[0];
-  const t = g3.siegeTowers.find(tw => tw.team === 1); // a foe tower
-  g3.shots.push({ id: g3.nextShotId++, x: t.x, y: t.y, vx: 0, vy: 0, ttl: 1, dmg: 999, who: 'p', team: 0, pid: 0, ownerPid: 0, pierce: 0, radius: 8, hits: [] });
+  const before = g3.siege!.superCharge[0];
+  const t = g3.siegeTowers!.find(tw => tw.team === 1); // a foe tower
+  g3.shots.push({ id: g3.nextShotId++, x: t!.x, y: t!.y, vx: 0, vy: 0, ttl: 1, dmg: 999, who: 'p', team: 0, pid: 0, ownerPid: 0, pierce: 0, radius: 8, hits: [] } as any);
   // park the operative on the tower so the siege shot-collision pass connects
-  g3.players[0].x = t.x; g3.players[0].y = t.y; g3.players[0].team = 0;
+  g3.players[0].x = t!.x; g3.players[0].y = t!.y; g3.players[0].team = 0;
   step(g3, { 0: {} }, 1 / 30);
-  assert.ok(t.destroyed, 'the foe tower falls to the shot');
-  assert.ok(g3.siege.superCharge[0] - before >= 4, 'a tower kill charges the super meter more than a minion');
+  assert.ok(t!.destroyed, 'the foe tower falls to the shot');
+  assert.ok(g3.siege!.superCharge[0] - before >= 4, 'a tower kill charges the super meter more than a minion');
 }
 
 // the super BARRAGE damages enemy-lane minions/towers and credits NO ONE (team
 // cast), so it can never charge itself into an infinite loop.
 function testSiegeSuperBlastDamagesEnemyLane() {
   const g = quietSiege();
-  g.siege.superCharge[0] = g.siege.superMax;
-  const core = g.cores.find(c => c.team === 0); const p = g.players[0]; p.team = 0; p.x = core.x; p.y = core.y;
+  g.siege!.superCharge[0] = g.siege!.superMax;
+  const core = g.cores!.find(c => c.team === 0); const p = g.players[0]; p.team = 0; p.x = core!.x; p.y = core!.y;
   // plant a fat foe minion on the foe's forward lane (team 1 marches lanesRev)
-  const node = g.siege.lanesRev[0].waypoints[2];
+  const node = g.siege!.lanesRev[0].waypoints[2];
   const fm = { id: 5, team: 1, laneI: 0, x: node.x, y: node.y, hp: 99, maxHp: 99, pathIdx: 99, score: 10 };
-  g.siege.minions.push(fm); const hp0 = fm.hp;
+  g.siege!.minions.push(fm); const hp0 = fm.hp;
   let fired = false;
-  for (let i = 0; i < 90 && !fired; i++) { fm.x = node.x; fm.y = node.y; step(g, { 0: { act: true } }, 1 / 30); if (g.siege.superCharge[0] === 0) fired = true; }
+  for (let i = 0; i < 90 && !fired; i++) { fm.x = node.x; fm.y = node.y; step(g, { 0: { act: true } }, 1 / 30); if (g.siege!.superCharge[0] === 0) fired = true; }
   assert.ok(fired, 'the super fired');
-  const live = g.siege.minions.find(m => m.id === 5);
+  const live = g.siege!.minions.find(m => m.id === 5);
   assert.ok(!live || live.hp < hp0, 'the barrage damages a foe minion on the enemy lane');
   // the barrage credited NOBODY: the team that cast it gained no fresh charge from
   // its own kills (it would never refill on a single cast)
-  assert.equal(g.siege.superCharge[0], 0, 'a team-cast barrage charges no one (no self-refill)');
+  assert.equal(g.siege!.superCharge[0], 0, 'a team-cast barrage charges no one (no self-refill)');
 }
 
 // determinism: two identical siege runs that arm a trap, trip it, and fire a super
@@ -9580,7 +9579,7 @@ function testSiegeWaveDDeterministic() {
     const def = anchorlineDef();
     const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, [startingRoster[0]]);
     const p = g.players[0]; p.team = 0;
-    const tr = g.siegeTraps[0];
+    const tr = g.siegeTraps![0];
     const dt = 1 / 30;
     for (let i = 0; i < 600 && g.status === 'play'; i++) {
       // for the first 60 ticks, hold act on a trap to arm it; then idle
@@ -9596,17 +9595,17 @@ function testSiegeWaveDDeterministic() {
 // serialize/restore is byte-stable with traps + super charge live (mid-arm, mid-cool)
 function testSiegeWaveDSerializeRoundTrip() {
   const g = quietSiege();
-  const tr = g.siegeTraps[0]; tr.team = 0; tr.armed = true;
-  g.siege.superCharge = [7, 3];
+  const tr = g.siegeTraps![0]; tr.team = 0; tr.armed = true;
+  g.siege!.superCharge = [7, 3];
   // trip the trap so a trap patch + cooldown are live too
-  g.siege.minions.push({ id: 1, team: 1, laneI: 0, x: tr.x, y: tr.y, hp: 99, maxHp: 99, pathIdx: 99, score: 10 });
+  g.siege!.minions.push({ id: 1, team: 1, laneI: 0, x: tr.x, y: tr.y, hp: 99, maxHp: 99, pathIdx: 99, score: 10 });
   step(g, { 0: {} }, 1 / 30);
   const twin = restoreGame(serializeGame(g), charMap);
   assert.equal(JSON.stringify(snapshot(twin, false)), JSON.stringify(snapshot(g, false)),
     'siege Wave-D serialize/restore is byte-stable');
   // the restored game keeps stepping (traps + super survive the round-trip)
-  assert.deepEqual(twin.siege.superCharge, g.siege.superCharge, 'super charge survives serialize/restore');
-  assert.equal(twin.siegeTraps.length, g.siegeTraps.length, 'traps survive serialize/restore');
+  assert.deepEqual(twin.siege.superCharge, g.siege!.superCharge, 'super charge survives serialize/restore');
+  assert.equal(twin.siegeTraps.length, g.siegeTraps!.length, 'traps survive serialize/restore');
 }
 
 // RENDER PARITY CONTRACT: the exact siege snapshot field NAMES the web render
@@ -9620,39 +9619,39 @@ function testSiegeRenderFieldParity() {
   for (const name of ['Anchorline', 'Emberlane', 'Glacier']) {
     const g = quietSiege(name);
     // arm trap[0] (team 0) + charge team-0 super to the cap so cool/armed/charge ship
-    const tr = g.siegeTraps[0]; tr.team = 0; tr.armed = true;
-    g.siege.superCharge = [g.siege.superMax, 1];
+    const tr = g.siegeTraps![0]; tr.team = 0; tr.armed = true;
+    g.siege!.superCharge = [g.siege!.superMax, 1];
     // plant a tank + a warmonger so the 'kind' key the render switches on appears
-    const wp = g.siege.lanes[0].waypoints[1];
-    g.siege.minions.push({ id: 901, team: 0, laneI: 0, x: wp.x, y: wp.y, hp: 16, maxHp: 16, pathIdx: 1, score: 20, kind: 'tank' });
-    g.siege.minions.push({ id: 902, team: 0, laneI: 0, x: wp.x, y: wp.y, hp: 8, maxHp: 8, pathIdx: 1, score: 20, kind: 'warmonger' });
+    const wp = g.siege!.lanes[0].waypoints[1];
+    g.siege!.minions.push({ id: 901, team: 0, laneI: 0, x: wp.x, y: wp.y, hp: 16, maxHp: 16, pathIdx: 1, score: 20, kind: 'tank' });
+    g.siege!.minions.push({ id: 902, team: 0, laneI: 0, x: wp.x, y: wp.y, hp: 8, maxHp: 8, pathIdx: 1, score: 20, kind: 'warmonger' });
     const sg = snapshot(g, false).siege;
     // minion kind: render's drawSiegeMinion switches on exactly these strings
-    const kinds = new Set(sg.minions.map(m => m.kind || 'grunt'));
+    const kinds = new Set(sg!.minions.map(m => m.kind || 'grunt'));
     assert.ok(kinds.has('tank') && kinds.has('warmonger'), `${name} ships tank+warmonger minion kinds the render draws`);
     // traps: drawSiegeTrap reads id/x/y/team/armed (cool only when cooling)
-    assert.ok(Array.isArray(sg.traps) && sg.traps.length, `${name} ships siege.traps the render iterates`);
-    for (const t of sg.traps) {
+    assert.ok(Array.isArray(sg!.traps) && sg!.traps.length, `${name} ships siege.traps the render iterates`);
+    for (const t of sg!.traps) {
       for (const k of ['id', 'x', 'y', 'team', 'armed']) assert.ok(k in t, `${name} trap snapshot has render field '${k}'`);
     }
-    assert.ok(sg.traps.some(t => t.armed === true), `${name} ships an armed trap (render's live-pad branch)`);
+    assert.ok(sg!.traps.some(t => t.armed === true), `${name} ships an armed trap (render's live-pad branch)`);
     // prisms: the render hp pip reads pr.hp / pr.maxHp
-    assert.ok(Array.isArray(sg.prisms) && sg.prisms.length, `${name} ships siege.prisms the render iterates`);
-    for (const p of sg.prisms) assert.ok('hp' in p && 'maxHp' in p, `${name} prism snapshot has render hp pip fields`);
+    assert.ok(Array.isArray(sg!.prisms) && sg!.prisms.length, `${name} ships siege.prisms the render iterates`);
+    for (const p of sg!.prisms) assert.ok('hp' in p && 'maxHp' in p, `${name} prism snapshot has render hp pip fields`);
     // super meter: the HUD bar reads siege.superCharge[team] against siege.superMax
-    assert.ok(Array.isArray(sg.superCharge) && sg.superCharge.length === 2, `${name} ships a two-team siege.superCharge array`);
-    assert.equal(typeof sg.superMax, 'number', `${name} ships a numeric siege.superMax cap`);
-    assert.equal(sg.superCharge[0], sg.superMax, `${name} ships team-0 super at the cap (render's READY branch)`);
+    assert.ok(Array.isArray(sg!.superCharge) && sg!.superCharge.length === 2, `${name} ships a two-team siege.superCharge array`);
+    assert.equal(typeof sg!.superMax, 'number', `${name} ships a numeric siege.superMax cap`);
+    assert.equal(sg!.superCharge[0], sg!.superMax, `${name} ships team-0 super at the cap (render's READY branch)`);
   }
   // cool only ships while a trap is on cooldown: trip an armed trap and confirm the
   // render's spent-pad field (tr.cool) appears, then a fresh trap omits it.
   const gc = quietSiege('Anchorline');
-  const tc = gc.siegeTraps[0]; tc.team = 0; tc.armed = true;
-  gc.siege.minions.push({ id: 1, team: 1, laneI: 0, x: tc.x, y: tc.y, hp: 99, maxHp: 99, pathIdx: 99, score: 10 });
+  const tc = gc.siegeTraps![0]; tc.team = 0; tc.armed = true;
+  gc.siege!.minions.push({ id: 1, team: 1, laneI: 0, x: tc.x, y: tc.y, hp: 99, maxHp: 99, pathIdx: 99, score: 10 });
   step(gc, { 0: {} }, 1 / 30);
-  const cooled = snapshot(gc, false).siege.traps.find(t => t.id === tc.id);
-  assert.ok('cool' in cooled, 'a tripped trap ships the cool field the spent-pad render reads');
-  const fresh = snapshot(quietSiege('Anchorline'), false).siege.traps[0];
+  const cooled = snapshot(gc, false).siege!.traps!.find(t => t.id === tc.id);
+  assert.ok('cool' in cooled!, 'a tripped trap ships the cool field the spent-pad render reads');
+  const fresh = snapshot(quietSiege('Anchorline'), false).siege!.traps![0];
   assert.equal('cool' in fresh, false, 'a fresh (un-cooled) trap omits the cool field (byte-stable)');
   // GATING: a classic snapshot gains NONE of the siege render fields
   const classic = createGame(levels.find(l => l.category === 'classic'),
@@ -9677,10 +9676,10 @@ async function testServerPublicHardening() {
   const { spawn } = await import('child_process');
   const osMod = await import('os');
   const WebSocket = (await import('ws')).default;
-  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const sleep = (ms: any) => new Promise(r => setTimeout(r, ms));
   const basePort = 4300 + (process.pid % 500);
 
-  function startSrv(port, env) {
+  function startSrv(port: any, env: any) {
     const proc = spawn(process.execPath, [path.join(root, 'server.js')], {
       // explicit blanks so a dev's shell env can't leak flags into the run
       env: { ...process.env, PORT: String(port), PUBLIC_DEPLOY: '', HOLDOUT_SMOKE: '', SAVES_DIR: '', ROOM_CAP: '', LOBBY_TTL_MS: '', ...env },
@@ -9702,37 +9701,37 @@ async function testServerPublicHardening() {
 
   // ws client with an inbox: expect(type) resolves the next message of that
   // type; none(type, ms) asserts none arrives in the window
-  function open(port, xff) {
+  function open(port: any, xff?: any) {
     const w = new WebSocket(`ws://127.0.0.1:${port}`, xff ? { headers: { 'x-forwarded-for': xff } } : undefined);
-    const queue = [];
-    const waiters = [];
+    const queue: any[] = [];
+    const waiters: any[] = [];
     w.on('message', raw => {
-      let m; try { m = JSON.parse(raw); } catch { return; }
+      let m; try { m = JSON.parse(raw as any); } catch { return; }
       const i = waiters.findIndex(x => x.type === m.t);
       if (i !== -1) waiters.splice(i, 1)[0].res(m);
       else queue.push(m);
     });
-    w.expect = (type, ms = 4000) => {
+    (w as any).expect = (type: any, ms = 4000) => {
       const i = queue.findIndex(m => m.t === type);
       if (i !== -1) return Promise.resolve(queue.splice(i, 1)[0]);
       return new Promise((res, rej) => {
-        const wt = { type, res: null };
+        const wt: any = { type, res: null };
         const t = setTimeout(() => {
           const j = waiters.indexOf(wt);
           if (j !== -1) waiters.splice(j, 1);
           rej(new Error(`timeout waiting for '${type}' (queued: ${queue.map(m => m.t).join(',') || 'nothing'})`));
         }, ms);
-        wt.res = m => { clearTimeout(t); res(m); };
+        wt.res = (m: any) => { clearTimeout(t); res(m); };
         waiters.push(wt);
       });
     };
-    w.none = async (type, ms) => {
+    (w as any).none = async (type: any, ms: any) => {
       await sleep(ms);
       assert.ok(!queue.some(m => m.t === type), `no '${type}' expected, got one`);
     };
-    w.sendj = obj => w.send(JSON.stringify(obj));
-    w.opened = new Promise((res, rej) => { w.on('open', () => res(w)); w.on('error', rej); });
-    w.closed = new Promise(res => w.on('close', code => res(code)));
+    (w as any).sendj = (obj: any) => w.send(JSON.stringify(obj));
+    (w as any).opened = new Promise((res, rej) => { w.on('open', () => res(w)); w.on('error', rej); });
+    (w as any).closed = new Promise(res => w.on('close', code => res(code)));
     return w;
   }
 
@@ -9740,9 +9739,9 @@ async function testServerPublicHardening() {
   const tmpB = fs.mkdtempSync(path.join(osMod.tmpdir(), 'anchorfall-lan-'));
   const pub = startSrv(basePort, { PUBLIC_DEPLOY: '1', HOLDOUT_SMOKE: '1', SAVES_DIR: tmpA, ROOM_CAP: '4', LOBBY_TTL_MS: '1500' });
   const couch = startSrv(basePort + 1, { HOLDOUT_SMOKE: '1', SAVES_DIR: tmpB });
-  const api = (port, p) => `http://127.0.0.1:${port}${p}`;
-  const sockets = [];
-  const track = w => { sockets.push(w); return w; };
+  const api = (port: any, p: any) => `http://127.0.0.1:${port}${p}`;
+  const sockets: any[] = [];
+  const track = (w: any) => { sockets.push(w); return w; };
   try {
     await pub.ready;
     await couch.ready;
@@ -9807,8 +9806,8 @@ async function testServerPublicHardening() {
 
     // --- SAVES_DIR + rankings POST hygiene (sanitized names, ceiling, de-dup)
     const defs = await (await fetch(api(basePort, '/api/levels'))).json();
-    const key = defs.find(d => d.category === 'classic').key;
-    const post = body => fetch(api(basePort, '/api/rankings'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const key = defs.find((d: any) => d.category === 'classic').key;
+    const post = (body: any) => fetch(api(basePort, '/api/rankings'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
     const r1 = await (await post({ key, names: ['Evil ‮Nam e'], score: 1234, timeS: 56.7 })).json();
     assert.equal(r1.rank, 1, 'local run lands on the fresh board');
     assert.ok(fs.existsSync(path.join(tmpA, 'rankings.json')), 'rankings.json written under SAVES_DIR');
@@ -9981,7 +9980,7 @@ testSiegeRenderFieldParity();
 
 // A small arena builder for the biome-enemy probes. The enemy letter is dropped
 // one row above the spawn so the lurker/phaseborn/etc. can reach the operative.
-function biomeArena(letter, extra = {}) {
+function biomeArena(letter: any, extra = {}) {
   const rows = [
     '###############',
     '#.....e.......#'.replace('e', letter),
@@ -10009,7 +10008,7 @@ function testBiomeEnemiesSpawnWithStats() {
     $: { kind: 'brinehulk', hp: 7, score: 330 },
   };
   for (const [letter, spec] of Object.entries(want)) {
-    const parsed = parseLevel(biomeArena(letter));
+    const parsed = parseLevel(biomeArena(letter) as any);
     assert.equal(parsed.enemies.length, 1, `letter '${letter}' parses exactly one enemy`);
     const e = parsed.enemies[0];
     assert.equal(e.kind, spec.kind, `'${letter}' -> ${spec.kind}`);
@@ -10018,9 +10017,9 @@ function testBiomeEnemiesSpawnWithStats() {
     assert.equal(e.score, spec.score, `${spec.kind} score is ${spec.score}`);
   }
   // state init: the lurker starts buried, the kite has its one-shot flee flag
-  const lurk = parseLevel(biomeArena('l')).enemies[0];
+  const lurk = parseLevel(biomeArena('l') as any).enemies[0];
   assert.equal(lurk.buried, true, 'sand lurker spawns buried');
-  const kite = parseLevel(biomeArena('e')).enemies[0];
+  const kite = parseLevel(biomeArena('e') as any).enemies[0];
   assert.equal(kite.fled, false, 'ember kite spawns with its flee-blink unused');
 }
 
@@ -10039,7 +10038,7 @@ function testBiomeLettersAbsentOnUntouchedMaps() {
 }
 
 function testMoltenLeavesBurnPatchOnDeath() {
-  const g = createGame(biomeArena('d'), [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+  const g = createGame(biomeArena('d') as any, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
   g.graceT = 0;
   const e = g.enemies[0];
   const p = g.players[0]; p.invuln = 999;
@@ -10057,7 +10056,7 @@ function testMoltenLeavesBurnPatchOnDeath() {
 }
 
 function testFrostshadeChillsPlayer() {
-  const g = createGame(biomeArena('h'), [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+  const g = createGame(biomeArena('h') as any, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
   g.graceT = 0;
   const e = g.enemies[0];
   const p = g.players[0];
@@ -10065,13 +10064,13 @@ function testFrostshadeChillsPlayer() {
   // sit the frostshade ON the player; no invuln/shield so the hit lands
   e.x = p.x; e.y = p.y; p.invuln = 0; p.shield = 0;
   run(g, () => { e.x = p.x; e.y = p.y; return { 0: {} }; }, 0.5);
-  assert.ok(p.chillT > 0, 'a frostshade contact chills the operative (p.chillT set)');
+  assert.ok(p.chillT! > 0, 'a frostshade contact chills the operative (p.chillT set)');
   // the chill rides the snapshot only while live
   assert.ok(JSON.stringify(snapshot(g)).includes('"chillT"'), 'chill ships on the wire while active');
 }
 
 function testGlacierIsHeavyTank() {
-  const parsed = parseLevel(biomeArena('i'));
+  const parsed = parseLevel(biomeArena('i') as any);
   const e = parsed.enemies[0];
   assert.equal(e.hp, 8, 'glacier is an 8-hp soak');
   assert.ok(e.speed < TILE * 0.6, 'glacier crawls (very low speed)');
@@ -10080,8 +10079,8 @@ function testGlacierIsHeavyTank() {
   assert.equal(ENEMY_STATS_PROBE('i').chillImmune, true, 'glacier carries chillImmune');
 }
 // tiny helper to read a frozen copy of an ENEMY_STATS entry through parseLevel
-function ENEMY_STATS_PROBE(letter) {
-  const e = parseLevel(biomeArena(letter)).enemies[0];
+function ENEMY_STATS_PROBE(letter: any) {
+  const e = parseLevel(biomeArena(letter) as any).enemies[0];
   return { chillImmune: e.kind === 'glacier' }; // chillImmune only exists on glacier stat
 }
 
@@ -10095,14 +10094,14 @@ function testBrinehulkDoubleStructureDamage() {
     '#..P....#',
     '#########',
   ];
-  const mk = letter => {
+  const mk = (letter: any) => {
     const r = rows.slice();
     r[3] = '#..X....#'.replace('X', letter);
     return { name: 'Sap', time: 60, captiveChars: [], mode: 'bastion',
       builds: [{ kind: 'wall', prebuilt: true, cost: 1 }], tiles: r };
   };
-  const measure = (letter) => {
-    const g = createGame(mk(letter), [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+  const measure = (letter: any) => {
+    const g = createGame(mk(letter) as any, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
     g.graceT = 0;
     const e = g.enemies[0];
     const wall = g.builds[0];
@@ -10131,13 +10130,13 @@ function testPhasebornDriftsThroughWalls() {
     '#......#......#',
     '###############',
   ];
-  const mk = letter => {
+  const mk = (letter: any) => {
     const r = rows.slice();
     r[1] = '#.X....#......#'.replace('X', letter);
     return { name: 'Phase', time: 60, captiveChars: [], mode: 'bastion', tiles: r };
   };
-  const closeDist = (letter, secs) => {
-    const g = createGame(mk(letter), [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+  const closeDist = (letter: any, secs: any) => {
+    const g = createGame(mk(letter) as any, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
     g.graceT = 0;
     const e = g.enemies[0];
     const p = g.players[0];
@@ -10152,7 +10151,7 @@ function testPhasebornDriftsThroughWalls() {
 }
 
 function testSandlurkerSurfacesOnApproach() {
-  const g = createGame(biomeArena('l'), [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+  const g = createGame(biomeArena('l') as any, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
   g.graceT = 0;
   const e = g.enemies[0];
   const p = g.players[0];
@@ -10179,7 +10178,7 @@ function testBogspitterGlobDropsToxinPatch() {
     '###############',
   ];
   const def = { name: 'Spit', time: 60, captiveChars: [], mode: 'bastion', tiles: rows };
-  const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+  const g = createGame(def as any, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
   g.graceT = 0;
   const e = g.enemies[0];
   const p = g.players[0];
@@ -10201,7 +10200,7 @@ function testWraithvChainArcsToSecondTarget() {
     '###############',
   ];
   const def = { name: 'Arc', time: 60, captiveChars: [], mode: 'bastion', tiles: rows };
-  const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }, { pid: 1, name: 'B', charId: startingRoster[1] }], charMap, startingRoster);
+  const g = createGame(def as any, [{ pid: 0, name: 'A', charId: startingRoster[0] }, { pid: 1, name: 'B', charId: startingRoster[1] }], charMap, startingRoster);
   g.graceT = 0;
   const e = g.enemies[0];
   e.awake = true; e.cool = 0;
@@ -10216,7 +10215,7 @@ function testWraithvChainArcsToSecondTarget() {
   const zapFires = g.events.filter(v => v.type === 'shoot' && v.weapon === 'zap');
   assert.ok(zapFires.length >= 2, `vault wraith zap arcs to a 2nd target (got ${zapFires.length} zap fires)`);
   // CONTROL: a SOLO operative gives the wraith no 2nd target — exactly one zap.
-  const gs = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+  const gs = createGame(def as any, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
   gs.graceT = 0;
   const es = gs.enemies[0]; es.awake = true; es.cool = 0;
   const ps = gs.players[0]; ps.x = es.x + TILE * 4; ps.y = es.y; ps.invuln = 999;
@@ -10226,7 +10225,7 @@ function testWraithvChainArcsToSecondTarget() {
 }
 
 function testEmberkiteFleeBlinkOnce() {
-  const g = createGame(biomeArena('e'), [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+  const g = createGame(biomeArena('e') as any, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
   g.graceT = 0;
   const e = g.enemies[0];
   const p = g.players[0];
@@ -10255,13 +10254,13 @@ function testBiomeFloorTilesPassableAndSnowSlows() {
     '##########',
   ];
   const def = { name: 'Floors', time: 60, captiveChars: [], mode: 'bastion', tiles: rows };
-  const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+  const g = createGame(def as any, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
   const p = g.players[0];
   p.invuln = 999;
   // sit the player on packed snow '-' (col 3, row 1) and on plain floor; compare
   // the distance moved RIGHT over the same time.
-  const speedOn = (tx, ty) => {
-    const gg = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+  const speedOn = (tx: any, ty: any) => {
+    const gg = createGame(def as any, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
     const q = gg.players[0]; q.invuln = 999;
     q.x = (tx + 0.5) * TILE; q.y = (ty + 0.5) * TILE;
     const x0 = q.x;
@@ -10294,12 +10293,12 @@ function testBiomeThemesWireWeatherDarkAndRender() {
   const baseRows = ['########', '#P.....#', '#.....E#', '########'];
   for (const [theme, spec] of Object.entries(expect)) {
     const def = { name: 'Themed ' + theme, time: 60, captiveChars: [], mode: 'bastion', theme, tiles: baseRows };
-    const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+    const g = createGame(def as any, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
     assert.equal(g.theme, theme, `${theme} sets g.theme`);
     assert.equal(g.weather, spec.weather, `${theme} weather = ${spec.weather}`);
     assert.equal(!!g.dark, spec.dark, `${theme} dark = ${spec.dark}`);
     assert.ok('theme' in snapshot(g) && snapshot(g).theme === theme, `${theme} ships in the snapshot for the render palette`);
-    if (spec.patches) {
+    if ((spec as any).patches) {
       // peat/crucible run the ambient-patch emitter: it spits a hostile ground
       // patch on its clock (deterministic; no Math.random)
       run(g, () => ({ 0: {} }), 8);
@@ -10308,7 +10307,7 @@ function testBiomeThemesWireWeatherDarkAndRender() {
   }
   // CONTROL: an unknown theme name falls back to no theme (byte-stable)
   const noTheme = { name: 'Bogus', time: 60, captiveChars: [], mode: 'bastion', theme: 'not-a-biome', tiles: baseRows };
-  const ng = createGame(noTheme, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+  const ng = createGame(noTheme as any, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
   assert.equal(ng.theme, null, 'an unknown theme id resolves to null (no re-skin)');
 }
 
@@ -10327,9 +10326,9 @@ function testBiomeRunIsDeterministic() {
   ];
   const def = { name: 'Biome Determinism', time: 60, captiveChars: [], mode: 'bastion', theme: 'crucible', tiles: rows };
   const play = () => {
-    const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+    const g = createGame(def as any, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
     g.players[0].invuln = 999;
-    run(g, (gg, tt) => ({ 0: { right: (Math.floor(tt) % 2) === 0, fire: true } }), 6);
+    run(g, (gg: any, tt: any) => ({ 0: { right: (Math.floor(tt) % 2) === 0, fire: true } }), 6);
     return JSON.stringify(snapshot(g));
   };
   assert.equal(play(), play(), 'a themed biome run is byte-identical across builds (deterministic)');
@@ -10361,7 +10360,7 @@ testBiomeRunIsDeterministic();
 // fields layer on via the `extra` def spread.
 function objArena(extra = {}, coreAt = [12, 7]) {
   const W = 24, H = 14;
-  const rows = [];
+  const rows: any[] = [];
   rows.push('#'.repeat(W));
   for (let y = 1; y < H - 1; y++) rows.push('#' + '.'.repeat(W - 2) + '#');
   rows.push('#'.repeat(W));
@@ -10378,7 +10377,7 @@ function objArena(extra = {}, coreAt = [12, 7]) {
 function testCaptureHillProgressesAndWins() {
   const cx = 12, cy = 7;
   const def = objArena({ capture: { x: cx, y: cy, radius: 3, duration: 3, threshold: 1, decay: 1 } });
-  const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+  const g = createGame(def as any, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
   g.graceT = 1e9; g.players[0].invuln = 999;
   // state seeded from the def, in tile-center px, gated key absent until present
   assert.ok(g.capture, 'def.capture seeds g.capture');
@@ -10393,10 +10392,10 @@ function testCaptureHillProgressesAndWins() {
   // NIGHT-GATE: holding the hill during the DAY banks nothing — progress only
   // accrues at night (so the zone must be held THROUGH the assault).
   if (g.cycle) { g.cycle.phase = 'day'; g.cycle.t = 999; }
-  run(g, () => { if (g.cycle) g.cycle.phase = 'day'; g.players[0].x = g.capture.x; g.players[0].y = g.capture.y; return { 0: {} }; }, 1.5);
+  run(g, () => { if (g.cycle) g.cycle.phase = 'day'; g.players[0].x = g.capture!.x; g.players[0].y = g.capture!.y; return { 0: {} }; }, 1.5);
   assert.equal(g.capture.ownerT, 0, 'a held hill banks nothing during the day');
   // at NIGHT it fills and wins at duration (3s).
-  run(g, () => { if (g.cycle) g.cycle.phase = 'night'; g.players[0].x = g.capture.x; g.players[0].y = g.capture.y; return { 0: {} }; }, 3.5);
+  run(g, () => { if (g.cycle) g.cycle.phase = 'night'; g.players[0].x = g.capture!.x; g.players[0].y = g.capture!.y; return { 0: {} }; }, 3.5);
   assert.equal(g.status, 'cleared', 'holding the hill at night to full meter wins');
   const win = g.events.find(ev => ev.type === 'captureWin');
   assert.ok(win, 'a captureWin event fired');
@@ -10407,20 +10406,20 @@ function testCaptureHillProgressesAndWins() {
 function testCaptureHillControlNoFillAndContest() {
   const cx = 12, cy = 7;
   const def = objArena({ capture: { x: cx, y: cy, radius: 3, duration: 3, threshold: 1, decay: 1, contest: true } });
-  const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+  const g = createGame(def as any, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
   g.graceT = 1e9; g.players[0].invuln = 999;
   // CONTROL: the hero stays far from the zone — meter never fills, never wins.
   g.players[0].x = 2 * TILE; g.players[0].y = 12 * TILE;
   run(g, () => { g.players[0].x = 2 * TILE; g.players[0].y = 12 * TILE; return { 0: {} }; }, 4);
   assert.equal(g.status, 'play', 'no one on the hill: mission still running');
-  assert.equal(g.capture.ownerT, 0, 'an unattended hill never accrues');
+  assert.equal(g.capture!.ownerT, 0, 'an unattended hill never accrues');
   // CONTEST: drop a static enemy on the zone with the hero — accrual freezes.
-  const e = g.enemies.find(en => true) || (() => { const ne = { id: g.nextEnemyId++, kind: 'husk', x: 0, y: 0, hp: 1, maxHp: 1, speed: 0, aggro: 0, awake: false, dead: false }; g.enemies.push(ne); return ne; })();
-  e.x = g.capture.x; e.y = g.capture.y; e.speed = 0; e.awake = false; e.aggro = 0;
-  g.players[0].x = g.capture.x; g.players[0].y = g.capture.y;
-  const before = g.capture.ownerT;
-  run(g, () => { e.x = g.capture.x; e.y = g.capture.y; e.speed = 0; g.players[0].x = g.capture.x; g.players[0].y = g.capture.y; return { 0: {} }; }, 1.5);
-  assert.ok(g.capture.ownerT <= before + 1e-6, 'an enemy contesting the zone freezes the meter');
+  const e = g.enemies.find(en => true) || (() => { const ne = { id: g.nextEnemyId++, kind: 'husk', x: 0, y: 0, hp: 1, maxHp: 1, speed: 0, aggro: 0, awake: false, dead: false }; g.enemies.push(ne as any); return ne; })();
+  e.x = g.capture!.x; e.y = g.capture!.y; e.speed = 0; e.awake = false; e.aggro = 0;
+  g.players[0].x = g.capture!.x; g.players[0].y = g.capture!.y;
+  const before = g.capture!.ownerT;
+  run(g, () => { e.x = g.capture!.x; e.y = g.capture!.y; e.speed = 0; g.players[0].x = g.capture!.x; g.players[0].y = g.capture!.y; return { 0: {} }; }, 1.5);
+  assert.ok(g.capture!.ownerT <= before + 1e-6, 'an enemy contesting the zone freezes the meter');
   assert.equal(g.status, 'play', 'a contested hill cannot be won');
   assert.ok(g.events.some(ev => ev.type === 'captureState' && ev.contested), 'a contested state event fires');
 }
@@ -10430,25 +10429,25 @@ function testCaptureHillControlNoFillAndContest() {
 function testBridgeCrossHoldDefersCycleUntilReached() {
   // core (redoubt) at the TOP; spawn at the bottom — the team must cross.
   const def = objArena({ bridge: { armOnReach: true } }, [12, 1]);
-  const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+  const g = createGame(def as any, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
   g.graceT = 1e9; g.players[0].invuln = 999;
   assert.ok(g.bridge, 'def.bridge.armOnReach seeds g.bridge');
   assert.equal(g.bridge.reached, false, 'not reached at the start');
-  assert.equal(g.bridge.holdX, g.core.x, 'the redoubt defaults to the core tile');
+  assert.equal(g.bridge.holdX, g.core!.x, 'the redoubt defaults to the core tile');
   // keep the hero AWAY from the redoubt for well past the 5s dayLen: the first
   // dusk must NOT fire while uncrossed (the clock is frozen).
   g.players[0].x = 2 * TILE; g.players[0].y = 12 * TILE;
   run(g, () => { g.players[0].x = 2 * TILE; g.players[0].y = 12 * TILE; return { 0: {} }; }, 8);
-  assert.equal(g.cycle.phase, 'day', 'the cycle stays in day until the crossing');
-  assert.equal(g.cycle.nightNo, 0, 'no night has begun pre-crossing');
+  assert.equal(g.cycle!.phase, 'day', 'the cycle stays in day until the crossing');
+  assert.equal(g.cycle!.nightNo, 0, 'no night has begun pre-crossing');
   assert.ok(!g.events.some(ev => ev.type === 'dusk'), 'no dusk fired before reaching the redoubt');
   // now cross: stand on the redoubt — the bridge arms and the clock resumes.
-  g.players[0].x = g.core.x; g.players[0].y = g.core.y;
+  g.players[0].x = g.core!.x; g.players[0].y = g.core!.y;
   step(g, { 0: {} }, 1 / 30);
   assert.equal(g.bridge.reached, true, 'standing on the redoubt arms the bridge');
   assert.ok(g.events.some(ev => ev.type === 'bridgeArmed'), 'a bridgeArmed event fires on the crossing');
   // after arming, the day clock advances and the first dusk eventually fires.
-  run(g, () => { g.players[0].x = g.core.x; g.players[0].y = g.core.y; return { 0: {} }; }, 6);
+  run(g, () => { g.players[0].x = g.core!.x; g.players[0].y = g.core!.y; return { 0: {} }; }, 6);
   assert.ok(g.events.some(ev => ev.type === 'dusk'), 'the hold cycle begins after the crossing');
 }
 
@@ -10457,7 +10456,7 @@ function testBridgeCrossHoldDefersCycleUntilReached() {
 function testEscortPushAdvancesAndWins() {
   // a short straight lane bottom-left -> top-right across the open arena.
   const def = objArena({ escort: { path: [[3, 11], [12, 6], [20, 2]], speed: 6, holdRadius: 3, hp: 40 } }, [12, 7]);
-  const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+  const g = createGame(def as any, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
   g.graceT = 1e9; g.players[0].invuln = 999;
   g.enemies.length = 0; // an empty field: no contest, no gnaw
   assert.ok(g.escort, 'def.escort seeds g.escort');
@@ -10466,7 +10465,7 @@ function testEscortPushAdvancesAndWins() {
   const s0 = snapshot(g, false);
   assert.ok(s0.escort && s0.escort.path.length === 3, 'snapshot ships the escort path');
   // shadow the anchor so a hero is always within holdRadius and it keeps pushing.
-  run(g, () => { g.players[0].x = g.escort.x; g.players[0].y = g.escort.y; return { 0: {} }; }, 12);
+  run(g, () => { g.players[0].x = g.escort!.x; g.players[0].y = g.escort!.y; return { 0: {} }; }, 12);
   assert.equal(g.status, 'cleared', 'escorting the anchor to the goal wins');
   assert.ok(g.events.some(ev => ev.type === 'escortWin'), 'an escortWin event fires');
 }
@@ -10475,30 +10474,30 @@ function testEscortPushAdvancesAndWins() {
 // an enemy in the radius stalls the push; enough enemy gnaws lose the mission ---
 function testEscortPushControlStallAndLose() {
   const def = objArena({ escort: { path: [[3, 11], [20, 2]], speed: 6, holdRadius: 3, hp: 3 } }, [12, 7]);
-  const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+  const g = createGame(def as any, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
   g.graceT = 1e9; g.players[0].invuln = 999;
   g.enemies.length = 0;
   // CONTROL: park the hero in the FAR corner (well outside holdRadius) — the
   // anchor must not advance at all.
   const far = () => { g.players[0].x = 20 * TILE; g.players[0].y = 2 * TILE; };
   far();
-  const x0 = g.escort.x, y0 = g.escort.y;
+  const x0 = g.escort!.x, y0 = g.escort!.y;
   run(g, () => { far(); return { 0: {} }; }, 3);
-  assert.equal(g.escort.x, x0, 'an unpushed anchor holds its x');
-  assert.equal(g.escort.y, y0, 'an unpushed anchor holds its y');
-  assert.equal(g.escort.wp, 1, 'no waypoint reached without a pusher');
+  assert.equal(g.escort!.x, x0, 'an unpushed anchor holds its x');
+  assert.equal(g.escort!.y, y0, 'an unpushed anchor holds its y');
+  assert.equal(g.escort!.wp, 1, 'no waypoint reached without a pusher');
   assert.equal(g.status, 'play', 'the escort cannot be won without pushing');
   // STALL: a hero near it AND an enemy in the radius — contested, no advance.
-  const e = { id: g.nextEnemyId++, kind: 'husk', x: g.escort.x, y: g.escort.y, hp: 99, maxHp: 99, speed: 0, aggro: 0, awake: false, dead: false, hitCool: 0 };
-  g.enemies.push(e);
-  g.players[0].x = g.escort.x; g.players[0].y = g.escort.y;
-  const xs = g.escort.x;
+  const e = { id: g.nextEnemyId++, kind: 'husk', x: g.escort!.x, y: g.escort!.y, hp: 99, maxHp: 99, speed: 0, aggro: 0, awake: false, dead: false, hitCool: 0 };
+  g.enemies.push(e as any);
+  g.players[0].x = g.escort!.x; g.players[0].y = g.escort!.y;
+  const xs = g.escort!.x;
   step(g, { 0: {} }, 1 / 30);
-  assert.equal(g.escort.contested, true, 'an enemy in the radius marks the push contested');
-  assert.ok(Math.abs(g.escort.x - xs) < 1e-6, 'a contested anchor does not advance');
+  assert.equal(g.escort!.contested, true, 'an enemy in the radius marks the push contested');
+  assert.ok(Math.abs(g.escort!.x - xs) < 1e-6, 'a contested anchor does not advance');
   // LOSE: keep the enemy on it (no hero, melee gnaw) until hp drains to 0.
   far();
-  run(g, () => { e.x = g.escort.x; e.y = g.escort.y; far(); return { 0: {} }; }, 4);
+  run(g, () => { e.x = g.escort!.x; e.y = g.escort!.y; far(); return { 0: {} }; }, 4);
   assert.equal(g.status, 'failed', 'the anchor destroyed loses the mission');
   assert.ok(g.events.some(ev => ev.type === 'escortLost'), 'an escortLost event fires');
 }
@@ -10507,33 +10506,33 @@ function testEscortPushControlStallAndLose() {
 function testEscortBrinehulkDoubleDamage() {
   const def = objArena({ escort: { path: [[3, 11], [20, 2]], speed: 0.001, holdRadius: 3, hp: 100 } }, [12, 7]);
   // a single brine hulk parked on the anchor; one gnaw window = 2 dmg (vs 1).
-  const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+  const g = createGame(def as any, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
   g.graceT = 1e9; g.players[0].invuln = 999;
   g.enemies.length = 0;
-  const hulk = { id: g.nextEnemyId++, kind: 'brinehulk', x: g.escort.x, y: g.escort.y, hp: 99, maxHp: 99, speed: 0, aggro: 0, awake: false, dead: false, hitCool: 0 };
-  g.enemies.push(hulk);
+  const hulk = { id: g.nextEnemyId++, kind: 'brinehulk', x: g.escort!.x, y: g.escort!.y, hp: 99, maxHp: 99, speed: 0, aggro: 0, awake: false, dead: false, hitCool: 0 };
+  g.enemies.push(hulk as any);
   g.players[0].x = 20 * TILE; g.players[0].y = 2 * TILE; // far away: no pusher
-  const hp0 = g.escort.hp;
+  const hp0 = g.escort!.hp;
   // under one cooldown window (<0.9s) lands exactly one hit = 2 hp for a sapper.
-  run(g, () => { hulk.x = g.escort.x; hulk.y = g.escort.y; return { 0: {} }; }, 0.5);
-  assert.equal(g.escort.hp, hp0 - 2, 'a brine-hulk gnaws the anchor for double (2 hp per hit)');
+  run(g, () => { hulk.x = g.escort!.x; hulk.y = g.escort!.y; return { 0: {} }; }, 0.5);
+  assert.equal(g.escort!.hp, hp0 - 2, 'a brine-hulk gnaws the anchor for double (2 hp per hit)');
   // CONTROL: a plain husk over the same single window gnaws for just 1.
   const def2 = objArena({ escort: { path: [[3, 11], [20, 2]], speed: 0.001, holdRadius: 3, hp: 100 } }, [12, 7]);
-  const g2 = createGame(def2, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+  const g2 = createGame(def2 as any, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
   g2.graceT = 1e9; g2.players[0].invuln = 999; g2.enemies.length = 0;
-  const husk = { id: g2.nextEnemyId++, kind: 'husk', x: g2.escort.x, y: g2.escort.y, hp: 99, maxHp: 99, speed: 0, aggro: 0, awake: false, dead: false, hitCool: 0 };
-  g2.enemies.push(husk);
+  const husk = { id: g2.nextEnemyId++, kind: 'husk', x: g2.escort!.x, y: g2.escort!.y, hp: 99, maxHp: 99, speed: 0, aggro: 0, awake: false, dead: false, hitCool: 0 };
+  g2.enemies.push(husk as any);
   g2.players[0].x = 20 * TILE; g2.players[0].y = 2 * TILE;
-  const hp1 = g2.escort.hp;
-  run(g2, () => { husk.x = g2.escort.x; husk.y = g2.escort.y; return { 0: {} }; }, 0.5);
-  assert.equal(g2.escort.hp, hp1 - 1, 'a plain melee enemy gnaws the anchor for 1 hp per hit');
+  const hp1 = g2.escort!.hp;
+  run(g2, () => { husk.x = g2.escort!.x; husk.y = g2.escort!.y; return { 0: {} }; }, 0.5);
+  assert.equal(g2.escort!.hp, hp1 - 1, 'a plain melee enemy gnaws the anchor for 1 hp per hit');
 }
 
 // --- determinism: an escort + capture run replays byte-for-byte ---
 function testNewObjectivesDeterministic() {
   const def = objArena({ capture: { x: 12, y: 7, radius: 3, duration: 30, threshold: 1, decay: 1 } });
   const play = () => {
-    const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+    const g = createGame(def as any, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
     g.players[0].invuln = 999;
     const h = [];
     for (let i = 0; i < 240 && g.status === 'play'; i++) {
@@ -10548,7 +10547,7 @@ function testNewObjectivesDeterministic() {
 // --- gating CONTROL: a bastion map with NO objective field ships none of the
 // three new keys and behaves exactly like a classic hold ---
 function testNonObjectiveMapUnaffected() {
-  const g = createGame(objArena(), [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
+  const g = createGame(objArena() as any, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
   assert.equal(g.capture, null, 'no def.capture => g.capture null');
   assert.equal(g.bridge, null, 'no def.bridge => g.bridge null');
   assert.equal(g.escort, null, 'no def.escort => g.escort null');
@@ -10569,11 +10568,11 @@ function testNonObjectiveMapUnaffected() {
 
 // Drive a bastion game from createGame to the FIRST dusk, returning the wave's
 // fresh night-spawned enemies (hunters: awake + targetCore) and its edge events.
-function firstNightWave(def) {
+function firstNightWave(def: any) {
   const g = createGame(def, [{ pid: 0, name: 'A', charId: startingRoster[0] }], charMap, startingRoster);
   g.graceT = 1e9; g.players[0].invuln = 999;
   // step the short day until a dusk fires (objArena uses dayLen 5)
-  for (let i = 0; i < 400 && g.cycle.nightNo < 1; i++) step(g, { 0: {} }, 1 / 30);
+  for (let i = 0; i < 400 && g.cycle!.nightNo < 1; i++) step(g, { 0: {} }, 1 / 30);
   const waveEdges = g.events.filter(e => e.type === 'wave').map(e => e.edge);
   const hunters = g.enemies.filter(e => e.targetCore).map(e => e.kind);
   return { g, waveEdges, hunters };
