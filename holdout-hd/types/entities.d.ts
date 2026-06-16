@@ -26,6 +26,7 @@ import type {
   Tiles,
   Px,
 } from './common';
+import type { CharacterMap } from './character';
 
 // ===========================================================================
 // Small shared shapes
@@ -54,6 +55,13 @@ export interface FieldWeaponHeld {
   ammo: number;
 }
 
+/** A per-direction edge-latch ({left,right,fire}) for menu/selection cursors. */
+export interface DirLatch {
+  left: boolean;
+  right: boolean;
+  fire: boolean;
+}
+
 // ===========================================================================
 // Player
 // ===========================================================================
@@ -63,7 +71,8 @@ export interface FieldWeaponHeld {
 export interface Player {
   pid: Pid;
   name: string;
-  charId: string;
+  /** roster id; null while downed (the seat is held by a captive). */
+  charId: string | null;
   x: Px;
   y: Px;
   /** Facing unit vector (fx, fy). */
@@ -140,13 +149,16 @@ export interface Player {
   // --- menu / selection edge-latches ---
   shopping?: boolean;
   shopIdx?: number;
-  shopPrev?: boolean;
+  /** shop cursor edge-latch (per-direction booleans). */
+  shopPrev?: DirLatch;
   selecting?: boolean;
-  selPrev?: boolean;
+  /** turret-select cursor edge-latch (per-direction booleans). */
+  selPrev?: DirLatch;
   invIdx?: number;
   invPrev?: boolean;
   pickIdx?: number;
-  pickPrev?: boolean;
+  /** char-pick cursor edge-latch (per-direction booleans). */
+  pickPrev?: DirLatch;
   dropPrev?: boolean;
   itemHoldT?: number;
   itemHoldFired?: boolean;
@@ -155,10 +167,17 @@ export interface Player {
   aboard?: boolean;
 
   // --- misc objective/structure interaction ---
-  towerId?: string | number | null;
+  /** index into g.towers of the watchtower the seat is mounted on, or null. */
+  towerId?: number | null;
   lythseal?: boolean;
   zoneT?: number;
   channelT?: number;
+
+  // --- ambient-hazard bleed (toxic air) + render-lean move delta ---
+  airT?: number;
+  airAcc?: number;
+  mvX?: number;
+  mvY?: number;
 
   // The sim attaches further ad-hoc fields under specific modes; allow them.
   [key: string]: unknown;
@@ -223,6 +242,66 @@ export interface Enemy {
 
   // --- runtime status (status effects, burn ownership, conversions) ---
   burnOwner?: Pid;
+
+  // --- status-effect clocks / ownership ---
+  /** burn DoT clock + per-second tick accumulator + patch-on-tick flag. */
+  burnT?: number;
+  burnTick?: number;
+  burnPatch?: boolean;
+  /** toxin DoT clock + tick accumulator + credit owner. */
+  toxT?: number;
+  toxTick?: number;
+  toxOwner?: Pid;
+  /** stun / chill-equivalent timers. */
+  stunT?: number;
+  lavaT?: number;
+  /** converted-to-ally clock (>0 while fighting for the player). */
+  convertedT?: number;
+  /** acolyte ward (absorbs one hit). */
+  shielded?: boolean;
+  /** mutation tag ('feral'|'bulk'|'volatile'|'split'). */
+  mutation?: string;
+
+  // --- A* / pathing bookkeeping ---
+  pathFailed?: boolean;
+  pathFails?: number;
+  gnawScanT?: number;
+  /** index of the build currently being gnawed; undefined when marching. */
+  gnawI?: number;
+  /** unreachable-goal latch + the build-epoch it was set at. */
+  dormant?: boolean;
+  dormantEpoch?: number;
+  /** march-on-the-core fallback latch + multi-core target index. */
+  targetCore?: boolean;
+  coreI?: number;
+  /** seat this enemy has currently engaged (sight-locked). */
+  engagePid?: Pid;
+  bestHome?: number;
+
+  // --- stuck / kick recovery ---
+  chaseKicked?: boolean;
+  chaseStuckT?: number;
+  stuckT?: number;
+  stuckX?: number;
+  stuckY?: number;
+  kickX?: number;
+  kickY?: number;
+  /** last-frame move delta (render lean). */
+  mvX?: number;
+  mvY?: number;
+
+  // --- kind-specific transient AI ---
+  /** charger windup + locked charge facing. */
+  windup?: number;
+  chargeFx?: number;
+  chargeFy?: number;
+  /** dash lunge (blink kinds). */
+  dashT?: number;
+  dashFx?: number;
+  dashFy?: number;
+  /** banshee/spawner pulse counter. */
+  pulseN?: number;
+
   [key: string]: unknown;
 }
 
@@ -231,12 +310,14 @@ export interface Enemy {
 // ===========================================================================
 export interface Captive {
   id: string;
-  charId: string;
+  charId: string | null;
   x: Px;
   y: Px;
   owner: Carrier;
   /** True for captives minted from a downed operative (game.ts:3045). */
   fromPlayer: boolean;
+  /** Pid of the player who just set this down (no instant re-scoop). */
+  noPid?: Pid | null;
 }
 
 export interface Npc {
@@ -245,7 +326,8 @@ export interface Npc {
   x: Px;
   y: Px;
   lines: string[];
-  gift: unknown | null;
+  /** one-time gift handed over on first talk (e.g. { shards: 6 }). */
+  gift: { shards?: number; [reward: string]: number | undefined } | null;
   lineIdx: number;
   given: boolean;
 }
@@ -258,6 +340,8 @@ export interface Stranded {
   y: Px;
   carrier: Carrier;
   recruited: boolean;
+  /** Pid of the player who just set this down (no instant re-scoop). */
+  noPid?: Pid | null;
 }
 
 /** Generic scrap pickup (never touches the relic shard pool). */
@@ -266,6 +350,8 @@ export interface Scrap {
   x: Px;
   y: Px;
   carrier: Carrier;
+  /** Pid of the player who just set this down (no instant re-scoop). */
+  noPid?: Pid | null;
 }
 
 // ===========================================================================
@@ -278,7 +364,8 @@ export interface Build {
   x: Px;
   y: Px;
   kind: string;
-  cost: number;
+  /** LYTH cost; absent on a few authored prebuilts (defaults by kind). */
+  cost?: number;
   /** 0..1 build progress; 1 when standing. */
   progress: number;
   paid: number;
@@ -293,7 +380,8 @@ export interface Build {
   level?: number;
   /** Total shards sunk in (prebuilt/placed structures). */
   invested?: number;
-  team?: Team;
+  /** owning team slot (a small int; ctf/siege placed builds). */
+  team?: number;
   /** farm growth bookkeeping. */
   stage?: number;
   growT?: number;
@@ -302,9 +390,17 @@ export interface Build {
   typeSelect?: boolean;
   tsIdx?: number;
   selT?: number;
+  typeSelectT?: number;
   attended?: boolean;
+  /** trampled stage-build flag. */
+  trampled?: boolean;
   /** Stronghold wall-ring membership id. */
   fort?: string;
+  /** dismantle / farm-replant hold clocks. */
+  dismantleT?: number;
+  replantT?: number;
+  /** upgrade-channel progress 0..1. */
+  upProgress?: number;
   [key: string]: unknown;
 }
 
@@ -335,7 +431,8 @@ export interface Vehicle {
   rider: Pid | null;
 }
 
-/** A climbable defense tower ('W'). */
+/** A climbable defense tower ('W'). Repaired/upgraded/rebuilt like a build, so
+ * it carries the same gnaw/build bookkeeping once those systems touch it. */
 export interface Tower {
   x: Px;
   y: Px;
@@ -343,11 +440,32 @@ export interface Tower {
   hp: number;
   maxHp: number;
   occupant: Pid | null;
+  kind?: string;
+  cost?: number;
+  /** rebuild progress 0..1 (set once destroyed). */
+  progress?: number;
+  /** shards sunk into the tower. */
+  invested?: number;
+  /** event/flash clock. */
+  evT?: number;
+  /** dismantle hold clock. */
+  dismantleT?: number;
 }
 
 export interface Shop {
   x: Px;
   y: Px;
+}
+
+/** A stall offer entry (SHOP_OFFERS / the extended mask+placeable deck). */
+export interface ShopOffer {
+  what: string;
+  cost: number;
+  amount?: number;
+  /** routes the offer through addToInventory (placeable structures). */
+  place?: boolean;
+  /** wall offers enter drag-placement. */
+  drag?: boolean;
 }
 
 export interface Hire {
@@ -357,11 +475,16 @@ export interface Hire {
   job: string;
   hired: boolean;
   name: string;
+  /** post-restock cooldown clock (once hired). */
+  restockT?: number;
+  /** accrued work timer (engineer/farmer/smith jobs). */
+  workT?: number;
 }
 
 /** CTF/objective flag ('D'). */
 export interface Flag {
-  team: Team;
+  /** Team slot; minted at parse as `flags.length % 2` (a small int). */
+  team: number;
   x: Px;
   y: Px;
   homeX: Px;
@@ -442,8 +565,8 @@ export interface Core {
   lit?: boolean;
   /** beacon-defense relight clock. */
   relightT?: number;
-  /** siege: which team owns this core. */
-  team?: Team;
+  /** siege: which team owns this core (a small int slot). */
+  team?: number;
 }
 
 /** A door rect (def.doors) — closed it blocks move/sight/shots/A*. */
@@ -484,6 +607,9 @@ export interface Follower {
   maxHp?: number;
   /** hires: index into g.hires of the post they garrison. */
   post?: number;
+  /** ashore teleport clamp when the owner is in water. */
+  landX?: number;
+  landY?: number;
   [key: string]: unknown;
 }
 
@@ -507,7 +633,8 @@ export interface Shot {
   radius: Px;
   kind: string;
   pid?: Pid;
-  team?: Team;
+  /** owning team slot (a small int; pvp/siege shots). */
+  team?: number;
   /** Kill-credit seat (null/absent for turrets/followers/converted enemies). */
   ownerPid?: Pid;
   /** Ids/entities already hit (pierce bookkeeping). */
@@ -534,6 +661,8 @@ export interface Patch {
   pid?: Pid;
   /** True for enemy/ambient patches that hurt players. */
   hostile?: boolean;
+  /** Owning team (siege-trap patches; -1 unclaimed). */
+  team?: number;
 }
 
 /** A shard drop (dropped on enemy death / objectives). */
@@ -556,7 +685,8 @@ export interface Cracker {
   landed: boolean;
   fuse: number;
   pid: Pid;
-  team?: Team;
+  /** thrower's team slot (a small int; pvp). */
+  team?: number;
 }
 
 /** A floating power-up pickup. */
@@ -584,6 +714,9 @@ export interface Superweapon {
   ownerPid: Pid;
   hp: number;
   maxHp: number;
+  /** auto-target reticle (set once it locks the densest cluster). */
+  targetX?: Px;
+  targetY?: Px;
 }
 
 /** A live hazard field: a nuke's flight telegraph, the radiation pool it
@@ -601,6 +734,8 @@ export interface Hazard {
   strikeT?: number;
   strikes?: number;
   ownerPid?: Pid;
+  /** marks the hazard for removal this tick. */
+  done?: boolean;
 }
 
 // ===========================================================================
@@ -609,7 +744,7 @@ export interface Hazard {
 export interface Wave {
   at: number;
   letters: string;
-  edge?: unknown;
+  edge?: string;
   fired: boolean;
 }
 
@@ -618,6 +753,15 @@ export interface BastionConfig {
   dayLen: number;
   nightLen: number;
   bloodMoons: number[];
+  /** daily-twist modifiers (merged from def.bastion / DAILY_TWISTS). */
+  waveMult?: number;
+  bossEvery?: number;
+  bloodEvery?: number;
+  wavesPerNight?: number;
+  /** enemy letter roster the night waves draw from. */
+  roster?: string[];
+  /** endless-mode flag (daily challenge). */
+  endless?: boolean;
   [key: string]: unknown;
 }
 
@@ -644,7 +788,8 @@ export interface Capture {
   threshold: number;
   decay: number;
   contest: boolean;
-  ownerT: Team;
+  /** owner-progress timer (also doubles as the controlling team slot). */
+  ownerT: number;
   contested: boolean;
   held: boolean;
 }
@@ -680,6 +825,10 @@ export interface Zone {
   r: Px;
   targetR: Px;
   shrinkT: number;
+  /** final-collapse clock once the schedule is exhausted. */
+  finalT?: number;
+  /** true once the zone enters its terminal collapse. */
+  collapsing?: boolean;
 }
 
 export interface BrShrink {
@@ -688,16 +837,33 @@ export interface BrShrink {
   fired: boolean;
 }
 
+/** An objective reward payload (quest/switch-group/glyph-group). Open-ended but
+ * the sim reads these specific keys. */
+export interface Reward {
+  shards?: number;
+  item?: string;
+  weapon?: string;
+  openDoor?: string;
+  door?: string;
+  /** id of a quest to advance. */
+  quest?: string;
+  [k: string]: unknown;
+}
+
+/** A quest target — either a tag string or a reach point (tile coords). */
+export type QuestTarget = string | { x: number; y: number } | null;
+
 export interface QuestState {
   id: string;
   main: boolean;
   title: string;
   giver: string;
-  kind: string;
-  item: unknown;
-  target: unknown;
+  /** quest kind ('fetch'|'reach'|'kill'|...); absent on a bare giver quest. */
+  kind?: string;
+  item?: string;
+  target?: QuestTarget;
   count: number;
-  reward: unknown | null;
+  reward: Reward | null;
   hint: string;
   /** 'hidden' | 'active' | 'done' (etc.). */
   state: string;
@@ -709,7 +875,7 @@ export interface SwitchGroup {
   need: number;
   of: number;
   window: number;
-  reward: unknown | null;
+  reward: Reward | null;
   windowT: number;
   done: boolean;
 }
@@ -717,7 +883,7 @@ export interface SwitchGroup {
 export interface GlyphGroup {
   group: number;
   order: number[];
-  reward: unknown | null;
+  reward: Reward | null;
   done: boolean;
 }
 
@@ -767,6 +933,18 @@ export interface Ship {
 // Anchor Siege (MOBA) state
 // ===========================================================================
 export interface SiegeMinion {
+  id: number;
+  team: number;
+  laneI: number;
+  x: Px;
+  y: Px;
+  hp: number;
+  maxHp: number;
+  /** index of the next lane waypoint. */
+  pathIdx: number;
+  score: number;
+  /** non-grunt minion kind (grunt ships no kind field). */
+  kind?: string;
   [key: string]: unknown;
 }
 
@@ -892,8 +1070,8 @@ export interface Horde {
 // `type`; the remaining payload is per-event and heterogeneous.
 export interface GameEvent {
   type: GameEventType;
-  x?: Px;
-  y?: Px;
+  x?: Px | null;
+  y?: Px | null;
   [key: string]: unknown;
 }
 
@@ -988,7 +1166,7 @@ export interface Game {
 
   // --- economy ---
   shards: number;
-  shopOffers: unknown[];
+  shopOffers: ShopOffer[];
 
   // --- relic superweapon ---
   superweaponUnlocked: boolean;
@@ -1022,7 +1200,7 @@ export interface Game {
   caps: [number, number] | null;
   teamShards: [number, number] | null;
   grabs: [number, number] | null;
-  sdFirstGrab: Team | null;
+  sdFirstGrab: number | null;
   suddenT: number;
   suddenDeath: boolean;
   zone: Zone | null;
@@ -1041,13 +1219,14 @@ export interface Game {
 
   // --- match outcome ---
   status: string; // 'play' | 'cleared' | 'failed' (etc.)
-  winner?: unknown;
+  /** winning team slot (a small int), or null/undefined while the match runs. */
+  winner?: number | null;
   lastOut: unknown | null;
   rescued: string[];
 
   // --- meta / scoring ---
   roster: string[];
-  charMap: unknown;
+  charMap: CharacterMap;
   score: number;
   kills: number;
   combo: number;
@@ -1078,4 +1257,14 @@ export interface Game {
   gnawBudget?: number;
   /** Beacon-defense relight grace clock. */
   beaconGraceT?: number | null;
+  /** DEV cheat toggles (never set by the sim; injected by the dev harness). */
+  cheats?: {
+    god?: boolean;
+    coreInvuln?: boolean;
+    instantKill?: boolean;
+    instantBuild?: boolean;
+    pauseTime?: boolean;
+    speed?: number;
+    [k: string]: unknown;
+  };
 }

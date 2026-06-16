@@ -48,6 +48,7 @@ export type GameEventType =
   | 'capture'
   | 'captureState'
   | 'captureWin'
+  | 'chest'
   | 'clear'
   | 'converted'
   | 'coreDown'

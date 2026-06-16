@@ -542,7 +542,7 @@ function aoiView(base: Snapshot, pids: Pid[]): Snapshot {
 // this state tick and catches up on the next under-threshold one; levelStart/
 // levelEnd/lobby/cutscene are never skipped (they go through broadcast/sendTo).
 function broadcastState(room: Room) {
-  const base = snapshot(room.game, false) as Snapshot & { mini?: number[][] };
+  const base = snapshot(room.game!, false) as Snapshot & { mini?: number[][] };
   room.tick++;
   if (room.tick % 3 === 0) base.mini = base.enemies.map(e => [Math.round(e.x / TILE), Math.round(e.y / TILE)]);
   const byWs = new Map<WebSocket, Pid[]>();
@@ -575,7 +575,7 @@ function lobbyState(room: Room): OutMsg {
   // daily online: resolve today's map + twist for the lobby label
   let dailyMap = null, dailyLabel = null;
   if (room.daily) {
-    const spec = dailyChallenge(room.dailyDate, bastionLevels.length);
+    const spec = dailyChallenge(room.dailyDate!, bastionLevels.length);
     const m = bastionLevels[spec.mapIdx];
     dailyMap = m?.stronghold?.name || m?.name || null;
     dailyLabel = spec.label;
@@ -636,7 +636,7 @@ function reviveSeat(g: Game, pid: Pid) {
     const q = g.players.find(pl => pl.pid === pid);
     if (!q || q.state !== 'out') return;
     if (q.charId) { q.state = 'down'; q.respawn = 1; }
-    else { q.state = 'pick'; q.pickIdx = 0; q.pickPrev = { left: true, right: true, fire: true } as unknown as boolean; }
+    else { q.state = 'pick'; q.pickIdx = 0; q.pickPrev = { left: true, right: true, fire: true }; }
     return;
   }
   if (g.mode === 'br') return;
@@ -770,7 +770,7 @@ function startLevel(room: Room) {
   // every host worldwide runs the same siege (matches the client's local daily).
   let dailyMods = null;
   if (room.daily) {
-    const spec = dailyChallenge(room.dailyDate, bastionLevels.length);
+    const spec = dailyChallenge(room.dailyDate!, bastionLevels.length);
     baseDef = bastionLevels[spec.mapIdx] || baseDef;
     dailyMods = spec.mods;
   }
@@ -800,7 +800,7 @@ function startLevel(room: Room) {
     }
     const inputs: Record<number, unknown> = {};
     for (const p of room.players.values()) inputs[p.pid] = p.input;
-    step(room.game, inputs, TICK);
+    step(room.game!, inputs as Parameters<typeof step>[1], TICK);
     broadcastState(room);
     if (room.game!.status !== 'play') endLevel(room);
   }, TICK * 1000);
@@ -991,7 +991,7 @@ wss.on('connection', (ws, req) => {
         // levelStart-style full snapshot (grid included) — held aside so the
         // tick's pending events aren't drained away from the room
         const pending = r.game!.events.splice(0);
-        sendTo(me, { t: 'levelStart', s: snapshot(r.game, true), mode: r.mode, levelIdx: r.levelIdx });
+        sendTo(me, { t: 'levelStart', s: snapshot(r.game!, true), mode: r.mode, levelIdx: r.levelIdx });
         r.game!.events.push(...pending);
         return;
       }

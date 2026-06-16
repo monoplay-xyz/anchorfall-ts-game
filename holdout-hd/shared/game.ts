@@ -1,6 +1,30 @@
-// @ts-nocheck — TS migration (issue #4): runtime-migrated to .ts, types pending.
+// TS migration (issue #4): runtime-migrated to .ts, strict-typed (sim + wire contracts).
 // Core simulation shared by the Node server (online co-op) and the browser (solo).
 // All distances are in pixels; speeds in characters.json are tiles/second.
+
+import type {
+  Game,
+  Player,
+  Enemy,
+  Shot,
+  Build,
+  Follower,
+  Captive,
+  GameEvent,
+  Patch,
+  Powerup,
+  Hazard,
+  Superweapon,
+  SiegeMinion,
+  Reward,
+  ShopOffer,
+  QuestState,
+} from '../types/entities';
+import type { Snapshot, SnapStatus, Difficulty as SnapDifficulty } from '../types/snapshot';
+import type { Inputs, Input } from '../types/input';
+import type { LevelDef, ParsedLevel } from '../types/level';
+import type { CharacterDef, CharacterMap } from '../types/character';
+import type { PowerupType } from '../types/common';
 
 // RELIC AWAKENING horde: the event runs for EXACTLY the level track's length
 // (the song plays once, no loop). These exact per-track seconds are the
@@ -19,7 +43,19 @@ const SHOT_R = 5;
 const CAPTIVE_R = 12;
 const RESPAWN_DELAY = 2;
 
-const ENEMY_STATS = {
+interface EnemyStat {
+  kind: string;
+  hp: number;
+  speed: number;
+  score: number;
+  aggro: number;
+  range?: number;
+  cool?: number;
+  spawnCool?: number;
+  meleeDmg?: number;
+  chillImmune?: boolean;
+}
+const ENEMY_STATS: Record<string, EnemyStat> = {
   g: { kind: 'grunt', hp: 2, speed: 1.25, score: 100, aggro: 9 },
   a: { kind: 'archer', hp: 1, speed: 0, range: 7, cool: 1, score: 125, aggro: 9.5 },
   r: { kind: 'charger', hp: 3, speed: 1.0, range: 4.2, cool: 1.2, score: 175, aggro: 9 },
@@ -121,13 +157,13 @@ const HORDE_PER_EDGE_MAX = 4;  // enemies per edge at the climax
 // default) halves the pressure, 'easy' relaxes it further. This is a legit
 // setting (NOT a cheat): it never sets g.devMode and scores still count.
 const DIFFICULTY_SCALE = { easy: 0.35, normal: 0.5, extreme: 1 };
-function difficultyScale(d) {
-  return DIFFICULTY_SCALE[d] !== undefined ? DIFFICULTY_SCALE[d] : 1;
+function difficultyScale(d: string): number {
+  return DIFFICULTY_SCALE[d as keyof typeof DIFFICULTY_SCALE] !== undefined ? DIFFICULTY_SCALE[d as keyof typeof DIFFICULTY_SCALE] : 1;
 }
 // Scale an integer spawn count by g.enemyScale, deterministically and never
 // dropping a required spawn to zero: round to nearest, but keep at least 1
 // whenever the un-scaled count asked for at least 1.
-function scaleCount(g, n) {
+function scaleCount(g: Game,  n: number): number {
   if (n <= 0) return n;
   const s = (g && g.enemyScale !== undefined) ? g.enemyScale : 1;
   if (s >= 1) return n;
@@ -138,8 +174,8 @@ const HORDE_BASE_BONUS = 5000;
 const HORDE_FLOOR_BONUS = 500;
 const HORDE_HIT_PENALTY = 60;
 const HORDE_DEATH_PENALTY = 400;
-function hordeDur(g) {
-  return MUSIC_DURATIONS[`${g.musicBox.mode}-${g.musicBox.stem}`] || RELIC_WAVE_FALLBACK;
+function hordeDur(g: Game): number {
+  return (MUSIC_DURATIONS as Record<string, number>)[`${g.musicBox!.mode}-${g.musicBox!.stem}`] || RELIC_WAVE_FALLBACK;
 }
 
 // --- RELIC SUPERWEAPON (RA2-style nuke / weather machine) ------------------
@@ -185,7 +221,7 @@ const START_GRACE = 2.5;
 const ENEMY_LETTERS = new Set(Object.keys(ENEMY_STATS));
 
 // Shards dropped on death, by kind. Deterministic, always.
-const SHARD_DROPS = {
+const SHARD_DROPS: Record<string, number> = {
   grunt: 1, archer: 1, skitter: 1, charger: 2, sniper: 2, bulwark: 2, spawner: 3, boss: 12,
   husk: 1, alpha: 2, acolyte: 2, wraith: 2, stalker: 3, beetle: 1,
   // biome roster drops (map-overhaul): tanks pay more, fodder less
@@ -214,7 +250,7 @@ const POWERUP_FREESPRINT_T = 30;    // seconds sprint never drains stamina
 const POWERUP_NUKE_KILLS = 10;      // enemies a nuke deletes (fewer if <10 live)
 // Weighted rarity — Full Health most common, Nuke rarest ("one more than the
 // other"). Order fixed so the deterministic weighted pick is stable everywhere.
-const POWERUP_WEIGHTS = [
+const POWERUP_WEIGHTS: [PowerupType, number][] = [
   ['fullhealth', 40],
   ['stamina', 25],
   ['firesale', 18],
@@ -230,7 +266,7 @@ const BUILD_REACH = 1.5; // tiles, act range for building and talking
 // then confirm drops the structure (consuming one) or cancel exits free. The
 // cursor (placementCursor) is generic so the superweapon phase reuses it for
 // map targeting. PLACEABLES: inventory kind -> the g.builds structure it lays.
-const PLACEABLES = {
+const PLACEABLES: Record<string, { build: string; cost: number; drag?: boolean }> = {
   turret: { build: 'turret', cost: 8 },
   wall: { build: 'wall', cost: 1, drag: true }, // drag-to-line, 1 shard per segment
   barricade: { build: 'barricade', cost: 4 },
@@ -311,12 +347,12 @@ const DAILY_TWISTS = [
   { id: 'bossrush',  label: 'Boss Rush',      mods: { bossEvery: 3 } },           // a boss every 3rd night
   { id: 'onslaught', label: 'Onslaught',      mods: { wavesPerNight: 2, waveMult: 1.2 } }, // two waves a night
 ];
-function dailyHash(s) {
+function dailyHash(s: string) {
   let h = 2166136261; // FNV-1a (deterministic, no Math.random/Date)
   for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
   return (h >>> 0);
 }
-export function dailyChallenge(dateStr, mapCount) {
+export function dailyChallenge(dateStr: string,  mapCount: number) {
   const h = dailyHash(String(dateStr));
   const mapIdx = mapCount > 0 ? h % mapCount : 0;
   const tw = DAILY_TWISTS[(h >>> 8) % DAILY_TWISTS.length]; // independent bits → map and twist vary apart
@@ -329,19 +365,19 @@ const WAVE_DISENGAGE = 9; // tiles: it resumes the march once they slip this far
 // 'wall' is the frontier IV fortified segment (cost 1 per segment): a real
 // damageable structure, so stronghold bases ship as PREBUILT wall perimeters
 // instead of indestructible '#' rock.
-const STRUCT_HP = { barricade: [14, 22, 32], turret: [10, 14, 18], tower: [20, 28, 38], wall: [20, 35, 60] };
+const STRUCT_HP: Record<string, number[]> = { barricade: [14, 22, 32], turret: [10, 14, 18], tower: [20, 28, 38], wall: [20, 35, 60] };
 const TURRET_DMG = [1, 2, 3];
 const TURRET_RANGE = [5.5, 6, 6.5]; // tiles, targeting radius by level
 const TURRET_PERIOD = 0.55; // seconds between gun shots (reliable single-target dps)
 const REPAIR_TICK = 0.5; // seconds per hp repaired
 const REPAIR_COST = 1 / 3; // shards per hp (1 shard per 3 hp)
-const UPGRADE_COST = lvl => lvl * 8; // shards to go from lvl to lvl+1
+const UPGRADE_COST = (lvl: number) => lvl * 8; // shards to go from lvl to lvl+1
 const TOWER_BONUS = [0.35, 0.5, 0.65]; // occupant range bonus by tower level
 const TOWER_MOUNT_REACH = 0.9; // tiles: stand at the base to climb; the wider
 // hold-act ring (out to BUILD_REACH) stays free for repair/upgrade/rebuild
 const TOWER_REBUILD_COST = 10;
 const SHOP_REACH = 1.5; // tiles
-const SHOP_OFFERS = [
+const SHOP_OFFERS: ShopOffer[] = [
   { what: 'token', cost: 20 },
   { what: 'shield', cost: 12 },
   { what: 'cracker', cost: 8, amount: 2 },
@@ -395,7 +431,7 @@ const MINION_TOWER_DPS = 0.5;           // hp/s a minion gnaws an enemy tower
 // byte-identical (kind === 'grunt' ships no extra fields — see spawnSiegeWave +
 // the snapshot gate). TANK: a slow, fat lane-breaker whose contact aura SLOWS
 // heroes; WAR MONGER: an elite faster pusher that hits cores/towers harder.
-const MINION_KINDS = {
+const MINION_KINDS: Record<string, { hpMul: number; speedMul: number; score: number; coreDpsMul: number; towerDpsMul: number; slow: number }> = {
   grunt:     { hpMul: 1,    speedMul: 1,    score: MINION_SCORE,      coreDpsMul: 1,   towerDpsMul: 1,   slow: 0 },
   tank:      { hpMul: 4,    speedMul: 0.55, score: MINION_SCORE * 2,  coreDpsMul: 1.2, towerDpsMul: 1.2, slow: 0.6 },
   warmonger: { hpMul: 2,    speedMul: 1.35, score: MINION_SCORE * 2,  coreDpsMul: 2,   towerDpsMul: 2,   slow: 0 },
@@ -472,7 +508,7 @@ const TOX_T = 2; // seconds intoxicated, 0.5 dmg per second
 const TOXIN_SLOW = 0.6; // player speed multiplier inside a toxin patch (everyone)
 const STUN_T = 0.4; // shock-evolution stun
 const FOLLOWER_JOBS = new Set(['hound', 'archer', 'caster']);
-const FOLLOWER_STATS = { hound: { hp: 2, speed: 2.6 }, archer: { hp: 2, speed: 3.0 }, caster: { hp: 2, speed: 3.0 } };
+const FOLLOWER_STATS: Record<string, { hp: number; speed: number }> = { hound: { hp: 2, speed: 2.6 }, archer: { hp: 2, speed: 3.0 }, caster: { hp: 2, speed: 3.0 } };
 const FOLLOWER_R = 12;
 const FOLLOWER_ENGAGE = 5; // tiles from the OWNER inside which followers engage
 const FOLLOWER_ADRIFT = 12; // tiles adrift before teleporting back to the owner
@@ -526,7 +562,23 @@ const BRINEHULK_SAP = 2;        // structure damage multiplier on a Brine Hulk g
 // Field weapon pickups (letter 'A'): self-contained weapon defs. They replace
 // the carrier's main FIRE outright — no evolutions, their own cooldown; shop
 // dmgBonus still rides via fireWeapon. `ammo` is the full-load default.
-const FIELD_WEAPONS = {
+interface FieldWeaponStat {
+  kind: string;
+  damage: number;
+  projSpeed: number;
+  range: number;
+  count: number;
+  cooldown: number;
+  ammo: number;
+  spreadDeg?: number;
+  ignite?: boolean;
+  pierce?: number;
+  stun?: number;
+  shockArc?: boolean;
+  aoeRadius?: number;
+  overWalls?: boolean;
+}
+const FIELD_WEAPONS: Record<string, FieldWeaponStat> = {
   // cone of 5 short burn shots every 0.3s; each volley sips 1 fuel of 90
   flamer: { kind: 'flamer', damage: 1, projSpeed: 7, range: 2.6, count: 5, spreadDeg: 24, ignite: true, cooldown: 0.3, ammo: 90 },
   railcannon: { kind: 'railcannon', damage: 5, projSpeed: 20, range: 13, count: 1, pierce: 6, cooldown: 1.4, ammo: 10 },
@@ -569,7 +621,7 @@ const RELIGHT_COST = 8; // shards to relight a dark beacon
 // Beacon-defense fail threshold scales with difficulty: keep at least this many
 // monoliths lit (clamped to the beacon count). Drop below it and a recovery
 // grace starts; relight back to the threshold or the mission fails.
-const BEACON_THRESHOLD = { easy: 1, normal: 2, extreme: 3 };
+const BEACON_THRESHOLD: Record<string, number> = { easy: 1, normal: 2, extreme: 3 };
 const BEACON_GRACE_T = 10; // seconds below threshold before the mission fails
 const RELIGHT_HOLD_T = 1.5; // seconds of act-hold at the dark monolith
 // Anchorcraft early extraction: from night 2 on, all four beacons lit AT NIGHT
@@ -634,7 +686,7 @@ const STRONGHOLD_GARRISON = 'ggrsa'; // default garrison letters (guards + defen
 // Toxic air (def.modifiers.toxicAir {until}): unmasked operatives bleed
 // 0.5 hp per 4s until the deadline. The mask item is persistent once worn.
 const TOXIC_AIR_TICK = 4;
-const MASK_OFFER = { what: 'mask', cost: 10, amount: 1 };
+const MASK_OFFER: ShopOffer = { what: 'mask', cost: 10, amount: 1 };
 // RA2 buy-then-place stock: defense maps (bastion/stronghold) stall a deck of
 // placeable structures beyond the standard five. `place: true` routes them
 // through addToInventory (see buyOffer) — the operative then cycles inventory
@@ -642,7 +694,7 @@ const MASK_OFFER = { what: 'mask', cost: 10, amount: 1 };
 // PLACEABLES (turret 8, wall 1/segment, barricade 4). Appended the same way
 // MASK_OFFER is, so classic/PvP stalls keep the implicit five and stay byte-
 // stable on the wire.
-const PLACEABLE_OFFERS = [
+const PLACEABLE_OFFERS: ShopOffer[] = [
   { what: 'turret', cost: 8, place: true },
   { what: 'wall', cost: 1, amount: 1, place: true, drag: true },
   { what: 'barricade', cost: 4, place: true },
@@ -655,7 +707,26 @@ const PLACEABLE_OFFERS = [
 // all sharing the toxic-air math (~0.5 hp/4s, immuneItem grants immunity).
 // ambientPatches (optional) seeds deterministic ground patches on a fixed
 // clock — no Math.random, the emitter walks a counter like the siege waves.
-const THEMES = {
+interface ThemeAmbientHazard {
+  kind: string;
+  tick: number;
+  dmg: number;
+  immuneItem: string;
+}
+interface ThemeAmbientPatches {
+  kind: string;
+  everySec: number;
+  r: number;
+  ttl: number;
+  cap: number;
+}
+interface ThemeDef {
+  weather: string | null;
+  dark: boolean;
+  ambientHazard: ThemeAmbientHazard | null;
+  ambientPatches?: ThemeAmbientPatches;
+}
+const THEMES: Record<string, ThemeDef> = {
   lava:    { weather: null,   dark: false, ambientHazard: { kind: 'fire',      tick: TOXIC_AIR_TICK, dmg: 0.5, immuneItem: 'mask' } },
   toxic:   { weather: null,   dark: false, ambientHazard: { kind: 'toxin',     tick: TOXIC_AIR_TICK, dmg: 0.5, immuneItem: 'mask' } },
   nuclear: { weather: null,   dark: false, ambientHazard: { kind: 'radiation', tick: TOXIC_AIR_TICK, dmg: 0.5, immuneItem: 'mask' } },
@@ -682,7 +753,7 @@ const THEMES = {
   reliquary:  { weather: null,       dark: false, ambientHazard: null }, // sacred, clear
 };
 
-function buildMaxHp(kind) {
+function buildMaxHp(kind: string) {
   if (kind === 'barricade') return 14;
   if (kind === 'turret') return 10;
   if (kind === 'farm') return 6;
@@ -693,25 +764,25 @@ function buildMaxHp(kind) {
 
 // Built structures that are never gnawed, repaired, upgraded or dismantled:
 // pylons (gate anchors) and save beacons (checkpoints are sacrosanct).
-function inertBuild(kind) { return kind === 'pylon' || kind === 'beacon'; }
+function inertBuild(kind: string) { return kind === 'pylon' || kind === 'beacon'; }
 
 // Deterministic chest loot: def.chests binds row-major; missing entries fall
 // back to a fixed cycle by index. Shard chests pay 6-12 by index.
-function chestLoot(def, i) {
+function chestLoot(def: LevelDef,  i: number) {
   const cd = (def.chests || [])[i] || {};
   const loot = cd.loot || CHEST_LOOTS[i % CHEST_LOOTS.length];
   const amount = cd.amount ?? (loot === 'shards' ? 6 + (i % 7) : loot === 'cracker' ? 2 : 1);
   return { loot, amount };
 }
 
-export function charsById(characters) {
-  const m = {};
+export function charsById(characters: CharacterDef[]): CharacterMap {
+  const m: CharacterMap = {};
   for (const c of characters) m[c.id] = c;
   return m;
 }
 
-function makeEnemy(letter, x, y, id) {
-  const def = ENEMY_STATS[letter] || ENEMY_STATS.g;
+function makeEnemy(letter: string, x: number, y: number, id: number): Enemy {
+  const def = ENEMY_STATS[letter as keyof typeof ENEMY_STATS] || ENEMY_STATS.g;
   return {
     id,
     letter,
@@ -753,7 +824,7 @@ function makeEnemy(letter, x, y, id) {
 // Stronghold strength scaling: applied once at spawn, BEFORE mutations (a
 // bulk mutant doubles the scaled pool) and blood-moon/late-night additives.
 // Ceil keeps hp integral and the scaling deterministic.
-function scaleEnemyHp(mult, e) {
+function scaleEnemyHp(mult: number,  e: Enemy) {
   if (!(mult > 1)) return;
   e.hp = Math.ceil(e.hp * mult);
   e.maxHp = Math.ceil(e.maxHp * mult);
@@ -762,43 +833,43 @@ function scaleEnemyHp(mult, e) {
 // GROUP ALERT: a camp member that spots trouble (sight or bump — never a
 // silent long-range kill) wakes its whole camp on a deterministic 0.25..1s
 // stagger. Members already waking keep their earlier clock.
-function alertGroup(g, e) {
+function alertGroup(g: Game,  e: Enemy) {
   if (e.group === undefined) return;
   let k = 0;
   for (const o of g.enemies) {
     if (o === e || o.dead || o.awake || o.group !== e.group) continue;
-    if (!(o.groupWakeT > 0)) o.groupWakeT = 0.25 + (k % 4) * 0.25;
+    if (!(o.groupWakeT! > 0)) o.groupWakeT = 0.25 + (k % 4) * 0.25;
     k++;
   }
 }
 
-export function parseLevel(def) {
+export function parseLevel(def: LevelDef): ParsedLevel {
   const grid = def.tiles.map(r => r.split(''));
   const h = grid.length;
   const w = grid[0].length;
-  const spawns = [];
-  const captives = [];
-  const enemies = [];
-  const npcs = [];
-  const builds = [];
-  const crystals = [];
-  const chests = [];
-  const vehicles = [];
-  const towers = [];
-  const shops = [];
-  const hires = [];
-  const flags = [];
-  const pickups = [];
-  const qitems = [];
-  const switches = [];
-  const glyphs = [];
-  const pillars = [];
-  const forges = [];
-  const teleports = [];
-  const siegePrisms = []; // 'p' neutral MOBA prism emplacements (siege maps)
-  const siegeTraps = []; // 't' timed-trap emplacements (siege maps)
-  const cores = []; // every 'K' monolith (beacon-defense maps field four)
-  let core = null;
+  const spawns: ParsedLevel['spawns'] = [];
+  const captives: ParsedLevel['captives'] = [];
+  const enemies: ParsedLevel['enemies'] = [];
+  const npcs: ParsedLevel['npcs'] = [];
+  const builds: ParsedLevel['builds'] = [];
+  const crystals: ParsedLevel['crystals'] = [];
+  const chests: ParsedLevel['chests'] = [];
+  const vehicles: ParsedLevel['vehicles'] = [];
+  const towers: ParsedLevel['towers'] = [];
+  const shops: ParsedLevel['shops'] = [];
+  const hires: ParsedLevel['hires'] = [];
+  const flags: ParsedLevel['flags'] = [];
+  const pickups: ParsedLevel['pickups'] = [];
+  const qitems: ParsedLevel['qitems'] = [];
+  const switches: ParsedLevel['switches'] = [];
+  const glyphs: ParsedLevel['glyphs'] = [];
+  const pillars: ParsedLevel['pillars'] = [];
+  const forges: ParsedLevel['forges'] = [];
+  const teleports: ParsedLevel['teleports'] = [];
+  const siegePrisms: ParsedLevel['siegePrisms'] = []; // 'p' neutral MOBA prism emplacements (siege maps)
+  const siegeTraps: ParsedLevel['siegeTraps'] = []; // 't' timed-trap emplacements (siege maps)
+  const cores: ParsedLevel['cores'] = []; // every 'K' monolith (beacon-defense maps field four)
+  let core: ParsedLevel['core'] = null;
   let ci = 0;
   let ni = 0;
   let bi = 0;
@@ -825,15 +896,15 @@ export function parseLevel(def) {
           // prebuilt:true ships the structure already standing (paid in
           // full) — stronghold base perimeters are prebuilt wall segments.
           // An optional bd.level (leveled kinds only) pre-upgrades it.
-          const lvl0 = STRUCT_HP[bd.kind] ? Math.min(3, Math.max(1, bd.level || 1)) : undefined;
+          const lvl0 = STRUCT_HP[bd.kind as keyof typeof STRUCT_HP] ? Math.min(3, Math.max(1, bd.level || 1)) : undefined;
           // a prebuilt prism turret ships on its fragile HP track (RA2 nerf)
           const prebuiltPrism = bd.prebuilt && bd.kind === 'turret' && bd.ttype === 'prism';
           const maxHp = prebuiltPrism ? turretMaxHp('prism', lvl0 || 1)
-            : lvl0 !== undefined ? STRUCT_HP[bd.kind][lvl0 - 1] : buildMaxHp(bd.kind);
+            : lvl0 !== undefined ? STRUCT_HP[bd.kind as keyof typeof STRUCT_HP][lvl0 - 1] : buildMaxHp(bd.kind);
           builds.push({
             x: px, y: py, kind: bd.kind, cost: bd.cost,
             progress: bd.prebuilt ? 1 : 0,
-            paid: bd.prebuilt ? bd.cost : 0,
+            paid: bd.prebuilt ? bd.cost! : 0,
             built: !!bd.prebuilt,
             hp: bd.prebuilt ? maxHp : 0, maxHp,
             cool: 0, evT: 0,
@@ -843,7 +914,7 @@ export function parseLevel(def) {
             ...(bd.prebuilt ? { invested: bd.cost } : {}),
             // a prebuilt turret skips the type carousel: def.ttype or 'gun'
             ...(bd.prebuilt && bd.kind === 'turret'
-              ? { ttype: TURRET_TYPES.includes(bd.ttype) ? bd.ttype : 'gun' } : {}),
+              ? { ttype: TURRET_TYPES.includes(bd.ttype!) ? bd.ttype : 'gun' } : {}),
           });
         }
         grid[y][x] = '.';
@@ -885,7 +956,7 @@ export function parseLevel(def) {
         // field weapon pickups: def.pickups binds row-major; missing entries
         // cycle the four field kinds deterministically by index
         const pd = (def.pickups || [])[pickups.length] || {};
-        const kind = FIELD_WEAPONS[pd.kind] ? pd.kind : FIELD_KINDS[pickups.length % FIELD_KINDS.length];
+        const kind = FIELD_WEAPONS[pd.kind as string] ? pd.kind! : FIELD_KINDS[pickups.length % FIELD_KINDS.length];
         pickups.push({ id: 'fw' + pickups.length, x: px, y: py, kind, ammo: pd.ammo ?? FIELD_WEAPONS[kind].ammo });
         grid[y][x] = '.';
       } else if (c === 'I') {
@@ -948,7 +1019,7 @@ export function parseLevel(def) {
   return { grid: grid.map(r => r.join('')), w, h, spawns, captives, enemies, npcs, builds, crystals, chests, vehicles, towers, shops, hires, flags, pickups, qitems, switches, glyphs, pillars, forges, teleports, siegePrisms, siegeTraps, core, cores };
 }
 
-export function createGame(def, party, charMap, roster) {
+export function createGame(def: LevelDef, party: any[], charMap: CharacterMap, roster: string[]): Game {
   const lvl = parseLevel(def);
   const mods = def.modifiers || {};
   const pvp = def.mode === 'ctf' || def.mode === 'br';
@@ -978,7 +1049,7 @@ export function createGame(def, party, charMap, roster) {
   // Alive-world bindings, by home tile (row-major spawn position):
   // def.patrols [{at:[x,y], points:[[x,y],...]}] gives a sleeping enemy a
   // waypoint loop; def.groups [[[x,y],...], ...] stamps camp group ids.
-  const atTile = (x, y) => lvl.enemies.find(e2 => e2.homeX === (x + 0.5) * TILE && e2.homeY === (y + 0.5) * TILE);
+  const atTile = (x: number, y: number) => lvl.enemies.find(e2 => e2.homeX === (x + 0.5) * TILE && e2.homeY === (y + 0.5) * TILE);
   for (const pd of def.patrols || []) {
     const e = pd.at && atTile(pd.at[0], pd.at[1]);
     if (e && Array.isArray(pd.points) && pd.points.length) {
@@ -1037,14 +1108,14 @@ export function createGame(def, party, charMap, roster) {
     }
   }
   // --- Anchor Siege setup: two team cores, lane waypoints, pre-placed towers ---
-  let siegeCores = null, siegeState = null, siegeTowers = null, siegePrisms = null, siegeTraps = null, nextSiegeId = 1;
+  let siegeCores: Game['cores'] = null, siegeState: Game['siege'] = null, siegeTowers: Game['siegeTowers'] = null, siegePrisms: Game['siegePrisms'] = null, siegeTraps: Game['siegeTraps'] = null, nextSiegeId = 1;
   if (siege) {
     // exactly two 'K' cores; team by position — the core LOWER on the map
     // (larger y) is team 0 (bottom-left base), the other is team 1.
     const cs = lvl.cores.slice(0, 2).sort((a, b) => b.y - a.y);
     const chp = (def.siege && def.siege.coreHp) || SIEGE_CORE_HP;
     siegeCores = cs.map((c, i) => ({ x: c.x, y: c.y, hp: chp, maxHp: chp, lit: true, team: i }));
-    const toPx = ([tx, ty]) => ({ x: (tx + 0.5) * TILE, y: (ty + 0.5) * TILE });
+    const toPx = ([tx, ty]: [number, number]) => ({ x: (tx + 0.5) * TILE, y: (ty + 0.5) * TILE });
     const lanes = ((def.siege && def.siege.lanes) || []).map(l => ({ waypoints: (l.waypoints || []).map(toPx) }));
     siegeState = {
       minions: [], nextMinionId: 9000, spawnT: [3, 3], waveNo: [0, 0],
@@ -1085,7 +1156,7 @@ export function createGame(def, party, charMap, roster) {
   const theme = (typeof def.theme === 'string' && THEMES[def.theme]) ? def.theme : null;
   const tdef = theme ? THEMES[theme] : null;
   // theme weather only applies when the def names no weather of its own.
-  const themeWeather = tdef && WEATHERS.has(tdef.weather) ? tdef.weather : null;
+  const themeWeather = tdef && WEATHERS.has(tdef.weather as string) ? tdef.weather : null;
   // toxicAir modifier maps onto an ambientHazard of kind 'toxin'; otherwise a
   // theme supplies the ambient hazard. The two never stack (modifier wins).
   const ambientHazard = mods.toxicAir
@@ -1103,7 +1174,7 @@ export function createGame(def, party, charMap, roster) {
   // --- NEW OBJECTIVE STATE (map-overhaul, all def-gated) ----------------------
   // tile-center px from a point in TILE indices. Authors may write either
   // { x, y } or [x, y] (both accepted) — the engine normalizes to pixel center.
-  const toTilePx = pt => {
+  const toTilePx = (pt: [number, number] | { x: number; y: number }) => {
     const tx = Array.isArray(pt) ? pt[0] : pt.x;
     const ty = Array.isArray(pt) ? pt[1] : pt.y;
     return { x: (tx + 0.5) * TILE, y: (ty + 0.5) * TILE };
@@ -1111,7 +1182,7 @@ export function createGame(def, party, charMap, roster) {
   // capture_hill: a King-of-the-Hill zone. Null unless def.capture is present.
   const capture = def.capture ? (() => {
     const c = { ...CAPTURE_DEFAULTS, ...def.capture };
-    const px = toTilePx(c);
+    const px = toTilePx(c as { x: number; y: number });
     return {
       x: px.x, y: px.y, radius: c.radius, duration: c.duration,
       threshold: Math.max(1, c.threshold | 0), decay: c.decay, contest: !!c.contest,
@@ -1142,7 +1213,7 @@ export function createGame(def, party, charMap, roster) {
     };
   })() : null;
 
-  const g = {
+  const g: Game = {
     name: def.name || 'Untitled',
     objective: def.objective || '',
     grid: lvl.grid, w: lvl.w, h: lvl.h,
@@ -1197,7 +1268,7 @@ export function createGame(def, party, charMap, roster) {
     enemyScale: difficultyScale(def.difficulty || 'normal'),
     // alive world: weather/ambience pass through to snapshots for render/audio
     // (an explicit def.weather wins; otherwise a theme may imply one)
-    weather: WEATHERS.has(def.weather) ? def.weather : themeWeather,
+    weather: WEATHERS.has(def.weather as string) ? def.weather as string : themeWeather,
     ambience: def.ambience || null,
     // Map theme name: drives the render palette + ambient FX. Null when unset.
     theme,
@@ -1409,7 +1480,7 @@ const MUSICBOX_R = 12; // touch radius, captive-sized
 // Nearest open (walkable, non-lava, structure-free) tile to a map corner,
 // scanned inward along the corner diagonal then its neighbourhood. Returns
 // tile-center world coords, or the corner tile center as a last resort.
-function cornerOpenTile(g, cornerX, cornerY) {
+function cornerOpenTile(g: Game,  cornerX: number,  cornerY: number) {
   // cornerX/cornerY are tile indices of the corner; stepX/stepY point inward.
   const stepX = cornerX === 0 ? 1 : -1;
   const stepY = cornerY === 0 ? 1 : -1;
@@ -1436,7 +1507,7 @@ function cornerOpenTile(g, cornerX, cornerY) {
 // Audio stem for this level: "<category>/<filename-stem>" if the server tagged
 // def.key, else rebuild it from the chapter / stronghold numbers. The client
 // turns mode + stem into music/<mode>-<stem>.mp3.
-function musicBoxStem(def) {
+function musicBoxStem(def: LevelDef) {
   const mode = def.story ? 'story' : 'stronghold';
   if (typeof def.key === 'string' && def.key.includes('/')) {
     return { mode, stem: def.key.slice(def.key.lastIndexOf('/') + 1) };
@@ -1449,7 +1520,7 @@ function musicBoxStem(def) {
 // turning the stag into a free shortcut. Scatter stags to deterministic-random
 // open tiles out in the map (away from every spawn), capped at 2 per level.
 // Skiffs (water craft) keep their authored dock positions.
-function placeStags(g, def) {
+function placeStags(g: Game,  def: LevelDef) {
   if (!Array.isArray(g.vehicles) || !g.vehicles.length) return;
   const stags = g.vehicles.filter(v => v.kind === 'stag');
   if (!stags.length) return;
@@ -1457,8 +1528,8 @@ function placeStags(g, def) {
   const keep = stags.slice(0, 2); // max 2
   const sp = g.spawns.length ? g.spawns : [{ x: g.w * TILE / 2, y: g.h * TILE / 2 }];
   const BASE_R = 4.5 * TILE, AWAY_R = 11 * TILE;
-  const inBase = (x, y) => sp.some(s => Math.hypot(x - s.x, y - s.y) < BASE_R);
-  const nearSpawn = (x, y) => sp.some(s => Math.hypot(x - s.x, y - s.y) < AWAY_R);
+  const inBase = (x: number, y: number) => sp.some(s => Math.hypot(x - s.x, y - s.y) < BASE_R);
+  const nearSpawn = (x: number, y: number) => sp.some(s => Math.hypot(x - s.x, y - s.y) < AWAY_R);
   // deterministic LCG seeded by the level identity (same placement everywhere)
   const nm = String(def.key || def.name || def.title || 'lvl');
   let seed = 2166136261; for (let i = 0; i < nm.length; i++) { seed ^= nm.charCodeAt(i); seed = (seed * 16777619) >>> 0; }
@@ -1494,7 +1565,7 @@ function placeStags(g, def) {
 // a group id so they wake as one. g.strongholds exposes each keep's center and
 // radii for the renderer/minimap and the superweapon phase. Untouched modes
 // (no def.enemyStrongholds) never call any of this and stay byte-identical.
-function setupStrongholds(g, def) {
+function setupStrongholds(g: Game,  def: LevelDef) {
   const cfg = def.enemyStrongholds;
   if (!cfg) return; // gated: classic/story/ctf/etc. never seed a keep
   // Strongholds only make sense on non-arcade (big-map survival) layouts where
@@ -1508,7 +1579,7 @@ function setupStrongholds(g, def) {
   const shHpMult = opts.hpMult || 1;
   const sp = g.spawns.length ? g.spawns : [{ x: g.w * TILE / 2, y: g.h * TILE / 2 }];
   const awayPx = STRONGHOLD_AWAY * TILE;
-  const farFromSpawn = (x, y) => sp.every(s => Math.hypot(x - s.x, y - s.y) >= awayPx);
+  const farFromSpawn = (x: number, y: number) => sp.every(s => Math.hypot(x - s.x, y - s.y) >= awayPx);
   // Resolve keep CENTERS in a fixed deterministic order.
   let sites;
   if (Array.isArray(cfg)) {
@@ -1603,7 +1674,7 @@ function setupStrongholds(g, def) {
       garrison.push(e.id);
     }
     g.nextEnemyId = nextId;
-    g.strongholds.push({
+    g.strongholds!.push({
       id: fortId, x: cx, y: cy,
       r: cRing,                        // wall-ring radius (tiles)
       aggro: cAggro, leash: cLeash,    // tiles
@@ -1614,7 +1685,7 @@ function setupStrongholds(g, def) {
   if (!g.strongholds.length) delete g.strongholds; // nothing seeded: stay byte-stable
 }
 
-function setupMusicBox(g, def) {
+function setupMusicBox(g: Game,  def: LevelDef) {
   const enabled = !!def.story || def.mode === 'bastion';
   if (!enabled) { g.musicBox = { enabled: false }; return; }
   const { mode, stem } = musicBoxStem(def);
@@ -1688,7 +1759,7 @@ function setupMusicBox(g, def) {
 // use) walks open tiles away from the base, so server and every client agree
 // without exchanging setup. Scrap is a GENERIC item: it never touches the relic
 // shard pool (g.shards) or the music-box fragments.
-function setupStranded(g, def) {
+function setupStranded(g: Game,  def: LevelDef) {
   const cfg = def.stranded;
   if (!cfg) return; // arrays stay empty: classic/unflagged snapshots unchanged
   const nOps = Math.max(1, (typeof cfg === 'object' && cfg.operators) || 3);
@@ -1700,7 +1771,7 @@ function setupStranded(g, def) {
   // pick an open tile >= 6 tiles off the base (so saved folk have somewhere to
   // be walked back to), off hazards; fall back to a ring scan when the random
   // probe fails so the count is always met.
-  const pick = (kSeed, minTiles) => {
+  const pick = (kSeed: number, minTiles: number) => {
     for (let tries = 0; tries < 160; tries++) {
       const tx = 1 + Math.floor(rnd() * (g.w - 2));
       const ty = 1 + Math.floor(rnd() * (g.h - 2));
@@ -1726,7 +1797,7 @@ function setupStranded(g, def) {
   g.nextScrapId = nScrap;
 }
 
-function spawnPlayer(pid, name, charId, x, y) {
+function spawnPlayer(pid: number, name: string, charId: string | null, x: number, y: number): Player {
   return {
     pid, name, charId, x, y, fx: 0, fy: -1, cool: 0, state: 'active', respawn: 0, invuln: 3,
     specialCool: 0, dashT: 0, dashFx: 0, dashFy: -1, stimT: 0, actPrev: false, specialPrev: false,
@@ -1734,7 +1805,7 @@ function spawnPlayer(pid, name, charId, x, y) {
   };
 }
 
-function tileAt(g, x, y) {
+function tileAt(g: Game,  x: number,  y: number) {
   const tx = Math.floor(x / TILE);
   const ty = Math.floor(y / TILE);
   if (tx < 0 || ty < 0 || tx >= g.w || ty >= g.h) return '#';
@@ -1745,21 +1816,21 @@ function tileAt(g, x, y) {
 // New floor letters (',' ':' ';' '_') and the campfire '*' are all passable.
 // '%' VOID (shattered-shard abyss) blocks movement, sight and shots alike.
 // '=' sand, '!' lava and '^' ice are passable terrain (with their own rules).
-function blocksMove(c) { return c === '#' || c === 'T' || c === '~' || c === 'o' || c === '%'; }
+function blocksMove(c: string) { return c === '#' || c === 'T' || c === '~' || c === 'o' || c === '%'; }
 
 // Swimmers (char.swims, the seal) treat water as open ground — everything
 // else that blocks movement still blocks them.
-function blocksMoveSwim(c) { return c === '#' || c === 'T' || c === 'o' || c === '%'; }
+function blocksMoveSwim(c: string) { return c === '#' || c === 'T' || c === 'o' || c === '%'; }
 
 // Pathing-only blocker: lava is physically walkable but enemies route AROUND
 // it — both the straight-line steering check and the A* grid treat '!' as
 // blocked, so a burning enemy is one knocked back, spawned in, or cornered.
-function blocksPath(c) { return blocksMove(c) || c === '!'; }
+function blocksPath(c: string) { return blocksMove(c) || c === '!'; }
 
 // Terrain + weather speed: sand drags everyone to x0.85, ice skates at x1.05
 // (drift momentum rides separately), snowfall slows every entity to x0.92.
 // Plain floors under clear skies multiply by 1 — classics are untouched.
-function moveMult(g, x, y) {
+function moveMult(g: Game,  x: number,  y: number) {
   let m = g.weather === 'snow' ? SNOW_SLOW : 1;
   const t = tileAt(g, x, y);
   if (t === '=') m *= SAND_SLOW;
@@ -1773,7 +1844,7 @@ function moveMult(g, x, y) {
 
 // A closed door covers its tile rect like rock: movement, sight, shots and
 // A* all stop at it. Maps without doors pay one length check and move on.
-function doorBlocksPx(g, x, y) {
+function doorBlocksPx(g: Game,  x: number,  y: number) {
   if (!g.doors || !g.doors.length) return false;
   const tx = Math.floor(x / TILE);
   const ty = Math.floor(y / TILE);
@@ -1783,7 +1854,7 @@ function doorBlocksPx(g, x, y) {
   return false;
 }
 
-function collides(g, x, y, r) {
+function collides(g: Game,  x: number,  y: number,  r: number) {
   for (const [ox, oy] of [[-r, -r], [r, -r], [-r, r], [r, r]]) {
     if (blocksMove(tileAt(g, x + ox, y + oy))) return true;
     if (doorBlocksPx(g, x + ox, y + oy)) return true;
@@ -1812,7 +1883,7 @@ function collides(g, x, y, r) {
 // Like collides, but escape-friendly for build circles: a structure completing
 // around someone must never entomb them — moves that increase distance from
 // the structure's center are always allowed, only inward moves are blocked.
-function moveBlocked(g, fromX, fromY, x, y, r, blocks = blocksMove) {
+function moveBlocked(g: Game,  fromX: number,  fromY: number,  x: number,  y: number,  r: number,  blocks: any = blocksMove) {
   for (const [ox, oy] of [[-r, -r], [r, -r], [-r, r], [r, r]]) {
     if (blocks(tileAt(g, x + ox, y + oy))) return true;
     // closed doors only ever OPEN (never close on someone), so a plain
@@ -1833,12 +1904,12 @@ function moveBlocked(g, fromX, fromY, x, y, r, blocks = blocksMove) {
   return false;
 }
 
-function moveCircle(g, e, dx, dy, r, blocks = blocksMove) {
+function moveCircle(g: Game,  e: any,  dx: number,  dy: number,  r: number,  blocks: any = blocksMove) {
   if (dx && !moveBlocked(g, e.x, e.y, e.x + dx, e.y, r, blocks)) e.x += dx;
   if (dy && !moveBlocked(g, e.x, e.y, e.x, e.y + dy, r, blocks)) e.y += dy;
 }
 
-function dist2(a, b) {
+function dist2(a: { x: number; y: number }, b: { x: number; y: number }) {
   const dx = a.x - b.x, dy = a.y - b.y;
   return dx * dx + dy * dy;
 }
@@ -1850,8 +1921,8 @@ function dist2(a, b) {
 // NEVER stored on g (a Map would corrupt serializeGame's JSON round-trip); the
 // caller holds it in a tick-local and the enemy positions it indexes are stable
 // across the structure loops (movement runs later in the tick).
-function buildEnemyBuckets(enemies, cell) {
-  const map = new Map();
+function buildEnemyBuckets(enemies: Enemy[], cell: number) {
+  const map = new Map<number, Enemy[]>();
   for (const e of enemies) {
     if (e.dead) continue;
     const key = (Math.floor(e.x / cell) << 16) ^ (Math.floor(e.y / cell) & 0xffff);
@@ -1863,7 +1934,7 @@ function buildEnemyBuckets(enemies, cell) {
 }
 // With cell === query radius, every enemy within r of (x,y) sits in the 3x3
 // block of cells around the query cell, so the scan is local.
-function bucketAnyNear(grid, x, y, r2) {
+function bucketAnyNear(grid: any,  x: number,  y: number,  r2: number) {
   const cx = Math.floor(x / grid.cell), cy = Math.floor(y / grid.cell);
   for (let gx = cx - 1; gx <= cx + 1; gx++) {
     for (let gy = cy - 1; gy <= cy + 1; gy++) {
@@ -1878,17 +1949,17 @@ function bucketAnyNear(grid, x, y, r2) {
   return false;
 }
 
-function norm(dx, dy) {
+function norm(dx: number,  dy: number) {
   const d = Math.hypot(dx, dy) || 1;
   return [dx / d, dy / d, d];
 }
 
 // Sight stops at rock, trees and the void — shots fly over water and
 // sandbags, so enemies must be able to see (and shoot) across those too.
-function blocksSight(c) { return c === '#' || c === 'T' || c === '%'; }
+function blocksSight(c: string) { return c === '#' || c === 'T' || c === '%'; }
 
 // True when the straight segment between two points crosses no blocking tile.
-function hasLoS(g, ax, ay, bx, by, blocks = blocksMove) {
+function hasLoS(g: Game,  ax: number,  ay: number,  bx: number,  by: number,  blocks: any = blocksMove) {
   const dx = bx - ax, dy = by - ay;
   const d = Math.hypot(dx, dy);
   const steps = Math.max(1, Math.ceil(d / (TILE / 3)));
@@ -1905,7 +1976,7 @@ function hasLoS(g, ax, ay, bx, by, blocks = blocksMove) {
 // line of sight. Lit levels are untouched.
 const DARK_SIGHT_TILES = 8;
 
-function canSee(g, e, tgt) {
+function canSee(g: Game,  e: Enemy,  tgt: any) {
   if (g.dark && dist2(e, tgt) > (TILE * DARK_SIGHT_TILES) ** 2) return false;
   // fog banks and ashstorms cap ALL sight at 9 tiles, dark or lit
   if ((g.weather === 'fog' || g.weather === 'ashstorm')
@@ -1920,7 +1991,7 @@ function canSee(g, e, tgt) {
 // and snapshots never see it (WeakMap: dropped with the game). Deterministic:
 // a pure function of state the sim already tracks.
 const blockMaskCache = new WeakMap();
-function buildBlockMask(g) {
+function buildBlockMask(g: Game) {
   let c = blockMaskCache.get(g);
   const doorsKey = g.doors && g.doors.length ? g.doors.reduce((n, d, i) => n + (d.open ? 0 : i + 1), 0) : 0;
   const epoch = (g.buildEpoch || 0);
@@ -1949,7 +2020,7 @@ function buildBlockMask(g) {
   return c.mask;
 }
 
-function tileBlocked(g, tx, ty) {
+function tileBlocked(g: Game,  tx: number,  ty: number) {
   if (tx < 0 || ty < 0 || tx >= g.w || ty >= g.h) return true;
   // lava is walkable but never PATHED through: A* routes around the flows
   if (blocksPath(g.grid[ty][tx])) return true;
@@ -1961,7 +2032,7 @@ function tileBlocked(g, tx, ty) {
 // True when the straight segment passes through a built structure's circle —
 // straight-line steering must fall back to A* in that case or enemies wedge
 // against pylons forever.
-function segmentHitsBuild(g, ax, ay, bx, by, r) {
+function segmentHitsBuild(g: Game,  ax: number,  ay: number,  bx: number,  by: number,  r: number) {
   if (!g.builds) return false;
   for (const b of g.builds) {
     if (!b.built || b.kind === 'farm') continue;
@@ -1986,10 +2057,10 @@ function segmentHitsBuild(g, ax, ay, bx, by, r) {
 // Single-threaded sim, no reentrancy; identical scores, so determinism holds.
 let pfSize = 0;
 let pfGen = 0;
-let pfG = null;     // gScore per tile
-let pfStamp = null; // generation stamp: stale entries read as Infinity
-let pfCame = null;  // predecessor tile key
-function findPath(g, sx, sy, gx, gy, maxExpand = 2400, adjacentOk = false) {
+let pfG: Float64Array | null = null;     // gScore per tile
+let pfStamp: Int32Array | null = null; // generation stamp: stale entries read as Infinity
+let pfCame: Int32Array | null = null;  // predecessor tile key
+function findPath(g: Game,  sx: number,  sy: number,  gx: number,  gy: number,  maxExpand: number = 2400,  adjacentOk: boolean = false) {
   if (sx === gx && sy === gy) return [];
   if (adjacentOk && Math.abs(sx - gx) <= 1 && Math.abs(sy - gy) <= 1) return [];
   if (tileBlocked(g, gx, gy) && !adjacentOk) return null;
@@ -2002,10 +2073,10 @@ function findPath(g, sx, sy, gx, gy, maxExpand = 2400, adjacentOk = false) {
     pfCame = new Int32Array(cells);
   }
   pfGen++;
-  if (pfGen >= 2147483647) { pfGen = 1; pfStamp.fill(0); }
-  const heap = [];
+  if (pfGen >= 2147483647) { pfGen = 1; pfStamp!.fill(0); }
+  const heap: { x: number; y: number; f: number; seq: number }[] = [];
   let seq = 0;
-  const push = n => {
+  const push = (n: { x: number; y: number; f: number; seq: number }) => {
     heap.push(n);
     let i = heap.length - 1;
     while (i > 0) {
@@ -2023,23 +2094,23 @@ function findPath(g, sx, sy, gx, gy, maxExpand = 2400, adjacentOk = false) {
       for (;;) {
         const l = i * 2 + 1, r = l + 1;
         let m = i;
-        if (l < heap.length && (heap[l].f < last.f || (heap[l].f === last.f && heap[l].seq < last.seq))) m = l;
+        if (l < heap.length && (heap[l].f < last!.f || (heap[l].f === last!.f && heap[l].seq < last!.seq))) m = l;
         const mb = m === i ? last : heap[m];
-        if (r < heap.length && (heap[r].f < mb.f || (heap[r].f === mb.f && heap[r].seq < mb.seq))) m = r;
+        if (r < heap.length && (heap[r].f < mb!.f || (heap[r].f === mb!.f && heap[r].seq < mb!.seq))) m = r;
         if (m === i) break;
         heap[i] = heap[m]; i = m;
       }
-      heap[i] = last;
+      heap[i] = last!;
     }
     return top;
   };
-  const oct = (x, y) => {
+  const oct = (x: number, y: number) => {
     const ax = Math.abs(x - gx), ay = Math.abs(y - gy);
     return ax + ay - 0.5858 * Math.min(ax, ay);
   };
   const start = sy * W + sx;
-  pfG[start] = 0;
-  pfStamp[start] = pfGen;
+  pfG![start] = 0;
+  pfStamp![start] = pfGen;
   push({ x: sx, y: sy, f: oct(sx, sy), seq: seq++ });
   const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
   let expanded = 0;
@@ -2053,21 +2124,21 @@ function findPath(g, sx, sy, gx, gy, maxExpand = 2400, adjacentOk = false) {
       let k = ck;
       while (k !== start) {
         path.push({ x: (k % W + 0.5) * TILE, y: (Math.floor(k / W) + 0.5) * TILE });
-        k = pfCame[k];
+        k = pfCame![k];
       }
       return path.reverse();
     }
-    const cg = pfG[ck];
+    const cg = pfG![ck];
     for (const [dx, dy] of DIRS) {
       const nx = cur.x + dx, ny = cur.y + dy;
       if (tileBlocked(g, nx, ny)) continue;
       if (dx && dy && (tileBlocked(g, cur.x + dx, cur.y) || tileBlocked(g, cur.x, cur.y + dy))) continue;
       const nk = ny * W + nx;
       const ng = cg + (dx && dy ? 1.4142 : 1);
-      if (ng < (pfStamp[nk] === pfGen ? pfG[nk] : Infinity)) {
-        pfG[nk] = ng;
-        pfStamp[nk] = pfGen;
-        pfCame[nk] = ck;
+      if (ng < (pfStamp![nk] === pfGen ? pfG![nk] : Infinity)) {
+        pfG![nk] = ng;
+        pfStamp![nk] = pfGen;
+        pfCame![nk] = ck;
         push({ x: nx, y: ny, f: ng + oct(nx, ny), seq: seq++ });
       }
     }
@@ -2075,7 +2146,7 @@ function findPath(g, sx, sy, gx, gy, maxExpand = 2400, adjacentOk = false) {
   return null;
 }
 
-function wakeEnemy(g, e, ripple = true) {
+function wakeEnemy(g: Game,  e: Enemy,  ripple: boolean = true) {
   if (e.dead || e.awake) return;
   e.awake = true;
   // fresh chase: forget any stuck-tracking left from a previous engagement
@@ -2095,7 +2166,7 @@ function wakeEnemy(g, e, ripple = true) {
 // Steer toward the target: straight when walkable in a straight line,
 // A* waypoints when not. A failed search respects the repath cooldown so a
 // stranded enemy can't burn a full A* budget every tick.
-function moveToward(g, e, tgt, dt, speed = e.speed, r = ENEMY_R) {
+function moveToward(g: Game,  e: any,  tgt: any,  dt: number,  speed: number = e.speed,  r: number = ENEMY_R) {
   // terrain underfoot scales the stride (sand x0.85, ice x1.05, snow x0.92)
   speed *= moveMult(g, e.x, e.y);
   // straight-line steering is lava-aware (blocksPath): a clear line through a
@@ -2129,12 +2200,12 @@ function moveToward(g, e, tgt, dt, speed = e.speed, r = ENEMY_R) {
   } else {
     e.repathT -= dt;
     if (e.repathT <= 0 || (e.path && e.pathI >= e.path.length)) {
-      if (!g.arcade && !(g.pathBudget > 0)) {
+      if (!g.arcade && !(g.pathBudget! > 0)) {
         // global per-tick A* budget spent: keep the stale path (or the bare
         // bearing) one short cycle and ask again next tick
         e.repathT = 0.1;
       } else {
-        if (!g.arcade) g.pathBudget--;
+        if (!g.arcade) g.pathBudget!--;
         // Core-marching night waves and x100-aggro hunters cross the whole map;
         // the stock 2400 budget exhausts on long detours and they wedge at the
         // first wall — give them a deep search instead.
@@ -2225,7 +2296,7 @@ function moveToward(g, e, tgt, dt, speed = e.speed, r = ENEMY_R) {
   }
 }
 
-function countNear(g, e, r) {
+function countNear(g: Game,  e: any,  r: number) {
   const r2 = r * r;
   let n = 0;
   for (const o of g.enemies) if (!o.dead && dist2(e, o) < r2) n++;
@@ -2235,7 +2306,7 @@ function countNear(g, e, r) {
 // On big maps, respawn beside a living teammate instead of trekking back from
 // the level start. Deterministic: first active player in pid order, nearest
 // open tile in ring-scan order.
-function respawnSpot(g) {
+function respawnSpot(g: Game) {
   const fallback = g.spawns[0] || { x: TILE * 2, y: TILE * 2 };
   if (g.arcade) return fallback;
   const ally = g.players.find(q => q.state === 'active');
@@ -2271,7 +2342,7 @@ function respawnSpot(g) {
 // (the pre-ring behavior). No RNG, no clock: the same field state always
 // yields the same spot, so replays and save/restore twins stay byte-exact.
 const CTF_RINGS = [[8, 1.25], [16, 2.25], [16, 3.25]];
-function ctfStandSpot(g, p) {
+function ctfStandSpot(g: Game,  p: Player) {
   const stand = g.flags.find(f => f.team === p.team);
   if (!stand) {
     const s = g.spawns[0] || { x: TILE * 2, y: TILE * 2 };
@@ -2298,10 +2369,10 @@ function ctfStandSpot(g, p) {
 }
 
 // --- Anchor Siege: spawn ring, minion waves, lane march, tower fire ---------
-function siegeFoe(team) { return team === 0 ? 1 : 0; }
+function siegeFoe(team: number) { return team === 0 ? 1 : 0; }
 // a team's core is only attackable once ALL of that team's towers have fallen
-function siegeCoreOpen(g, team) { return !g.siegeTowers.some(t => !t.destroyed && t.team === team); }
-function siegeSpawnSpot(g, p) {
+function siegeCoreOpen(g: Game,  team: number) { return !g.siegeTowers!.some(t => !t.destroyed && t.team === team); }
+function siegeSpawnSpot(g: Game,  p: Player) {
   const core = (g.cores || []).find(c => c.team === p.team) || (g.cores || [])[0];
   if (!core) { const s = g.spawns[0] || { x: TILE * 2, y: TILE * 2 }; return { x: s.x, y: s.y }; }
   let k = 0;
@@ -2320,49 +2391,49 @@ function siegeSpawnSpot(g, p) {
 // RNG): a TANK leads every wave where waveNo%3===2, a WAR MONGER leads every
 // waveNo%5===4 (tank wins the tie when both land), otherwise the lead is a
 // grunt like the rest. Same waveNo always yields the same lead across runs.
-function siegeWaveLead(waveNo) {
+function siegeWaveLead(waveNo: number) {
   if (waveNo % 3 === 2) return 'tank';
   if (waveNo % 5 === 4) return 'warmonger';
   return 'grunt';
 }
-function spawnSiegeWave(g, team) {
+function spawnSiegeWave(g: Game,  team: number) {
   const S = g.siege;
-  if (!S.lanes.length) return;
-  const laneI = S.waveNo[team] % S.lanes.length;
-  const wps = (team === 0 ? S.lanes[laneI] : S.lanesRev[laneI]).waypoints;
-  if (!wps.length) { S.waveNo[team]++; return; }
-  const live = S.minions.reduce((n, m) => n + (m.team === team ? 1 : 0), 0);
-  const want = S.waveBase + Math.min(6, Math.floor(g.elapsed / 60) * S.wavePerMin);
-  const count = Math.max(0, Math.min(S.cap - live, want));
+  if (!S!.lanes.length) return;
+  const laneI = S!.waveNo[team] % S!.lanes.length;
+  const wps = (team === 0 ? S!.lanes[laneI] : S!.lanesRev[laneI]).waypoints;
+  if (!wps.length) { S!.waveNo[team]++; return; }
+  const live = S!.minions.reduce((n, m) => n + (m.team === team ? 1 : 0), 0);
+  const want = S!.waveBase + Math.min(6, Math.floor(g.elapsed / 60) * S!.wavePerMin);
+  const count = Math.max(0, Math.min(S!.cap - live, want));
   const start = wps[0];
-  const lead = siegeWaveLead(S.waveNo[team]);
+  const lead = siegeWaveLead(S!.waveNo[team]);
   for (let i = 0; i < count; i++) {
     const kind = i === 0 ? lead : 'grunt';
     const kd = MINION_KINDS[kind];
     const hp = Math.round(MINION_HP * kd.hpMul);
-    const m = { id: S.nextMinionId++, team, laneI,
+    const m: SiegeMinion = { id: S!.nextMinionId++, team, laneI,
       x: start.x + ((i % 3) - 1) * TILE * 0.45, y: start.y + (Math.floor(i / 3) - 1) * TILE * 0.45,
       hp, maxHp: hp, pathIdx: 1, score: kd.score };
     // grunt is the default — it ships no kind field so its snapshot/serialize
     // stays byte-identical to the pre-Wave-B minion.
     if (kind !== 'grunt') m.kind = kind;
-    S.minions.push(m);
+    S!.minions.push(m);
   }
-  S.waveNo[team]++;
+  S!.waveNo[team]++;
   g.events.push({ type: 'siegeWave', team, count, x: start.x, y: start.y, ...(lead !== 'grunt' ? { lead } : {}) });
 }
-function stepSiegeWaves(g, dt) {
+function stepSiegeWaves(g: Game,  dt: number) {
   const S = g.siege; if (!S) return;
   for (let team = 0; team < 2; team++) {
     S.spawnT[team] -= dt;
     if (S.spawnT[team] <= 0) { spawnSiegeWave(g, team); S.spawnT[team] = S.interval; }
   }
 }
-function stepSiegeMinions(g, dt) {
+function stepSiegeMinions(g: Game,  dt: number) {
   const S = g.siege; if (!S) return;
   for (let i = S.minions.length - 1; i >= 0; i--) {
     const m = S.minions[i];
-    const kd = MINION_KINDS[m.kind] || MINION_KINDS.grunt; // default grunt: all-1 muls
+    const kd = MINION_KINDS[m.kind!] || MINION_KINDS.grunt; // default grunt: all-1 muls
     const foe = siegeFoe(m.team);
     // TANK aura: an enemy hero inside the ring gets a lingering slow timer (no
     // projectile, fully deterministic — mirrors the toxin-pool proximity slow).
@@ -2375,12 +2446,12 @@ function stepSiegeMinions(g, dt) {
     }
     let gnawing = false;
     // STOP and chew an enemy tower in reach (so a wave actually breaks a tower)
-    for (const t of g.siegeTowers) {
+    for (const t of g.siegeTowers!) {
       if (t.destroyed || t.team !== foe) continue;
       if (dist2(m, t) < (TILE * 0.9) ** 2) { t.hp -= MINION_TOWER_DPS * kd.towerDpsMul * dt; if (t.hp <= 0) siegeTowerDown(g, t, null); gnawing = true; break; }
     }
     // once that team's towers are down, the core is exposed — chew it
-    if (!gnawing && siegeCoreOpen(g, foe)) for (const c of g.cores) {
+    if (!gnawing && siegeCoreOpen(g, foe)) for (const c of g.cores!) {
       if (c.team !== foe || c.hp <= 0) continue;
       // DEV core integrity: minion still stalls on the core, but deals no damage
       if (dist2(m, c) < SIEGE_CORE_R ** 2) { if (!(g.cheats && g.cheats.coreInvuln)) c.hp = Math.max(0, c.hp - MINION_CORE_DPS * kd.coreDpsMul * dt); gnawing = true; break; }
@@ -2399,9 +2470,9 @@ function stepSiegeMinions(g, dt) {
     }
   }
 }
-function stepSiegeTowers(g, dt) {
+function stepSiegeTowers(g: Game,  dt: number) {
   if (!g.siege) return;
-  for (const t of g.siegeTowers) {
+  for (const t of g.siegeTowers!) {
     if (t.destroyed) continue;
     t.cool -= dt;
     if (t.cool > 0) continue;
@@ -2420,34 +2491,34 @@ function stepSiegeTowers(g, dt) {
     }
   }
 }
-function damageMinion(g, m, dmg, killerPid) {
+function damageMinion(g: Game,  m: any,  dmg: number,  killerPid: number | null) {
   m.hp -= dmg;
   if (m.hp <= 0) killMinion(g, m, killerPid);
   // dmg rides the minion hit (siege-only event) so the render floats a damage
   // number — purely additive on a siege-exclusive event, so non-siege stays stable.
   else g.events.push({ type: 'hit', x: m.x, y: m.y, kind: 'minion', dmg });
 }
-function killMinion(g, m, killerPid) {
-  const i = g.siege.minions.indexOf(m);
+function killMinion(g: Game,  m: any,  killerPid: number | null) {
+  const i = g.siege!.minions.indexOf(m);
   if (i < 0) return;
-  g.siege.minions.splice(i, 1);
+  g.siege!.minions.splice(i, 1);
   g.events.push({ type: 'die', x: m.x, y: m.y, kind: 'minion', team: m.team, points: 0 });
   const killer = killerPid != null ? g.players.find(p => p.pid === killerPid) : null;
   if (killer) {
     addShards(g, killer, 1); awardXp(g, killer.pid, m); killer.kills = (killer.kills || 0) + 1; g.kills++;
     // MOBA Wave D: a real takedown feeds the killer's super meter (a team-cast
     // kill carries no killerPid, so the super weapon can never charge itself).
-    addSuperCharge(g, killer.team, SIEGE_SUPER_KILL_MINION);
+    addSuperCharge(g, killer.team!, SIEGE_SUPER_KILL_MINION);
   }
 }
-function siegeTowerDown(g, t, killerPid) {
+function siegeTowerDown(g: Game,  t: any,  killerPid: number | null) {
   if (t.destroyed) return;
   t.destroyed = true; t.hp = 0;
   g.events.push({ type: 'towerDown', x: t.x, y: t.y, team: t.team });
   const killer = killerPid != null ? g.players.find(p => p.pid === killerPid) : null;
-  if (killer) { addShards(g, killer, SIEGE_TOWER_REWARD); awardXp(g, killer.pid, { score: 50 }); addSuperCharge(g, killer.team, SIEGE_SUPER_KILL_TOWER); }
+  if (killer) { addShards(g, killer, SIEGE_TOWER_REWARD); awardXp(g, killer.pid, { score: 50 }); addSuperCharge(g, killer.team!, SIEGE_SUPER_KILL_TOWER); }
 }
-function damageTower(g, t, dmg, killerPid) {
+function damageTower(g: Game,  t: any,  dmg: number,  killerPid: number | null) {
   if (t.destroyed) return;
   t.hp -= dmg;
   if (t.hp <= 0) siegeTowerDown(g, t, killerPid);
@@ -2459,7 +2530,7 @@ function damageTower(g, t, dmg, killerPid) {
 // nearest LIVE target of either side (a minion first — the cheap mass on the
 // field — else an active operative), so both teams want it cleared off the lane.
 // Fully deterministic: the closest-target scan walks fixed arrays, no RNG.
-function stepSiegePrisms(g, dt) {
+function stepSiegePrisms(g: Game,  dt: number) {
   if (!g.siege || !g.siegePrisms) return;
   for (const pr of g.siegePrisms) {
     if (pr.hp <= 0) continue;
@@ -2476,7 +2547,7 @@ function stepSiegePrisms(g, dt) {
       g.events.push({ type: 'prismBeam', x: pr.x, y: pr.y, tx: tgt.x, ty: tgt.y, dmg: SIEGE_PRISM_DMG, siege: true });
       // a minion target dies via the minion path (no kill credit — neutral); an
       // operative target takes a beam tick through the normal player-damage path.
-      if (tgt.maxHp !== undefined && tgt.pid !== undefined) damagePlayer(g, tgt, SIEGE_PRISM_DMG);
+      if (tgt.maxHp !== undefined && tgt.pid !== undefined) damagePlayer(g, tgt as Player, SIEGE_PRISM_DMG);
       else damageMinion(g, tgt, SIEGE_PRISM_DMG, null);
       pr.cool = SIEGE_PRISM_PERIOD;
     }
@@ -2485,7 +2556,7 @@ function stepSiegePrisms(g, dt) {
 // KILLABLE: a neutral prism takes shot/contact damage; at 0 hp it dies and pushes
 // a 'prismDown' event. No team reward (it belongs to nobody) — its value is the
 // emplacement going silent on the contested lane.
-function damageSiegePrism(g, pr, dmg) {
+function damageSiegePrism(g: Game,  pr: any,  dmg: number) {
   if (pr.hp <= 0) return;
   pr.hp -= dmg;
   if (pr.hp <= 0) { pr.hp = 0; g.events.push({ type: 'prismDown', x: pr.x, y: pr.y }); }
@@ -2496,7 +2567,7 @@ function damageSiegePrism(g, pr, dmg) {
 // pipelines so heroes collect them normally. The lane is walked by a counter
 // (pickupN % lanes); the drop type alternates field-weapon / shard-cache by the
 // counter parity; the field-weapon kind cycles FIELD_KINDS deterministically.
-function stepSiegePickups(g, dt) {
+function stepSiegePickups(g: Game,  dt: number) {
   const S = g.siege; if (!S || !S.lanes.length) return;
   S.pickupT -= dt;
   if (S.pickupT > 0) return;
@@ -2522,7 +2593,7 @@ function stepSiegePickups(g, dt) {
 // ARM: an OWN-TEAM hero ACT-HOLDS at a cooled-down trap (the relight/forge/horn
 // hold rail — scaled by holders). The first holder's team CLAIMS the trap. Once
 // armed, a FOE minion/hero stepping in trips it. Fully deterministic.
-function stepSiegeTraps(g, inputs, dt) {
+function stepSiegeTraps(g: Game,  inputs: Inputs,  dt: number) {
   if (!g.siege || !g.siegeTraps) return;
   const r2 = SIEGE_TRAP_R * SIEGE_TRAP_R;
   for (const tr of g.siegeTraps) {
@@ -2537,7 +2608,7 @@ function stepSiegeTraps(g, inputs, dt) {
       const inp = inputs[p.pid] || {};
       if (!inp.act || dist2(p, tr) >= r2) continue;
       if (tr.team !== -1 && p.team !== tr.team) continue; // claimed by the other side
-      if (claim === -1) claim = p.team;
+      if (claim === -1) claim = p.team!;
       if (p.team === claim) holders++;
     }
     if (!holders) { tr.armT = 0; continue; }
@@ -2552,7 +2623,7 @@ function stepSiegeTraps(g, inputs, dt) {
 // TRIP: any FOE minion or active foe hero inside an armed trap's ring sets it off
 // — a hostile, team-tagged ground patch (rides g.patches) sears enemies, then the
 // trap drops onto its cooldown. Runs in the world-clock pass (no inputs needed).
-function stepSiegeTrapTrips(g) {
+function stepSiegeTrapTrips(g: Game) {
   if (!g.siege || !g.siegeTraps) return;
   const r2 = SIEGE_TRAP_TRIP_R * SIEGE_TRAP_TRIP_R;
   for (const tr of g.siegeTraps) {
@@ -2580,7 +2651,7 @@ function stepSiegeTrapTrips(g) {
 // --- MOBA Wave D: super weapons ---------------------------------------------
 // Every kill credited to a team fills its superCharge (clamped at superMax). The
 // charge is purely deterministic (kill counts only), gated on siege.
-function addSuperCharge(g, team, amount) {
+function addSuperCharge(g: Game,  team: number,  amount: number) {
   const S = g.siege;
   if (!S || team == null || team < 0 || team > 1) return;
   S.superCharge[team] = Math.min(S.superMax, S.superCharge[team] + amount);
@@ -2589,7 +2660,7 @@ function addSuperCharge(g, team, amount) {
 // core (the relight/forge/horn hold rail) fires a BARRAGE down the enemy lane —
 // a blast at every enemy-lane waypoint that pounds the foe's minions and towers —
 // then resets that team's charge. Deterministic; no RNG.
-function stepSiegeSuper(g, inputs, dt) {
+function stepSiegeSuper(g: Game,  inputs: Inputs,  dt: number) {
   const S = g.siege; if (!S) return;
   const r2 = (TILE * BUILD_REACH) ** 2;
   for (let team = 0; team < 2; team++) {
@@ -2613,33 +2684,33 @@ function stepSiegeSuper(g, inputs, dt) {
 // the payload: a barrage that detonates at each waypoint of the enemy's forward
 // lanes, damaging every enemy minion/tower caught in the blast rings. Walks fixed
 // arrays in order (no RNG) so two runs match exactly.
-function fireSiegeSuper(g, team) {
+function fireSiegeSuper(g: Game,  team: number) {
   const S = g.siege;
   const foe = siegeFoe(team);
   // the foe marches team===0 forward lanes, team===1 reversed lanes; the barrage
   // walks the SAME node set the enemy waves traverse so it actually hits the push.
-  const lanes = foe === 0 ? S.lanes : S.lanesRev;
+  const lanes = foe === 0 ? S!.lanes : S!.lanesRev;
   const r2 = SIEGE_SUPER_R * SIEGE_SUPER_R;
-  const nodes = [];
+  const nodes: { x: number; y: number }[] = [];
   for (const lane of lanes) for (const wp of lane.waypoints) nodes.push(wp);
-  g.events.push({ type: 'superBlast', team, x: g.cores.find(c => c.team === team).x,
-    y: g.cores.find(c => c.team === team).y, nodes: nodes.map(n => [n.x, n.y]) });
+  g.events.push({ type: 'superBlast', team, x: g.cores!.find(c => c.team === team)!.x,
+    y: g.cores!.find(c => c.team === team)!.y, nodes: nodes.map(n => [n.x, n.y]) });
   for (const node of nodes) {
     // pound enemy minions in the ring (a death credits no one — it's a team cast)
-    for (let i = g.siege.minions.length - 1; i >= 0; i--) {
-      const m = g.siege.minions[i];
+    for (let i = g.siege!.minions.length - 1; i >= 0; i--) {
+      const m = g.siege!.minions[i];
       if (m.team !== foe) continue;
       if (dist2(node, m) < r2) damageMinion(g, m, SIEGE_SUPER_DMG, null);
     }
     // and chew enemy towers caught underneath (no kill credit — team payload)
-    for (const t of g.siegeTowers) {
+    for (const t of g.siegeTowers!) {
       if (t.destroyed || t.team !== foe) continue;
       if (dist2(node, t) < r2) damageTower(g, t, SIEGE_SUPER_DMG, null);
     }
   }
 }
 
-function fireWeapon(g, shooter, weapon, who, target = null) {
+function fireWeapon(g: Game,  shooter: any,  weapon: any,  who: string,  target: any = null) {
   const [fx, fy] = target ? norm(target.x - shooter.x, target.y - shooter.y) : [shooter.fx, shooter.fy];
   const base = Math.atan2(fy, fx);
   const n = weapon.count || 1;
@@ -2698,7 +2769,7 @@ function fireWeapon(g, shooter, weapon, who, target = null) {
 // L4 intensifies it. Applied at FIRE time to a clone — character defs are
 // shared across games and must never mutate. Evolutions cover the main weapon
 // AND weapon-kind specials; shop dmgBonus stacks separately in fireWeapon.
-function applyEvolution(weapon, evo, level) {
+function applyEvolution(weapon: any,  evo: string,  level: number) {
   if (!level || level < 3) return weapon;
   evo = evo || 'multi';
   const w = { ...weapon };
@@ -2721,16 +2792,16 @@ function applyEvolution(weapon, evo, level) {
 
 // Grant xp to one seat and resolve any level-ups it unlocks.
 // Levels 2..4 land at 12/34/70 xp — automatic, deterministic, evented.
-function grantXp(g, p, amount) {
-  p.xp += amount;
-  while (p.level < 4 && p.xp >= XP_THRESH[p.level - 1]) {
-    p.level++;
+function grantXp(g: Game,  p: Player,  amount: number) {
+  p.xp! += amount;
+  while (p.level! < 4 && p.xp! >= XP_THRESH[p.level! - 1]) {
+    p.level!++;
     let perk = 'hp';
     if (p.level === 2) {
-      p.maxHp += 1; // L2: +1 max hp, and heal 1 on the spot
-      p.hp = Math.min(p.maxHp, p.hp + 1);
+      p.maxHp! += 1; // L2: +1 max hp, and heal 1 on the spot
+      p.hp = Math.min(p.maxHp!, p.hp! + 1);
     } else {
-      perk = (g.charMap[p.charId] || {}).evolution || 'multi';
+      perk = (g.charMap[p.charId!] || {} as CharacterDef).evolution || 'multi';
     }
     g.events.push({ type: 'levelUp', pid: p.pid, level: p.level, perk, x: p.x, y: p.y });
   }
@@ -2740,7 +2811,7 @@ function grantXp(g, p, amount) {
 // assist: every OTHER active seat within 8 tiles of the killer earns
 // floor(half) — short-range characters keep leveling in a full couch.
 // Solo play is untouched (no other seats to pay).
-function awardXp(g, pid, e) {
+function awardXp(g: Game, pid: number | null | undefined, e: { score?: number }) {
   if (pid === undefined || pid === null) return;
   const p = g.players.find(q => q.pid === pid);
   if (!p || p.level === undefined) return; // arcade seats never level
@@ -2762,7 +2833,7 @@ function awardXp(g, pid, e) {
 // grantXp so the level-up climb (and its events) is identical to an earned one.
 // No-op on arcade seats (1-hit classic players carry no p.level field) and on
 // seats already maxed. Exported so the solo dev cheat menu can invoke it.
-export function maxOutPlayer(g, pid) {
+export function maxOutPlayer(g: Game,  pid: number) {
   const p = g.players.find(q => q.pid === pid);
   if (!p || p.level === undefined) return; // arcade seats never level
   if (p.level < 4) {
@@ -2777,17 +2848,17 @@ export function maxOutPlayer(g, pid) {
 // Ignite: 1 dmg/s for 3s. Fresh ignitions reset the tick clock; re-touching
 // fire pins the timer at 3. patchFlag marks L4-burn ignitions whose corpse
 // leaves a ground burn patch.
-function igniteEnemy(g, e, owner, patchFlag = false) {
+function igniteEnemy(g: Game,  e: Enemy,  owner: number,  patchFlag: boolean = false) {
   if (e.dead) return;
-  if (!(e.burnT > 0)) { e.burnTick = 0; e.burnOwner = owner; }
+  if (!(e.burnT! > 0)) { e.burnTick = 0; e.burnOwner = owner; }
   e.burnT = Math.max(e.burnT || 0, BURN_T);
   if (patchFlag) e.burnPatch = true;
 }
 
 // Toxin: 0.5 dmg/s for 2s, same shape as ignite.
-function toxEnemy(g, e, owner) {
+function toxEnemy(g: Game,  e: Enemy,  owner: number) {
   if (e.dead) return;
-  if (!(e.toxT > 0)) { e.toxTick = 0; e.toxOwner = owner; }
+  if (!(e.toxT! > 0)) { e.toxTick = 0; e.toxOwner = owner; }
   e.toxT = Math.max(e.toxT || 0, TOX_T);
 }
 
@@ -2798,7 +2869,7 @@ function toxEnemy(g, e, owner) {
 // resolves through the normal enemy-shot path (shield-soak, walls, etc.). Fully
 // deterministic (nearest-by-id scan, no Math.random); a solo player simply
 // never has a 2nd target and the arc is skipped.
-function fireVaultZap(g, e, tgt) {
+function fireVaultZap(g: Game,  e: Enemy,  tgt: any) {
   fireWeapon(g, e, enemyWeapon('wraith'), 'e', tgt);
   if (tgt.nonPlayer) return;
   let arc = null, bestA = (TILE * WRAITHV_ARC_TILES) ** 2;
@@ -2814,7 +2885,7 @@ function fireVaultZap(g, e, tgt) {
     { ...zap, damage: Math.max(1, Math.round(zap.damage * WRAITHV_ARC_FRAC)) }, 'e', arc);
 }
 
-function enemyWeapon(kind) {
+function enemyWeapon(kind: string) {
   if (kind === 'sniper') return { kind: 'sniper', damage: 1, projSpeed: 12, range: 11, cooldown: 0, count: 1 };
   // volt wraith chain-zap: 1 dmg + a 0.3s root on ONE operative; a shield
   // pip absorbs the whole zap, stun included (see the enemy-shot hit loop)
@@ -2834,10 +2905,10 @@ function enemyWeapon(kind) {
 // cap in stepFlags stays the final backstop. Both knobs read g.suddenT
 // directly (plain serialized state), so save/restore keeps the escalation
 // byte-exact and the whole thing stays deterministic.
-function ctfOvertimeLevel(g) {
+function ctfOvertimeLevel(g: Game) {
   return g.suddenDeath ? Math.min(5, Math.floor(g.suddenT / 20)) : 0;
 }
-function ctfFlagDropT(g) {
+function ctfFlagDropT(g: Game) {
   return g.suddenDeath && g.suddenT >= 60 ? FLAG_DROP_T / 2 : FLAG_DROP_T;
 }
 
@@ -2845,7 +2916,7 @@ function ctfFlagDropT(g) {
 // a return: carrier going down, and climbing onto a mount (a CTF flag never
 // rides a stag). The flag lies for FLAG_DROP_T (halved deep into overtime),
 // then ticks home as usual.
-function dropFlags(g, p) {
+function dropFlags(g: Game,  p: Player) {
   for (const f of g.flags) {
     if (f.carrier === p.pid) {
       f.carrier = null;
@@ -2861,7 +2932,7 @@ function dropFlags(g, p) {
 // Lay a carried field weapon at the feet as a shared pickup with whatever
 // ammo is left. One code path for every drop: the 0.8s ITEM hold, going down,
 // extraction, and the swap-out when grabbing a different weapon.
-function dropFieldWeapon(g, p) {
+function dropFieldWeapon(g: Game,  p: Player) {
   if (!p.fieldWeapon) return;
   g.pickups.push({ id: 'fw' + g.nextPickupId++, x: p.x, y: p.y, kind: p.fieldWeapon.kind, ammo: p.fieldWeapon.ammo });
   g.events.push({ type: 'fieldDrop', pid: p.pid, x: p.x, y: p.y, kind: p.fieldWeapon.kind, ammo: p.fieldWeapon.ammo });
@@ -2873,7 +2944,7 @@ function dropFieldWeapon(g, p) {
 // stepFollowers runs its garrison-the-base branch and enemies weight it like
 // any follower. Reuses g.followers (one wire/render path). slot: -1 marks the
 // ownerless garrison so the formation code never claims it.
-function recruitDefender(g, x, y, src) {
+function recruitDefender(g: Game,  x: number,  y: number,  src: any) {
   const f = {
     id: g.nextFollowerId++, kind: 'defender', owner: null,
     x, y, hp: DEFENDER_STATS.defender.hp, maxHp: DEFENDER_STATS.defender.hp, slot: -1,
@@ -2891,7 +2962,7 @@ function recruitDefender(g, x, y, src) {
 // they are saved and recruited as a defender, else set back down on the field.
 // Then a relic music-box FRAGMENT (the carried shard). Empty-handed is a no-op.
 // Returns true when something was dropped (so the press is consumed).
-function dropHeld(g, p) {
+function dropHeld(g: Game,  p: Player) {
   // 1. carried scrap
   const sc = g.scrap.find(s => s.carrier === p.pid);
   if (sc) {
@@ -2943,7 +3014,7 @@ function dropHeld(g, p) {
     cap.y = p.y;
     const cbase = baseCenter(g);
     if (dist2(p, cbase) < (TILE * DEFENDER_HOLD) ** 2) {
-      g.rescued.push(cap.charId);
+      g.rescued.push(cap.charId!);
       g.captives.splice(g.captives.indexOf(cap), 1);
       recruitDefender(g, p.x, p.y, 'rescue');
       g.score += 500;
@@ -2956,7 +3027,7 @@ function dropHeld(g, p) {
   }
   // 4. carried relic fragment (drops it on the spot for a teammate to retrieve)
   if (g.musicBox && g.musicBox.enabled && !g.musicBox.complete) {
-    const f = g.musicBox.fragments.find(fr => fr.carrier === p.pid);
+    const f = g.musicBox.fragments!.find(fr => fr.carrier === p.pid);
     if (f) {
       f.carrier = null;
       f.x = p.x;
@@ -2969,7 +3040,7 @@ function dropHeld(g, p) {
 }
 
 // Going down vacates whatever the player held: mount, watchtower, flag, shop.
-function releaseHoldings(g, p) {
+function releaseHoldings(g: Game,  p: Player) {
   p.shopping = false;
   if (p.placing) exitPlacement(p); // a downed operative drops out of placement
   dropFieldWeapon(g, p); // downed (and extracted) operatives drop theirs
@@ -2979,7 +3050,7 @@ function releaseHoldings(g, p) {
     p.riding = null;
   }
   if (p.towerId != null) {
-    const t = g.towers[p.towerId];
+    const t = g.towers[p.towerId as number];
     if (t) t.occupant = null;
     p.towerId = null;
   }
@@ -2990,7 +3061,7 @@ function releaseHoldings(g, p) {
   for (const s of g.scrap) if (s.carrier === p.pid) { s.carrier = null; s.x = p.x; s.y = p.y; s.noPid = p.pid; }
 }
 
-function downPlayer(g, p) {
+function downPlayer(g: Game,  p: Player) {
   if (p.state !== 'active' || p.invuln > 0) return;
   if (g.cheats && g.cheats.god) return; // DEV god mode: never goes down
   // RELIC AWAKENING scoring: a death during the live event is a heavy penalty.
@@ -3022,7 +3093,7 @@ function downPlayer(g, p) {
   // Siege: respawn at the team core after a flat 15s death timer (MOBA-style).
   // XP/level/maxHp persist (like CTF).
   if (g.siege) {
-    g.deathCountByTeam[p.team]++;
+    g.deathCountByTeam![p.team!]++;
     p.state = 'down';
     p.respawn = SIEGE_RESPAWN;
     p.dashT = 0;
@@ -3034,7 +3105,7 @@ function downPlayer(g, p) {
   // a short cooldown; the shared life counter ticks down (floors at 0) so it
   // never becomes a hard game-over. XP/level persist.
   if (g.family) {
-    if (g.familyLives > 0) g.familyLives--;
+    if (g.familyLives! > 0) g.familyLives!--;
     p.state = 'down';
     p.respawn = FAMILY_RESPAWN;
     p.dashT = 0;
@@ -3055,7 +3126,7 @@ function downPlayer(g, p) {
 // Every source of player damage (contact, enemy shots, explosions, later the
 // BR zone) routes through here. Arcade keeps the classic 1-hit rule exactly;
 // survival maps spend shield pips first, then hp, with a short hit-grace.
-function damagePlayer(g, p, dmg = 1) {
+function damagePlayer(g: Game,  p: Player,  dmg: number = 1) {
   if (p.state !== 'active' || p.invuln > 0) return;
   if (g.cheats && g.cheats.god) return; // DEV god mode: take no damage
   // RELIC AWAKENING scoring: a connecting hit during the live event bleeds the
@@ -3077,10 +3148,10 @@ function damagePlayer(g, p, dmg = 1) {
   if (g.arcade || p.maxHp === undefined) { downPlayer(g, p); return; }
   if (g.family) dmg = 1; // toddler mode: every bump is a single gentle tick, never a burst
   for (let i = 0; i < dmg; i++) {
-    if (p.shield > 0) p.shield--;
-    else p.hp--;
+    if (p.shield! > 0) p.shield!--;
+    else p.hp!--;
   }
-  if (p.hp <= 0) { downPlayer(g, p); return; }
+  if (p.hp! <= 0) { downPlayer(g, p); return; }
   p.invuln = Math.max(p.invuln, g.family ? FAMILY_HIT_INVULN : HIT_INVULN);
   g.events.push({ type: 'playerHit', pid: p.pid, x: p.x, y: p.y, hp: p.hp, shield: p.shield });
 }
@@ -3088,7 +3159,7 @@ function damagePlayer(g, p, dmg = 1) {
 // pvp damage funnel: routes through damagePlayer (invuln/shield rules apply)
 // and credits the attacker with a kill when the hit downs/eliminates the
 // victim. Per-player kills break simultaneous-wipe ties in BR.
-function pvpHit(g, victim, dmg, attackerPid) {
+function pvpHit(g: Game,  victim: Player,  dmg: number,  attackerPid: number) {
   const was = victim.state;
   damagePlayer(g, victim, dmg);
   if (was === 'active' && victim.state !== 'active' && attackerPid !== undefined) {
@@ -3096,7 +3167,7 @@ function pvpHit(g, victim, dmg, attackerPid) {
     if (att) {
       att.kills = (att.kills || 0) + 1;
       // a siege takedown is worth shards + xp (and counts toward total kills)
-      if (g.siege) { addShards(g, att, 3); awardXp(g, att.pid, { score: 75 }); g.kills++; addSuperCharge(g, att.team, SIEGE_SUPER_KILL_HERO); }
+      if (g.siege) { addShards(g, att, 3); awardXp(g, att.pid, { score: 75 }); g.kills++; addSuperCharge(g, att.team!, SIEGE_SUPER_KILL_HERO); }
     }
   }
 }
@@ -3106,15 +3177,15 @@ function pvpHit(g, victim, dmg, attackerPid) {
 // own team and spends (shop/build/repair/upgrade/hire) debit the spender's
 // team. Every other mode — BR included, by design: one shared pot keeps the
 // free-for-all scramble honest — uses the single squad pool g.shards.
-function getShards(g, p) {
+function getShards(g: Game,  p: Player) {
   return g.teamShards && p && p.team !== undefined ? g.teamShards[p.team] : g.shards;
 }
-function addShards(g, p, n) {
+function addShards(g: Game,  p: Player,  n: number) {
   if (g.teamShards && p && p.team !== undefined) g.teamShards[p.team] += n;
   else g.shards += n;
 }
 
-function freeChars(g) {
+function freeChars(g: Game) {
   // pvp: the full roster is always free. Character duplicates are allowed —
   // even on the same team (identity in ctf is name + team color) — and pvp
   // never consumes roster operatives, so there is nothing to filter.
@@ -3134,7 +3205,7 @@ function freeChars(g) {
 // pickPrev starts all-held so a button held through the rejoin can't
 // instantly confirm (mirrors the down flow). PvP refuses outright: BR
 // eliminations are final by design and CTF never parks a seat out.
-export function revivePlayer(g, pid) {
+export function revivePlayer(g: Game,  pid: number) {
   if (g.status !== 'play' || g.mode === 'ctf' || g.mode === 'br') return false;
   const p = g.players.find(q => q.pid === pid);
   if (!p || p.state !== 'out' || !freeChars(g).length) return false;
@@ -3154,7 +3225,7 @@ export function revivePlayer(g, pid) {
 // (the down-flow rule). Deterministic: no RNG, no clock — the new seat is
 // plain appended state, so serializeGame/restoreGame round-trips keep
 // replaying byte-exact. Returns the new player, or false when refused.
-export function addPlayerMidGame(g, { pid, name, team }) {
+export function addPlayerMidGame(g: Game, { pid, name, team }: { pid: number; name: string; team?: number }) {
   if (g.mode !== 'ctf' || g.status !== 'play') return false;
   if (team !== 0 && team !== 1) return false;
   if (g.players.some(q => q.pid === pid)) return false;
@@ -3181,7 +3252,7 @@ export function addPlayerMidGame(g, { pid, name, team }) {
   return p;
 }
 
-function extractPlayer(g, p) {
+function extractPlayer(g: Game,  p: Player) {
   if (p.state !== 'active') return;
   releaseHoldings(g, p);
   p.state = 'extracted';
@@ -3189,7 +3260,7 @@ function extractPlayer(g, p) {
   let rescuedHere = 0;
   for (let i = g.captives.length - 1; i >= 0; i--) {
     if (g.captives[i].owner === p.pid) {
-      g.rescued.push(g.captives[i].charId);
+      g.rescued.push(g.captives[i].charId!);
       g.captives.splice(i, 1);
       rescuedHere++;
       g.score += 500;
@@ -3201,9 +3272,9 @@ function extractPlayer(g, p) {
 // Act on a closed chest: shards join the squad pool; cracker/medkit fill the
 // opener's item slot (same kind stacks, a different kind is swapped out);
 // shield tops the pips; token raises the opener's damage (+2 cap).
-function openChest(g, c, p) {
+function openChest(g: Game,  c: any,  p: Player) {
   c.opened = true;
-  const ev = { type: 'chest', x: c.x, y: c.y, loot: c.loot, pid: p.pid };
+  const ev: GameEvent = { type: 'chest', x: c.x, y: c.y, loot: c.loot, pid: p.pid };
   if (c.loot === 'shards') {
     addShards(g, p, c.amount); // ctf: credits the opener's team pool
     ev.amount = c.amount;
@@ -3222,10 +3293,10 @@ function openChest(g, c, p) {
 // on the spot when the slot is full of something else and they are hurt.
 // A full slot of another kind at full hp leaves the crop standing — the
 // refusal cues a 'slotFull' event (once per press; harvest runs on act edges).
-function harvestFarm(g, b, p) {
+function harvestFarm(g: Game,  b: Build,  p: Player) {
   if (!p.item) p.item = { kind: 'medkit', count: 1 };
   else if (p.item.kind === 'medkit') p.item.count++;
-  else if (p.hp !== undefined && p.hp < p.maxHp) p.hp++;
+  else if (p.hp !== undefined && p.hp < p.maxHp!) p.hp++;
   else { g.events.push({ type: 'slotFull', x: b.x, y: b.y }); return; }
   b.stage = 0;
   b.growT = 0;
@@ -3237,7 +3308,7 @@ function harvestFarm(g, b, p) {
 // (a quest with no target matches anything). Kill and build quests call in
 // from the sim; the puzzle systems (switch/glyph/destroy/craft) call the
 // export from their own resolutions. Completion always settles at the giver.
-export function questProgress(g, kind, tags = [], x = 0, y = 0) {
+export function questProgress(g: Game,  kind: string,  tags: any[] = [],  x: number = 0,  y: number = 0) {
   if (!g.quests || !g.quests.length) return;
   for (const q of g.quests) {
     if (q.state !== 'active' || q.kind !== kind || q.progress >= q.count) continue;
@@ -3253,7 +3324,7 @@ export function questProgress(g, kind, tags = [], x = 0, y = 0) {
 // banks `progress` from linked events first. Rewards pay the talker —
 // shards to the pool, an item into the slot, a field weapon into the hands;
 // openDoor parks the door id on g.pendingDoorOpens for the door system.
-function questTalk(g, npc, p) {
+function questTalk(g: Game,  npc: any,  p: Player) {
   if (!g.quests.length) return;
   for (const q of g.quests) {
     if (q.giver !== npc.id) continue;
@@ -3276,7 +3347,7 @@ function questTalk(g, npc, p) {
     }
     if (!satisfied) continue;
     q.state = 'done';
-    const r = q.reward || {};
+    const r: Reward = q.reward || {};
     if (r.shards) addShards(g, p, r.shards);
     if (r.item) { // item rewards fill the slot like chest loot (stack/swap)
       if (p.item && p.item.kind === r.item) p.item.count += 1;
@@ -3296,12 +3367,12 @@ function questTalk(g, npc, p) {
 // (count is ignored: progress jumps straight to count, never 1 per tick).
 // Fetch quests mirror the carried count into progress so the objectives HUD
 // reads live (completion still demands the talker carry them to the giver).
-function stepQuests(g) {
+function stepQuests(g: Game) {
   if (!g.quests.length) return;
   for (const q of g.quests) {
     if (q.state !== 'active') continue;
-    if (q.kind === 'reach' && q.progress < q.count && q.target && typeof q.target.x === 'number') {
-      const tx = (q.target.x + 0.5) * TILE, ty = (q.target.y + 0.5) * TILE;
+    if (q.kind === 'reach' && q.progress < q.count && q.target && typeof (q.target as { x?: number; y?: number }).x === 'number') {
+      const tx = ((q.target as { x: number; y: number }).x + 0.5) * TILE, ty = ((q.target as { x: number; y: number }).y + 0.5) * TILE;
       for (const p of g.players) {
         if (p.state !== 'active' || dist2(p, { x: tx, y: ty }) >= (TILE * QUEST_REACH_TILES) ** 2) continue;
         q.progress = q.count;
@@ -3318,7 +3389,7 @@ function stepQuests(g) {
 
 // --- monolythium puzzle systems --------------------------------------------
 // Doors open exactly once, by id. Every opener funnels through here.
-function openDoor(g, d) {
+function openDoor(g: Game,  d: any) {
   if (!d || d.open) return;
   d.open = true;
   g.buildEpoch = (g.buildEpoch || 0) + 1; // the route map changed: dormant sleepers re-check
@@ -3328,7 +3399,7 @@ function openDoor(g, d) {
 // Puzzle rewards mirror quest rewards where they overlap: openDoor parks the
 // id on pendingDoorOpens (stepDoors consumes it); quest bumps the named
 // quest's progress by one, like any other linked-system event.
-function applyPuzzleReward(g, reward, x, y) {
+function applyPuzzleReward(g: Game, reward: Reward | null, x: number, y: number) {
   if (!reward) return;
   if (reward.openDoor) g.pendingDoorOpens.push(reward.openDoor);
   if (reward.quest) {
@@ -3344,7 +3415,7 @@ function applyPuzzleReward(g, reward, x, y) {
 // CLUSTER QUORUM: need-of-of online completes the group — its reward fires
 // and 'switch' quests targeting the group name advance. A lone relay with no
 // group def drives 'switch' quests by its own id instead.
-function toggleSwitch(g, s, p) {
+function toggleSwitch(g: Game,  s: any,  p: Player) {
   s.on = true;
   g.events.push({ type: 'switch', id: s.id, group: s.group, on: true, x: s.x, y: s.y, pid: p.pid });
   const grp = g.switchGroups.find(sg => sg.group === s.group && !sg.done);
@@ -3367,7 +3438,7 @@ function toggleSwitch(g, s, p) {
 
 // Quorum windows tick down; an expired window resets every relay in the
 // group to OFF (the whole cluster must be re-thrown inside a fresh window).
-function stepSwitchGroups(g, dt) {
+function stepSwitchGroups(g: Game,  dt: number) {
   if (!g.switchGroups.length) return;
   for (const grp of g.switchGroups) {
     if (grp.done || !(grp.windowT > 0)) continue;
@@ -3389,7 +3460,7 @@ function stepSwitchGroups(g, dt) {
 // the group's order. A wrong stone snuffs the whole group ('glyphReset');
 // completing the order fires the reward and 'glyph' quests by group name.
 // Stones without a group def just light (scenery inscriptions).
-function lightGlyph(g, gl, p) {
+function lightGlyph(g: Game,  gl: any,  p: Player) {
   const grp = g.glyphGroups.find(gg => gg.group === gl.group && !gg.done);
   if (!grp) {
     gl.lit = true;
@@ -3420,7 +3491,7 @@ function lightGlyph(g, gl, p) {
 // sealLock doors on touch and reveals Classical Phantoms (snapshot players
 // hasSeal; render does the distance). A bearer never re-forges: the anvil
 // refuses the hold rather than waste a fragment and 20 shards on nothing.
-function stepForges(g, inputs, dt) {
+function stepForges(g: Game,  inputs: Inputs,  dt: number) {
   if (!g.forges.length) return;
   const r2 = (TILE * BUILD_REACH) ** 2;
   for (const f of g.forges) {
@@ -3450,7 +3521,7 @@ function stepForges(g, inputs, dt) {
 
 // Doors: consume parked openDoor rewards (quests, quorums, glyph orders),
 // then let lythseal carriers swing sealLock doors on touch.
-function stepDoors(g) {
+function stepDoors(g: Game) {
   if (g.pendingDoorOpens.length) {
     for (const id of g.pendingDoorOpens.splice(0)) {
       openDoor(g, g.doors.find(d => d.id === id));
@@ -3480,10 +3551,10 @@ function stepDoors(g) {
 // A twin pad sitting inside a CLOSED door rect refuses the channel outright —
 // blinking into a sealed rect would trap the player (door blocking has no
 // escape carve-out). The pad answers again the moment the door opens.
-function stepTeleports(g, dt) {
+function stepTeleports(g: Game,  dt: number) {
   if (!g.teleports.length) return;
   for (const p of g.players) {
-    if (p.teleCool > 0) p.teleCool -= dt;
+    if (p.teleCool! > 0) p.teleCool! -= dt;
     if (p.state !== 'active' || p.riding || p.towerId != null) { p.channelT = 0; continue; }
     const tx = Math.floor(p.x / TILE);
     const ty = Math.floor(p.y / TILE);
@@ -3492,7 +3563,7 @@ function stepTeleports(g, dt) {
       if (Math.floor(t.x / TILE) === tx && Math.floor(t.y / TILE) === ty) { pad = t; break; }
     }
     const twin = pad && pad.twin != null ? g.teleports.find(t => t.id === pad.twin) : null;
-    if (!twin || p.teleCool > 0 || doorBlocksPx(g, twin.x, twin.y)) { p.channelT = 0; continue; }
+    if (!twin || p.teleCool! > 0 || doorBlocksPx(g, twin.x, twin.y)) { p.channelT = 0; continue; }
     p.channelT = (p.channelT || 0) + dt;
     if (p.channelT < TELE_CHANNEL_T) continue;
     p.channelT = 0;
@@ -3507,7 +3578,7 @@ function stepTeleports(g, dt) {
       if (it.carrier === p.pid) { it.x = twin.x; it.y = twin.y; }
     }
     if (g.musicBox && g.musicBox.enabled) {
-      for (const f of g.musicBox.fragments) {
+      for (const f of g.musicBox.fragments!) {
         if (f.carrier === p.pid) { f.x = twin.x; f.y = twin.y; }
       }
     }
@@ -3518,11 +3589,11 @@ function stepTeleports(g, dt) {
       f.path = null;
       f.repathT = 0;
     }
-    g.events.push({ type: 'teleport', pid: p.pid, from: pad.id, to: twin.id, sx, sy, x: twin.x, y: twin.y });
+    g.events.push({ type: 'teleport', pid: p.pid, from: pad!.id, to: twin.id, sx, sy, x: twin.x, y: twin.y });
   }
 }
 
-function addKillScore(g, e) {
+function addKillScore(g: Game,  e: Enemy) {
   const points = (e.score || 100) * g.combo;
   g.kills++;
   g.score += points;
@@ -3533,7 +3604,7 @@ function addKillScore(g, e) {
 
 // Split mutants burst into two skitters. Deterministic placement: fixed angle
 // fans (opposed per twin) with a collide fallback, capped at the global 90.
-function splitSpawn(g, e, k) {
+function splitSpawn(g: Game,  e: Enemy,  k: number) {
   if (g.enemies.length >= 90) return;
   const base = k === 0 ? 0 : Math.PI;
   for (const a of [base, base + Math.PI / 2, base + Math.PI / 4, base - Math.PI / 4]) {
@@ -3555,14 +3626,14 @@ function splitSpawn(g, e, k) {
   }
 }
 
-function killEnemy(g, e, ownerPid) {
+function killEnemy(g: Game, e: Enemy, ownerPid?: number) {
   if (e.dead) return;
   e.dead = true;
   addKillScore(g, e);
-  awardXp(g, ownerPid, e); // kill credit -> the owning seat levels up
+  awardXp(g, ownerPid!, e); // kill credit -> the owning seat levels up
   questProgress(g, 'kill', [e.letter, e.kind], e.x, e.y); // kill quests count
   // L4 burn: an enemy that dies ignited leaves a 3s ground burn patch.
-  if (e.burnT > 0 && e.burnPatch) {
+  if (e.burnT! > 0 && e.burnPatch) {
     g.patches.push({ x: e.x, y: e.y, kind: 'burn', r: BURN_PATCH_R * TILE, ttl: BURN_PATCH_TTL, pid: e.burnOwner });
     g.events.push({ type: 'patch', x: e.x, y: e.y, kind: 'burn', r: BURN_PATCH_R * TILE });
   }
@@ -3615,7 +3686,7 @@ function killEnemy(g, e, ownerPid) {
 
 // True while the relic/music-box awakening wave is mid-flight — power-up drops
 // are boosted during it (recon hordeDetect).
-function hordeActive(g) {
+function hordeActive(g: Game) {
   return !!(g.musicBox && g.musicBox.enabled && g.horde && !g.horde.ended);
 }
 
@@ -3626,7 +3697,7 @@ function hordeActive(g) {
 // the first gates the rare drop (boosted x3 during the awakening horde), the
 // second weighted-picks the type (Full Health most common, Nuke rarest).
 // Exported as a test seam (the integrated kill path calls it internally).
-export function maybeDropPowerup(g, e) {
+export function maybeDropPowerup(g: Game,  e: Enemy) {
   const k = g.powerupKills++;            // advance the per-game counter every kill
   // seed identity from the enemy id + counter + elapsed (quantized to ms so the
   // float never feeds character-by-character noise into the FNV mix)
@@ -3647,8 +3718,8 @@ export function maybeDropPowerup(g, e) {
 // effect runs entirely off existing deterministic state (no Math.random) so the
 // pickup replays byte-identically. Exported as a test seam (the walk-over pickup
 // path in step() calls it internally).
-export function triggerPowerup(g, pu, picker) {
-  const friendly = p => p.state === 'active'
+export function triggerPowerup(g: Game,  pu: Powerup,  picker: Player) {
+  const friendly = (p: Player) => p.state === 'active'
     && (picker.team === undefined || p.team === picker.team);
   if (pu.type === 'firesale') {
     g.fireSaleT = POWERUP_FIRESALE_T;
@@ -3668,7 +3739,7 @@ export function triggerPowerup(g, pu, picker) {
   g.events.push({ type: 'powerup', x: pu.x, y: pu.y, ptype: pu.type });
 }
 
-function damageEnemy(g, e, dmg, x, y, cause, ownerPid) {
+function damageEnemy(g: Game, e: Enemy, dmg: number, x: number, y: number, cause: string, ownerPid?: number) {
   if (e.dead) return false;
   wakeEnemy(g, e);
   e.returning = false; // a hit always re-engages an enemy walking home
@@ -3693,7 +3764,7 @@ function damageEnemy(g, e, dmg, x, y, cause, ownerPid) {
   return false;
 }
 
-function shieldBlocks(e, s) {
+function shieldBlocks(e: Enemy,  s: any) {
   if (e.kind !== 'bulwark') return false;
   const sp = Math.hypot(s.vx, s.vy) || 1;
   const incomingX = -s.vx / sp;
@@ -3701,14 +3772,14 @@ function shieldBlocks(e, s) {
   return incomingX * e.fx + incomingY * e.fy > 0.35;
 }
 
-function explode(g, s, skipEnemy = null) {
+function explode(g: Game,  s: any,  skipEnemy: any = null) {
   if (!s.aoeRadius || s.exploded) return;
   s.exploded = true;
   g.events.push({ type: 'explode', x: s.x, y: s.y, radius: s.aoeRadius, who: s.who });
   const r2 = s.aoeRadius * s.aoeRadius;
   if (s.who === 'p') {
     for (const e of g.enemies) {
-      if (e.dead || e === skipEnemy || e.convertedT > 0) continue;
+      if (e.dead || e === skipEnemy || e.convertedT! > 0) continue;
       if (dist2(s, e) <= r2) damageEnemy(g, e, s.dmg, e.x, e.y, s.kind, s.ownerPid);
     }
     // pvp only: player AoE wounds OTHER-team operatives caught in the blast
@@ -3726,7 +3797,8 @@ function explode(g, s, skipEnemy = null) {
   }
 }
 
-function nearestTarget(g, e) {
+type EnemyTarget = (Player | Follower | { x: number; y: number; nonPlayer?: boolean; adj?: boolean }) & { nonPlayer?: boolean; adj?: boolean };
+function nearestTarget(g: Game, e: Enemy): [EnemyTarget | null, number] {
   // A landed lure cracker overrides every other target for enemies inside its
   // pull radius — they wake and converge on it until it detonates.
   if (g.crackers && g.crackers.length) {
@@ -3801,17 +3873,17 @@ function nearestTarget(g, e) {
       e.pathFailed = false;
       e.path = null;
       e.repathT = 0;
-    } else if (e.pathFailed && !(e.gnawScanT > 0)) {
+    } else if (e.pathFailed && !(e.gnawScanT! > 0)) {
       // Budget guards (big maps; arcade keeps the classic unbounded scan):
       // at most g.gnawBudget scans START per tick field-wide, each capped to
       // the 8 NEAREST candidates, each candidate search drawing on the
       // global A* budget. A completed scan that found nothing reachable
       // caches that verdict ~2.5s and counts toward dormancy; a scan cut
       // short by an empty budget retries almost immediately instead.
-      if (!g.arcade && (!(g.gnawBudget > 0) || !(g.pathBudget > 0))) {
+      if (!g.arcade && (!(g.gnawBudget! > 0) || !(g.pathBudget! > 0))) {
         e.gnawScanT = 0.25;
       } else {
-        if (!g.arcade) g.gnawBudget--;
+        if (!g.arcade) g.gnawBudget!--;
         e.gnawScanT = 1.2; // per-enemy floor: rescan at most every 1.2s
         const ex = Math.floor(e.x / TILE), ey = Math.floor(e.y / TILE);
         const cands = [];
@@ -3822,12 +3894,12 @@ function nearestTarget(g, e) {
           cands.push([dist2(e, b), i]);
         }
         cands.sort((a, b2) => a[0] - b2[0] || a[1] - b2[1]);
-        let found = null, tried = 0, cut = false;
+        let found: [EnemyTarget, number] | null = null, tried = 0, cut = false;
         for (const [, i] of cands) {
           if (!g.arcade) {
             if (tried >= 8) break;
-            if (!(g.pathBudget > 0)) { cut = true; break; }
-            g.pathBudget--;
+            if (!(g.pathBudget! > 0)) { cut = true; break; }
+            g.pathBudget!--;
             tried++;
           }
           const b = g.builds[i];
@@ -3876,7 +3948,7 @@ function nearestTarget(g, e) {
   return [tgt, best];
 }
 
-function contactPlayer(g, e, best, tgt) {
+function contactPlayer(g: Game,  e: Enemy,  best: number,  tgt: any) {
   if (!tgt) return;
   if (tgt.isFollower) {
     if (best < (FOLLOWER_R + ENEMY_R) ** 2) damageFollower(g, tgt, 1);
@@ -3895,7 +3967,7 @@ function contactPlayer(g, e, best, tgt) {
 
 // Nightmare melee contact: like contactPlayer, but honors a per-kind melee
 // damage (the reaper's heavy 2-dmg blow). Used by the relic horde only.
-function contactNightmare(g, e, best, tgt) {
+function contactNightmare(g: Game,  e: Enemy,  best: number,  tgt: any) {
   if (!tgt || tgt.nonPlayer) return;
   const rr = (PLAYER_R + ENEMY_R) ** 2;
   if (best < rr) damagePlayer(g, tgt, ENEMY_STATS[e.letter]?.meleeDmg || 1);
@@ -3907,7 +3979,7 @@ function contactNightmare(g, e, best, tgt) {
 // damagePlayer throttles repeats), so it can't be stacked off a single touch.
 // Followers/non-players are untouched (no chill field). Gated entirely on the
 // frostshade kind, so no other path ever sets p.chillT.
-function contactChill(g, e, best, tgt) {
+function contactChill(g: Game,  e: Enemy,  best: number,  tgt: any) {
   if (!tgt) return;
   const rr = (PLAYER_R + ENEMY_R) ** 2;
   if (tgt.nonPlayer) {
@@ -3928,7 +4000,7 @@ function contactChill(g, e, best, tgt) {
   }
 }
 
-function spawnSkitter(g, e, tgt) {
+function spawnSkitter(g: Game,  e: Enemy,  tgt: any) {
   const angles = [0, Math.PI / 2, Math.PI, Math.PI * 1.5, Math.PI / 4, -Math.PI / 4];
   for (const a of angles) {
     const x = e.x + Math.cos(a) * TILE * 0.75;
@@ -3950,7 +4022,7 @@ function spawnSkitter(g, e, tgt) {
 // Melee-class enemies in contact with a blocking built structure chew it down:
 // 1 hp per 0.9s. Pylons are indestructible once built. Returns true while the
 // enemy is gnawing so its step can stop there.
-function structMaxHp(kind, level) {
+function structMaxHp(kind: string,  level: number) {
   const t = STRUCT_HP[kind];
   return t ? t[level - 1] : buildMaxHp(kind);
 }
@@ -3958,15 +4030,15 @@ function structMaxHp(kind, level) {
 // Turret HP is type-aware: prisms are deliberately fragile (PRISM_HP, ~2 hits)
 // while every other turret type keeps the generic turret HP track. Used wherever
 // a turret's maxHp is (re)computed so repair/upgrade respect the prism nerf.
-function turretMaxHp(ttype, level) {
+function turretMaxHp(ttype: string,  level: number) {
   if (ttype === 'prism') return PRISM_HP[Math.min(PRISM_HP.length, Math.max(1, level || 1)) - 1];
   return structMaxHp('turret', level);
 }
 
 // A destroyed watchtower throws its gunner out and loses its upgrades.
-function towerDown(g, t) {
+function towerDown(g: Game,  t: any) {
   for (const p of g.players) {
-    if (p.towerId != null && g.towers[p.towerId] === t) p.towerId = null;
+    if (p.towerId != null && g.towers[p.towerId as number] === t) p.towerId = null;
   }
   t.occupant = null;
   t.hp = 0;
@@ -3977,7 +4049,7 @@ function towerDown(g, t) {
   g.events.push({ type: 'buildDown', x: t.x, y: t.y, kind: 'tower' });
 }
 
-function attackBuilds(g, e, dt) {
+function attackBuilds(g: Game,  e: Enemy,  dt: number) {
   // Phaseborn drift THROUGH walls — they never stop to gnaw a structure, they
   // phase past it toward the player/core (which is what makes wall-turtling
   // weak against them). So they are exempt from the build-gnaw entirely.
@@ -4002,20 +4074,20 @@ function attackBuilds(g, e, dt) {
     const s = touching || tower;
     // Brine Hulk sapper: it crushes built structures for DOUBLE damage,
     // punishing static walls and rewarding active repair.
-    s.hp -= e.kind === 'brinehulk' ? BRINEHULK_SAP : 1;
-    g.events.push({ type: 'buildHit', x: s.x, y: s.y });
-    if (s.hp <= 0) {
+    s!.hp -= e.kind === 'brinehulk' ? BRINEHULK_SAP : 1;
+    g.events.push({ type: 'buildHit', x: s!.x, y: s!.y });
+    if (s!.hp <= 0) {
       if (tower) {
         towerDown(g, tower);
       } else {
-        s.hp = 0;
-        s.built = false;
-        s.progress = 0;
-        s.paid = 0;
+        s!.hp = 0;
+        (s as Build).built = false;
+        (s as Build).progress = 0;
+        (s as Build).paid = 0;
         // a flattened structure loses its upgrades too
-        if (s.level) { s.level = 1; s.maxHp = structMaxHp(s.kind, 1); }
+        if (s!.level) { s!.level = 1; s!.maxHp = structMaxHp(s!.kind!, 1); }
         g.buildEpoch = (g.buildEpoch || 0) + 1; // terrain changed: dormant sleepers re-check
-        g.events.push({ type: 'buildDown', x: s.x, y: s.y, kind: s.kind });
+        g.events.push({ type: 'buildDown', x: s!.x, y: s!.y, kind: s!.kind });
       }
     }
   }
@@ -4029,7 +4101,7 @@ function attackBuilds(g, e, dt) {
 // Only the night waves (targetCore) and enemies with NO reachable player
 // target (pathFailed) gnaw — a wandering camp patrol brushing past a lit
 // monolith must never darken it unprovoked.
-function attackCore(g, e, dt) {
+function attackCore(g: Game,  e: Enemy,  dt: number) {
   if (!MELEE_KINDS.has(e.kind)) return false;
   if (!e.targetCore && !e.pathFailed) return false;
   // DEV core integrity: the center cannot be destroyed. Enemy still stalls at
@@ -4065,14 +4137,14 @@ function attackCore(g, e, dt) {
 }
 
 // --- followers: hired combat hands (hound/archer/caster) -------------------
-function damageFollower(g, f, dmg = 1) {
+function damageFollower(g: Game,  f: Follower,  dmg: number = 1) {
   if (f.dead || f.invulnT > 0) return;
   f.hp -= dmg;
   f.invulnT = 0.5; // brief grace so contact doesn't shred a dog in one tick
   g.events.push({ type: 'followerHit', x: f.x, y: f.y, kind: f.kind, hp: Math.max(0, f.hp) });
   if (f.hp <= 0) {
     f.dead = true; // downed followers are gone; their post restocks in 20s
-    const h = g.hires[f.post];
+    const h = g.hires[f.post!];
     if (h) h.restockT = POST_RESTOCK_T;
     g.events.push({ type: 'followerDown', x: f.x, y: f.y, kind: f.kind, owner: f.owner });
   }
@@ -4088,14 +4160,14 @@ function damageFollower(g, f, dmg = 1) {
 // path) but, having no seat, runs this garrison branch instead of the formation
 // one. Fully deterministic (no RNG/clock): a stale-path A* via moveToward, the
 // same family the hired hands and enemies use.
-function stepDefender(g, f, dt) {
+function stepDefender(g: Game,  f: Follower,  dt: number) {
   const st = DEFENDER_STATS.defender;
   const base = baseCenter(g);
   // engage the nearest enemy within the base hold ring
   let tgt = null, best = Infinity;
   const hold2 = (TILE * DEFENDER_HOLD) ** 2;
   for (const e of g.enemies) {
-    if (e.dead || e.convertedT > 0) continue;
+    if (e.dead || e.convertedT! > 0) continue;
     if (dist2(base, e) >= hold2) continue;
     const d = dist2(f, e);
     if (d < best) { best = d; tgt = e; }
@@ -4120,7 +4192,7 @@ function stepDefender(g, f, dt) {
   }
 }
 
-function stepFollowers(g, dt) {
+function stepFollowers(g: Game,  dt: number) {
   if (!g.followers.length) return;
   for (const f of g.followers) {
     if (f.dead) continue;
@@ -4150,7 +4222,7 @@ function stepFollowers(g, dt) {
     let tgt = null, best = Infinity;
     const er2 = (TILE * FOLLOWER_ENGAGE) ** 2;
     for (const e of g.enemies) {
-      if (e.dead || e.convertedT > 0) continue;
+      if (e.dead || e.convertedT! > 0) continue;
       if (dist2(o, e) >= er2) continue;
       const d = dist2(f, e);
       if (d < best) { best = d; tgt = e; }
@@ -4195,7 +4267,7 @@ function stepFollowers(g, dt) {
 // --- ground patches: enemies inside catch the status. Patches have no team:
 // burn patches (always player-made) never hurt players at all (PvE clarity);
 // toxin slows EVERYONE (handled in the player movement block). ---
-function stepPatches(g, dt) {
+function stepPatches(g: Game,  dt: number) {
   if (!g.patches.length) return;
   for (let i = g.patches.length - 1; i >= 0; i--) {
     const pa = g.patches[i];
@@ -4231,22 +4303,22 @@ function stepPatches(g, dt) {
     for (const e of g.enemies) {
       // converted enemies fight for the squad: patches pass over allies
       // (no convert-then-poison farming for score/xp/shards)
-      if (e.dead || e.convertedT > 0 || dist2(pa, e) >= r2) continue;
-      if (pa.kind === 'burn') igniteEnemy(g, e, pa.pid, false);
-      else toxEnemy(g, e, pa.pid);
+      if (e.dead || e.convertedT! > 0 || dist2(pa, e) >= r2) continue;
+      if (pa.kind === 'burn') igniteEnemy(g, e, pa.pid!, false);
+      else toxEnemy(g, e, pa.pid!);
     }
   }
 }
 
 // --- per-enemy status clocks: stun decay, burn/toxin dot ticks and contact
 // spread chains, mind-control burnout. Runs every tick (grace included). ---
-function stepStatuses(g, dt) {
+function stepStatuses(g: Game,  dt: number) {
   for (const e of g.enemies) {
     if (e.dead) continue;
-    if (e.stunT > 0) e.stunT = Math.max(0, e.stunT - dt);
-    if (e.convertedT > 0) {
-      e.convertedT -= dt;
-      if (e.convertedT <= 0) {
+    if (e.stunT! > 0) e.stunT = Math.max(0, e.stunT! - dt);
+    if (e.convertedT! > 0) {
+      e.convertedT! -= dt;
+      if (e.convertedT! <= 0) {
         // mind control burns out: the husk dies quietly (no score, no drop)
         e.convertedT = 0;
         e.dead = true;
@@ -4254,43 +4326,43 @@ function stepStatuses(g, dt) {
         continue;
       }
     }
-    if (e.burnT > 0) {
-      e.burnT -= dt;
+    if (e.burnT! > 0) {
+      e.burnT! -= dt;
       e.burnTick = (e.burnTick || 0) + dt;
       while (e.burnTick >= 1 && !e.dead) {
         e.burnTick -= 1;
-        damageEnemy(g, e, 1, e.x, e.y, 'burn', e.burnOwner);
+        damageEnemy(g, e, 1, e.x, e.y, 'burn', e.burnOwner!);
       }
       // a survived burn clears the L4 patch flag too — a later plain ignite
       // must not inherit a stale death-patch
-      if (e.burnT <= 0) { e.burnT = 0; e.burnTick = 0; e.burnPatch = false; }
+      if (e.burnT! <= 0) { e.burnT = 0; e.burnTick = 0; e.burnPatch = false; }
       // spread: contact ignites a non-burning enemy ONCE (chain, no ping-pong)
-      if (!e.dead && e.burnT > 0) {
+      if (!e.dead && e.burnT! > 0) {
         const rr = (ENEMY_R * 2) ** 2;
         for (const o of g.enemies) {
-          if (o === e || o.dead || o.burnT > 0 || o.chainBurned) continue;
+          if (o === e || o.dead || o.burnT! > 0 || o.chainBurned) continue;
           if (dist2(e, o) < rr) {
             o.chainBurned = true;
-            igniteEnemy(g, o, e.burnOwner, e.burnPatch);
+            igniteEnemy(g, o, e.burnOwner!, e.burnPatch);
           }
         }
       }
     }
-    if (!e.dead && e.toxT > 0) {
-      e.toxT -= dt;
+    if (!e.dead && e.toxT! > 0) {
+      e.toxT! -= dt;
       e.toxTick = (e.toxTick || 0) + dt;
       while (e.toxTick >= 1 && !e.dead) {
         e.toxTick -= 1;
-        damageEnemy(g, e, 0.5, e.x, e.y, 'toxin', e.toxOwner);
+        damageEnemy(g, e, 0.5, e.x, e.y, 'toxin', e.toxOwner!);
       }
-      if (e.toxT <= 0) { e.toxT = 0; e.toxTick = 0; }
-      if (!e.dead && e.toxT > 0) {
+      if (e.toxT! <= 0) { e.toxT = 0; e.toxTick = 0; }
+      if (!e.dead && e.toxT! > 0) {
         const rr = (ENEMY_R * 2) ** 2;
         for (const o of g.enemies) {
-          if (o === e || o.dead || o.toxT > 0 || o.chainToxed) continue;
+          if (o === e || o.dead || o.toxT! > 0 || o.chainToxed) continue;
           if (dist2(e, o) < rr) {
             o.chainToxed = true;
-            toxEnemy(g, o, e.toxOwner);
+            toxEnemy(g, o, e.toxOwner!);
           }
         }
       }
@@ -4300,10 +4372,10 @@ function stepStatuses(g, dt) {
 
 // --- mind control: a converted enemy fights its own for 10s. Its shots count
 // as player fire with a null owner (no seat earns the xp). ---
-function stepConverted(g, e, dt) {
+function stepConverted(g: Game,  e: Enemy,  dt: number) {
   let tgt = null, best = Infinity;
   for (const o of g.enemies) {
-    if (o === e || o.dead || o.convertedT > 0) continue;
+    if (o === e || o.dead || o.convertedT! > 0) continue;
     const d = dist2(e, o);
     if (d < best) { best = d; tgt = o; }
   }
@@ -4335,16 +4407,16 @@ function stepConverted(g, e, dt) {
 // Does prism `o` have a valid (awake, in-range, line-of-sight) enemy target?
 // Used to elect the firing master of a link group: only a prism that could
 // actually fire may claim mastership over a higher-index linked prism.
-function prismHasTarget(g, o) {
+function prismHasTarget(g: Game,  o: any) {
   const range2 = (TILE * PRISM_RANGE[(o.level || 1) - 1]) ** 2;
   for (const e of g.enemies) {
-    if (e.dead || !e.awake || e.convertedT > 0) continue;
+    if (e.dead || !e.awake || e.convertedT! > 0) continue;
     if (dist2(o, e) < range2 && hasLoS(g, o.x, o.y, e.x, e.y, blocksSight)) return true;
   }
   return false;
 }
 
-function confirmTurretType(g, b) {
+function confirmTurretType(g: Game,  b: Build) {
   b.typeSelect = false;
   b.ttype = TURRET_TYPES[b.tsIdx || 0];
   b.selT = 0;
@@ -4358,15 +4430,15 @@ function confirmTurretType(g, b) {
   g.events.push({ type: 'turretType', x: b.x, y: b.y, ttype: b.ttype });
 }
 
-function stepEnemy(g, e, dt) {
+function stepEnemy(g: Game,  e: Enemy,  dt: number) {
   if (e.dead) return;
   if (e.hurt > 0) e.hurt -= dt;
   if (e.hitCool > 0) e.hitCool -= dt;
-  if (e.gnawScanT > 0) e.gnawScanT -= dt;
+  if (e.gnawScanT! > 0) e.gnawScanT! -= dt;
   // group alert: a camp-mate spotted trouble — wake on the staggered clock
-  if (e.groupWakeT > 0 && !e.awake) {
-    e.groupWakeT -= dt;
-    if (e.groupWakeT <= 0) {
+  if (e.groupWakeT! > 0 && !e.awake) {
+    e.groupWakeT! -= dt;
+    if (e.groupWakeT! <= 0) {
       e.groupWakeT = 0;
       wakeEnemy(g, e, false);
     }
@@ -4383,12 +4455,12 @@ function stepEnemy(g, e, dt) {
   } else if (e.lavaT) e.lavaT = 0;
   // Mind-controlled enemies fight for the squad; stunned ones do nothing at
   // all (no actions, no movement — the clocks tick in stepStatuses).
-  if (e.convertedT > 0) {
-    if (e.stunT > 0) return;
+  if (e.convertedT! > 0) {
+    if (e.stunT! > 0) return;
     stepConverted(g, e, dt);
     return;
   }
-  if (e.stunT > 0) return;
+  if (e.stunT! > 0) return;
   // Sand Lurker: while BURIED it lies dormant under the sand — no chase, no
   // attack — until an active player crosses SANDLURKER_SURFACE tiles, then it
   // erupts and chases at full speed (the ambush). Deterministic distance gate,
@@ -4451,19 +4523,19 @@ function stepEnemy(g, e, dt) {
   // Spotting by sight or bump raises the whole camp (alertGroup) — a silent
   // kill from beyond their eyes never does.
   if (!e.awake) {
-    if (best < aggro * aggro && canSee(g, e, tgt)) {
+    if (best! < aggro * aggro && canSee(g, e, tgt)) {
       wakeEnemy(g, e);
       alertGroup(g, e);
-    } else if (best < (TILE * 2.2) ** 2) {
+    } else if (best! < (TILE * 2.2) ** 2) {
       wakeEnemy(g, e);
       alertGroup(g, e);
     } else {
       // patrols: unaware mobile enemies walk their waypoint loop at 0.6x
       // speed, deterministic round-robin — pre-aggro wandering only
       if (e.patrol && e.patrol.length && !STATIONARY_KINDS.has(e.kind)) {
-        const wp = e.patrol[e.patrolI % e.patrol.length];
+        const wp = e.patrol[e.patrolI! % e.patrol.length];
         if (Math.hypot(wp.x - e.x, wp.y - e.y) < TILE * 0.45) {
-          e.patrolI = (e.patrolI + 1) % e.patrol.length;
+          e.patrolI = (e.patrolI! + 1) % e.patrol.length;
         } else {
           moveToward(g, e, wp, dt, e.speed * PATROL_SPEED);
         }
@@ -4483,15 +4555,15 @@ function stepEnemy(g, e, dt) {
   // and walks home the instant the player clears the keep's leash radius. The
   // re-aggro test mirrors it: a player back inside the keep aggro re-engages.
   if (!g.arcade) {
-    const garrison = e.leashR > 0;
+    const garrison = e.leashR! > 0;
     const homeBest = garrison ? dist2(tgt, { x: e.homeX, y: e.homeY }) : best;
     const leash = garrison ? e.leashR : aggro * LEASH_MULT;
-    if (!e.returning && homeBest > leash * leash) {
+    if (!e.returning && homeBest! > leash! * leash!) {
       if (STATIONARY_KINDS.has(e.kind)) { e.aimT = 0; e.awake = false; return; }
       e.returning = true;
     }
     if (e.returning) {
-      if ((homeBest < aggro * aggro && canSee(g, e, tgt)) || best < (TILE * 2.2) ** 2) {
+      if ((homeBest! < aggro * aggro && canSee(g, e, tgt)) || best! < (TILE * 2.2) ** 2) {
         e.returning = false;
       } else {
         if (Math.hypot(e.homeX - e.x, e.homeY - e.y) < TILE * 0.6) {
@@ -4645,8 +4717,8 @@ function stepEnemy(g, e, dt) {
     // target (never closer than a tile out, never onto blocked ground — the
     // first open landing along the line wins; walls don't stop a phase).
     if (e.kind === 'stalker') {
-      e.blinkT -= dt;
-      if (e.blinkT <= 0) {
+      e.blinkT! -= dt;
+      if (e.blinkT! <= 0) {
         e.blinkT = STALKER_BLINK_T;
         if (d > TILE * 2) {
           const hop = Math.min(STALKER_BLINK_TILES * TILE, d - TILE);
@@ -4688,7 +4760,7 @@ function stepEnemy(g, e, dt) {
       const r2 = e.range * e.range;
       let ward = null, bestW = r2;
       for (const o of g.enemies) {
-        if (o === e || o.dead || o.shielded || o.convertedT > 0) continue;
+        if (o === e || o.dead || o.shielded || o.convertedT! > 0) continue;
         const dd = dist2(e, o);
         if (dd < bestW) { bestW = dd; ward = o; }
       }
@@ -4699,7 +4771,7 @@ function stepEnemy(g, e, dt) {
       if (e.pulseN % ACOLYTE_HEAL_EVERY === 0) {
         let mend = null, bestM = r2;
         for (const o of g.enemies) {
-          if (o === e || o.dead || o.convertedT > 0 || o.hp >= o.maxHp) continue;
+          if (o === e || o.dead || o.convertedT! > 0 || o.hp >= o.maxHp) continue;
           const dd = dist2(e, o);
           if (dd < bestM) { bestM = dd; mend = o; }
         }
@@ -4730,8 +4802,8 @@ function stepEnemy(g, e, dt) {
 
   if (e.kind === 'charger') {
     if (e.state === 'windup') {
-      e.windup -= dt;
-      if (e.windup <= 0) {
+      e.windup! -= dt;
+      if (e.windup! <= 0) {
         e.state = 'dash';
         e.dashT = 0.34;
         e.dashFx = e.chargeFx;
@@ -4742,11 +4814,11 @@ function stepEnemy(g, e, dt) {
     }
     if (e.state === 'dash') {
       const v = 5.4 * TILE * dt;
-      moveCircle(g, e, e.dashFx * v, e.dashFy * v, ENEMY_R);
-      e.fx = e.dashFx; e.fy = e.dashFy;
+      moveCircle(g, e, e.dashFx! * v, e.dashFy! * v, ENEMY_R);
+      e.fx = e.dashFx!; e.fy = e.dashFy!;
       contactPlayer(g, e, dist2(e, tgt), tgt);
-      e.dashT -= dt;
-      if (e.dashT <= 0) e.state = 'idle';
+      e.dashT! -= dt;
+      if (e.dashT! <= 0) e.state = 'idle';
       return;
     }
     e.cool -= dt;
@@ -4837,13 +4909,13 @@ function stepEnemy(g, e, dt) {
 // edge, the outermost passable tile in the 2-tile border band is a candidate
 // (grid order, stable). The n spawn points are chosen evenly spaced across
 // the candidate list. Pure grid math — no randomness.
-function waveEntryPoints(g, edge, n) {
+function waveEntryPoints(g: Game, edge: string | undefined, n: number) {
   const horiz = edge === 'n' || edge === 's';
   const len = horiz ? g.w : g.h;
-  const cands = [];
+  const cands: { x: number; y: number }[] = [];
   for (let i = 0; i < len; i++) {
     for (let depth = 0; depth < 2; depth++) {
-      let tx, ty;
+      let tx: number, ty: number;
       if (edge === 'n') { tx = i; ty = depth; }
       else if (edge === 's') { tx = i; ty = g.h - 1 - depth; }
       else if (edge === 'w') { tx = depth; ty = i; }
@@ -4856,7 +4928,7 @@ function waveEntryPoints(g, edge, n) {
       }
     }
   }
-  const pts = [];
+  const pts: { x: number; y: number }[] = [];
   if (!cands.length) return pts;
   for (let i = 0; i < n; i++) pts.push(cands[Math.floor(((i + 0.5) * cands.length) / n)]);
   return pts;
@@ -4865,7 +4937,7 @@ function waveEntryPoints(g, edge, n) {
 // Fire every wave whose time has come: spawn its letters at the edge entry
 // points as awake hunters (aggro x100 — they never leash home), respecting
 // the global 90-enemy cap. Each wave fires exactly once.
-function maybeOpenGate(g) {
+function maybeOpenGate(g: Game) {
   if (!g.gate || g.gate.open) return;
   if (g.gate.built >= g.gate.need && g.elapsed >= g.gate.after) {
     g.gate.open = true;
@@ -4873,7 +4945,7 @@ function maybeOpenGate(g) {
   }
 }
 
-function stepWaves(g) {
+function stepWaves(g: Game) {
   if (!g.waves || !g.waves.length) return;
   for (const w of g.waves) {
     if (w.fired || g.elapsed < w.at) continue;
@@ -4898,14 +4970,14 @@ function stepWaves(g) {
 
 // True when every operative is down/out (relic FAILS — world restores, no bonus).
 // Players in 'pick' (waiting to redeploy) count as down too: nobody is standing.
-function allPlayersDown(g) {
+function allPlayersDown(g: Game) {
   if (!g.players.length) return false;
   return g.players.every(p => p.state !== 'active');
 }
 
 // Restore the world to its pre-event look and clear every remaining nightmare
 // (they dissolve). One code path for both the survive and the fail finish.
-function endHorde(g) {
+function endHorde(g: Game) {
   const h = g.horde;
   if (!h || h.ended) return;
   h.ended = true;
@@ -4930,7 +5002,7 @@ function endHorde(g) {
 // END: when dur elapses -> {type:'relicSurvived', score+breakdown}; if every
 // player is down at any point -> {type:'relicFailed'} (no bonus). Either finish
 // restores g.dark/g.weather and dissolves the leftover nightmares.
-function stepHorde(g, dt) {
+function stepHorde(g: Game,  dt: number) {
   if (!g.musicBox || !g.musicBox.enabled) return;
   // LATCH on the rising edge of complete.
   if (g.musicBox.complete && !g.horde) {
@@ -4943,7 +5015,7 @@ function stepHorde(g, dt) {
     };
     g.dark = true;
     g.weather = 'thunderstorm';
-    g.events.push({ type: 'relicAwaken', x: g.musicBox.altar.x, y: g.musicBox.altar.y, dur });
+    g.events.push({ type: 'relicAwaken', x: g.musicBox.altar!.x, y: g.musicBox.altar!.y, dur });
   }
   const h = g.horde;
   if (!h || h.ended) return;
@@ -4953,7 +5025,7 @@ function stepHorde(g, dt) {
   if (allPlayersDown(g)) {
     endHorde(g);
     h.result = 'failed';
-    g.events.push({ type: 'relicFailed', x: g.musicBox.altar.x, y: g.musicBox.altar.y });
+    g.events.push({ type: 'relicFailed', x: g.musicBox.altar!.x, y: g.musicBox.altar!.y });
     return;
   }
 
@@ -4970,7 +5042,7 @@ function stepHorde(g, dt) {
     // right to build the one-shot relic superweapon (nuke / weather machine).
     g.superweaponUnlocked = true;
     g.events.push({
-      type: 'relicSurvived', x: g.musicBox.altar.x, y: g.musicBox.altar.y,
+      type: 'relicSurvived', x: g.musicBox.altar!.x, y: g.musicBox.altar!.y,
       score, base, hits: h.hits, deaths: h.deaths,
       hitPenalty: HORDE_HIT_PENALTY, deathPenalty: HORDE_DEATH_PENALTY,
       points: Math.round(g.score),
@@ -5032,7 +5104,7 @@ function stepHorde(g, dt) {
 // A superweapon may be ASSEMBLED on an open floor tile that is clear of walls /
 // cover and well away from extracts and spawns (mirrors the RA2 build-site
 // rule, HOLDOUT-scaled to tiles). Pure grid math — fully deterministic.
-function canBuildSuperweaponAt(g, x, y) {
+function canBuildSuperweaponAt(g: Game,  x: number,  y: number) {
   const c = tileAt(g, x, y);
   if (c !== '.') return false; // floor only
   const tx = Math.floor(x / TILE), ty = Math.floor(y / TILE);
@@ -5062,23 +5134,23 @@ function canBuildSuperweaponAt(g, x, y) {
 // the seat's tile; inp.superFire is a plain TRIGGER (no aim) that auto-targets
 // the densest hostile cluster once the device is ready. Both are no-ops until
 // g.superweaponUnlocked is true.
-function stepSuperweaponInput(g, p, inp) {
+function stepSuperweaponInput(g: Game,  p: Player,  inp: Input) {
   if (!g.superweaponUnlocked) return;
   const sw = g.superweapon;
   // BUILD: one device per run. A fresh edge of inp.superBuild on a valid site
   // starts a 6s standing channel (channelT) — interruptible by moving/downing.
-  if (!sw && SUPER_KINDS.has(inp.superBuild) && !p.superBuildPrev) {
+  if (!sw && SUPER_KINDS.has(inp.superBuild!) && !p.superBuildPrev) {
     const c = tileCenter(p.x, p.y);
     if (canBuildSuperweaponAt(g, c.x, c.y)) {
       g.superweapon = {
-        type: inp.superBuild, state: 'building',
+        type: inp.superBuild!, state: 'building',
         buildT: 0, chargeT: SUPER_CHARGE_SECONDS, used: false,
         x: c.x, y: c.y, ownerPid: p.pid, hp: SUPER_DEVICE_HP, maxHp: SUPER_DEVICE_HP,
       };
       g.events.push({ type: 'superweaponSite', x: c.x, y: c.y, kind: inp.superBuild, pid: p.pid });
     }
   }
-  p.superBuildPrev = SUPER_KINDS.has(inp.superBuild);
+  p.superBuildPrev = SUPER_KINDS.has(inp.superBuild!);
   // FIRE: when the device is ready the OWNER just TRIGGERS it (one button, no
   // aim) — the sim deterministically auto-targets the densest hostile cluster
   // (superweaponAutoTarget) and fires there. If nothing worth hitting exists the
@@ -5102,7 +5174,7 @@ function stepSuperweaponInput(g, p, inp) {
 // to hit (no live enemy AND no stronghold) so the caller keeps the charge.
 // Friendlies never enter the math: the blast is friendly-fire-proof regardless
 // of where it lands, so the only thing that matters is enemy density.
-function superweaponAutoTarget(g, sw) {
+function superweaponAutoTarget(g: Game,  sw: Superweapon) {
   const radTiles = sw.type === 'weather' ? STORM_RADIUS : NUKE_RADIUS;
   const r2 = (radTiles * TILE) ** 2;
   const live = g.enemies.filter(e => !e.dead);
@@ -5141,7 +5213,7 @@ function superweaponAutoTarget(g, sw) {
 // Per-step device clock: BUILD channel -> CHARGE -> READY. Called once per step
 // (a no-op when no device exists). The owner must keep standing on the device's
 // tile to channel it up; walking off / going down pauses the build channel.
-function stepSuperweapon(g, dt) {
+function stepSuperweapon(g: Game,  dt: number) {
   const sw = g.superweapon;
   if (!sw) return;
   // ENEMY ATTACK: while it is still being built or charging the device is a
@@ -5196,7 +5268,7 @@ function stepSuperweapon(g, dt) {
 // A TINY response wave near a finished device: a 4-enemy poke (a fraction of a
 // real 15-30 wave), each aimed at the device. Deterministic open-cell ring scan
 // (openTileNear, the same the relic altar uses), seeded by the device tile.
-function spawnSuperweaponMiniWave(g, sw) {
+function spawnSuperweaponMiniWave(g: Game,  sw: Superweapon) {
   const roster = sw.type === 'weather' ? ['g', 'g', 'w', 'w'] : ['g', 'g', 'g', 'r'];
   const baseSeed = (Math.floor(sw.x / TILE) * 31 + Math.floor(sw.y / TILE) * 7) | 0;
   for (let i = 0; i < roster.length; i++) {
@@ -5216,7 +5288,7 @@ function spawnSuperweaponMiniWave(g, sw) {
 // FIRE: the one shot. Marks the device spent (no recharge) and resolves the
 // payoff — the nuke schedules a delayed instant flatten + radiation crater; the
 // weather machine schedules a lightning storm DoT field over the target.
-function fireSuperweapon(g, sw, ax, ay) {
+function fireSuperweapon(g: Game,  sw: Superweapon,  ax: number,  ay: number) {
   const c = tileCenter(ax, ay);
   sw.used = true;
   sw.state = 'spent';
@@ -5245,7 +5317,7 @@ function fireSuperweapon(g, sw, ax, ay) {
 // (turrets/walls/barricades), recruited defenders (ownerless followers) and
 // cores are NEVER hit, even when caught in the radius — the auto-target may
 // land near friendlies but never harms them. Only enemies take damage.
-function nukeDetonate(g, x, y) {
+function nukeDetonate(g: Game,  x: number,  y: number) {
   const r = NUKE_RADIUS * TILE, full = NUKE_FULL_RADIUS * TILE;
   const r2 = r * r, full2 = full * full;
   g.events.push({ type: 'explode', x, y, radius: r, who: 'p' });
@@ -5262,7 +5334,7 @@ function nukeDetonate(g, x, y) {
 // radiation chip-kills enemies / downs players inside it, and the storm scatters
 // lightning bolts across its footprint for its duration. Drops expired fields.
 // A no-op (and never allocates) when g.hazards is empty.
-function stepHazards(g, dt) {
+function stepHazards(g: Game,  dt: number) {
   if (!g.hazards.length) return;
   for (const hz of g.hazards) {
     if (hz.kind === 'nukeFlight') {
@@ -5286,11 +5358,11 @@ function stepHazards(g, dt) {
       if (hz.ttl <= 0) hz.done = true;
     } else if (hz.kind === 'storm') {
       hz.ttl -= dt;
-      if (hz.warnT > 0) hz.warnT -= dt;
+      if (hz.warnT! > 0) hz.warnT! -= dt;
       else {
-        hz.strikeT -= dt;
-        while (hz.strikeT <= 0) {
-          hz.strikeT += STORM_STRIKE_INTERVAL;
+        hz.strikeT! -= dt;
+        while (hz.strikeT! <= 0) {
+          hz.strikeT! += STORM_STRIKE_INTERVAL;
           stormBolt(g, hz);
         }
       }
@@ -5306,9 +5378,9 @@ function stepHazards(g, dt) {
 // the shard-placement LCG), so it's spread/probabilistic yet fully reproducible
 // — a packed stronghold gets shredded over the duration while a lone fast
 // enemy can slip between strikes. A direct hit downs a player.
-function stormBolt(g, hz) {
-  hz.strikes++;
-  let seed = ((Math.floor(hz.x / TILE) * 73856093) ^ (Math.floor(hz.y / TILE) * 19349663) ^ (hz.strikes * 83492791)) >>> 0;
+function stormBolt(g: Game,  hz: Hazard) {
+  hz.strikes!++;
+  let seed = ((Math.floor(hz.x / TILE) * 73856093) ^ (Math.floor(hz.y / TILE) * 19349663) ^ (hz.strikes! * 83492791)) >>> 0;
   const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
   // polar sample with a CENTER bias (r = R * rnd^0.7): strikes scatter across the
   // whole footprint but cluster inward, so a packed base in the AoE is devastated
@@ -5350,7 +5422,7 @@ function stormBolt(g, hz) {
 // preserving the SAME night-scaled SIZE and cadence so difficulty pacing is
 // unchanged — only the creatures differ. Undefined roster => byte-identical to
 // the classic schedule, so every untouched stronghold plays exactly as before.
-function bastionWaveLetters(n, players = 1, mult = 1, endless = false, roster = null) {
+function bastionWaveLetters(n: number,  players: number = 1,  mult: number = 1,  endless: boolean = false,  roster: any = null) {
   // Endless keeps the count climbing past the night-5 plateau (to a 30 base);
   // the global 90-on-field cap still rules, so it never floods. Campaign defs
   // (endless=false) keep the exact 14 cap — every stronghold plays unchanged.
@@ -5369,11 +5441,11 @@ function bastionWaveLetters(n, players = 1, mult = 1, endless = false, roster = 
   // Map a default schedule letter to the rostered equivalent by its position in
   // the default cycle; specials (x/v/s/f/q) take the LAST roster slots so a
   // rostered wave still reads "fodder up front, elites trailing".
-  const remap = (c, i) => {
+  const remap = (c: string, i: number) => {
     if (!usePool) return c;
     return usePool[i % usePool.length];
   };
-  const remapSpecial = (back) => usePool ? usePool[(usePool.length - 1 - back + usePool.length * 8) % usePool.length] : null;
+  const remapSpecial = (back: number) => usePool ? usePool[(usePool.length - 1 - back + usePool.length * 8) % usePool.length] : null;
   const letters = [];
   for (let i = 0; i < size; i++) {
     if (n >= 5 && i % 7 === 6) letters.push(usePool ? remapSpecial(0) : 'x');
@@ -5386,7 +5458,7 @@ function bastionWaveLetters(n, players = 1, mult = 1, endless = false, roster = 
   return letters.join('');
 }
 
-function applyMutation(e, mut) {
+function applyMutation(e: Enemy, mut: string | null) {
   if (!mut) return;
   e.mutation = mut;
   if (mut === 'feral') e.speed *= 1.5;
@@ -5402,8 +5474,8 @@ function applyMutation(e, mut) {
 // [none, feral, bulk, volatile, split]; blood moons re-roll 'none' as %4.
 // `off` offsets the mutation roll for the night's SECOND/THIRD waves
 // (def.bastion.wavesPerNight) so repeat waves don't clone their mutations.
-function spawnNightWave(g, off = 0) {
-  const n = g.cycle.nightNo;
+function spawnNightWave(g: Game,  off: number = 0) {
+  const n = g.cycle!.nightNo;
   const endless = !!(g.bastion && g.bastion.endless);
   const letters = bastionWaveLetters(n, g.players.length, (g.bastion && g.bastion.waveMult) || 1, endless,
     (g.bastion && g.bastion.roster) || null);
@@ -5419,7 +5491,7 @@ function spawnNightWave(g, off = 0) {
     : WAVE_EDGES;
   const e1 = allowed[(n - 1) % allowed.length];
   const e2 = allowed.length > 1 ? allowed[(n) % allowed.length] : e1;
-  const edges = g.cycle.bloodMoon
+  const edges = g.cycle!.bloodMoon
     ? (allowed === WAVE_EDGES ? [WAVE_EDGES[(n - 1) % 4], WAVE_EDGES[(n + 1) % 4]] : [e1, e2])
     : [allowed === WAVE_EDGES ? WAVE_EDGES[(n - 1) % 4] : e1];
   // Finale bosses: def.bastion.bossNights [6,8,10] marches exactly ONE
@@ -5429,9 +5501,9 @@ function spawnNightWave(g, off = 0) {
   // Boss cadence: the campaign's scheduled bossNights, OR — in endless — one
   // Entropy boss every bossEvery nights (default 5; a daily twist may tighten
   // it). The def carries no list in endless; first edge only.
-  const bossEvery = g.bastion.bossEvery || 5;
+  const bossEvery = g.bastion!.bossEvery || 5;
   let bossDue = off === 0 && (
-    (Array.isArray(g.bastion.bossNights) && g.bastion.bossNights.includes(n))
+    (Array.isArray(g.bastion!.bossNights) && g.bastion!.bossNights.includes(n))
     || (endless && bossEvery > 0 && n % bossEvery === 0)
   ) ? 1 : 0;
   let mi = off; // mutation index runs across the whole night's spawns
@@ -5463,10 +5535,10 @@ function spawnNightWave(g, off = 0) {
       }
       const roll = (n * 31 + mi) % 5;
       let mut = roll === 0 ? null : MUTATIONS[roll - 1];
-      if (g.cycle.bloodMoon && !mut) mut = MUTATIONS[(n * 31 + mi) % 4];
+      if (g.cycle!.bloodMoon && !mut) mut = MUTATIONS[(n * 31 + mi) % 4];
       mi++;
       applyMutation(e, mut);
-      if (g.cycle.bloodMoon) {
+      if (g.cycle!.bloodMoon) {
         // blood moon: +1 hp on top of the full mutation, and a +15% pace
         e.hp += 1;
         e.maxHp += 1;
@@ -5502,7 +5574,7 @@ function spawnNightWave(g, off = 0) {
 // the zone uncontested. Win when ownerT >= duration. On a bastion map the
 // day/night cycle still runs alongside (core/party loss is judged elsewhere) —
 // capture is the WIN gate, survival is the framing. Decays when not controlled.
-function stepCapture(g, dt) {
+function stepCapture(g: Game,  dt: number) {
   const cap = g.capture;
   if (!cap) return;
   const r2 = (cap.radius * TILE) ** 2;
@@ -5547,14 +5619,14 @@ function stepCapture(g, dt) {
 // active hero stands within reachRadius of (holdX,holdY), the day clock is held
 // (stepCycle never reaches its first dusk — see the gate there). Once reached,
 // it arms a normal hold and emits bridgeArmed so the HUD swaps to the hold readout.
-function stepBridge(g, dt) {
+function stepBridge(g: Game,  dt: number) {
   const br = g.bridge;
   if (!br || br.reached) return;
   if (br.holdX == null) { br.reached = true; return; } // no redoubt: arm immediately
   const r2 = (br.reachRadius * TILE) ** 2;
   for (const p of g.players) {
     if (p.state !== 'active') continue;
-    if ((p.x - br.holdX) ** 2 + (p.y - br.holdY) ** 2 <= r2) {
+    if ((p.x - br.holdX) ** 2 + (p.y - br.holdY!) ** 2 <= r2) {
       br.reached = true;
       // re-arm the night cadence cleanly from the moment of crossing so the
       // first night doesn't fire mid-step on a stale day timer
@@ -5572,7 +5644,7 @@ function stepBridge(g, dt) {
 // hero is within holdRadius and no enemy is within it (a foe in the radius
 // stalls the push — contested). Enemies that reach the anchor gnaw it
 // (brinehulk sappers double); hp<=0 loses. Reaching the final waypoint wins.
-function stepEscort(g, dt) {
+function stepEscort(g: Game,  dt: number) {
   const es = g.escort;
   if (!es || es.hp <= 0) return;
   const r2 = (es.holdRadius * TILE) ** 2;
@@ -5637,7 +5709,7 @@ function stepEscort(g, dt) {
 // Day/night clock. Dusk flips to night, numbers it (1-based), spawns its
 // wave; dawn after the final night wins the mission outright (no gate, no
 // extraction). A blood-moon warning sounds 30s before its dusk.
-function stepCycle(g, dt) {
+function stepCycle(g: Game,  dt: number) {
   const cy = g.cycle;
   if (!cy) return;
   // RELIC AWAKENING FREEZE: while the awakening horde is live (g.horde latched
@@ -5653,8 +5725,8 @@ function stepCycle(g, dt) {
   // Endless: no fixed night count — blood moons recur every 3rd night from the
   // 3rd, and dawn never declares victory (the run ends only when the base falls).
   const endless = !!(g.bastion && g.bastion.endless);
-  const bloodEvery = g.bastion.bloodEvery || 3; // default every 3rd night; a daily twist may tighten it
-  const isBloodNight = k => endless ? (bloodEvery > 0 && k % bloodEvery === 0) : g.bastion.bloodMoons.includes(k);
+  const bloodEvery = g.bastion!.bloodEvery || 3; // default every 3rd night; a daily twist may tighten it
+  const isBloodNight = (k: number) => endless ? (bloodEvery > 0 && k % bloodEvery === 0) : g.bastion!.bloodMoons.includes(k);
   const evX = g.core ? g.core.x : g.w * TILE / 2;
   const evY = g.core ? g.core.y : g.h * TILE / 2;
   // bridge_cross_hold: the FIRST dusk is deferred until the team crosses to the
@@ -5668,7 +5740,7 @@ function stepCycle(g, dt) {
   cy.t -= dt;
   if (cy.phase === 'day') {
     const nextNight = cy.nightNo + 1;
-    if (!cy.warned && cy.t <= BLOOD_WARN_LEAD && (endless || nextNight <= g.bastion.nights)
+    if (!cy.warned && cy.t <= BLOOD_WARN_LEAD && (endless || nextNight <= g.bastion!.nights)
         && isBloodNight(nextNight)) {
       cy.warned = true;
       g.events.push({ type: 'bloodWarn', nightNo: nextNight, x: evX, y: evY });
@@ -5676,7 +5748,7 @@ function stepCycle(g, dt) {
     // DAY EVENTS run on the day's own ELAPSED clock (dayE), not on cy.t —
     // the horn collapses cy.t, so a horn-shortened day simply never reaches
     // an unfired beat (the contract: early call skips what hasn't fired)
-    if (g.bastion.dayEvents !== false) {
+    if (g.bastion!.dayEvents !== false) {
       cy.dayE = (cy.dayE || 0) + dt;
       if (!cy.probeDone && cy.dayE >= PROBE_AT) { cy.probeDone = true; spawnDayProbe(g); }
       if (!cy.dropDone && cy.dayE >= DROP_AT) { cy.dropDone = true; spawnSupplyDrop(g); }
@@ -5684,7 +5756,7 @@ function stepCycle(g, dt) {
     if (cy.t <= 0) {
       cy.phase = 'night';
       cy.nightNo = nextNight;
-      cy.t = g.bastion.nightLen;
+      cy.t = g.bastion!.nightLen;
       cy.bloodMoon = isBloodNight(cy.nightNo);
       cy.warned = false;
       cy.dayE = 0;
@@ -5696,21 +5768,21 @@ function stepCycle(g, dt) {
   }
   // stronghold difficulty: def.bastion.wavesPerNight (1..3) pours the night's
   // later waves in at even intervals; 1 (the default) is classic bastion.
-  const wpn = Math.max(1, Math.min(3, g.bastion.wavesPerNight || 1));
-  if ((cy.waveN || 0) < wpn && cy.t > 0 && cy.t <= g.bastion.nightLen * (1 - (cy.waveN || 0) / wpn)) {
+  const wpn = Math.max(1, Math.min(3, g.bastion!.wavesPerNight || 1));
+  if ((cy.waveN || 0) < wpn && cy.t > 0 && cy.t <= g.bastion!.nightLen * (1 - (cy.waveN || 0) / wpn)) {
     spawnNightWave(g, (cy.waveN || 0) * 17);
     cy.waveN = (cy.waveN || 0) + 1;
   }
   if (cy.t <= 0) {
     g.events.push({ type: 'dawn', nightNo: cy.nightNo, x: evX, y: evY });
-    if (!endless && cy.nightNo >= g.bastion.nights) {
+    if (!endless && cy.nightNo >= g.bastion!.nights) {
       g.status = 'cleared';
       g.events.push({ type: 'clear', x: g.w * TILE / 2, y: g.h * TILE / 2, points: Math.round(g.score) });
       return;
     }
     cy.phase = 'day';
     cy.bloodMoon = false;
-    cy.t = g.bastion.dayLen;
+    cy.t = g.bastion!.dayLen;
     // a fresh day re-arms its two scheduled beats
     cy.dayE = 0;
     cy.probeDone = false;
@@ -5721,7 +5793,7 @@ function stepCycle(g, dt) {
 // --- bastion day events: scavenger probes, supply drops, the horn ----------
 
 // The base's center: the single core, or the beacons' centroid.
-function baseCenter(g) {
+function baseCenter(g: Game) {
   if (g.core) return { x: g.core.x, y: g.core.y };
   if (g.cores && g.cores.length) {
     return {
@@ -5736,7 +5808,7 @@ function baseCenter(g) {
 // deterministically over a radius band around a world point: radii step
 // outward tile by tile, 16 angle spokes per ring starting on a seeded spoke.
 // Returns tile-center world coords or null when the whole band is blocked.
-function openTileNear(g, wx, wy, rMin, rMax, seed) {
+function openTileNear(g: Game,  wx: number,  wy: number,  rMin: number,  rMax: number,  seed: number) {
   for (let r = rMin; r <= rMax; r++) {
     for (let k = 0; k < 16; k++) {
       const a = (((seed + k) % 16) / 16) * Math.PI * 2;
@@ -5756,7 +5828,7 @@ function openTileNear(g, wx, wy, rMin, rMax, seed) {
 // Deterministic open-cell pick by a stepping index (theme ambient patches walk
 // a counter through this): scans interior tiles from `idx`, returns the first
 // passable one. Pure function of the grid + idx — fully reproducible.
-function openTileByIndex(g, idx) {
+function openTileByIndex(g: Game,  idx: number) {
   const cols = Math.max(1, g.w - 2), rows = Math.max(1, g.h - 2);
   const total = cols * rows;
   for (let k = 0; k < total; k++) {
@@ -5779,8 +5851,8 @@ function openTileByIndex(g, idx) {
 // scales with the stronghold arc (g.hpMult). All seeded by nightNo: same day,
 // same probe — and the probe edge (3n+1 mod 4) provably never matches the
 // coming night's first wave edge (n mod 4), so days read different from dusks.
-function spawnDayProbe(g) {
-  const n = g.cycle.nightNo;
+function spawnDayProbe(g: Game) {
+  const n = g.cycle!.nightNo;
   const count = 3 + ((n * 7 + 2) % 3); // 3-5
   const mix = n >= 4 ? 'zwug' : n >= 2 ? 'zwu' : 'zzw';
   const edge = WAVE_EDGES[(n * 3 + 1) % 4];
@@ -5805,12 +5877,12 @@ function spawnDayProbe(g) {
 // SUPPLY DROP (day+45s): a loot chest lands on an open tile 8-14 tiles from
 // the base. Loot is deterministic by nightNo; the event carries the landing
 // spot for the client's banner/map ping and the renderer's crate flare.
-function spawnSupplyDrop(g) {
-  const n = g.cycle.nightNo;
+function spawnSupplyDrop(g: Game) {
+  const n = g.cycle!.nightNo;
   const base = baseCenter(g);
   const spot = openTileNear(g, base.x, base.y, DROP_TILES[0], DROP_TILES[1], n * 11 + 5);
   if (!spot) return;
-  const menu = [['shards', 10 + n * 2], ['medkit', 2], ['cracker', 2], ['shield', 1], ['toxin', 2]];
+  const menu: [string, number][] = [['shards', 10 + n * 2], ['medkit', 2], ['cracker', 2], ['shield', 1], ['toxin', 2]];
   const [loot, amount] = menu[n % menu.length];
   g.chests.push({ x: spot.x, y: spot.y, opened: false, loot, amount });
   g.events.push({ type: 'supplyDrop', x: spot.x, y: spot.y, loot });
@@ -5828,7 +5900,7 @@ function spawnSupplyDrop(g) {
 // closer must never ALSO skip the day (mirror of the renderer's nearest-
 // prompt rule). Refused at night, while a blood-moon warning sounds
 // (cy.warned), and inside a day's last 5s.
-function hornClaimDist2(g, p) {
+function hornClaimDist2(g: Game,  p: Player) {
   // squared distance to the nearest OTHER act-hold claimant in reach
   const r2b = (TILE * BUILD_REACH) ** 2;
   let best = Infinity;
@@ -5853,7 +5925,7 @@ function hornClaimDist2(g, p) {
   }
   return best;
 }
-function stepHorn(g, inputs, dt) {
+function stepHorn(g: Game,  inputs: Inputs,  dt: number) {
   const cy = g.cycle;
   if (!cy || g.status !== 'play') return;
   if (cy.phase !== 'day' || cy.warned || cy.t <= HORN_LEAD) { cy.hornT = 0; return; }
@@ -5884,13 +5956,13 @@ function stepHorn(g, inputs, dt) {
   const bonus = Math.max(HORN_MIN_BONUS, Math.floor(skipped / HORN_BONUS_DIV));
   g.shards += bonus; // bastion is co-op: the one squad pool
   cy.t = HORN_LEAD;
-  g.events.push({ type: 'horn', nightNo: cy.nightNo + 1, bonus, x: at.x, y: at.y });
+  g.events.push({ type: 'horn', nightNo: cy.nightNo + 1, bonus, x: at!.x, y: at!.y });
 }
 
 // --- beacon-defense: day relight + the Anchorcraft early extraction ---------
 // A dark monolith relights under a daytime act-hold (1.5s, scaled by holders)
 // once the pool can pay the 8 shards: full hp, lit again, 'beaconLit'.
-function stepBeacons(g, inputs, dt) {
+function stepBeacons(g: Game,  inputs: Inputs,  dt: number) {
   if (!g.cores) return;
   const day = g.cycle && g.cycle.phase === 'day';
   const r2 = (TILE * BUILD_REACH) ** 2;
@@ -5898,7 +5970,7 @@ function stepBeacons(g, inputs, dt) {
     const c = g.cores[i];
     if (c.lit || !day) { c.relightT = 0; continue; }
     let holders = 0;
-    let payer = null;
+    let payer: Player | null = null;
     for (const p of g.players) {
       if (p.state !== 'active' || p.towerId != null || p.riding || p.shopping || p.selecting) continue;
       const inp = inputs[p.pid] || {};
@@ -5907,11 +5979,11 @@ function stepBeacons(g, inputs, dt) {
         if (!payer) payer = p;
       }
     }
-    if (!holders || getShards(g, payer) < RELIGHT_COST) { c.relightT = 0; continue; }
+    if (!holders || getShards(g, payer!) < RELIGHT_COST) { c.relightT = 0; continue; }
     c.relightT = (c.relightT || 0) + dt * holders;
     if (c.relightT < RELIGHT_HOLD_T) continue;
     c.relightT = 0;
-    addShards(g, payer, -RELIGHT_COST);
+    addShards(g, payer!, -RELIGHT_COST);
     c.lit = true;
     c.hp = c.maxHp;
     g.events.push({ type: 'beaconLit', idx: i, x: c.x, y: c.y });
@@ -5926,7 +5998,7 @@ function stepBeacons(g, inputs, dt) {
 // commitment to leave. Walking out of board reach steps back OFF the ramp:
 // launch ('shipLaunch', immediate clear + full-clear bonus) requires every
 // active player physically at the vessel.
-function stepShip(g, inputs, dt) {
+function stepShip(g: Game,  inputs: Inputs,  dt: number) {
   if (!g.cores || g.status !== 'play') return;
   if (!g.ship) {
     if (!g.cycle || g.cycle.phase !== 'night' || g.cycle.nightNo < 2) return;
@@ -5973,7 +6045,7 @@ function stepShip(g, inputs, dt) {
 // the structure is at full hp and max level, so the hold may dismantle it.
 // `payer` is the first holding player in seat order — in ctf their team's
 // pool foots the bill; everywhere else it is the one squad pool anyway.
-function holdStructure(g, s, kind, holders, dt, payer) {
+function holdStructure(g: Game,  s: any,  kind: string,  holders: number,  dt: number,  payer: Player) {
   if (s.hp < s.maxHp) {
     s.repairT = (s.repairT || 0) + dt * holders;
     while (s.repairT >= REPAIR_TICK && s.hp < s.maxHp) {
@@ -6018,7 +6090,7 @@ function holdStructure(g, s, kind, holders, dt, payer) {
 }
 
 // --- shops -----------------------------------------------------------------
-function shopNear(g, p) {
+function shopNear(g: Game,  p: Player) {
   const r2 = (TILE * SHOP_REACH) ** 2;
   for (const s of g.shops) if (dist2(p, s) < r2) return s;
   return null;
@@ -6026,7 +6098,7 @@ function shopNear(g, p) {
 
 // Build sites and repairable structures own their act radius — a shop only
 // engages when no structure work could claim the hold.
-function structureInReach(g, p) {
+function structureInReach(g: Game,  p: Player) {
   const r2 = (TILE * BUILD_REACH) ** 2;
   for (const b of g.builds) {
     if (b.built && (inertBuild(b.kind) || b.kind === 'farm')) continue;
@@ -6039,7 +6111,7 @@ function structureInReach(g, p) {
 // A just-built turret waiting in typeSelect claims the act-hold within build
 // reach — unless an OPEN build site shares the radius (build sites outrank
 // the carousel). The nearest such turret wins; null means no carousel here.
-function typeSelectNear(g, p) {
+function typeSelectNear(g: Game,  p: Player) {
   const r2 = (TILE * BUILD_REACH) ** 2;
   let sel = null, best = r2;
   for (const b of g.builds) {
@@ -6057,7 +6129,7 @@ function typeSelectNear(g, p) {
 // these keys only when present, so every classic snapshot stays byte-stable.
 
 // Add `count` of a placeable kind to a player's inventory (stacking same kind).
-function addToInventory(p, kind, count = 1) {
+function addToInventory(p: Player,  kind: string,  count: number = 1) {
   if (!PLACEABLES[kind]) return;
   if (!p.inventory) p.inventory = [];
   const slot = p.inventory.find(s => s.kind === kind);
@@ -6066,25 +6138,25 @@ function addToInventory(p, kind, count = 1) {
   if (p.invIdx === undefined) p.invIdx = 0;
 }
 
-function inventoryCount(p, kind) {
+function inventoryCount(p: Player,  kind: string) {
   if (!p.inventory) return 0;
   const slot = p.inventory.find(s => s.kind === kind);
   return slot ? slot.count : 0;
 }
 
 // Consume one of a placeable kind; drops emptied slots and keeps invIdx sane.
-function consumeInventory(p, kind) {
+function consumeInventory(p: Player,  kind: string) {
   if (!p.inventory) return false;
   const i = p.inventory.findIndex(s => s.kind === kind);
   if (i < 0 || p.inventory[i].count <= 0) return false;
   if (--p.inventory[i].count <= 0) p.inventory.splice(i, 1);
   if (p.inventory.length === 0) { p.inventory = undefined; p.invIdx = undefined; }
-  else if (p.invIdx >= p.inventory.length) p.invIdx = p.inventory.length - 1;
+  else if (p.invIdx! >= p.inventory.length) p.invIdx = p.inventory.length - 1;
   return true;
 }
 
 // Snap a world point to its tile center.
-function tileCenter(wx, wy) {
+function tileCenter(wx: number,  wy: number) {
   return { x: (Math.floor(wx / TILE) + 0.5) * TILE, y: (Math.floor(wy / TILE) + 0.5) * TILE };
 }
 
@@ -6094,7 +6166,7 @@ function tileCenter(wx, wy) {
 // it one tile per press. The cursor is clamped to the map and to `reach` tiles
 // of the anchor. Edge state lives on `prev` (caller owns it). Returns the new
 // cursor; never mutates the player's own position.
-export function placementCursor(cur, inp, prev, anchor, w, h, reach) {
+export function placementCursor(cur: any,  inp: Input,  prev: any,  anchor: any,  w: number,  h: number,  reach: number) {
   let cx = cur.x, cy = cur.y;
   if (inp.aimX !== undefined && inp.aimY !== undefined) {
     const c = tileCenter(inp.aimX, inp.aimY);
@@ -6125,7 +6197,7 @@ export function placementCursor(cur, inp, prev, anchor, w, h, reach) {
 
 // A ghost tile is plottable when it sits on open ground (no wall/water/void),
 // is free of other built structures and the map core, and is clear of enemies.
-function canPlaceAt(g, x, y) {
+function canPlaceAt(g: Game,  x: number,  y: number) {
   const t = tileAt(g, x, y);
   if (blocksMove(t)) return false;
   const rr = BUILD_RADIUS * 2;
@@ -6141,13 +6213,13 @@ function canPlaceAt(g, x, y) {
 
 // Lay one placeable structure (already paid via inventory) at a tile center.
 // Returns the new build, already standing, or null if the tile is blocked.
-function layStructure(g, p, placeKind, x, y) {
+function layStructure(g: Game,  p: Player,  placeKind: string,  x: number,  y: number) {
   const def = PLACEABLES[placeKind];
   if (!def || !canPlaceAt(g, x, y)) return null;
   const kind = def.build;
   const level = 1;
   const maxHp = kind === 'turret' ? structMaxHp('turret', level) : structMaxHp(kind, level) || buildMaxHp(kind);
-  const b = {
+  const b: Build = {
     x, y, kind, cost: def.cost,
     progress: 1, paid: def.cost, built: true,
     hp: maxHp, maxHp, cool: 0, evT: 0,
@@ -6168,7 +6240,7 @@ function layStructure(g, p, placeKind, x, y) {
 // The set of tile centers along an RA2 wall drag: a straight line from anchor
 // to the cursor, snapped to whichever axis (row/col) the drag favors, capped at
 // WALL_LINE_MAX tiles. Deterministic, inclusive of both ends.
-function wallLineTiles(anchor, cursor) {
+function wallLineTiles(anchor: any,  cursor: any) {
   const ax = Math.floor(anchor.x / TILE), ay = Math.floor(anchor.y / TILE);
   const cxT = Math.floor(cursor.x / TILE), cyT = Math.floor(cursor.y / TILE);
   const ddx = cxT - ax, ddy = cyT - ay;
@@ -6186,7 +6258,7 @@ function wallLineTiles(anchor, cursor) {
 }
 
 // Exit placement mode, clearing all transient placement state.
-function exitPlacement(p) {
+function exitPlacement(p: Player) {
   p.placing = undefined;
   p.ghostX = undefined; p.ghostY = undefined;
   p.ghostPrev = undefined;
@@ -6199,11 +6271,11 @@ function exitPlacement(p) {
 // confirm (fire or act, edge) drops the structure, consuming one from
 // inventory. Walls are RA2 drag-to-line: the first confirm drops the anchor,
 // the second lays the whole previewed line (one segment per inventory count).
-function stepPlacement(g, p, inp) {
+function stepPlacement(g: Game,  p: Player,  inp: Input) {
   const placeKind = p.placing;
-  const pdef = PLACEABLES[placeKind];
+  const pdef = PLACEABLES[placeKind!];
   // the bought item vanished (consumed elsewhere) or kind unknown: bail out
-  if (!pdef || inventoryCount(p, placeKind) <= 0) { exitPlacement(p); return; }
+  if (!pdef || inventoryCount(p, placeKind!) <= 0) { exitPlacement(p); return; }
 
   if (!p.ghostPrev) p.ghostPrev = { up: false, down: false, left: false, right: false };
   const cur = placementCursor(
@@ -6222,30 +6294,30 @@ function stepPlacement(g, p, inp) {
   if (pdef.drag) {
     // RA2 wall drag: first confirm sets the anchor; second lays the line
     if (p.wallAnchorX === undefined) {
-      if (!canPlaceAt(g, p.ghostX, p.ghostY)) return; // a bad anchor is ignored
+      if (!canPlaceAt(g, p.ghostX!, p.ghostY!)) return; // a bad anchor is ignored
       p.wallAnchorX = p.ghostX; p.wallAnchorY = p.ghostY;
       return;
     }
     const tiles = wallLineTiles({ x: p.wallAnchorX, y: p.wallAnchorY }, cur);
     for (const t of tiles) {
-      if (inventoryCount(p, placeKind) <= 0) break;
+      if (inventoryCount(p, placeKind!) <= 0) break;
       if (!canPlaceAt(g, t.x, t.y)) continue; // skip blocked tiles, lay the rest
-      if (layStructure(g, p, placeKind, t.x, t.y)) consumeInventory(p, placeKind);
+      if (layStructure(g, p, placeKind!, t.x, t.y)) consumeInventory(p, placeKind!);
     }
     p.wallAnchorX = undefined; p.wallAnchorY = undefined;
     // out of wall, or none left: leave placement; otherwise keep laying lines
-    if (inventoryCount(p, placeKind) <= 0) exitPlacement(p);
+    if (inventoryCount(p, placeKind!) <= 0) exitPlacement(p);
     return;
   }
 
   // single-tile placeable: drop it, consume one, exit when the stack empties
-  if (canPlaceAt(g, p.ghostX, p.ghostY) && layStructure(g, p, placeKind, p.ghostX, p.ghostY)) {
-    consumeInventory(p, placeKind);
-    if (inventoryCount(p, placeKind) <= 0) exitPlacement(p);
+  if (canPlaceAt(g, p.ghostX!, p.ghostY!) && layStructure(g, p, placeKind!, p.ghostX!, p.ghostY!)) {
+    consumeInventory(p, placeKind!);
+    if (inventoryCount(p, placeKind!) <= 0) exitPlacement(p);
   }
 }
 
-function buyOffer(g, p) {
+function buyOffer(g: Game,  p: Player) {
   // toxic-air levels stock a mask offer beyond the standard five
   const offers = g.shopOffers || SHOP_OFFERS;
   const o = offers[p.shopIdx || 0];
@@ -6268,8 +6340,8 @@ function buyOffer(g, p) {
   } else if (o.what === 'mask' && p.mask) {
     return; // already wearing one: a second mask buys nothing
   } else { // cracker | medkit | mask fill the item slot (stack same kind, else swap)
-    if (p.item && p.item.kind === o.what) p.item.count += o.amount;
-    else p.item = { kind: o.what, count: o.amount };
+    if (p.item && p.item.kind === o.what) p.item.count += o.amount!;
+    else p.item = { kind: o.what, count: o.amount! };
   }
   addShards(g, p, -cost);
   g.events.push({ type: 'buy', what: o.what, cost, pid: p.pid, x: p.x, y: p.y });
@@ -6277,7 +6349,7 @@ function buyOffer(g, p) {
 
 // --- vehicles ---------------------------------------------------------------
 // Skiffs may only be boarded from a tile touching water.
-function nearWater(g, p) {
+function nearWater(g: Game,  p: Player) {
   const tx = Math.floor(p.x / TILE), ty = Math.floor(p.y / TILE);
   for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
     const x = tx + dx, y = ty + dy;
@@ -6288,8 +6360,8 @@ function nearWater(g, p) {
 
 // While aboard a skiff, movement is allowed only over '~' tiles (sliding
 // within the tile currently occupied stays legal so the boat can shove off).
-function skiffMove(g, p, dx, dy) {
-  const ok = (nx, ny) => {
+function skiffMove(g: Game,  p: Player,  dx: number,  dy: number) {
+  const ok = (nx: number, ny: number) => {
     if (tileAt(g, nx, ny) === '~') return true;
     return Math.floor(nx / TILE) === Math.floor(p.x / TILE) && Math.floor(ny / TILE) === Math.floor(p.y / TILE);
   };
@@ -6297,7 +6369,7 @@ function skiffMove(g, p, dx, dy) {
   if (dy && ok(p.x, p.y + dy)) p.y += dy;
 }
 
-function dismountVehicle(g, p, v) {
+function dismountVehicle(g: Game,  p: Player,  v: any) {
   if (v.kind === 'skiff' && tileAt(g, p.x, p.y) === '~') {
     // step ashore onto the first open neighboring tile; mid-lake with no land
     // in reach means staying aboard
@@ -6321,7 +6393,7 @@ function dismountVehicle(g, p, v) {
 }
 
 // --- pvp: match end, flags, shrink zone -------------------------------------
-function pvpWin(g, winner) {
+function pvpWin(g: Game,  winner: number) {
   if (g.status !== 'play') return;
   g.status = 'cleared';
   g.winner = winner;
@@ -6333,7 +6405,7 @@ function pvpWin(g, winner) {
   g.events.push({ type: 'clear', x: g.w * TILE / 2, y: g.h * TILE / 2, points: Math.round(g.score) });
 }
 
-function stepFlags(g, dt) {
+function stepFlags(g: Game,  dt: number) {
   if (!g.flags.length) return;
   // Sudden death cannot run forever: after 180s the cap rules the match.
   // More grabs (flag pickups, whole match) wins; tied grabs go to the team
@@ -6342,8 +6414,8 @@ function stepFlags(g, dt) {
   if (g.suddenDeath && g.status === 'play') {
     g.suddenT += dt;
     if (g.suddenT >= 180) {
-      pvpWin(g, g.grabs[0] !== g.grabs[1]
-        ? (g.grabs[0] > g.grabs[1] ? 0 : 1)
+      pvpWin(g, g.grabs![0] !== g.grabs![1]
+        ? (g.grabs![0] > g.grabs![1] ? 0 : 1)
         : (g.sdFirstGrab ?? 0));
       return;
     }
@@ -6408,17 +6480,17 @@ function stepFlags(g, dt) {
       carrying.x = carrying.homeX;
       carrying.y = carrying.homeY;
       carrying.dropT = 0;
-      g.caps[p.team]++;
+      g.caps![p.team]++;
       g.events.push({ type: 'capture', team: p.team, pid: p.pid, x: own.homeX, y: own.homeY });
-      if (g.caps[p.team] >= CTF_CAPS_TO_WIN || g.suddenDeath) pvpWin(g, p.team);
+      if (g.caps![p.team] >= CTF_CAPS_TO_WIN || g.suddenDeath) pvpWin(g, p.team);
     }
   }
 }
 
-function stepZone(g, dt) {
+function stepZone(g: Game,  dt: number) {
   if (!g.zone) return;
   const z = g.zone;
-  for (const s of g.brShrinks) {
+  for (const s of g.brShrinks!) {
     if (s.fired || g.elapsed < s.at) continue;
     s.fired = true;
     z.targetR = s.r * TILE;
@@ -6433,7 +6505,7 @@ function stepZone(g, dt) {
     } else {
       z.r = z.targetR;
     }
-  } else if (g.brShrinks.every(s => s.fired)) {
+  } else if (g.brShrinks!.every(s => s.fired)) {
     // Endgame: the last scheduled shrink never closes the ring fully, so 30s
     // after it settles the zone starts a continuous final collapse — 8 px/s,
     // straight down to r=0. No two-survivor stalemates.
@@ -6464,7 +6536,7 @@ function stepZone(g, dt) {
   }
 }
 
-export function step(g, inputs, dt) {
+export function step(g: Game,  inputs: Inputs,  dt: number) {
   if (g.status !== 'play') return;
 
   // DEV "Pause Time" cheat (solo offline only; sets g.devMode like every other
@@ -6555,7 +6627,7 @@ export function step(g, inputs, dt) {
       const pvp = g.mode === 'ctf' || g.mode === 'br';
       if (!pvp) { g.status = 'failed'; g.events.push({ type: 'fail', x: 0, y: 0 }); return; }
       if (g.mode === 'ctf') {
-        if (g.caps[0] !== g.caps[1]) { pvpWin(g, g.caps[0] > g.caps[1] ? 0 : 1); return; }
+        if (g.caps![0] !== g.caps![1]) { pvpWin(g, g.caps![0] > g.caps![1] ? 0 : 1); return; }
         g.suddenDeath = true;
       }
     } else if (!g.lowTimeSent && g.timeLeft <= 15) {
@@ -6606,20 +6678,20 @@ export function step(g, inputs, dt) {
     if (p.state === 'pick') {
       const free = freeChars(g);
       if (!free.length) { p.state = 'out'; continue; }
-      if (p.pickIdx >= free.length) p.pickIdx = free.length - 1;
+      if (p.pickIdx! >= free.length) p.pickIdx = free.length - 1;
       const inp = inputs[p.pid] || {};
-      const edgeL = !!inp.left && !p.pickPrev.left;
-      const edgeR = !!inp.right && !p.pickPrev.right;
-      const edgeF = !!inp.fire && !p.pickPrev.fire;
+      const edgeL = !!inp.left && !p.pickPrev!.left;
+      const edgeR = !!inp.right && !p.pickPrev!.right;
+      const edgeF = !!inp.fire && !p.pickPrev!.fire;
       p.pickPrev = { left: !!inp.left, right: !!inp.right, fire: !!inp.fire };
-      if (edgeL) p.pickIdx = (p.pickIdx + free.length - 1) % free.length;
-      if (edgeR) p.pickIdx = (p.pickIdx + 1) % free.length;
+      if (edgeL) p.pickIdx = (p.pickIdx! + free.length - 1) % free.length;
+      if (edgeR) p.pickIdx = (p.pickIdx! + 1) % free.length;
       if (edgeF) {
         // ctf pickers (mid-match joiners) deploy on their team stand's ring —
         // respawnSpot's "beside a living teammate" could land them beside an
         // ENEMY in pvp. Co-op keeps the teammate-adjacent respawn exactly.
         const s = g.mode === 'ctf' ? ctfStandSpot(g, p) : respawnSpot(g);
-        p.charId = free[p.pickIdx];
+        p.charId = free[p.pickIdx!];
         p.x = s.x; p.y = s.y; p.fx = 0; p.fy = -1; p.cool = 0;
         p.invuln = 3.5;
         // a fresh operative deploys at full hp with no shield; the item slot
@@ -6635,11 +6707,11 @@ export function step(g, inputs, dt) {
     if (p.invuln > 0) p.invuln -= dt;
     if (p.specialCool > 0) p.specialCool -= dt;
     if (p.stimT > 0) p.stimT -= dt;
-    if (p.stunT > 0) p.stunT -= dt; // volt zap root: blocks movement and fire
-    if (p.chillT > 0) p.chillT -= dt; // frostshade chill: x0.7 speed decays out
-    if (g.siege && p.siegeSlowT > 0) p.siegeSlowT -= dt; // tank-aura slow decays (siege only)
+    if (p.stunT! > 0) p.stunT! -= dt; // volt zap root: blocks movement and fire
+    if (p.chillT! > 0) p.chillT! -= dt; // frostshade chill: x0.7 speed decays out
+    if (g.siege && p.siegeSlowT! > 0) p.siegeSlowT! -= dt; // tank-aura slow decays (siege only)
     const inp = inputs[p.pid] || {};
-    const ch = g.charMap[p.charId];
+    const ch = g.charMap[p.charId!];
     if (!ch) continue;
 
     // Swimmers (char.swims — the seal) treat water as open ground: x0.7
@@ -6649,7 +6721,7 @@ export function step(g, inputs, dt) {
 
     // --- holdings: an occupied watchtower pins the gunner to its platform;
     // a mounted vehicle moves with its rider ---
-    const tower = p.towerId != null ? g.towers[p.towerId] : null;
+    const tower = p.towerId != null ? g.towers[p.towerId as number] : null;
     if (tower) { p.x = tower.x; p.y = tower.y; }
     const vehicle = p.riding ? g.vehicles.find(v => v.id === p.riding) : null;
 
@@ -6665,16 +6737,16 @@ export function step(g, inputs, dt) {
     let sprinting = false;
     if (p.maxHp !== undefined && (inp.sprint || p.stamina !== undefined)) {
       if (p.stamina === undefined) { p.stamina = STAMINA_MAX; p.staminaMax = STAMINA_MAX; }
-      const wantsSprint = !!inp.sprint && !tower && !p.shopping && !p.selecting && !(p.stunT > 0);
-      const moving = (inp.left || inp.right || inp.up || inp.down) && !(p.stunT > 0);
+      const wantsSprint = !!inp.sprint && !tower && !p.shopping && !p.selecting && !(p.stunT! > 0);
+      const moving = (inp.left || inp.right || inp.up || inp.down) && !(p.stunT! > 0);
       // STAMINA power-up: free sprint never drains and ignores an empty meter.
       const freeSprint = g.freeSprintT > 0;
       if (wantsSprint && moving && (freeSprint || p.stamina > 0)) {
         sprinting = true;
         if (!freeSprint) p.stamina = Math.max(0, p.stamina - STAMINA_DRAIN * dt);
-      } else if (p.hp >= p.maxHp && p.stamina < p.staminaMax) {
+      } else if (p.hp! >= p.maxHp && p.stamina < p.staminaMax!) {
         // recovery gate: only refill when fully healed (the key constraint)
-        p.stamina = Math.min(p.staminaMax, p.stamina + STAMINA_REGEN * dt);
+        p.stamina = Math.min(p.staminaMax!, p.stamina + STAMINA_REGEN * dt);
       }
     }
 
@@ -6752,9 +6824,9 @@ export function step(g, inputs, dt) {
     if (selEngaged) p.selPrev = { left: !!inp.left, right: !!inp.right, fire: !!inp.fire };
     if (selB) {
       selB.attended = true; // the unattended-confirm clock holds while driven
-      const edgeL = !!inp.left && !p.selPrev.left;
-      const edgeR = !!inp.right && !p.selPrev.right;
-      const edgeF = !!inp.fire && !p.selPrev.fire;
+      const edgeL = !!inp.left && !p.selPrev!.left;
+      const edgeR = !!inp.right && !p.selPrev!.right;
+      const edgeF = !!inp.fire && !p.selPrev!.fire;
       p.selPrev = { left: !!inp.left, right: !!inp.right, fire: !!inp.fire };
       if (edgeL) selB.tsIdx = ((selB.tsIdx || 0) + TURRET_TYPES.length - 1) % TURRET_TYPES.length;
       if (edgeR) selB.tsIdx = ((selB.tsIdx || 0) + 1) % TURRET_TYPES.length;
@@ -6778,13 +6850,13 @@ export function step(g, inputs, dt) {
       p.shopPrev = { left: !!inp.left, right: !!inp.right, fire: !!inp.fire };
     }
     if (p.shopping) {
-      const edgeL = !!inp.left && !p.shopPrev.left;
-      const edgeR = !!inp.right && !p.shopPrev.right;
-      const edgeF = !!inp.fire && !p.shopPrev.fire;
+      const edgeL = !!inp.left && !p.shopPrev!.left;
+      const edgeR = !!inp.right && !p.shopPrev!.right;
+      const edgeF = !!inp.fire && !p.shopPrev!.fire;
       p.shopPrev = { left: !!inp.left, right: !!inp.right, fire: !!inp.fire };
       const nOffers = (g.shopOffers || SHOP_OFFERS).length;
-      if (edgeL) p.shopIdx = (p.shopIdx + nOffers - 1) % nOffers;
-      if (edgeR) p.shopIdx = (p.shopIdx + 1) % nOffers;
+      if (edgeL) p.shopIdx = (p.shopIdx! + nOffers - 1) % nOffers;
+      if (edgeR) p.shopIdx = (p.shopIdx! + 1) % nOffers;
       if (edgeF) buyOffer(g, p);
     }
 
@@ -6813,7 +6885,7 @@ export function step(g, inputs, dt) {
         g.events.push({ type: 'special', x: p.x, y: p.y, kind: 'stim', who: 'p' });
       } else {
         // weapon-kind specials evolve with the seat's level, like main fire
-        fireWeapon(g, p, applyEvolution(sp, ch.evolution, p.level), 'p');
+        fireWeapon(g, p, applyEvolution(sp, ch.evolution, p.level!), 'p');
         g.events.push({ type: 'special', x: p.x, y: p.y, kind: sp.kind, who: 'p' });
       }
       p.specialCool = sp.cooldown || 3;
@@ -6865,12 +6937,12 @@ export function step(g, inputs, dt) {
           pid: p.pid, team: p.team,
         });
         used = true;
-      } else if (it.kind === 'medkit' && p.hp < p.maxHp) {
-        p.hp = Math.min(p.maxHp, p.hp + 2); // a medkit mends a meaningful chunk, not a token 1hp
+      } else if (it.kind === 'medkit' && p.hp! < p.maxHp) {
+        p.hp = Math.min(p.maxHp, p.hp! + 2); // a medkit mends a meaningful chunk, not a token 1hp
         g.events.push({ type: 'heal', pid: p.pid, x: p.x, y: p.y, hp: p.hp });
         used = true;
-      } else if (it.kind === 'shield' && p.shield < SHIELD_MAX) {
-        p.shield = Math.min(SHIELD_MAX, p.shield + 2);
+      } else if (it.kind === 'shield' && p.shield! < SHIELD_MAX) {
+        p.shield = Math.min(SHIELD_MAX, p.shield! + 2);
         g.events.push({ type: 'shieldUp', pid: p.pid, x: p.x, y: p.y, shield: p.shield });
         used = true;
       } else if (it.kind === 'toxin') {
@@ -6893,7 +6965,7 @@ export function step(g, inputs, dt) {
         // the squad for 10s, then burns out. No target in reach wastes nothing.
         let tgt = null, best = (TILE * CONTROLLER_RANGE) ** 2;
         for (const e of g.enemies) {
-          if (e.dead || e.kind === 'boss' || e.convertedT > 0) continue;
+          if (e.dead || e.kind === 'boss' || e.convertedT! > 0) continue;
           const dd = dist2(p, e);
           if (dd < best) { best = dd; tgt = e; }
         }
@@ -6933,13 +7005,13 @@ export function step(g, inputs, dt) {
         p.x = tower.x; p.y = tower.y;
       }
     } else {
-      if (!g.arcade && (p.mvX || p.mvY) && !(p.stunT > 0) && tileAt(g, p.x, p.y) === '^') {
-        moveCircle(g, p, p.mvX * ICE_DRIFT, p.mvY * ICE_DRIFT, PLAYER_R, swims ? blocksMoveSwim : blocksMove);
+      if (!g.arcade && (p.mvX || p.mvY) && !(p.stunT! > 0) && tileAt(g, p.x, p.y) === '^') {
+        moveCircle(g, p, p.mvX! * ICE_DRIFT, p.mvY! * ICE_DRIFT, PLAYER_R, swims ? blocksMoveSwim : blocksMove);
       }
       const dx = (inp.right ? 1 : 0) - (inp.left ? 1 : 0);
       const dy = (inp.down ? 1 : 0) - (inp.up ? 1 : 0);
       // a volt-zap root pins the feet for its 0.3s; aim and items still work
-      if ((dx || dy) && !(p.stunT > 0)) {
+      if ((dx || dy) && !(p.stunT! > 0)) {
         const [mx, my] = norm(dx, dy);
         p.fx = mx; p.fy = my;
         let v = ch.speed * TILE * dt * (p.stimT > 0 ? 1.3 : 1);
@@ -6947,11 +7019,11 @@ export function step(g, inputs, dt) {
         // sprint burst: on foot only (a mount already carries its own boost), so
         // it composes with siege/terrain factors below without doubling the stag
         if (sprinting && !vehicle) v *= SPRINT_MULT;
-        if (g.cheats && g.cheats.speed > 1) v *= g.cheats.speed; // DEV speed multiplier
+        if (g.cheats && g.cheats.speed! > 1) v *= g.cheats.speed!; // DEV speed multiplier
         if (g.siege && !vehicle) v *= SIEGE_HERO_SPEED; // MOBA: deliberate hero movement
-        if (g.siege && p.siegeSlowT > 0) v *= p.siegeSlow; // tank cannon: a slowed hero crawls
+        if (g.siege && p.siegeSlowT! > 0) v *= p.siegeSlow!; // tank cannon: a slowed hero crawls
         v *= moveMult(g, p.x, p.y); // sand drags, ice skates, snowfall slows
-        if (p.chillT > 0) v *= CHILL_SLOW; // frostshade chill slows the legs
+        if (p.chillT! > 0) v *= CHILL_SLOW; // frostshade chill slows the legs
         if (g.flags.length && g.flags.some(f => f.carrier === p.pid)) v *= CARRY_SLOW;
         if (!vehicle && onWater) v *= SWIM_SLOW; // swimmers paddle slower
         // toxin pools slow EVERYONE wading through — patches carry no team
@@ -6969,7 +7041,7 @@ export function step(g, inputs, dt) {
     p.mvX = p.x - mvX0;
     p.mvY = p.y - mvY0;
     p.cool -= dt;
-    if (inp.fire && p.cool <= 0 && !vehicle && !p.shopping && !p.selecting && !(p.stunT > 0)) {
+    if (inp.fire && p.cool <= 0 && !vehicle && !p.shopping && !p.selecting && !(p.stunT! > 0)) {
       let weapon, cd;
       if (p.fieldWeapon) {
         // a carried field weapon REPLACES the character weapon for fire:
@@ -6979,7 +7051,7 @@ export function step(g, inputs, dt) {
       } else {
         // L3+ weapon evolutions ride every shot (arcade seats never level, so
         // p.level is undefined there and the weapon passes through untouched)
-        weapon = applyEvolution(ch.weapon, ch.evolution, p.level);
+        weapon = applyEvolution(ch.weapon, ch.evolution, p.level!);
         cd = ch.weapon.cooldown;
       }
       if (tower) {
@@ -7040,7 +7112,7 @@ export function step(g, inputs, dt) {
           if (!b.built) { onSite = true; break; }
           if (b.kind === 'farm') {
             if (b.trampled) deadFarm = deadFarm || b;
-            else if (b.stage >= 3) ripeFarm = ripeFarm || b;
+            else if (b.stage! >= 3) ripeFarm = ripeFarm || b;
           }
         }
         let handled = onSite;
@@ -7270,9 +7342,9 @@ export function step(g, inputs, dt) {
     // other mode ever runs it.
     if (g.musicBox && g.musicBox.enabled && !g.musicBox.complete) {
       const mb = g.musicBox;
-      const carrying = mb.fragments.some(f => f.carrier === p.pid);
+      const carrying = mb.fragments!.some(f => f.carrier === p.pid);
       if (!carrying) {
-        for (const f of mb.fragments) {
+        for (const f of mb.fragments!) {
           if (!f.placed && f.carrier == null && dist2(p, f) < (PLAYER_R + MUSICBOX_R) ** 2) {
             f.carrier = p.pid;
             g.events.push({ type: 'mbPickup', x: f.x, y: f.y, id: f.id, pid: p.pid });
@@ -7291,33 +7363,33 @@ export function step(g, inputs, dt) {
           if (d < best) { best = d; mount = m; }
         }
         if (mount) {
-          const f = mb.fragments.find(fr => fr.carrier === p.pid);
+          const f = mb.fragments!.find(fr => fr.carrier === p.pid);
           if (f) {
             f.carrier = null;
             f.placed = true;
             f.x = mount.x;
             f.y = mount.y;
             mount.filled = true;
-            mb.assembled++;
+            mb.assembled!++;
             g.events.push({ type: 'mbPlace', x: mount.x, y: mount.y, assembled: mb.assembled, of: MUSICBOX_FRAGS });
-            if (mb.assembled >= MUSICBOX_FRAGS) {
+            if (mb.assembled! >= MUSICBOX_FRAGS) {
               mb.complete = true;
-              g.events.push({ type: 'mbComplete', x: mb.altar.x, y: mb.altar.y });
+              g.events.push({ type: 'mbComplete', x: mb.altar!.x, y: mb.altar!.y });
             }
           }
         }
-      } else if (dist2(p, mb.altar) < (PLAYER_R + MUSICBOX_R + 8) ** 2) {
-        const f = mb.fragments.find(fr => fr.carrier === p.pid);
+      } else if (dist2(p, mb.altar!) < (PLAYER_R + MUSICBOX_R + 8) ** 2) {
+        const f = mb.fragments!.find(fr => fr.carrier === p.pid);
         if (f) {
           f.carrier = null;
           f.placed = true;
-          f.x = mb.altar.x;
-          f.y = mb.altar.y;
-          mb.assembled++;
-          g.events.push({ type: 'mbPlace', x: mb.altar.x, y: mb.altar.y, assembled: mb.assembled, of: MUSICBOX_FRAGS });
-          if (mb.assembled >= MUSICBOX_FRAGS) {
+          f.x = mb.altar!.x;
+          f.y = mb.altar!.y;
+          mb.assembled!++;
+          g.events.push({ type: 'mbPlace', x: mb.altar!.x, y: mb.altar!.y, assembled: mb.assembled, of: MUSICBOX_FRAGS });
+          if (mb.assembled! >= MUSICBOX_FRAGS) {
             mb.complete = true;
-            g.events.push({ type: 'mbComplete', x: mb.altar.x, y: mb.altar.y });
+            g.events.push({ type: 'mbComplete', x: mb.altar!.x, y: mb.altar!.y });
           }
         }
       }
@@ -7334,11 +7406,11 @@ export function step(g, inputs, dt) {
       p.lavaT = (p.lavaT || 0) + dt;
       while (p.lavaT >= LAVA_PLAYER_TICK && p.state === 'active') {
         p.lavaT -= LAVA_PLAYER_TICK;
-        if (p.shield > 0) p.shield--;
-        else p.hp--;
+        if (p.shield! > 0) p.shield!--;
+        else p.hp!--;
         g.events.push({ type: 'sizzle', pid: p.pid, x: p.x, y: p.y, hp: p.hp, shield: p.shield });
         g.events.push({ type: 'playerHit', pid: p.pid, x: p.x, y: p.y, hp: p.hp, shield: p.shield });
-        if (p.hp <= 0) {
+        if (p.hp! <= 0) {
           p.invuln = 0; // the flow grants no grace
           downPlayer(g, p);
         }
@@ -7354,11 +7426,11 @@ export function step(g, inputs, dt) {
     const hz = g.ambientHazard;
     const hzLive = hz && (hz.until === undefined || g.elapsed < hz.until);
     if (hzLive && p.state === 'active'
-        && p.maxHp !== undefined && !p[hz.immuneItem]) {
+        && p.maxHp !== undefined && !p[hz.immuneItem!]) {
       p.airT = (p.airT || 0) + dt;
-      while (p.airT >= hz.tick) {
-        p.airT -= hz.tick;
-        p.airAcc = (p.airAcc || 0) + hz.dmg;
+      while (p.airT >= hz.tick!) {
+        p.airT -= hz.tick!;
+        p.airAcc = (p.airAcc || 0) + hz.dmg!;
         if (p.airAcc >= 1) {
           p.airAcc -= 1;
           damagePlayer(g, p, 1);
@@ -7378,8 +7450,8 @@ export function step(g, inputs, dt) {
   const holdReach2 = (TILE * BUILD_REACH) ** 2;
   // Holders in seat order; the first one is the payer (in ctf their team's
   // pool funds the work, everywhere else there is only the one pool).
-  const holdersOf = s => {
-    const arr = [];
+  const holdersOf = (s: { x: number; y: number }) => {
+    const arr: Player[] = [];
     for (const p of g.players) {
       // a player driving a typeSelect carousel never works structures
       if (p.state !== 'active' || p.towerId != null || p.riding || p.selecting) continue;
@@ -7394,8 +7466,8 @@ export function step(g, inputs, dt) {
   // enemy movement so the indexed positions stay valid. The 6-tile cell matches
   // the dismantle radius so each query touches only a 3x3 block.
   const dismantleR2 = (TILE * 6) ** 2;
-  let dismantleBuckets = null;
-  const dismantleEnemyNear = s => {
+  let dismantleBuckets: ReturnType<typeof buildEnemyBuckets> | null = null;
+  const dismantleEnemyNear = (s: { x: number; y: number }) => {
     if (!dismantleBuckets) dismantleBuckets = buildEnemyBuckets(g.enemies, TILE * 6);
     return bucketAnyNear(dismantleBuckets, s.x, s.y, dismantleR2);
   };
@@ -7434,7 +7506,7 @@ export function step(g, inputs, dt) {
         b.hp = 0;
         b.dismantleT = 0;
         g.buildEpoch = (g.buildEpoch || 0) + 1;
-        addShards(g, holderArr[0], Math.floor((b.invested ?? b.cost) / 2));
+        addShards(g, holderArr[0]!, Math.floor((b.invested ?? b.cost!) / 2));
         b.invested = 0;
         if (b.level) { b.level = 1; b.maxHp = structMaxHp(b.kind, 1); }
         g.events.push({ type: 'buildDown', x: b.x, y: b.y, kind: b.kind });
@@ -7452,12 +7524,12 @@ export function step(g, inputs, dt) {
     } else if (g.fireSaleT > 0) {
       // FIRE SALE: keep the normal hold cadence but charge nothing — the
       // structure builds for free while the timer runs.
-      delta = Math.min((builders * dt) / (b.cost * 0.6), 1 - b.progress);
+      delta = Math.min((builders * dt) / (b.cost! * 0.6), 1 - b.progress);
       pay = 0;
     } else {
-      delta = Math.min((builders * dt) / (b.cost * 0.6), 1 - b.progress);
-      pay = Math.min(delta * b.cost, getShards(g, builderArr[0]));
-      if (b.cost > 0) delta = pay / b.cost;
+      delta = Math.min((builders * dt) / (b.cost! * 0.6), 1 - b.progress);
+      pay = Math.min(delta * b.cost!, getShards(g, builderArr[0]));
+      if (b.cost! > 0) delta = pay / b.cost!;
     }
     if (delta <= 0) continue; // pool empty: progress stalls
     addShards(g, builderArr[0], -pay);
@@ -7545,9 +7617,9 @@ export function step(g, inputs, dt) {
   // --- hired operators work their posts on fixed deterministic ticks ---
   for (const h of g.hires) {
     // a combat post whose follower went down restocks after 20s
-    if (h.restockT > 0) {
-      h.restockT -= dt;
-      if (h.restockT <= 0) {
+    if (h.restockT! > 0) {
+      h.restockT! -= dt;
+      if (h.restockT! <= 0) {
         h.restockT = 0;
         h.hired = false;
         g.events.push({ type: 'restock', x: h.x, y: h.y, job: h.job });
@@ -7604,12 +7676,12 @@ export function step(g, inputs, dt) {
           b.growT = 0;
         }
       }
-    } else if (b.stage < 3) {
+    } else if (b.stage! < 3) {
       const need = farmer ? FARM_GROW_FAST : FARM_GROW_T;
-      b.growT += dt;
-      if (b.growT >= need) { b.growT = 0; b.stage++; }
+      b.growT! += dt;
+      if (b.growT! >= need) { b.growT = 0; b.stage!++; }
     }
-    if (b.stage > 0 && g.cycle && g.cycle.phase === 'night') {
+    if (b.stage! > 0 && g.cycle && g.cycle.phase === 'night') {
       const rr = (BUILD_RADIUS + ENEMY_R) ** 2;
       for (const e of g.enemies) {
         if (!e.dead && dist2(e, b) < rr) {
@@ -7647,7 +7719,7 @@ export function step(g, inputs, dt) {
       for (const e of g.enemies) {
         // converted allies are spared (no convert-then-boom score farming);
         // kills credit the thrower's seat with xp, like every other item
-        if (e.dead || e.convertedT > 0) continue;
+        if (e.dead || e.convertedT! > 0) continue;
         if (dist2(c, e) <= r2) damageEnemy(g, e, CRACKER_DMG, e.x, e.y, 'cracker', c.pid);
       }
       // pvp only: the boom clips OTHER-team operatives caught in the lure
@@ -7727,10 +7799,10 @@ export function step(g, inputs, dt) {
     if (b.cool > 0) { b.cool -= dt; continue; }
     const lvl = b.level || 1;
     const ttype = b.ttype || 'gun';
-    const pick = (rangeTiles, needLoS) => {
+    const pick = (rangeTiles: number, needLoS: boolean) => {
       let tgt = null, best = (TILE * rangeTiles) ** 2;
       for (const e of g.enemies) {
-        if (e.dead || !e.awake || e.convertedT > 0) continue;
+        if (e.dead || !e.awake || e.convertedT! > 0) continue;
         const dd = dist2(b, e);
         if (dd < best && (!needLoS || hasLoS(g, b.x, b.y, e.x, e.y, blocksSight))) { best = dd; tgt = e; }
       }
@@ -7792,7 +7864,7 @@ export function step(g, inputs, dt) {
         while (targets.length < 3) {
           let nxt = null, best = Infinity;
           for (const e of g.enemies) {
-            if (e.dead || e.convertedT > 0 || targets.includes(e)) continue;
+            if (e.dead || e.convertedT! > 0 || targets.includes(e)) continue;
             if (dist2(b, e) >= range2) continue;
             const dd = dist2(from, e);
             if (dd < best) { best = dd; nxt = e; }
@@ -7854,7 +7926,7 @@ export function step(g, inputs, dt) {
   // carrier going down (or extracting) drops the fragment where they fell,
   // free for anyone to recover. Placed (deposited) fragments never move. ---
   if (g.musicBox && g.musicBox.enabled) {
-    for (const f of g.musicBox.fragments) {
+    for (const f of g.musicBox.fragments!) {
       if (f.carrier == null) continue;
       const o = g.players.find(p => p.pid === f.carrier);
       if (!o || o.state !== 'active') { f.carrier = null; continue; }
@@ -7926,8 +7998,8 @@ export function step(g, inputs, dt) {
   else {
     for (const e of g.enemies) {
       const ex0 = e.x, ey0 = e.y;
-      if (!g.arcade && !e.dead && !(e.stunT > 0) && (e.mvX || e.mvY) && tileAt(g, e.x, e.y) === '^') {
-        moveCircle(g, e, e.mvX * ICE_DRIFT, e.mvY * ICE_DRIFT, ENEMY_R);
+      if (!g.arcade && !e.dead && !(e.stunT! > 0) && (e.mvX || e.mvY) && tileAt(g, e.x, e.y) === '^') {
+        moveCircle(g, e, e.mvX! * ICE_DRIFT, e.mvY! * ICE_DRIFT, ENEMY_R);
       }
       stepEnemy(g, e, dt);
       e.mvX = e.x - ex0;
@@ -7968,7 +8040,7 @@ export function step(g, inputs, dt) {
     if (!dead && s.who === 'p') {
       for (const e of g.enemies) {
         // mind-controlled enemies fight for the squad: player fire passes over
-        if (e.dead || e.convertedT > 0 || s.hits.includes(e.id)) continue;
+        if (e.dead || e.convertedT! > 0 || s.hits.includes(e.id)) continue;
         if (dist2(s, e) < (ENEMY_R + (s.radius || SHOT_R)) ** 2) {
           if (shieldBlocks(e, s)) {
             dead = true;
@@ -7979,21 +8051,21 @@ export function step(g, inputs, dt) {
           // evolution riders land BEFORE the damage so a killing blow still
           // counts as ignited (L4 burn corpses leave their ground patch)
           if (s.stun) e.stunT = Math.max(e.stunT || 0, s.stun);
-          if (s.ignite) igniteEnemy(g, e, s.ownerPid, !!s.ignitePatch);
-          damageEnemy(g, e, s.dmg, e.x, e.y, s.kind, s.ownerPid);
+          if (s.ignite) igniteEnemy(g, e, s.ownerPid!, !!s.ignitePatch);
+          damageEnemy(g, e, s.dmg, e.x, e.y, s.kind, s.ownerPid!);
           if (s.shockArc) {
             // L4 shock: arc to the nearest OTHER enemy within 2 tiles at half
             // damage, stunned like a direct hit
             let arc = null, bestA = (TILE * 2) ** 2;
             for (const o of g.enemies) {
-              if (o === e || o.dead || o.convertedT > 0) continue;
+              if (o === e || o.dead || o.convertedT! > 0) continue;
               const dd = dist2(e, o);
               if (dd < bestA) { bestA = dd; arc = o; }
             }
             if (arc) {
               arc.stunT = Math.max(arc.stunT || 0, s.stun || STUN_T);
               g.events.push({ type: 'shockArc', x: e.x, y: e.y, tx: arc.x, ty: arc.y });
-              damageEnemy(g, arc, s.dmg / 2, arc.x, arc.y, 'shock', s.ownerPid);
+              damageEnemy(g, arc, s.dmg / 2, arc.x, arc.y, 'shock', s.ownerPid!);
             }
           }
           if (s.knockback && !e.dead) {
@@ -8208,16 +8280,16 @@ export function step(g, inputs, dt) {
         if (m.team === s.team || s.hits.includes('m' + m.id)) continue;
         if (dist2(s, m) < (MINION_R + (s.radius || SHOT_R)) ** 2) {
           s.hits.push('m' + m.id);
-          damageMinion(g, m, s.dmg, s.ownerPid);
+          damageMinion(g, m, s.dmg, s.ownerPid!);
           if (s.pierce > 0) s.pierce--; else dead = true;
           break;
         }
       }
       if (!dead && s.who === 'p') {
-        for (const t of g.siegeTowers) {
+        for (const t of g.siegeTowers!) {
           if (t.destroyed || t.team === s.team) continue;
           if (dist2(s, t) < (SIEGE_TOWER_R + (s.radius || SHOT_R)) ** 2) {
-            damageTower(g, t, s.dmg, s.ownerPid);
+            damageTower(g, t, s.dmg, s.ownerPid!);
             if (s.pierce > 0) s.pierce--; else dead = true;
             break;
           }
@@ -8231,8 +8303,8 @@ export function step(g, inputs, dt) {
             break;
           }
         }
-        if (!dead) for (const c of g.cores) {
-          if (c.team === s.team || c.hp <= 0 || !siegeCoreOpen(g, c.team)) continue;
+        if (!dead) for (const c of g.cores!) {
+          if (c.team === s.team || c.hp <= 0 || !siegeCoreOpen(g, c.team!)) continue;
           if (dist2(s, c) < (SIEGE_CORE_R + (s.radius || SHOT_R)) ** 2) {
             c.hp = Math.max(0, c.hp - s.dmg);
             g.events.push({ type: 'coreHit', x: c.x, y: c.y, team: c.team });
@@ -8263,8 +8335,8 @@ export function step(g, inputs, dt) {
   // --- end conditions ---
   // Anchor Siege: a team wins the moment the ENEMY core falls.
   if (g.siege) {
-    for (const c of g.cores) {
-      if (c.hp <= 0) { g.events.push({ type: 'coreDown', x: c.x, y: c.y, team: c.team }); pvpWin(g, siegeFoe(c.team)); return; }
+    for (const c of g.cores!) {
+      if (c.hp <= 0) { g.events.push({ type: 'coreDown', x: c.x, y: c.y, team: c.team }); pvpWin(g, siegeFoe(c.team!)); return; }
     }
   }
   // Beacon-defense: keep at least a difficulty-scaled number of monoliths lit
@@ -8319,7 +8391,7 @@ export function step(g, inputs, dt) {
             if (k > bk || (k === bk && (w === undefined || p.pid < w))) { bk = k; w = p.pid; }
           }
         }
-        pvpWin(g, w);
+        pvpWin(g, w!);
       }
     }
     return;
@@ -8329,7 +8401,7 @@ export function step(g, inputs, dt) {
   // extermination auto-clear — secondaries never block anything. A main
   // 'reach' quest counts complete the moment it trips: the finale fires at
   // the ring, not after a walk back to the giver.
-  const mainDone = q => q.state === 'done'
+  const mainDone = (q: QuestState) => q.state === 'done'
     || (q.kind === 'reach' && q.state === 'active' && q.progress >= q.count);
   const mains = g.quests.filter(q => q.main);
   const mainsLeft = mains.some(q => !mainDone(q));
@@ -8364,7 +8436,7 @@ export function step(g, inputs, dt) {
 // Apply a finished level to the campaign roster.
 // Cleared: characters left lying on the field are gone for good; rescues join the roster.
 // Failed: no permanent losses -- you retry the level with the roster you walked in with.
-export function applyResults(roster, g) {
+export function applyResults(roster: string[],  g: Game) {
   // PvP matches never touch the campaign roster, win or lose.
   if (g.mode === 'ctf' || g.mode === 'br') return { roster: roster.slice(), gained: [], lost: [] };
   if (g.status !== 'cleared') return { roster: roster.slice(), gained: [], lost: [] };
@@ -8380,14 +8452,14 @@ export function applyResults(roster, g) {
 // restores a byte-identical future: run, serialize, restore, step both — the
 // snapshot streams match. Keys holding undefined drop in the copy; every
 // reader already treats a missing key and undefined alike.
-export function serializeGame(g) {
+export function serializeGame(g: Game) {
   const { charMap, ...rest } = g;
   return JSON.parse(JSON.stringify(rest));
 }
 
 // Rebuild a steppable game from serializeGame data. The copy keeps the
 // caller's stored object pristine (resume twice from one beacon).
-export function restoreGame(data, charMap) {
+export function restoreGame(data: any,  charMap: CharacterMap) {
   const g = JSON.parse(JSON.stringify(data));
   g.charMap = charMap;
   // legacy beacons (pre power-up drops) carry none of these fields — backfill the
@@ -8417,13 +8489,13 @@ export function restoreGame(data, charMap) {
 // site reads a sim value and rounds the COPY placed in the snapshot, so sim
 // state (and netcode parity) is untouched. Null/undefined pass through so
 // gated optional fields stay absent.
-const qi = v => (typeof v === 'number' ? Math.round(v) : v);                 // integer px (x/y)
-const q1 = v => (typeof v === 'number' ? Math.round(v * 10) / 10 : v);       // 1 decimal (vx/vy, timers)
-const q2 = v => (typeof v === 'number' ? Math.round(v * 100) / 100 : v);     // 2 decimals (fx/fy facing)
+const qi = (v: number) => (typeof v === 'number' ? Math.round(v) : v);                 // integer px (x/y)
+const q1 = (v: number) => (typeof v === 'number' ? Math.round(v * 10) / 10 : v);       // 1 decimal (vx/vy, timers)
+const q2 = (v: number) => (typeof v === 'number' ? Math.round(v * 100) / 100 : v);     // 2 decimals (fx/fy facing)
 
 // Pass full=false to omit the static tile grid (the server sends the grid once
 // at levelStart and lite snapshots every tick; clients re-attach the cached grid).
-export function snapshot(g, full = true) {
+export function snapshot(g: Game, full: boolean = true): Snapshot {
   return {
     name: g.name,
     objective: g.objective,
@@ -8432,7 +8504,7 @@ export function snapshot(g, full = true) {
     // untimed story: the client clock counts UP on elapsed instead of down
     ...(g.untimed ? { untimed: true, elapsed: q1(g.elapsed) } : {}),
     timeLeft: q1(g.timeLeft),
-    status: g.status,
+    status: g.status as SnapStatus,
     shards: g.shards,
     // ctf only: per-team pools — the client HUD shows the viewer's team pool
     ...(g.teamShards ? { teamShards: g.teamShards.slice() } : {}),
@@ -8504,11 +8576,11 @@ export function snapshot(g, full = true) {
     } } : {}),
     // beacon-defense: the four monoliths with HUD-ready lit flags, plus the
     // landed Anchorcraft once the all-lit night feat earns it
-    ...(g.cores ? { cores: g.cores.map(c => ({ x: c.x, y: c.y, hp: c.hp, maxHp: c.maxHp, lit: c.lit, ...(c.team != null ? { team: c.team } : {}) })) } : {}),
+    ...(g.cores ? { cores: g.cores.map(c => ({ x: c.x, y: c.y, hp: c.hp, maxHp: c.maxHp, lit: c.lit!, ...(c.team != null ? { team: c.team } : {}) })) } : {}),
     // Anchor Siege: minions, lane towers, lane polylines, and core-open flags
     ...(g.siege ? { siege: {
       minions: g.siege.minions.map(m => ({ id: m.id, team: m.team, x: qi(m.x), y: qi(m.y), hp: m.hp, maxHp: m.maxHp, ...(m.kind ? { kind: m.kind } : {}) })),
-      towers: g.siegeTowers.map(t => ({ x: t.x, y: t.y, team: t.team, hp: t.hp, maxHp: t.maxHp, level: t.level, destroyed: t.destroyed })),
+      towers: g.siegeTowers!.map(t => ({ x: t.x, y: t.y, team: t.team, hp: t.hp, maxHp: t.maxHp, level: t.level, destroyed: t.destroyed })),
       lanes: g.siege.lanes.map(l => l.waypoints.map(w => [w.x, w.y])),
       open: [siegeCoreOpen(g, 0), siegeCoreOpen(g, 1)],
       // MOBA Wave C neutral killable prisms (+hp) — shipped only when the map
@@ -8524,9 +8596,9 @@ export function snapshot(g, full = true) {
     // Difficulty: ships only when NOT the default 'normal', so every
     // default-difficulty snapshot stays byte-identical (the HUD shows the badge
     // only when the player chose Easy or Extreme).
-    ...(g.difficulty && g.difficulty !== 'normal' ? { difficulty: g.difficulty } : {}),
+    ...(g.difficulty && g.difficulty !== 'normal' ? { difficulty: g.difficulty as SnapDifficulty } : {}),
     // Family Mode: the bright/cheerful render + the shared-lives HUD read these
-    ...(g.family ? { family: true, familyLives: g.familyLives } : {}),
+    ...(g.family ? { family: true, familyLives: g.familyLives! } : {}),
     ...(g.ship ? { ship: { x: g.ship.x, y: g.ship.y, landed: true } } : {}),
     // alive world: weather/ambience for the render FX and audio beds; the
     // toxic-air deadline (live flag included) for the EVA banner
@@ -8543,12 +8615,12 @@ export function snapshot(g, full = true) {
     // nextBloodMoon flags the DAY before a blood-moon dusk (gated: the key
     // only appears when true, so classic-bastion snapshots stay byte-stable)
     // — the client's wave countdown reads it for the day-before red styling.
-    ...(g.cycle ? { cycle: { phase: g.cycle.phase, nightNo: g.cycle.nightNo, t: g.cycle.t, bloodMoon: g.cycle.bloodMoon, nights: g.bastion.nights,
+    ...(g.cycle ? { cycle: { phase: g.cycle.phase, nightNo: g.cycle.nightNo, t: g.cycle.t, bloodMoon: g.cycle.bloodMoon, nights: g.bastion!.nights,
       ...(g.cycle.hornT > 0 ? { hornP: Math.min(1, g.cycle.hornT / HORN_HOLD_T) } : {}),
-      ...(g.bastion.endless ? { endless: true } : {}),
-      ...(g.cycle.phase === 'day' && (g.bastion.endless
-        ? ((g.cycle.nightNo + 1) % (g.bastion.bloodEvery || 3) === 0)
-        : g.bastion.bloodMoons.includes(g.cycle.nightNo + 1)) ? { nextBloodMoon: true } : {}) } } : {}),
+      ...(g.bastion!.endless ? { endless: true } : {}),
+      ...(g.cycle.phase === 'day' && (g.bastion!.endless
+        ? ((g.cycle.nightNo + 1) % (g.bastion!.bloodEvery || 3) === 0)
+        : g.bastion!.bloodMoons.includes(g.cycle.nightNo + 1)) ? { nextBloodMoon: true } : {}) } } : {}),
     ...(g.beaconGraceT != null ? { beaconGraceT: g.beaconGraceT } : {}),
     ...(g.chests.length ? { chests: g.chests.map(c => ({ x: c.x, y: c.y, opened: c.opened, loot: c.loot })) } : {}),
     ...(g.crackers.length ? { crackers: g.crackers.map(c => ({ x: c.x, y: c.y, landed: c.landed, fuse: c.fuse })) } : {}),
@@ -8583,26 +8655,26 @@ export function snapshot(g, full = true) {
       // every client draws the same ghost/line preview.
       ...(p.inventory ? { inventory: p.inventory.map(s => ({ kind: s.kind, count: s.count })), invIdx: p.invIdx || 0 } : {}),
       ...(p.placing ? {
-        placing: p.placing, ghostX: qi(p.ghostX), ghostY: qi(p.ghostY),
-        ...(p.wallAnchorX !== undefined ? { wallAnchorX: qi(p.wallAnchorX), wallAnchorY: qi(p.wallAnchorY) } : {}),
+        placing: p.placing, ghostX: qi(p.ghostX!), ghostY: qi(p.ghostY!),
+        ...(p.wallAnchorX !== undefined ? { wallAnchorX: qi(p.wallAnchorX), wallAnchorY: qi(p.wallAnchorY!) } : {}),
       } : {}),
       ...(p.dmgBonus ? { dmgBonus: p.dmgBonus } : {}),
       ...(p.fieldWeapon ? { fieldWeapon: { kind: p.fieldWeapon.kind, ammo: p.fieldWeapon.ammo } } : {}),
-      ...(p.stunT > 0 ? { stunT: q1(p.stunT) } : {}),
+      ...(p.stunT! > 0 ? { stunT: q1(p.stunT!) } : {}),
       // frostshade chill: ships only while active so the client can tint the
       // chilled operative; absent on every map without a frostshade (byte-stable)
-      ...(p.chillT > 0 ? { chillT: q1(p.chillT) } : {}),
+      ...(p.chillT! > 0 ? { chillT: q1(p.chillT!) } : {}),
       // lythseal carrier (own field, never the item slot): opens sealLock
       // doors on touch; the renderer drops Classical Phantom transparency
       // within 6 tiles of this seat and rings the bearer in checkpoint gold
       ...(p.lythseal ? { hasSeal: true, lythseal: true } : {}),
-      ...(p.channelT > 0 ? { channelT: q1(p.channelT) } : {}),
+      ...(p.channelT! > 0 ? { channelT: q1(p.channelT!) } : {}),
       // frontier IV: worn breather mask; aboard the landed Anchorcraft
       ...(p.mask ? { mask: true } : {}),
       ...(p.aboard ? { aboard: true } : {}),
       // on-the-spot leveling (non-arcade seats only; arcade never gains keys)
       ...(p.level !== undefined ? { xp: p.xp, level: p.level } : {}),
-      ...(p.state === 'pick' ? { pick: { idx: p.pickIdx, choices: freeChars(g) } } : {}),
+      ...(p.state === 'pick' ? { pick: { idx: p.pickIdx!, choices: freeChars(g) } } : {}),
     })),
     enemies: g.enemies.map(e => ({
       id: e.id,
@@ -8624,10 +8696,10 @@ export function snapshot(g, full = true) {
       ...(e.shielded ? { shielded: true } : {}), // acolyte ward, one absorb
       ...(e.buried ? { buried: true } : {}), // sand lurker submerged: render as a faint mound
       // status clocks ship as short floats only while live (lite by default)
-      ...(e.stunT > 0 ? { stunT: q1(e.stunT) } : {}),
-      ...(e.burnT > 0 ? { burnT: q1(e.burnT) } : {}),
-      ...(e.toxT > 0 ? { toxT: q1(e.toxT) } : {}),
-      ...(e.convertedT > 0 ? { convertedT: q1(e.convertedT) } : {}),
+      ...(e.stunT! > 0 ? { stunT: q1(e.stunT!) } : {}),
+      ...(e.burnT! > 0 ? { burnT: q1(e.burnT!) } : {}),
+      ...(e.toxT! > 0 ? { toxT: q1(e.toxT!) } : {}),
+      ...(e.convertedT! > 0 ? { convertedT: q1(e.convertedT!) } : {}),
     })),
     captives: g.captives.map(c => ({ charId: c.charId, x: qi(c.x), y: qi(c.y), owner: c.owner, fromPlayer: c.fromPlayer })),
     // ENEMY STRONGHOLDS: shipped only when the map seeded one (gated, so every
@@ -8659,10 +8731,10 @@ export function snapshot(g, full = true) {
     // complete to drive the objective HUD and the celebratory banner.
     ...(g.musicBox && g.musicBox.enabled ? {
       musicBox: {
-        mode: g.musicBox.mode, stem: g.musicBox.stem,
-        altar: { x: g.musicBox.altar.x, y: g.musicBox.altar.y },
-        fragments: g.musicBox.fragments.map(f => ({ id: f.id, x: f.x, y: f.y, carrier: f.carrier, placed: f.placed })),
-        assembled: g.musicBox.assembled, complete: g.musicBox.complete,
+        mode: g.musicBox.mode!, stem: g.musicBox.stem as string,
+        altar: { x: g.musicBox.altar!.x, y: g.musicBox.altar!.y },
+        fragments: g.musicBox.fragments!.map(f => ({ id: f.id, x: f.x, y: f.y, carrier: f.carrier, placed: f.placed })),
+        assembled: g.musicBox.assembled!, complete: g.musicBox.complete!,
         // stronghold ships the four corner mounts; story omits the key entirely
         ...(g.musicBox.mounts ? { mounts: g.musicBox.mounts.map(m => ({ x: m.x, y: m.y, filled: m.filled })) } : {}),
       },
@@ -8695,11 +8767,11 @@ export function snapshot(g, full = true) {
         hp: g.superweapon.hp, maxHp: g.superweapon.maxHp, ownerPid: g.superweapon.ownerPid,
         ...(g.superweapon.state === 'building' ? { buildT: q1(g.superweapon.buildT), buildTime: SUPER_BUILD_TIME } : {}),
         ...(g.superweapon.state === 'charging' ? { chargeT: q1(g.superweapon.chargeT), chargeMax: SUPER_CHARGE_SECONDS } : {}),
-        ...(g.superweapon.targetX !== undefined ? { targetX: qi(g.superweapon.targetX), targetY: qi(g.superweapon.targetY) } : {}),
+        ...(g.superweapon.targetX !== undefined ? { targetX: qi(g.superweapon.targetX), targetY: qi(g.superweapon.targetY!) } : {}),
       },
     } : {}),
     ...(g.hazards.length ? {
-      hazards: g.hazards.map(hz => ({ kind: hz.kind, x: qi(hz.x), y: qi(hz.y), radius: hz.radius, ttl: q1(hz.ttl), ...(hz.warnT > 0 ? { warnT: q1(hz.warnT) } : {}) })),
+      hazards: g.hazards.map(hz => ({ kind: hz.kind, x: qi(hz.x), y: qi(hz.y), radius: hz.radius, ttl: q1(hz.ttl), ...(hz.warnT! > 0 ? { warnT: q1(hz.warnT!) } : {}) })),
     } : {}),
     // ownerPid lets the renderer dress player shots in their seat's evolution.
     // id rides so the render-side interpolator can match a shot frame-to-frame

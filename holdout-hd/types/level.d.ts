@@ -222,7 +222,8 @@ export interface QuestDef {
   giver: string;
   kind?: string;
   item?: string;
-  target?: string;
+  /** A target tag string, or a reach point (tile coords) for 'reach' quests. */
+  target?: string | { x: number; y: number };
   count?: number;
   reward?: ObjectiveReward | null;
   hint?: string;
@@ -399,6 +400,8 @@ export interface EnemyStrongholdOpts {
   count?: number;
   /** Garrison enemy letters. */
   garrison?: string;
+  /** Number of garrison enemies (defaults to the garrison-letter count). */
+  garrisonCount?: number;
   aggro?: Tiles;
   leash?: Tiles;
   ring?: Tiles;
@@ -409,6 +412,8 @@ export interface EnemyStrongholdSite {
   /** Keep center tile [tx, ty]. */
   at?: TileCoord;
   garrison?: string;
+  /** Number of garrison enemies (defaults to the garrison-letter count). */
+  garrisonCount?: number;
   aggro?: Tiles;
   leash?: Tiles;
   ring?: Tiles;
@@ -432,6 +437,8 @@ export interface LevelDef {
   /** Longer display title (menus/cutscenes). */
   title?: string;
   objective?: string;
+  /** Stable catalog key (e.g. "story/ch3"); seeds the music-box stem + save ids. */
+  key?: string;
 
   // --- category / mode tagging ---
   /** Mode tag the sim branches on; absent => the un-moded 'classic' default. */
@@ -508,8 +515,9 @@ export interface LevelDef {
   enemyStrongholds?: EnemyStrongholdsDef;
 
   // --- opt-in world features ---
-  /** Seed stranded operators + scrap pickups (setupStranded). */
-  stranded?: boolean;
+  /** Seed stranded operators + scrap pickups (setupStranded). `true` uses the
+   *  defaults; an options object tunes the counts. */
+  stranded?: boolean | { operators?: number; scrap?: number };
 
   // --- narrative ---
   intro?: CutscenePanel[];
@@ -572,6 +580,8 @@ export interface ParsedEnemy extends Vec2 {
   patrol?: Vec2[];
   patrolI?: number;
   group?: number;
+  /** runtime AI bookkeeping step() lazily attaches (same shape as entities.Enemy). */
+  [key: string]: unknown;
 }
 
 /** A dialogue NPC ('N'). */
@@ -579,7 +589,8 @@ export interface ParsedNpc extends Vec2 {
   id: string;
   name: string;
   lines: string[];
-  gift: NpcDef['gift'];
+  /** minted as `nd.gift || null` — never undefined. */
+  gift: { shards?: number; [reward: string]: number | undefined } | null;
   lineIdx: number;
   given: boolean;
 }
@@ -604,6 +615,8 @@ export interface ParsedBuild extends Vec2 {
   invested?: number;
   /** Turret weapon variant (prebuilt turret only). */
   ttype?: TurretType;
+  /** runtime gnaw/build bookkeeping step() lazily attaches (entities.Build). */
+  [key: string]: unknown;
 }
 
 /** A LYTH crystal node ('Y'). */

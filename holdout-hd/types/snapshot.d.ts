@@ -58,7 +58,8 @@ export interface WireBuild {
   x: Px;
   y: Px;
   kind: string;
-  cost: number;
+  /** LYTH cost; absent on a few authored prebuilts. */
+  cost?: number;
   progress: number;
   paid: number;
   built: boolean;
@@ -88,12 +89,13 @@ export interface WirePatch {
   r: Px;
   ttl: number;
   hostile?: true;
-  team?: Team;
+  /** owning team slot (a small int; siege-trap patches). */
+  team?: number;
 }
 
 /** A field-weapon pickup. Shipped only when populated. */
 export interface WirePickup {
-  id: number;
+  id: string;
   x: Px;
   y: Px;
   kind: string;
@@ -102,7 +104,7 @@ export interface WirePickup {
 
 /** A quest item on the ground / carried. Shipped only when populated. */
 export interface WireQItem {
-  id: number;
+  id: string;
   x: Px;
   y: Px;
   kind: string;
@@ -112,20 +114,22 @@ export interface WireQItem {
 
 /** Quest objective state. Shipped only when populated. */
 export interface WireQuest {
-  id: number;
+  id: string;
   state: string;
   progress: number;
   count: number;
   title: string;
   main: boolean;
-  kind: string;
+  /** quest kind; absent on a bare giver quest. */
+  kind?: string;
 }
 
 /** A recruited combat follower. Shipped only when populated. */
 export interface WireFollower {
   id: number;
   kind: string;
-  owner: Pid;
+  /** owning pid, or null for an ownerless base defender. */
+  owner: Pid | null;
   x: Px;
   y: Px;
   hp: number;
@@ -138,7 +142,7 @@ export interface WireFollower {
 
 /** A stranded operator awaiting rescue (recruited ones drop off the wire). */
 export interface WireStranded {
-  id: number;
+  id: string;
   x: Px;
   y: Px;
   /** pid of carrier, or null when on the ground. */
@@ -147,7 +151,7 @@ export interface WireStranded {
 
 /** A scrap pickup. Shipped only when populated. */
 export interface WireScrap {
-  id: number;
+  id: string;
   x: Px;
   y: Px;
   carrier: Pid | null;
@@ -155,7 +159,7 @@ export interface WireScrap {
 
 /** A floor switch. Shipped only when populated. */
 export interface WireSwitch {
-  id: number;
+  id: string;
   x: Px;
   y: Px;
   on: boolean;
@@ -174,17 +178,17 @@ export interface WireSwitchGroup {
 
 /** A glyph rune. Shipped only when populated. */
 export interface WireGlyph {
-  id: number;
+  id: string;
   x: Px;
   y: Px;
-  symbol: string;
+  symbol: number;
   lit: boolean;
   group: number | string;
 }
 
 /** A destructible pillar. Shipped only when populated. */
 export interface WirePillar {
-  id: number;
+  id: string;
   x: Px;
   y: Px;
   hp: number;
@@ -201,15 +205,16 @@ export interface WireForge {
 
 /** A teleport pad (paired by twin id). Shipped only when populated. */
 export interface WireTeleport {
-  id: number;
+  id: string;
   x: Px;
   y: Px;
-  twin: number;
+  /** paired pad id (resolved in parseLevel), or null if inert. */
+  twin: string | null;
 }
 
 /** A door. Shipped only when populated. */
 export interface WireDoor {
-  id: number;
+  id: string;
   x: Px;
   y: Px;
   w: number;
@@ -236,7 +241,7 @@ export interface WireDrop {
 
 /** A floating power-up. Shipped only when populated. */
 export interface WirePowerup {
-  id: number;
+  id: string;
   x: Px;
   y: Px;
   type: PowerupType;
@@ -245,7 +250,8 @@ export interface WirePowerup {
 
 /** A named NPC. Always present (possibly empty array). */
 export interface WireNpc {
-  id: number;
+  /** npc id (a string key like "npc0"). */
+  id: string;
   name: string;
   x: Px;
   y: Px;
@@ -278,8 +284,8 @@ export interface WireCapture {
 export interface WireBridge {
   reached: boolean;
   /** hold point — present only when the def set holdX/holdY. */
-  x?: Px;
-  y?: Px;
+  x?: Px | null;
+  y?: Px | null;
 }
 
 /** Escort objective. */
@@ -304,7 +310,8 @@ export interface WireBeaconCore {
   hp: number;
   maxHp: number;
   lit: boolean;
-  team?: Team;
+  /** owning team slot (a small int; siege team cores). */
+  team?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -312,7 +319,7 @@ export interface WireBeaconCore {
 // ---------------------------------------------------------------------------
 export interface WireSiegeMinion {
   id: number;
-  team: Team;
+  team: number;
   x: Px;
   y: Px;
   hp: number;
@@ -324,7 +331,7 @@ export interface WireSiegeMinion {
 export interface WireSiegeTower {
   x: Px;
   y: Px;
-  team: Team;
+  team: number;
   hp: number;
   maxHp: number;
   level: number;
@@ -417,7 +424,7 @@ export interface WireCracker {
 }
 
 export interface WireVehicle {
-  id: number;
+  id: string;
   x: Px;
   y: Px;
   kind: string;
@@ -453,7 +460,7 @@ export interface WireHire {
 
 /** A CTF flag. Shipped only when populated. */
 export interface WireFlag {
-  team: Team;
+  team: number;
   x: Px;
   y: Px;
   homeX: Px;
@@ -507,7 +514,8 @@ export interface WirePickState {
 export interface WirePlayer {
   pid: Pid;
   name: string;
-  charId: string;
+  /** roster id; null while the seat is downed (held by a captive). */
+  charId: string | null;
   x: Px;
   y: Px;
   /** facing x (2-decimal). */
@@ -528,7 +536,8 @@ export interface WirePlayer {
   staminaMax?: number;
   // --- gated optionals ---
   item?: WirePlayerItem;
-  team?: Team;
+  /** team slot (a small int; pvp/siege seats). */
+  team?: number;
   /** vehicle id being ridden. */
   riding?: number | string;
   towerId?: number;
@@ -604,7 +613,8 @@ export interface WireEnemy {
 // Captive
 // ---------------------------------------------------------------------------
 export interface WireCaptive {
-  charId: string;
+  /** roster id; null when minted from a downed seat with no character. */
+  charId: string | null;
   x: Px;
   y: Px;
   /** pid of the carrier, or null when on the ground. */
@@ -616,7 +626,7 @@ export interface WireCaptive {
 // Strongholds
 // ---------------------------------------------------------------------------
 export interface WireStronghold {
-  id: number;
+  id: string;
   x: Px;
   y: Px;
   r: Px;
@@ -630,7 +640,7 @@ export interface WireStronghold {
 // Music Box easter egg
 // ---------------------------------------------------------------------------
 export interface WireMusicBoxFragment {
-  id: number;
+  id: string;
   x: Px;
   y: Px;
   carrier: Pid | null;
@@ -648,7 +658,8 @@ export interface WireMusicBox {
   stem: string;
   altar: { x: Px; y: Px };
   fragments: WireMusicBoxFragment[];
-  assembled: boolean;
+  /** count of fragments seated on the altar (not a boolean). */
+  assembled: number;
   complete: boolean;
   /** stronghold-only corner mounts; omitted for story. */
   mounts?: WireMusicBoxMount[];
@@ -725,8 +736,8 @@ export interface WireShot {
 export interface Snapshot {
   name: string;
   objective: string;
-  /** static tile grid — present only on full snapshots (full=true). */
-  grid?: number[][];
+  /** static tile grid (ASCII rows) — present only on full snapshots (full=true). */
+  grid?: string[];
   w: number;
   h: number;
   dark?: true;
