@@ -13,4 +13,6 @@ node_modules/
 /public/render.js
 /public/client.js
 /shared/game.js
+/shared/mapValidate.js
+/shared/mapgen.js
 /test/sim.test.js

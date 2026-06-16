@@ -13,6 +13,10 @@ declare global {
   }
 }
 import { TILE, createGame, step, snapshot, applyResults, charsById, dailyChallenge } from '/shared/game.js';
+// Random Map generator: deterministic given (seed, params). Value import for the
+// click handler; GenParams is type-only (erased at emit).
+import { generate } from '/shared/mapgen.js';
+import type { GenParams } from '/shared/mapgen.js';
 // Namespace import so optional sim features (serializeGame/restoreGame for save
 // beacons) can ship independently — accessed via gameMod.* with runtime checks.
 import * as gameMod from '/shared/game.js';
@@ -1803,6 +1807,10 @@ class LocalSession {
     // Tutorial: a coached classic run on a one-map list (opts.tutorialDef), no
     // saves/rankings — just teaches move/fire/rescue/extract.
     this.tutorial = !!opts.tutorial;
+    // Random Map ("Surprise Me"): a seeded generated def on a one-map list, no
+    // saves/rankings — mirrors the Daily one-map launch but for any objective.
+    // opts.randomMap = { def, seed } — def carries its own mode (bastion|null).
+    this.randomMap = opts.randomMap || null;
     // Family Mode: gentle co-op on the bright family maps (no saves/rankings)
     this.family = !this.mode && !this.bastion && !this.story && !!opts.family;
     this.expedition = !this.story && !this.mode && !this.bastion && !this.family && !!opts.expedition;
@@ -1827,6 +1835,8 @@ class LocalSession {
     // Daily: a one-map list of the seeded def, so the lobby/HUD/start() all read it.
     if (this.daily) { this.levels = [this.daily.def]; this.levelIdx = 0; }
     if (this.tutorial && opts.tutorialDef) { this.levels = [opts.tutorialDef]; this.levelIdx = 0; }
+    // Random Map: a one-map list of the seeded def, so the lobby/HUD/start() all read it.
+    if (this.randomMap) { this.levels = [this.randomMap.def]; this.levelIdx = 0; }
     this.players = []; // { pid, name, device, charId, cursor }
     this.game = null;
     this.snap = null;
@@ -4292,6 +4302,34 @@ function paintDaily() {
 }
 $('btnDaily').onclick = (e: any) => { e.currentTarget.blur(); startDaily(); };
 paintDaily();
+
+// Random Map ("Surprise Me"): pick a seed + valid params at CLICK time (UI, not
+// the sim — the generator stays deterministic given the seed), build a LevelDef
+// via generate(), and launch it on the SAME one-map LocalSession path the Daily
+// uses (solo/couch, no rankings). The def carries its own mode (bastion|null),
+// so bastion objectives get the siege HUD and survival lands as a classic run.
+const RM_BIOMES = ['emberwaste', 'glacis', 'mire', 'dunes', 'verdance', 'voidscar', 'saltworks', 'nocturne', 'crucible', 'reliquary'];
+const RM_ARCHETYPES = ['centered-hold', 'back-line', 'corner-keep', 'far-redoubt', 'four-corner-beacons', 'perimeter-ring'];
+const RM_OBJECTIVES = ['bastion', 'beacons', 'capture', 'bridge', 'escort', 'gate', 'survival'];
+const rmPick = (a: any[]) => a[Math.floor(Math.random() * a.length)];
+function startRandomMap() {
+  if (session) return;
+  const seed = (Date.now() ^ Math.floor(Math.random() * 0x7fffffff)) >>> 0; // UI-side roll
+  const params: GenParams = {
+    biome: rmPick(RM_BIOMES),
+    archetype: rmPick(RM_ARCHETYPES),
+    objective: rmPick(RM_OBJECTIVES),
+  };
+  const def: any = generate(seed, params);
+  // surface the seed so a run is shareable
+  def.name = `${def.name || 'Random Map'} · #${seed}`;
+  playUi('select');
+  const opts: any = { randomMap: { def, seed } };
+  if (def.mode === 'bastion') opts.mode = 'bastion';
+  session = new LocalSession(null, opts);
+  session.lobby();
+}
+$('btnRandomMap').onclick = (e: any) => { e.currentTarget.blur(); startRandomMap(); };
 
 // --- Tutorial coach: a scripted first mission teaching the core verbs -------
 // Reuses level 1 (Outer Barricade) untimed, with an on-screen coach that
