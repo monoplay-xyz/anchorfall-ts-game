@@ -1,5 +1,5 @@
 {
-  "name": "monolythium-anchorfall",
+  "name": "anchorfall-ts-game",
   "version": "1.0.0",
   "description": "Monolythium — The Anchorfall: top-down tactical co-op on the Monolythium frontier. Solo, couch and online multiplayer.",
   "type": "module",
