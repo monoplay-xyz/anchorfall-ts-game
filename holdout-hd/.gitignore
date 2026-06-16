@@ -12,3 +12,4 @@ node_modules/
 /public/audio.js
 /public/render.js
 /public/client.js
+/shared/game.js

@@ -1,3 +1,4 @@
+// @ts-nocheck — TS migration (issue #4): runtime-migrated to .ts, types pending.
 // Core simulation shared by the Node server (online co-op) and the browser (solo).
 // All distances are in pixels; speeds in characters.json are tiles/second.
 
