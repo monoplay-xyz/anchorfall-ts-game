@@ -1,4 +1,3 @@
-// @ts-nocheck — TS migration (issue #4): runtime-migrated to .ts, types pending.
 // Account auth: register / login / logout / me, plus cloud profile sync.
 //
 // Security:
@@ -11,6 +10,7 @@
 //   timing is blunted by always hashing on login.
 // - DB access is parameterized (see db.js).
 import crypto from 'crypto';
+import type { Express, Request, Response } from 'express';
 import { db } from './db.js';
 
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
@@ -21,24 +21,24 @@ const TOKEN_TTL_MS = 30 * 24 * 3600 * 1000; // 30 days
 const NAME_RE = /^[A-Za-z0-9_]{3,16}$/;
 const SCRYPT_LEN = 64;
 
-function hashPassword(password) {
+function hashPassword(password: string) {
   const salt = crypto.randomBytes(16).toString('hex');
   const hash = crypto.scryptSync(password, salt, SCRYPT_LEN).toString('hex');
   return { salt, hash };
 }
-function verifyPassword(password, hash, salt) {
+function verifyPassword(password: string, hash: string, salt: string) {
   let stored;
   try { stored = Buffer.from(String(hash), 'hex'); } catch { return false; }
   const got = crypto.scryptSync(password, String(salt), SCRYPT_LEN);
   return stored.length === got.length && crypto.timingSafeEqual(got, stored);
 }
 
-function signToken(uid, name) {
+function signToken(uid: number | string, name: string) {
   const payload = Buffer.from(JSON.stringify({ uid, name, exp: Date.now() + TOKEN_TTL_MS })).toString('base64url');
   const sig = crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('base64url');
   return payload + '.' + sig;
 }
-function verifyToken(token) {
+function verifyToken(token: string | null | undefined) {
   if (!token || typeof token !== 'string') return null;
   const dot = token.indexOf('.');
   if (dot <= 0) return null;
@@ -53,8 +53,8 @@ function verifyToken(token) {
   } catch { return null; }
 }
 
-function parseCookies(req) {
-  const out = {};
+function parseCookies(req: Request) {
+  const out: Record<string, string> = {};
   for (const part of String(req.headers.cookie || '').split(';')) {
     const i = part.indexOf('=');
     if (i > 0) {
@@ -66,26 +66,32 @@ function parseCookies(req) {
   }
   return out;
 }
-function setSession(res, token) {
+function setSession(res: Response, token: string) {
   const secure = process.env.NODE_ENV === 'production' || process.env.PUBLIC_DEPLOY === '1';
   res.setHeader('Set-Cookie',
     `sid=${token}; HttpOnly; Path=/; Max-Age=${Math.floor(TOKEN_TTL_MS / 1000)}; SameSite=Lax${secure ? '; Secure' : ''}`);
 }
-function clearSession(res) {
+function clearSession(res: Response) {
   const secure = process.env.NODE_ENV === 'production' || process.env.PUBLIC_DEPLOY === '1';
   res.setHeader('Set-Cookie', `sid=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax${secure ? '; Secure' : ''}`);
 }
 
 // The authenticated identity for a request, or null. { uid, name }
-export function currentUser(req) { return verifyToken(parseCookies(req).sid); }
+export function currentUser(req: Request) { return verifyToken(parseCookies(req).sid); }
 
 // Mount the auth + profile routes. opts: { json, rateLimited(ip), cleanName, maxProfileBytes }
-export function mountAuth(app, opts = {}) {
+interface AuthOpts {
+  json?: any;
+  rateLimited?: (ip: string) => boolean;
+  cleanName?: (name: string) => string;
+  maxProfileBytes?: number;
+}
+export function mountAuth(app: Express, opts: AuthOpts = {}) {
   const json = opts.json; // an express.json({limit}) middleware
   const limited = opts.rateLimited || (() => false);
   const MAXP = opts.maxProfileBytes || 16 * 1024;
 
-  app.post('/api/auth/register', json, async (req, res) => {
+  app.post('/api/auth/register', json, async (req: Request, res: Response) => {
     const ip = req.ip || req.socket?.remoteAddress || '?';
     if (limited(ip)) return res.status(429).json({ error: 'too many attempts — wait a minute' });
     const name = String(req.body?.name ?? '').trim();
@@ -105,7 +111,7 @@ export function mountAuth(app, opts = {}) {
     }
   });
 
-  app.post('/api/auth/login', json, async (req, res) => {
+  app.post('/api/auth/login', json, async (req: Request, res: Response) => {
     const ip = req.ip || req.socket?.remoteAddress || '?';
     if (limited(ip)) return res.status(429).json({ error: 'too many attempts — wait a minute' });
     const name = String(req.body?.name ?? '').trim();
@@ -122,21 +128,21 @@ export function mountAuth(app, opts = {}) {
     }
   });
 
-  app.post('/api/auth/logout', (req, res) => { clearSession(res); res.json({ ok: true }); });
+  app.post('/api/auth/logout', (req: Request, res: Response) => { clearSession(res); res.json({ ok: true }); });
 
-  app.get('/api/auth/me', (req, res) => {
+  app.get('/api/auth/me', (req: Request, res: Response) => {
     const me = currentUser(req);
     res.json({ user: me ? { id: me.uid, name: me.name } : null });
   });
 
   // Cloud profile (milestone stats + unlocks). Only the owner can read/write.
-  app.get('/api/profile', async (req, res) => {
+  app.get('/api/profile', async (req: Request, res: Response) => {
     const me = currentUser(req);
     if (!me) return res.status(401).json({ error: 'not signed in' });
     try { res.json({ profile: (await db.getProfile(me.uid)) || null }); }
     catch (e) { console.error('getProfile error:', e.message); res.status(500).json({ error: 'server error' }); }
   });
-  app.put('/api/profile', json, async (req, res) => {
+  app.put('/api/profile', json, async (req: Request, res: Response) => {
     const me = currentUser(req);
     if (!me) return res.status(401).json({ error: 'not signed in' });
     const data = req.body?.profile;
