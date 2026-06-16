@@ -4686,7 +4686,7 @@ function showMenuPage(id: any) {
   if (id === 'pageClassic' || id === 'pageStory') refreshContinue();
   if (id === 'pageSh') renderShGrid();
   if (id === 'pageSettings') renderCtrlReadout?.(); // refresh the controller list (pads hot-plug)
-  if (id === 'pageRemap') renderRemap();
+  if (id === 'pageRemap') { renderRemap(); renderPadDiag(); }
   if (id === 'pageRank') renderRankPicker();      // async: fills in when fetched
   if (id === 'pageRankBoard') renderRankBoard();  // async: fills in when fetched
   if (id === 'pageBrowse') startBrowse();         // 5s auto-refresh while open
@@ -4904,6 +4904,74 @@ function remapPadTick() {
         return;
       }
       remapHeld.delete(k); // released — a re-press now counts
+    }
+  }
+}
+
+// ---------- controller diagnostic (press-any-button / not-detected) ----------
+// Shown under the remap list: each connected pad as a row (slot -> seat, the
+// Auto-detected type) with one cell per button that lights when pressed, plus a
+// live axes readout. Lets a user confirm a pad is detected and see its
+// index->seat mapping before rebinding. Repainted only when its structure
+// changes (pad set / type); the per-frame button highlight toggles classes in
+// place so it's cheap.
+const PAD_AXIS_DEADZONE = 0.35;
+let padDiagSig: any = null;
+// Build the structural rows (pad cards + button cells). Called when the pad set
+// or detected types change; the live highlight is a separate cheap pass.
+function renderPadDiag() {
+  const host = $('padDiagBody');
+  if (!host) return;
+  const pads = [];
+  for (const gp of navigator.getGamepads?.() ?? []) {
+    if (gp && gp.connected) pads.push(gp);
+  }
+  if (!pads.length) {
+    host.innerHTML = '<div class="pd-none">No controllers detected. Connect a pad and press any button — it should appear here. '
+      + 'Keyboard seats (WASD / Arrows) always work and need no pad.</div>';
+    padDiagSig = 'none';
+    return;
+  }
+  host.innerHTML = pads.map(gp => {
+    const seat = 'gp' + gp.index;
+    const type = inferPadType(gp.id);
+    const niceType = ({ xbox: 'Xbox', ps5: 'DualSense (PS5)', ps4: 'DualShock 4 (PS4)', switch: 'Switch', generic: 'Generic' } as any)[type] || 'Generic';
+    const cells = gp.buttons.map((_b, j) =>
+      `<div class="pd-btn" data-pad="${gp.index}" data-btn="${j}">${PADBTN_NICE[j] ?? j}</div>`).join('');
+    const axes = gp.axes.map((_a, k) => `<span class="pd-ax" data-pad="${gp.index}" data-ax="${k}">ax${k}:0.00</span>`).join('  ');
+    return `<div class="pd-pad" data-pad="${gp.index}">`
+      + `<div class="pd-title">Pad ${gp.index + 1} <span class="pd-type">→ seat ${seat} · ${niceType}</span></div>`
+      + `<div class="pd-btns">${cells}</div>`
+      + `<div class="pd-axes">${axes}</div>`
+      + `</div>`;
+  }).join('');
+  // structural signature: pad set + detected type (id can drift, index+type is enough)
+  padDiagSig = pads.map(gp => gp.index + ':' + inferPadType(gp.id)).join(',');
+}
+// Per-frame: rebuild structure on hot-plug, else just toggle the .on classes for
+// pressed buttons and update the axis readouts. Only runs while pageRemap is up.
+function padDiagTick() {
+  if ($('menu').hidden || menuPageId !== 'pageRemap') return;
+  const host = $('padDiagBody');
+  if (!host) return;
+  const pads = [];
+  for (const gp of navigator.getGamepads?.() ?? []) {
+    if (gp && gp.connected) pads.push(gp);
+  }
+  const sig = pads.length ? pads.map(gp => gp.index + ':' + inferPadType(gp.id)).join(',') : 'none';
+  if (sig !== padDiagSig) { renderPadDiag(); return; } // hot-plug / type change
+  for (const gp of pads) {
+    for (let j = 0; j < gp.buttons.length; j++) {
+      const cell = host.querySelector(`.pd-btn[data-pad="${gp.index}"][data-btn="${j}"]`) as any;
+      if (cell) cell.classList.toggle('on', !!gp.buttons[j]?.pressed);
+    }
+    for (let k = 0; k < gp.axes.length; k++) {
+      const ax = host.querySelector(`.pd-ax[data-pad="${gp.index}"][data-ax="${k}"]`) as any;
+      if (ax) {
+        const v = gp.axes[k] || 0;
+        ax.textContent = `ax${k}:${v.toFixed(2)}`;
+        ax.classList.toggle('on', Math.abs(v) > PAD_AXIS_DEADZONE);
+      }
     }
   }
 }
@@ -5695,6 +5763,76 @@ $('btnFullscreen').onclick = (e: any) => {
 };
 document.addEventListener('fullscreenchange', () => { fitStage(); });
 
+// ---------- frame-loop error surface ----------
+// When the render/tick catch below fires, we used to swallow it (silent freeze
+// risk). Instead show a readable, dismissible overlay ONCE per distinct error,
+// and keep input alive so the player can press X / B / Esc to continue.
+//
+// formatFrameError is PURE (no DOM): it normalises whatever was thrown into a
+// { message, stack } pair and a `key` used to dedupe. Kept self-contained so a
+// node logic check can exercise it without a browser. Do not close over outer
+// state here — the test extracts this function by name.
+function formatFrameError(err: any): { message: string; stack: string; key: string } {
+  let message: string;
+  let stack: string;
+  if (err instanceof Error) {
+    message = (err.name ? err.name + ': ' : '') + (err.message || '(no message)');
+    stack = err.stack || message;
+  } else if (err && typeof err === 'object') {
+    // non-Error throw (e.g. a rejected value or a custom object)
+    message = String((err as any).message ?? '');
+    if (!message) { try { message = JSON.stringify(err); } catch { message = String(err); } }
+    stack = String((err as any).stack ?? message);
+  } else {
+    message = String(err);
+    stack = message;
+  }
+  // dedupe key: first line of the stack (or the message) — distinct errors
+  // (different message/site) each surface once; the same one won't spam.
+  const key = String(stack).split('\n', 1)[0].trim() || message;
+  return { message, stack, key };
+}
+
+const seenFrameErrors = new Set<string>();
+let frameErrorShown = false;
+function showFrameError(err: any) {
+  const { message, stack, key } = formatFrameError(err);
+  // log every occurrence (native debug hook or console), even repeats
+  if (typeof window !== 'undefined' && window.__dbg) window.__dbg('frame: ' + stack);
+  else console.error('frame loop error', err);
+  if (seenFrameErrors.has(key)) return; // already surfaced this exact error once
+  seenFrameErrors.add(key);
+  const panel = (typeof document !== 'undefined') && document.getElementById('frameError');
+  if (!panel) return; // headless / pre-DOM: logging above is enough
+  const m = document.getElementById('frameErrorMsg');
+  const s = document.getElementById('frameErrorStack');
+  if (m) m.textContent = message;
+  if (s) s.textContent = stack;
+  panel.hidden = false;
+  frameErrorShown = true;
+}
+function dismissFrameError() {
+  const panel = (typeof document !== 'undefined') && document.getElementById('frameError');
+  if (panel) panel.hidden = true;
+  frameErrorShown = false;
+}
+// While the panel is up, any dismiss button (pad X/B, Esc) closes it. Polled
+// from the frame loop so it works even with no mouse — input stays alive.
+function frameErrorTick(polled: any) {
+  if (!frameErrorShown) return;
+  // pad X (act) / B (special) — the dismiss buttons named in the panel hint —
+  // or START as a universal escape. Any of these closes it; input stays live.
+  for (const st of Object.values<any>(polled)) {
+    if (st && (st.act || st.special || st.start)) { dismissFrameError(); return; }
+  }
+}
+if (typeof addEventListener === 'function') {
+  addEventListener('keydown', (e: any) => {
+    if (!frameErrorShown) return;
+    if (e.key === 'Escape' || e.key === 'x' || e.key === 'X') { e.preventDefault(); dismissFrameError(); }
+  }, true);
+}
+
 // ---------- main loop ----------
 let last = performance.now();
 function frame(now: any) {
@@ -5703,11 +5841,13 @@ function frame(now: any) {
   last = now;
   const polled = pollDevices();
   noteActiveDevice(polled); // track the live device for Auto prompt glyphs
+  frameErrorTick(polled);    // pad X/B dismisses the error panel (input stays live)
   applyPromptGlyph();        // push the active controller type to the renderer
   // feed the renderer the live pointer (canvas px) so it can draw the superweapon
   // targeting reticle through each view's own camera; null when no mouse is active
   renderMod.setAimScreen?.(mouseCanvas?.x ?? null, mouseCanvas?.y ?? null);
   remapPadTick();  // a pad rebind capture polls raw buttons each frame
+  padDiagTick();   // live controller diagnostic (only while the remap page is up)
   navTick(polled); // first: consumes the button edges it handles
   pauseUiTick(polled); // then the pause/leave dialog, when one is up
   // live ability preview beside the lobby carousel — runs whenever the lobby is
@@ -5772,9 +5912,9 @@ function frame(now: any) {
   } catch (e) {
     // A render/tick exception must NEVER kill the frame loop — that freezes the
     // whole game ("can't move"). The sim step already ran before most draws, so
-    // input survives; log the error and keep animating so the next frame retries.
-    if (typeof window !== 'undefined' && window.__dbg) window.__dbg('frame: ' + (e && e.stack || e));
-    else console.error('frame loop error', e);
+    // input survives; surface a readable, dismissible on-screen panel (once per
+    // distinct error), log it, and keep animating so the next frame retries.
+    showFrameError(e);
   }
   requestAnimationFrame(frame);
 }

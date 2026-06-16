@@ -194,6 +194,17 @@
            the .screen overlays in DOM order, so open menus/dialogs paint over them -->
       <div id="banner" hidden></div>
       <div id="toast" hidden></div>
+      <!-- frame-loop error surface: shown (once per distinct error) when the
+           render/tick catch fires, instead of a silent freeze. Dismiss with
+           X / B / Esc; input stays live so the game can keep running. -->
+      <div id="frameError" hidden>
+        <div class="fe-card">
+          <div class="fe-title">THE GAME HIT AN ERROR</div>
+          <div class="fe-msg" id="frameErrorMsg"></div>
+          <pre class="fe-stack" id="frameErrorStack"></pre>
+          <div class="fe-hint">press X / B / Esc to continue</div>
+        </div>
+      </div>
       <div id="tutorialCoach" hidden></div>
       <div id="spectateTag" hidden>ELIMINATED &mdash; SPECTATING</div>
       <div id="countdown" hidden></div>
@@ -393,6 +404,13 @@
             <button class="ghost rdev" data-dev="pad">Gamepad</button>
           </div>
           <div id="remapList"></div>
+          <!-- press-any-button / not-detected diagnostic: lists each connected
+               pad (index -> seat, detected type) and live-highlights the
+               button/axis being pressed so a user can confirm a pad works. -->
+          <div id="padDiag">
+            <div class="pd-head">CONTROLLER DIAGNOSTIC <span class="pd-sub">press any button on a pad to confirm it&rsquo;s detected</span></div>
+            <div id="padDiagBody"></div>
+          </div>
           <button id="btnRemapReset" class="ghost">Reset device to defaults</button>
           <button class="ghost mback" data-back="pageSettings">Back</button>
         </div>
