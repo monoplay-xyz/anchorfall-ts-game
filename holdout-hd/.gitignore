@@ -10,3 +10,4 @@ node_modules/
 /auth.js
 /server.js
 /public/audio.js
+/public/render.js

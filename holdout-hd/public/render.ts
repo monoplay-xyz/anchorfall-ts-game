@@ -1,3 +1,4 @@
+// @ts-nocheck — TS migration (issue #4): runtime-migrated to .ts, types pending.
 // HD renderer — "Monolythium: Anchorfall" night grade.
 // Procedural vector/baked art with drop-in PNG overrides: any texture key in
 // BAKERS is first looked up as /assets/<key>.png (v2 keys, so the legacy
