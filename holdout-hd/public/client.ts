@@ -801,7 +801,13 @@ function navTick(polled: any) {
     if (screen === 'menu' && navEl?.dataset?.cycle && (st.leftJust || st.rightJust)) {
       const d = st.rightJust ? 1 : -1;
       st.leftJust = st.rightJust = false;
-      (({ display: cycleDisplayMode, aspect: cycleAspect, overscan: cycleOverscan }) as any)[navEl.dataset.cycle]?.(d);
+      (({
+        display: cycleDisplayMode, aspect: cycleAspect, overscan: cycleOverscan,
+        cmBiome: (n: number) => cmCycle('biome', n),
+        cmObjective: (n: number) => cmCycle('objective', n),
+        cmMode: (n: number) => cmCycle('mode', n),
+        cmSort: cmCycleSort,
+      }) as any)[navEl.dataset.cycle]?.(d);
       navDev = dev;
     }
     const gridEl = screen === 'menu' ? navEl?.closest?.('.navgrid') : null;
@@ -2844,6 +2850,12 @@ class NetSession {
         if (hostEndless) msg.endless = true;
         // Daily online: the server resolves today's map+twist from its own date.
         if (hostDaily) msg.daily = true;
+        // Community map online host: ship the published, already-validated def so
+        // the room plays it. Additive — a server without community-host support
+        // ignores the field and falls back to its default level (the play count
+        // still incremented client-side at launch). Mirrors the daily/endless
+        // additive-flag convention; never sent for the built-in modes.
+        if (opts.communityDef) msg.communityDef = opts.communityDef;
         this.ws.send(JSON.stringify(msg));
       } else {
         this.ws.send(JSON.stringify({ t: 'join', room: code, name: this.name }));
@@ -3992,6 +4004,192 @@ async function renderBrowse() {
   }
 }
 
+// ---------- community maps browser (Play > Community Maps) ----------
+// Mirrors the public room browser: GET /api/maps lists player-published levels
+// (server-validated + sanitized on publish, biome/objective/mode DERIVED + the
+// browse summary carries NO def blob). Filter cyclers + a sort toggle + paging
+// drive the SAME query the smoke/oracle exercises. Rows are pad-navigable
+// buttons; a press offers Play (solo/couch) or Host Online. Play fetches the
+// full def via GET /api/maps/:id and launches it on the SAME one-map
+// LocalSession path Random Map / Daily use; Host Online ships the def on the
+// host message. On launch POST /api/maps/:id/play (fire-and-forget) counts it.
+//
+// SECURITY: every user-authored string (name/author/description/tags) is set via
+// textContent / DOM text nodes — NEVER innerHTML. The server escapes on publish
+// too; this is defense-in-depth so a hostile def can never inject markup here.
+const CM_BIOMES = ['emberwaste', 'glacis', 'mire', 'dunes', 'verdance', 'voidscar', 'saltworks', 'nocturne', 'crucible', 'reliquary'];
+const CM_OBJECTIVES = ['bastion', 'beacons', 'capture', 'bridge', 'escort', 'gate', 'survival'];
+const CM_MODES = ['bastion', 'survival'];
+const CM_SORTS: Array<{ key: string; label: string }> = [
+  { key: 'new', label: 'Newest' },
+  { key: 'plays', label: 'Most Played' },
+  { key: 'rating', label: 'Top Rated' },
+];
+const CM_PAGE = 24; // rows per page (the server clamps; matches the browse default)
+const cmFilter = { biome: -1, objective: -1, mode: -1, sort: 0, page: 0 }; // -1 = Any
+let cmSeq = 0; // stale-fetch guard: only the newest request renders
+const cmCap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+function cmPaintControls() {
+  const b = (id: string) => $(id);
+  b('btnCmBiome').textContent = 'Biome: ' + (cmFilter.biome < 0 ? 'Any' : cmCap(CM_BIOMES[cmFilter.biome]));
+  b('btnCmObjective').textContent = 'Objective: ' + (cmFilter.objective < 0 ? 'Any' : cmCap(CM_OBJECTIVES[cmFilter.objective]));
+  b('btnCmMode').textContent = 'Mode: ' + (cmFilter.mode < 0 ? 'Any' : cmCap(CM_MODES[cmFilter.mode]));
+  b('btnCmSort').textContent = 'Sort: ' + CM_SORTS[cmFilter.sort].label;
+  b('cmPageLabel').textContent = 'Page ' + (cmFilter.page + 1);
+}
+// cycle a filter (-1=Any, then the list, wrapping back to Any); +1 / -1 step.
+function cmCycle(which: 'biome' | 'objective' | 'mode', d: number) {
+  const len = which === 'biome' ? CM_BIOMES.length : which === 'objective' ? CM_OBJECTIVES.length : CM_MODES.length;
+  let v = cmFilter[which] + d;
+  if (v < -1) v = len - 1; else if (v >= len) v = -1; // Any sits at -1, before index 0
+  cmFilter[which] = v;
+  cmFilter.page = 0; // changing the filter resets to the first page
+  playUi('select');
+  cmPaintControls();
+  renderCommunity();
+}
+function cmCycleSort(d: number) {
+  cmFilter.sort = (cmFilter.sort + d + CM_SORTS.length) % CM_SORTS.length;
+  cmFilter.page = 0;
+  playUi('select');
+  cmPaintControls();
+  renderCommunity();
+}
+function cmGoPage(d: number) {
+  const next = cmFilter.page + d;
+  if (next < 0) return; // already at the first page
+  if (d > 0 && (cmLastCount < CM_PAGE)) return; // last page was short — no more rows
+  cmFilter.page = next;
+  playUi('select');
+  cmPaintControls();
+  renderCommunity();
+}
+let cmLastCount = 0; // rows returned by the last query (gates Next at the end)
+function cmQuery() {
+  const p = new URLSearchParams();
+  if (cmFilter.biome >= 0) p.set('biome', CM_BIOMES[cmFilter.biome]);
+  if (cmFilter.objective >= 0) p.set('objective', CM_OBJECTIVES[cmFilter.objective]);
+  if (cmFilter.mode >= 0) p.set('mode', CM_MODES[cmFilter.mode]);
+  p.set('sort', CM_SORTS[cmFilter.sort].key);
+  p.set('limit', String(CM_PAGE));
+  p.set('offset', String(cmFilter.page * CM_PAGE));
+  return '/api/maps?' + p.toString();
+}
+function startCommunity() {
+  cmFilter.page = 0;
+  cmPaintControls();
+  renderCommunity();
+}
+async function renderCommunity() {
+  const seq = ++cmSeq;
+  const host = $('communityList');
+  let list: any[] = [];
+  let failed = false;
+  try {
+    const res = await fetch(cmQuery());
+    if (res.ok) {
+      const d = await res.json();
+      list = Array.isArray(d?.maps) ? d.maps : Array.isArray(d) ? d : [];
+    } // non-ok (older server / no endpoint): graceful empty state below
+  } catch { failed = true; }
+  // stale guard: a newer query, a page change, or leaving the page voids this
+  if (seq !== cmSeq || menuPageId !== 'pageCommunity' || $('menu').hidden) return;
+  cmLastCount = list.length;
+  host.innerHTML = '';
+  $('btnCmPrev').disabled = cmFilter.page === 0;
+  $('btnCmNext').disabled = list.length < CM_PAGE;
+  if (!list.length) {
+    const d = document.createElement('div');
+    d.className = 'bempty';
+    d.textContent = failed ? 'SERVER UNREACHABLE — TRY AGAIN LATER'
+      : cmFilter.page > 0 ? 'NO MORE MAPS — GO BACK A PAGE'
+        : 'NO MAPS MATCH — PUBLISH ONE FROM THE MAP EDITOR!';
+    host.appendChild(d);
+    return;
+  }
+  for (const m of list) {
+    if (!m || typeof m !== 'object' || !m.id) continue;
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'cmrow';
+    row.dataset.mapId = String(m.id);
+    // map name (defense-in-depth: textContent, never innerHTML)
+    const name = document.createElement('span');
+    name.className = 'cmname';
+    name.textContent = String(m.name || 'Untitled Map');
+    // author
+    const author = document.createElement('span');
+    author.className = 'cmauthor';
+    author.textContent = 'by ' + String(m.author || 'Anonymous');
+    // biome + objective tags (DERIVED server-side, but still rendered as text)
+    const biome = document.createElement('i');
+    biome.className = 'cmtag';
+    biome.textContent = String(m.biome || '?').toUpperCase();
+    const obj = document.createElement('i');
+    obj.className = 'cmtag';
+    obj.textContent = String(m.objective || m.mode || '?').toUpperCase();
+    // play count
+    const plays = document.createElement('span');
+    plays.className = 'cmplays';
+    const n = Number(m.plays) || 0;
+    plays.textContent = '▶ ' + n.toLocaleString();
+    row.append(name, author, biome, obj, plays);
+    row.onclick = (e: any) => {
+      e.currentTarget.blur();
+      if (session) return;
+      playUi('select');
+      cmOpenMap(m);
+    };
+    host.appendChild(row);
+  }
+}
+// a row press: offer Play (solo/couch) or Host Online. Both fetch the full def
+// first (the browse summary omits it), then launch + count the play.
+function cmOpenMap(summary: any) {
+  const nm = String(summary?.name || 'this map');
+  showMsg('Community Map',
+    `${nm}\nby ${String(summary?.author || 'Anonymous')}\n\nPlay it solo / couch, or host it online for friends?`,
+    'Play (Solo / Couch)', () => cmLaunch(summary, false),
+    'Host Online', () => cmLaunch(summary, true));
+}
+async function cmFetchDef(id: string): Promise<any | null> {
+  try {
+    const res = await fetch('/api/maps/' + encodeURIComponent(id));
+    if (!res.ok) return null;
+    const row = await res.json();
+    return row?.def ?? null;
+  } catch { return null; }
+}
+// fire-and-forget play counter — never blocks or fails the launch
+function cmCountPlay(id: string) {
+  try { fetch('/api/maps/' + encodeURIComponent(id) + '/play', { method: 'POST' }).catch(() => {}); } catch {}
+}
+async function cmLaunch(summary: any, online: boolean) {
+  if (session) return;
+  const id = String(summary?.id || '');
+  if (!id) return;
+  const def = await cmFetchDef(id);
+  if (session) return; // a blind second FIRE started something while we fetched
+  if (!def) { showMsg('Community Map', 'Could not load that map — it may have been removed.', 'OK', () => { show('menu'); showMenuPage('pageCommunity'); }); return; }
+  // tag the def with its published name so the lobby/HUD read it
+  if (summary?.name) def.name = String(summary.name);
+  cmCountPlay(id); // count the launch (fire-and-forget)
+  playUi('select');
+  if (online) {
+    // Host Online: ship the validated def on the host message (additive — see
+    // the NetSession host-message construction). Bastion defs host as bastion.
+    const hostMode = def.mode === 'bastion' ? 'bastion' : 'classic';
+    session = new NetSession('host', $('joinCode').value.trim().toUpperCase(), hostMode, null, { communityDef: def });
+    return;
+  }
+  // Play solo/couch: the SAME one-map LocalSession path Random Map / Daily use.
+  // The def carries its own mode (bastion|null); a bastion def gets the siege HUD.
+  const opts: any = { randomMap: { def, seed: 0 } };
+  if (def.mode === 'bastion') opts.mode = 'bastion';
+  session = new LocalSession(null, opts);
+  session.lobby();
+}
+
 // ---------- menu pages (MAIN / SINGLEPLAYER / VERSUS / ONLINE / SETTINGS /
 // REMAP / STRONGHOLD SELECT / BROWSE) — DOM screens inside #menu, pad-navigable ----
 const MENU_PARENT: Record<string, any> = {
@@ -4000,7 +4198,7 @@ const MENU_PARENT: Record<string, any> = {
   pageClassic: 'pageSingle', pageStory: 'pageSingle',
   pageSettings: 'pageMain', pageRemap: 'pageSettings', pageSh: 'pageSingle',
   pageRank: 'pageMain', pageRankBoard: 'pageRank', pageBrowse: 'pageOnline',
-  pageOperators: 'pageMain', pageAccount: 'pageSettings',
+  pageOperators: 'pageMain', pageAccount: 'pageSettings', pageCommunity: 'pagePlay',
 };
 let menuPageId = 'pageMain';
 let shPurpose = 'local'; // why the level select is open: 'local' | 'host'
@@ -4020,6 +4218,7 @@ function showMenuPage(id: any) {
   if (id === 'pageRankBoard') renderRankBoard();  // async: fills in when fetched
   if (id === 'pageBrowse') startBrowse();         // 5s auto-refresh while open
   else stopBrowse();
+  if (id === 'pageCommunity') startCommunity();   // fetch the first page of maps
   if (id === 'pageOperators') renderOperators();
   // re-trigger the entrance animation on the page that just became visible
   const pg = $(id);
@@ -4381,6 +4580,14 @@ function tutorialTick(snap: any) {
 }
 $('btnTutorial').onclick = (e: any) => { e.currentTarget.blur(); startTutorial(); };
 $('btnBrowse').onclick = (e: any) => { e.currentTarget.blur(); showMenuPage('pageBrowse'); };
+// Community Maps: open the browser; filter/sort cyclers step on click + LEFT/RIGHT
+$('btnCommunity').onclick = (e: any) => { e.currentTarget.blur(); showMenuPage('pageCommunity'); };
+$('btnCmBiome').onclick = (e: any) => { e.currentTarget.blur(); cmCycle('biome', 1); };
+$('btnCmObjective').onclick = (e: any) => { e.currentTarget.blur(); cmCycle('objective', 1); };
+$('btnCmMode').onclick = (e: any) => { e.currentTarget.blur(); cmCycle('mode', 1); };
+$('btnCmSort').onclick = (e: any) => { e.currentTarget.blur(); cmCycleSort(1); };
+$('btnCmPrev').onclick = (e: any) => { e.currentTarget.blur(); cmGoPage(-1); };
+$('btnCmNext').onclick = (e: any) => { e.currentTarget.blur(); cmGoPage(1); };
 // room visibility toggles (Online page): cycle Public/Private per mode group,
 // persisted; the choice rides the next host message's explicit public flag
 const visSync = () => {

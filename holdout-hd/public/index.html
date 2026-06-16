@@ -157,6 +157,15 @@
     button.brow .blive { flex: none; font-style: normal; font-size: 9px; font-weight: 800; letter-spacing: 1px; color: #0b121a; background: #ff7a6a; border-radius: 3px; padding: 1px 5px; animation: cdblink 1.1s steps(2, jump-none) infinite; }
     #browseList .bempty { font-size: 11px; font-weight: 800; letter-spacing: 2px; color: #5E6B8C; padding: 14px 4px; text-align: center; }
 
+    /* ---- community maps browser (Play > Community Maps) — mirrors .brow ---- */
+    #communityList { display: flex; flex-direction: column; gap: 5px; width: min(560px, 86vw); max-height: 44vh; overflow-y: auto; padding: 3px; }
+    button.cmrow { width: 100%; display: flex; align-items: baseline; gap: 10px; background: rgba(255,255,255,.06); color: #c2cde0; clip-path: none; border-radius: 4px; padding: 7px 14px; font-size: 12px; letter-spacing: 1px; font-weight: 500; }
+    button.cmrow .cmname { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; font-weight: 800; letter-spacing: .5px; color: #eaf6ff; }
+    button.cmrow .cmauthor { flex: none; max-width: 30%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #8fa0c0; font-size: 10px; font-weight: 600; }
+    button.cmrow .cmtag { flex: none; font-style: normal; font-size: 9px; font-weight: 800; letter-spacing: 1px; color: var(--teal); border: 1px solid rgba(54,160,138,.55); border-radius: 3px; padding: 1px 5px; }
+    button.cmrow .cmplays { flex: none; color: var(--amber); font-weight: 800; font-size: 11px; white-space: nowrap; }
+    #communityList .bempty { font-size: 11px; font-weight: 800; letter-spacing: 2px; color: #5E6B8C; padding: 14px 4px; text-align: center; }
+
     /* ---- 32-player CTF lobby: two team columns of chips (chips stay inert
        spans — pad nav only ever targets buttons) ---- */
     #playerList.teamcols { display: flex; gap: 18px; justify-content: center; align-items: flex-start; flex-wrap: nowrap; width: min(880px, 92vw); max-height: 24vh; overflow-y: auto; }
@@ -226,6 +235,8 @@
           <button id="btnDaily">Daily Challenge</button>
           <!-- random generated map (seed + valid params rolled at click), solo/couch -->
           <button id="btnRandomMap">Random Map &mdash; Surprise Me</button>
+          <!-- community maps: browse player-published levels and play them solo/couch -->
+          <button id="btnCommunity">Community Maps</button>
           <button class="ghost mback">Back</button>
         </div>
 
@@ -308,6 +319,28 @@
           <p class="tag">public rooms &mdash; refreshes every 5s &middot; LIVE CTF matches are joinable mid-game</p>
           <div id="browseList"></div>
           <button class="ghost mback" data-back="pageOnline">Back</button>
+        </div>
+
+        <!-- COMMUNITY MAPS — browse + play player-published levels (issue #7) -->
+        <div class="mpage" id="pageCommunity" hidden>
+          <h2>Community Maps</h2>
+          <p class="tag">player-published levels &mdash; pick one to play solo or couch</p>
+          <!-- filter cyclers: each FIRE/click advances the value, LEFT/RIGHT nudges it -->
+          <div class="btnrow">
+            <button id="btnCmBiome" class="ghost" data-cycle="cmBiome">Biome: Any</button>
+            <button id="btnCmObjective" class="ghost" data-cycle="cmObjective">Objective: Any</button>
+            <button id="btnCmMode" class="ghost" data-cycle="cmMode">Mode: Any</button>
+          </div>
+          <!-- sort toggle: Newest / Most Played / Top Rated -->
+          <button id="btnCmSort" class="ghost" data-cycle="cmSort">Sort: Newest</button>
+          <div id="communityList"></div>
+          <!-- paging row: Prev / page readout / Next -->
+          <div class="btnrow">
+            <button id="btnCmPrev" class="ghost">&lsaquo; Prev</button>
+            <span id="cmPageLabel" class="tag">Page 1</span>
+            <button id="btnCmNext" class="ghost">Next &rsaquo;</button>
+          </div>
+          <button class="ghost mback" data-back="pagePlay">Back</button>
         </div>
 
         <!-- SETTINGS -->
