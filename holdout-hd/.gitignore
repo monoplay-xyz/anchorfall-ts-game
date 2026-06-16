@@ -1,3 +1,8 @@
 dist/
 saves/
 node_modules/
+
+# --- TypeScript migration (issue #4) ---
+# esbuild (scripts/build.js) emits these .js from their .ts sources; the .ts are
+# the source of truth. Each entry is added when its source is converted .js -> .ts.
+/db.js

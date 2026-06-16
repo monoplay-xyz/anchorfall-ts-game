@@ -1,3 +1,4 @@
+// @ts-nocheck — TS migration (issue #4): runtime-migrated to .ts, types pending.
 // Database layer for accounts + cloud profiles.
 //
 // Uses PostgreSQL when DATABASE_URL is set (Railway/Fly/Render provide it),
