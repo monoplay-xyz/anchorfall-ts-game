@@ -8732,9 +8732,9 @@ function testPowerupPresentationTablesCoverSimTypes() {
       `sim dispatches a 'powerup' event for ${t}`);
   }
 
-  const render = fs.readFileSync(path.join(root, 'public/render.js'), 'utf8');
-  const client = fs.readFileSync(path.join(root, 'public/client.js'), 'utf8');
-  const audio = fs.readFileSync(path.join(root, 'public/audio.js'), 'utf8');
+  const render = webModuleSrc('public/render.js');
+  const client = webModuleSrc('public/client.js');
+  const audio = webModuleSrc('public/audio.js');
 
   // pull the keys out of the POWERUP_STYLE / POWERUP_BANNER object literals
   const styleKeys = objectLiteralKeys(render, 'POWERUP_STYLE');
@@ -8759,6 +8759,15 @@ function testPowerupPresentationTablesCoverSimTypes() {
   assert.ok(audio.includes("ev.type === 'powerupDrop'") && audio.includes("ev.type === 'powerup'"),
     'audio.js handles both power-up events');
 }
+// Browser modules (render/client/audio) can't run under Node, so the guards
+// above inspect their source TEXT. Read the .ts source of truth when present:
+// the esbuild-emitted .js artifact normalizes quote style / whitespace, but the
+// hand-written .ts retains the literal code these assertions match against.
+function webModuleSrc(rel) {
+  const ts = path.join(root, rel.replace(/\.js$/, '.ts'));
+  return fs.readFileSync(fs.existsSync(ts) ? ts : path.join(root, rel), 'utf8');
+}
+
 // Tiny brace-matched key scraper for a top-level `const NAME = { ... }` literal.
 // Good enough for the flat one-line-per-entry tables this test guards.
 function objectLiteralKeys(src, name) {
