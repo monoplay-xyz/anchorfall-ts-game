@@ -10,7 +10,8 @@ import { createGame, step, snapshot, applyResults, charsById, dailyChallenge, TI
 // namespace import: wave-6 sim exports (revivePlayer) are probed with typeof
 // so the server keeps working while they land
 import * as sim from './shared/game.js';
-import { initDb } from './db.js';
+import { initDb, db } from './db.js';
+import { validateLevelDef } from './shared/mapValidate.js';
 import { mountAuth } from './auth.js';
 import type { Request, Response } from 'express';
 import type { WebSocket, RawData } from 'ws';
@@ -286,6 +287,18 @@ const joinFailLog = new Map<string, number[]>(); // ws room-code misses (enumera
 // rankings POST: 10/min plus a 150/day budget per IP (a curl loop can junk
 // boards a lot slower that way; real players submit a handful per session)
 const rankRateLimited = (ip: string) => rateLimited(rankPostLog, ip, 10, 60000) || rateLimited(rankDayLog, ip, 150, 86400000);
+// community-map logs (issue #7): publishing a validated user level is expensive
+// (full validateLevelDef + a DB write) so it's the most tightly throttled; play
+// counts and browse are looser.
+const mapPublishLog = new Map<string, number[]>();
+const mapPublishDayLog = new Map<string, number[]>();
+const mapPlayLog = new Map<string, number[]>();
+const mapBrowseLog = new Map<string, number[]>();
+// publish budget is env-tunable (ops can loosen it; the API test raises it so a
+// single run isn't throttled). Defaults stay tight: 6/min + 60/day per IP.
+const MAP_PUBLISH_PER_MIN = Math.max(1, Number(process.env.MAP_PUBLISH_PER_MIN) || 6);
+const MAP_PUBLISH_PER_DAY = Math.max(1, Number(process.env.MAP_PUBLISH_PER_DAY) || 60);
+const mapPublishLimited = (ip: string) => rateLimited(mapPublishLog, ip, MAP_PUBLISH_PER_MIN, 60000) || rateLimited(mapPublishDayLog, ip, MAP_PUBLISH_PER_DAY, 86400000);
 
 // --- http ---
 const app = express();
@@ -412,6 +425,197 @@ app.post('/api/rankings', express.json({ limit: '4kb' }), (req, res) => {
   const rank = recordRanking(key, { names, players, score, timeS, date: new Date().toISOString(), online: false });
   res.json({ ok: true, rank });
 });
+
+// --- community map database (issue #7) --------------------------------------
+// User-uploaded LevelDefs feed the DETERMINISTIC SIM, so the publish path is a
+// hostile trust boundary. Order of defence on POST /api/maps:
+//   (1) CHEAP structural caps run BEFORE validateLevelDef so a giant grid or a
+//       pathfinding-bomb can't DoS the (expensive, sim-running) validator;
+//   (2) validateLevelDef — the full authoring-contract integrity battery;
+//   (3) sanitize + clamp name/description (HTML-escaped: no stored XSS);
+//   (4) DERIVE biome/objective/mode from the def server-side (client tags are
+//       never trusted for the filters);
+//   (5) per-IP publish rate limit;
+//   (6) store + return the new id.
+
+// Cheap structural caps. These bound the work the validator (and the sim it
+// runs) can be made to do, BEFORE any of it executes.
+const MAP_MAX_BYTES = 256 * 1024;   // raw JSON body ceiling (express.json limit mirrors it)
+const MAP_MAX_W = 96;               // grid width cap (mapgen large is 72)
+const MAP_MAX_H = 72;               // grid height cap (mapgen large is 50)
+const MAP_MAX_CELLS = 96 * 72;      // total tiles ceiling
+const MAP_MAX_ROWS = MAP_MAX_H;     // tile-row count cap
+const MAP_MAX_ROW_LEN = MAP_MAX_W;  // tile-row length cap
+const MAP_MAX_MARKERS = 4096;       // total entity/build/objective markers across the grid
+const MAP_NAME_MAX = 48;
+const MAP_DESC_MAX = 240;
+const MAP_AUTHOR_MAX = 24;
+// The validator's own tile vocabulary. A tile char outside it is rejected in the
+// cheap pass (kept in sync with shared/mapValidate.ts LEGAL_TILES).
+const MAP_LEGAL_TILES = new Set(
+  '#.To~,:;_*=!^%E' + '+-@/' + 'PcNBCKVWSHDYAIQJXZO' + 'garsmnwbzfqvxu' + 'dehijkly$',
+);
+// Marker chars: any non-floor/non-wall glyph that parseLevel turns into an
+// entity, build, spawn or objective. Counting these bounds entity fan-out.
+const MAP_MARKER_CHARS = new Set('PcNBCKVWSHDYAIQJXZOgarsmnwbzfqvxudehijkly$E');
+const isFiniteInRange = (v: unknown, lo: number, hi: number) =>
+  typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
+
+// HTML-escape + control-strip + length-clamp for stored, later-rendered text.
+// Mirrors cleanName's control/bidi scrub, then escapes the five HTML-significant
+// chars so a name/description can never inject markup when the browse UI prints
+// it. Empty -> a safe fallback for name/author; '' allowed for description.
+function cleanText(v: unknown, max: number, fallback = ''): string {
+  let s = String(v ?? '')
+    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u2028\u2029\u202A-\u202E\u2066-\u2069\uFEFF]/g, ' ')
+    .replace(/\s+/g, ' ').trim().slice(0, max).trim();
+  s = s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  return s || fallback;
+}
+
+// CHEAP structural pre-check. Returns null if the def passes every cap, else a
+// short reason string. Touches only the raw JSON shape — never parseLevel/sim.
+function cheapMapCaps(def: any): string | null {
+  if (!def || typeof def !== 'object') return 'def must be an object';
+  const tiles = def.tiles;
+  if (!Array.isArray(tiles) || tiles.length === 0) return 'def.tiles missing';
+  if (tiles.length > MAP_MAX_ROWS) return `too many rows (>${MAP_MAX_ROWS})`;
+  const w = typeof tiles[0] === 'string' ? tiles[0].length : -1;
+  if (w <= 0) return 'first tile row empty';
+  if (w > MAP_MAX_ROW_LEN) return `row too wide (>${MAP_MAX_ROW_LEN})`;
+  if (w * tiles.length > MAP_MAX_CELLS) return `grid too large (>${MAP_MAX_CELLS} cells)`;
+  let markers = 0;
+  for (const row of tiles) {
+    if (typeof row !== 'string') return 'tile row not a string';
+    if (row.length > MAP_MAX_ROW_LEN) return `row too wide (>${MAP_MAX_ROW_LEN})`;
+    for (const ch of row) {
+      if (!MAP_LEGAL_TILES.has(ch)) return `illegal tile '${ch}'`;
+      if (MAP_MARKER_CHARS.has(ch) && ++markers > MAP_MAX_MARKERS) return `too many markers (>${MAP_MAX_MARKERS})`;
+    }
+  }
+  // numeric fields a malicious def could blow up (giant wave counts, etc.)
+  if (def.time !== undefined && !isFiniteInRange(def.time, 0, 86400)) return 'time out of range';
+  if (def.difficulty !== undefined && !isFiniteInRange(def.difficulty, 1, 5)) return 'difficulty out of range';
+  if (def.bastion) {
+    const b = def.bastion;
+    if (b.nights !== undefined && !isFiniteInRange(b.nights, 1, 24)) return 'bastion.nights out of range';
+    if (b.wavesPerNight !== undefined && !isFiniteInRange(b.wavesPerNight, 1, 4)) return 'bastion.wavesPerNight out of range';
+    if (Array.isArray(b.bloodMoons) && b.bloodMoons.length > 24) return 'too many bloodMoons';
+  }
+  const waves = def.modifiers && def.modifiers.waves;
+  if (waves !== undefined) {
+    if (!Array.isArray(waves) || waves.length > 64) return 'too many waves';
+    for (const wv of waves) if (typeof wv?.letters === 'string' && wv.letters.length > 64) return 'wave letters too long';
+  }
+  return null;
+}
+
+// DERIVE the browse tags from the validated def — never the client's claimed
+// tags. biome comes from def.theme; mode from def.mode; objective is inferred
+// from the objective-bearing fields the generator wires (mirrors mapgen's
+// wireObjective so the same map always classifies the same way).
+const MAP_BIOMES = new Set(['emberwaste', 'glacis', 'mire', 'dunes', 'verdance', 'voidscar', 'saltworks', 'nocturne', 'crucible', 'reliquary']);
+const MAP_MODES = new Set<string>(['classic', 'story', 'bastion', 'ctf', 'br', 'siege']);
+function deriveBiome(def: any): string {
+  return MAP_BIOMES.has(def.theme) ? def.theme : 'reliquary';
+}
+function deriveMode(def: any): string {
+  return MAP_MODES.has(def.mode) ? def.mode : 'classic';
+}
+function deriveObjective(def: any): string {
+  if (def.bastionVariant === 'beacons') return 'beacons';
+  if (def.capture) return 'capture';
+  if (def.bridge) return 'bridge';
+  if (def.escort) return 'escort';
+  if (def.gate) return 'gate';
+  if (def.mode === 'bastion') return 'bastion';
+  return 'survival';
+}
+
+app.post('/api/maps', express.json({ limit: MAP_MAX_BYTES }), async (req, res) => {
+  const ip = req.ip || req.socket?.remoteAddress || '?';
+  if (mapPublishLimited(ip)) return res.status(429).json({ error: 'rate limited' });
+  const body = req.body || {};
+  const def = body.def;
+  // (1) CHEAP caps FIRST — before the expensive validator ever runs
+  const capFail = cheapMapCaps(def);
+  if (capFail) return res.status(400).json({ error: 'rejected', problems: [capFail] });
+  // (2) full authoring-contract validation (runs parseLevel + a few sim steps)
+  let result;
+  try {
+    result = validateLevelDef(def, { charMap, characters });
+  } catch (e: any) {
+    return res.status(400).json({ error: 'rejected', problems: ['THREW: ' + (e?.message || String(e))] });
+  }
+  if (!result.ok) return res.status(400).json({ error: 'invalid map', problems: result.problems.slice(0, 20) });
+  // (3) sanitize + clamp the human-visible text (HTML-escaped: no stored XSS)
+  const name = cleanText(body.name ?? def.name, MAP_NAME_MAX, 'Untitled Map');
+  const author = cleanText(body.author, MAP_AUTHOR_MAX, 'Anonymous');
+  const description = cleanText(body.description ?? def.objective, MAP_DESC_MAX, '');
+  // (4) DERIVE the browse tags server-side (client tags are ignored)
+  const biome = deriveBiome(def);
+  const objective = deriveObjective(def);
+  const mode = deriveMode(def);
+  // (6) store + return the new id
+  try {
+    const row = await db.createMap({ name, author, description, def, biome, objective, mode });
+    res.json({ ok: true, id: row.id, map: row });
+  } catch (e: any) {
+    console.error('createMap failed:', e?.message || e);
+    res.status(500).json({ error: 'store failed' });
+  }
+});
+
+app.get('/api/maps', async (req, res) => {
+  const ip = req.ip || req.socket?.remoteAddress || '?';
+  if (rateLimited(mapBrowseLog, ip, 60, 10000)) return res.status(429).json({ error: 'rate limited' });
+  const q = req.query;
+  const filterBiome = MAP_BIOMES.has(String(q.biome)) ? String(q.biome) : undefined;
+  const filterObjective = typeof q.objective === 'string' && /^[a-z]{1,16}$/.test(q.objective) ? q.objective : undefined;
+  const filterMode = MAP_MODES.has(String(q.mode)) ? String(q.mode) : undefined;
+  const sort = (q.sort === 'plays' || q.sort === 'rating') ? q.sort : 'new';
+  // bounded page size (db clamps too): a browse page never returns > 60 rows
+  const limit = Math.min(60, Math.max(1, Math.floor(Number(q.limit)) || 24));
+  const offset = Math.min(100000, Math.max(0, Math.floor(Number(q.offset)) || 0));
+  try {
+    const rows = await db.listMaps({ biome: filterBiome, objective: filterObjective, mode: filterMode, sort, limit, offset });
+    res.json({ maps: rows, limit, offset });
+  } catch (e: any) {
+    console.error('listMaps failed:', e?.message || e);
+    res.status(500).json({ error: 'list failed' });
+  }
+});
+
+app.get('/api/maps/:id', async (req, res) => {
+  const id = String(req.params.id || '');
+  if (!/^[a-z0-9-]{1,64}$/.test(id)) return res.status(400).json({ error: 'bad id' });
+  try {
+    const row = await db.getMap(id);
+    if (!row) return res.status(404).json({ error: 'not found' });
+    res.json(row);
+  } catch (e: any) {
+    console.error('getMap failed:', e?.message || e);
+    res.status(500).json({ error: 'lookup failed' });
+  }
+});
+
+app.post('/api/maps/:id/play', async (req, res) => {
+  const ip = req.ip || req.socket?.remoteAddress || '?';
+  // clamp the play-count spam: 30/min + 600/day per IP across all maps
+  if (rateLimited(mapPlayLog, ip, 30, 60000)) return res.status(429).json({ error: 'rate limited' });
+  const id = String(req.params.id || '');
+  if (!/^[a-z0-9-]{1,64}$/.test(id)) return res.status(400).json({ error: 'bad id' });
+  try {
+    const plays = await db.incrementPlays(id);
+    if (plays === null) return res.status(404).json({ error: 'not found' });
+    res.json({ ok: true, plays });
+  } catch (e: any) {
+    console.error('incrementPlays failed:', e?.message || e);
+    res.status(500).json({ error: 'play failed' });
+  }
+});
+
 const lanIp = Object.values(os.networkInterfaces()).flat().find(i => i && i.family === 'IPv4' && !i.internal)?.address;
 const lanUrl = lanIp ? `http://${lanIp}:${PORT}` : null;
 const server = app.listen(PORT, () => {
