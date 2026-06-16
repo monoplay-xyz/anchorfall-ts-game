@@ -72,6 +72,10 @@ interface Room {
   hostPid: Pid;
   players: Map<Pid, Seat>;
   levelIdx: number;
+  // community-map online host (issue #7): a validated, sanitized user def the
+  // room plays INSTEAD of roomLevels(room)[levelIdx]. When set the room is
+  // SINGLE-MAP — levelIdx stays 0, it never advances and never writes a save.
+  customDef: any | null;
   roster: string[];
   game: Game | null;
   timer: ReturnType<typeof setInterval> | null;
@@ -168,6 +172,11 @@ const isPvp = (room: Room) => room.mode === 'ctf' || room.mode === 'br' || room.
 // pvp/siege and bastion rooms are one-shots: never saved, never resumed, never
 // advanced — the lobby is the rematch on the same map
 const isOneShot = (room: Room) => isPvp(room) || room.mode === 'bastion';
+// Community-map host (issue #7): a room that plays a validated user def resolves
+// its level from room.customDef at EVERY def-resolution site, never from the
+// built-in catalog. A community room is single-map (levelIdx stays 0) and is
+// also treated as a one-shot for the advance/save guard below.
+const roomDef = (room: Room): any => room.customDef ?? roomLevels(room)[room.levelIdx];
 // Per-mode room caps (wave 7): pvp fields outgrow the co-op party of 8.
 // Prefer the sim's table once it lands so server and sim can never disagree;
 // seats-per-connection stays 4 everywhere. CTF team cap = MODE_CAPS.ctf / 2.
@@ -350,9 +359,13 @@ app.get('/api/rooms', (req, res) => {
     if (!room.public || room.players.size >= roomCap(room)) continue;
     const live = room.mode === 'ctf' && room.phase === 'play' && room.game && room.game.status === 'play';
     if (room.phase !== 'lobby' && !live) continue;
-    const list = roomLevels(room);
-    if (room.levelIdx >= list.length) continue; // campaign finished — nothing left to join
-    const def = list[room.levelIdx];
+    // community rooms resolve their (single) map from customDef; built-in rooms
+    // from the catalog, where a finished campaign drops out of the browser
+    if (!room.customDef) {
+      const list = roomLevels(room);
+      if (room.levelIdx >= list.length) continue; // campaign finished — nothing left to join
+    }
+    const def = roomDef(room);
     out.push({
       code: room.code, mode: room.mode,
       levelName: room.daily ? `Daily Challenge` : (def?.name || null), levelTitle: def?.title,
@@ -811,7 +824,7 @@ function assignTeams(room: Room) {
 function lobbyState(room: Room): OutMsg {
   assignTeams(room);
   const list = roomLevels(room);
-  const def = list[room.levelIdx];
+  const def = roomDef(room);
   // daily online: resolve today's map + twist for the lobby label
   let dailyMap = null, dailyLabel = null;
   if (room.daily) {
@@ -830,7 +843,7 @@ function lobbyState(room: Room): OutMsg {
     levelIdx: room.levelIdx,
     levelName: room.daily ? `Daily — ${dailyMap} · ${dailyLabel}` : (def?.name || null),
     levelTitle: def?.title || undefined,
-    totalLevels: list.length,
+    totalLevels: room.customDef ? 1 : list.length, // a community room is a single map
     roster: room.roster,
     lan: PUBLIC_DEPLOY ? undefined : (lanUrl || undefined),
     players: [...room.players.values()].map(p => ({ pid: p.pid, name: p.name, charId: p.charId, isHost: p.pid === room.hostPid, team: p.team })),
@@ -960,17 +973,21 @@ function endLevel(room: Room) {
   // ends — there is no lobby to come back to with nobody in it
   if (!room.players.size) { room.holds = []; room.game = null; return destroyRoom(room); }
   const list = roomLevels(room);
-  const def = list[room.levelIdx]; // the chapter just played
+  const def = roomDef(room); // the chapter just played (a community def when hosted)
   const g = room.game!;
   const res = applyResults(room.roster, g); // pvp: sim returns the roster untouched
   room.roster = res.roster;
   let victory = false;
-  if (g.status === 'cleared' && !isOneShot(room)) {
+  // community rooms are SINGLE-MAP: like pvp/bastion one-shots they never
+  // advance and never write a campaign save (a user def isn't a campaign, and
+  // roomDef stays pinned to customDef regardless of levelIdx). The replay is
+  // the same map from the lobby.
+  if (g.status === 'cleared' && !isOneShot(room) && !room.customDef) {
     room.levelIdx++;
     victory = room.levelIdx >= list.length;
     fs.writeFileSync(savePath(room.code), JSON.stringify({ mode: room.mode, levelIdx: room.levelIdx, roster: room.roster }));
   }
-  // pvp/bastion rooms never save and never advance — rematch replays the same map (levelIdx stays 0)
+  // pvp/bastion/community rooms never save and never advance — rematch replays the same map (levelIdx stays 0)
   for (const p of room.players.values()) p.charId = null;
   room.phase = 'lobby';
   room.lastActivity = Date.now(); // fresh idle window for the post-level lobby
@@ -1005,7 +1022,8 @@ function startLevel(room: Room) {
   for (const p of room.players.values()) p.input = {};
   // Endless Siege: a stronghold room flagged endless plays the same map with no
   // night cap. Clone the def (never mutate the shared catalog) and flip the flag.
-  let baseDef = roomLevels(room)[room.levelIdx];
+  // Community rooms play their validated user def (roomDef) instead of the catalog.
+  let baseDef = roomDef(room);
   // Daily online: the server resolves today's map + twist from its own date so
   // every host worldwide runs the same siege (matches the client's local daily).
   let dailyMods = null;
@@ -1167,7 +1185,29 @@ wss.on('connection', (ws, req) => {
       // known settings; an unknown/absent value falls back to 'normal'.
       const pveHost = mode === 'classic' || mode === 'story' || mode === 'bastion';
       const difficulty = (pveHost && ['easy', 'normal', 'extreme'].includes(m.difficulty)) ? m.difficulty : 'normal';
-      const r = { code, mode, public: pub, endless, daily, dailyDate, difficulty, hostPid: me.pid, players: new Map([[me.pid, me]]), levelIdx, roster, game: null, timer: null, phase: 'lobby', holds: [], tick: 0, lastActivity: Date.now() };
+      // COMMUNITY MAP ONLINE HOST (issue #7): m.communityDef is UNTRUSTED user
+      // content that will feed the deterministic sim, so it crosses the SAME
+      // trust boundary as POST /api/maps — the cheap structural caps (bound the
+      // validator's work) THEN the full authoring-contract validator. Only a def
+      // that passes both becomes the room's single map; anything invalid/oversized
+      // is rejected outright (never falls through into a live room). A community
+      // host pins levelIdx 0 and never resumes a campaign save, so it ignores any
+      // resume code. The stored def is a deep CLONE so a later client message can
+      // never mutate the live room's shared state.
+      let customDef: any = null;
+      if (m.communityDef !== undefined) {
+        const cand = m.communityDef;
+        const capFail = cheapMapCaps(cand);
+        let valid = !capFail;
+        if (valid) {
+          try { valid = validateLevelDef(cand, { charMap, characters }).ok; }
+          catch { valid = false; } // a def that THROWS the validator is rejected, never hosted
+        }
+        if (!valid) return sendTo(me, { t: 'error', error: 'That community map is invalid — it can’t be hosted.' });
+        customDef = JSON.parse(JSON.stringify(cand)); // deep clone: the room owns its def
+        levelIdx = 0; // a community room is single-map; no resume/campaign index
+      }
+      const r = { code, mode, public: pub, endless, daily, dailyDate, difficulty, hostPid: me.pid, players: new Map([[me.pid, me]]), levelIdx, customDef, roster, game: null, timer: null, phase: 'lobby', holds: [], tick: 0, lastActivity: Date.now() };
       rooms.set(code, r);
       me.room = r;
       sendTo(me, { t: 'joined', you: me.pid, token: myToken });
@@ -1295,10 +1335,10 @@ wss.on('connection', (ws, req) => {
     else if (m.t === 'start' && room && me.pid === room.hostPid && room.phase === 'lobby' && !room.game) {
       room.lastActivity = Date.now();
       const list = roomLevels(room);
-      if (room.levelIdx >= list.length) return;
+      if (!room.customDef && room.levelIdx >= list.length) return; // built-in campaign finished
       // br needs a real field — the client greys Deploy out too, this is the backstop
       if (room.mode === 'br' && [...room.players.values()].filter(p => p.charId).length < 2) return;
-      const def = list[room.levelIdx];
+      const def = roomDef(room);
       if ((room.mode === 'story' || room.mode === 'bastion') && def.intro?.length) {
         if (![...room.players.values()].some(p => p.charId)) return; // no party — don't strand the room in intro
         room.phase = 'intro';

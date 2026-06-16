@@ -10142,6 +10142,182 @@ async function testCommunityMapDatabase() {
 // the server's MAP_MAX_ROW_LEN is 96; one over it trips the cheap width cap
 const MAP_CHEAP_TOO_WIDE = 120;
 
+// === Community Map ONLINE CO-OP HOST (issue #7) =============================
+// Spawns a real `node server.js` (mirroring the WS host/join handshake in
+// testServerPublicHardening) and proves the server hosts an ARBITRARY community
+// map online — not just the built-in catalog:
+//   - host a room WITH a generated community def (shared/mapgen, classic
+//     survival so it hosts as a coreless co-op map)
+//   - a 2nd client joins the lobby, both pick, the host deploys
+//   - BOTH clients receive the SAME levelStart grid, and it MATCHES the hosted
+//     def's parsed tiles AND DIFFERS from the server's default classic level
+//     (proving the user def is genuinely in play, identically for the joiner)
+//   - the lobby labels the map by the def's name and reports a single map
+//   - an INVALID def and an OVERSIZED def are both REJECTED on host (a friendly
+//     error, never a live room, and the server never crashes)
+async function testCommunityMapOnlineHost() {
+  const { spawn } = await import('child_process');
+  const osMod = await import('os');
+  const { generate } = await import('../shared/mapgen.js');
+  const WebSocket = (await import('ws')).default;
+  const sleep = (ms: any) => new Promise(r => setTimeout(r, ms));
+  // a dedicated port window clear of the other integration tests (public
+  // hardening 4300-4799, community DB 4900-5300) so a leftover socket from a
+  // sibling test can never collide with this server's bind.
+  const port = 4810 + (process.pid % 80);
+  const tmp = fs.mkdtempSync(path.join(osMod.tmpdir(), 'anchorfall-cmhost-'));
+
+  const proc = spawn(process.execPath, [path.join(root, 'server.js')], {
+    env: { ...process.env, PORT: String(port), PUBLIC_DEPLOY: '', HOLDOUT_SMOKE: '', SAVES_DIR: tmp, ROOM_CAP: '', LOBBY_TTL_MS: '' },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let log = '';
+  proc.stdout.on('data', d => { log += d; });
+  proc.stderr.on('data', d => { log += d; });
+  const ready = (async () => {
+    for (let i = 0; i < 240; i++) {
+      if (log.includes('running at')) return;
+      if (proc.exitCode !== null) throw new Error('server exited early:\n' + log);
+      await sleep(25);
+    }
+    throw new Error('server boot timeout:\n' + log);
+  })();
+
+  // ws client with an inbox (same shape as testServerPublicHardening's open())
+  function open() {
+    const w = new WebSocket(`ws://127.0.0.1:${port}`);
+    const queue: any[] = [];
+    const waiters: any[] = [];
+    w.on('message', raw => {
+      let m; try { m = JSON.parse(raw as any); } catch { return; }
+      const i = waiters.findIndex(x => x.type === m.t);
+      if (i !== -1) waiters.splice(i, 1)[0].res(m);
+      else queue.push(m);
+    });
+    (w as any).expect = (type: any, ms = 4000) => {
+      const i = queue.findIndex(m => m.t === type);
+      if (i !== -1) return Promise.resolve(queue.splice(i, 1)[0]);
+      return new Promise((res, rej) => {
+        const wt: any = { type, res: null };
+        const t = setTimeout(() => {
+          const j = waiters.indexOf(wt);
+          if (j !== -1) waiters.splice(j, 1);
+          rej(new Error(`timeout waiting for '${type}' (queued: ${queue.map(m => m.t).join(',') || 'nothing'})`));
+        }, ms);
+        wt.res = (m: any) => { clearTimeout(t); res(m); };
+        waiters.push(wt);
+      });
+    };
+    (w as any).sendj = (obj: any) => w.send(JSON.stringify(obj));
+    (w as any).opened = new Promise((res, rej) => { w.on('open', () => res(w)); w.on('error', rej); });
+    return w;
+  }
+
+  const api = (p: any) => `http://127.0.0.1:${port}${p}`;
+  const gridStr = (g: any) => (g as any[]).map((r: any) => (Array.isArray(r) ? r.join('') : String(r))).join('\n');
+  const sockets: any[] = [];
+  const track = (w: any) => { sockets.push(w); return w; };
+  try {
+    await ready;
+
+    // a valid, generated COMMUNITY def: classic survival (coreless, mode
+    // undefined) so it hosts as a co-op room, NOT one of the catalog levels.
+    const customDef: any = generate('ws-community-A', { biome: 'verdance', archetype: 'centered-hold', objective: 'survival', size: 'small', difficulty: 2 });
+    customDef.name = 'Community Custom Hold'; // the client tags the published name
+    assert.equal(customDef.mode, undefined, 'a survival community def hosts as classic (mode undefined)');
+    // what the server's parsed grid will look like for this def — the wire grid
+    // the clients must receive (parseLevel strips markers to floor identically).
+    const expectGrid = gridStr(parseLevel(customDef).grid);
+    // the server's DEFAULT classic level grid — the room would play THIS if the
+    // server ignored communityDef. The custom grid must differ from it.
+    const defaultClassic = levels.find(l => l.category === 'classic');
+    const defaultGrid = gridStr(parseLevel(defaultClassic).grid);
+    assert.notEqual(expectGrid, defaultGrid, 'the community grid differs from the default classic level (test precondition)');
+
+    // --- HOST a room with the community def, JOIN a 2nd client ---------------
+    const host = await track(open()).opened;
+    host.sendj({ t: 'host', name: 'Host', mode: 'classic', communityDef: customDef });
+    await host.expect('joined');
+    const hostLobby = await host.expect('lobby');
+    assert.equal(hostLobby.levelName, 'Community Custom Hold', 'lobby labels the room by the community def name');
+    assert.equal(hostLobby.totalLevels, 1, 'a community room reports a single map (never a campaign)');
+    const code = hostLobby.room;
+
+    const joiner = await track(open()).opened;
+    joiner.sendj({ t: 'join', room: code, name: 'Joiner' });
+    await joiner.expect('joined');
+    const joinLobby = await joiner.expect('lobby');
+    assert.equal(joinLobby.levelName, 'Community Custom Hold', 'the joiner sees the same community map in the lobby');
+
+    // both pick an operative; the host deploys
+    host.sendj({ t: 'select', charId: hostLobby.roster[0] });
+    await host.expect('lobby');
+    joiner.sendj({ t: 'select', charId: joinLobby.roster[1] || joinLobby.roster[0] });
+    await host.expect('lobby'); // the select re-broadcasts the lobby to everyone
+    host.sendj({ t: 'start' });
+
+    // BOTH clients receive the level — and the SAME grid, which MATCHES the
+    // hosted community def (they load + play it identically with no client change)
+    const hostStart = await host.expect('levelStart');
+    const joinStart = await joiner.expect('levelStart');
+    assert.ok(hostStart.s && Array.isArray(hostStart.s.grid), 'host levelStart carries the full grid');
+    assert.ok(joinStart.s && Array.isArray(joinStart.s.grid), 'joiner levelStart carries the full grid');
+    const hostGrid = gridStr(hostStart.s.grid);
+    const joinGrid = gridStr(joinStart.s.grid);
+    assert.equal(hostGrid, joinGrid, 'host and joiner receive an identical grid (deterministic shared map)');
+    assert.equal(joinGrid, expectGrid, 'the joiner plays the HOSTED community def, not a built-in level');
+    assert.notEqual(joinGrid, defaultGrid, 'the played grid is NOT the server default classic level');
+    assert.equal(hostStart.s.name, 'Community Custom Hold', 'the snapshot names the community map');
+
+    // drive a few ticks so the live sim is genuinely running on the custom map
+    host.sendj({ t: 'input', inputs: { [hostLobby.players[0].pid]: { left: true } } });
+    const tick = await joiner.expect('state');
+    assert.ok(tick.s && typeof tick.s === 'object', 'the joiner receives live per-tick state on the custom map');
+    host.close();
+    joiner.close();
+    await sleep(100);
+
+    // --- REJECT: an INVALID community def is refused, no live room, no crash --
+    // a structurally-fine grid that the full validator rejects (no player spawn)
+    const bad = await track(open()).opened;
+    bad.sendj({ t: 'host', name: 'BadHost', mode: 'classic', communityDef: { tiles: ['#####', '#...#', '#####'] } });
+    const badErr = await bad.expect('error');
+    assert.ok(/invalid/i.test(badErr.error), `invalid community def host is refused (${badErr.error})`);
+    bad.close();
+    // no room was minted for the rejected host
+    const afterBad = await (await fetch(api('/api/rooms'))).json();
+    assert.ok(!Array.isArray(afterBad) || afterBad.length === 0, 'a rejected community host minted no public room');
+
+    // --- REJECT: an OVERSIZED community def is refused by the cheap caps ------
+    // over-wide grid (one past MAP_MAX_ROW_LEN=96) — trips cheapMapCaps BEFORE
+    // the validator ever runs. Kept small enough to fit the ws frame limit so
+    // it's the CAPS (not the frame size) that reject it, exercising the host
+    // path's cheap pre-check.
+    const huge = await track(open()).opened;
+    const wideRow = '#' + '.'.repeat(MAP_CHEAP_TOO_WIDE - 2) + '#'; // 120 cols > 96 cap
+    huge.sendj({ t: 'host', name: 'HugeHost', mode: 'classic', communityDef: { tiles: [wideRow, wideRow, wideRow] } });
+    const hugeErr = await huge.expect('error');
+    assert.ok(/invalid/i.test(hugeErr.error), 'oversized (over-wide) community def host is refused by the cheap caps');
+    huge.close();
+    await sleep(100);
+
+    // the server survived every rejection: a fresh normal host still works
+    assert.equal((await fetch(api('/api/levels'))).status, 200, 'server alive after invalid/oversized community hosts');
+    const survivor = await track(open()).opened;
+    survivor.sendj({ t: 'host', name: 'Plain', mode: 'classic' });
+    await survivor.expect('joined');
+    const plainLobby = await survivor.expect('lobby');
+    assert.ok(plainLobby.totalLevels > 1, 'a plain (non-community) host still resolves the built-in campaign');
+    survivor.close();
+
+    console.log('  community map online host: hosted def plays identically for the joiner; invalid/oversized rejected');
+  } finally {
+    for (const w of sockets) { try { w.terminate(); } catch { /* already closed */ } }
+    proc.kill();
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
 testEnemyShotsBlockedByStructures();
 testCoreGnawNeedsWaveOrSealedTarget();
 testCoreIntegrityCheatNullifiesCoreDamage();
@@ -10842,5 +11018,6 @@ testBastionDirectionalEdges();
 
 await testServerPublicHardening();
 await testCommunityMapDatabase();
+await testCommunityMapOnlineHost();
 
 console.log('sim tests passed');
