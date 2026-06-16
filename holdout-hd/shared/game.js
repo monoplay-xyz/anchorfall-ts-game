@@ -1842,6 +1842,41 @@ function dist2(a, b) {
   return dx * dx + dy * dy;
 }
 
+// Uniform spatial bucket over the live enemies, keyed by integer cell. Used to
+// answer "is any live enemy within r of (x,y)" without scanning all ~90 enemies
+// per query. The result is a pure boolean OR over the same dist2 test, so
+// iteration order is irrelevant — the answer is byte-identical to a full scan.
+// NEVER stored on g (a Map would corrupt serializeGame's JSON round-trip); the
+// caller holds it in a tick-local and the enemy positions it indexes are stable
+// across the structure loops (movement runs later in the tick).
+function buildEnemyBuckets(enemies, cell) {
+  const map = new Map();
+  for (const e of enemies) {
+    if (e.dead) continue;
+    const key = (Math.floor(e.x / cell) << 16) ^ (Math.floor(e.y / cell) & 0xffff);
+    let bucket = map.get(key);
+    if (!bucket) { bucket = []; map.set(key, bucket); }
+    bucket.push(e);
+  }
+  return { cell, map };
+}
+// With cell === query radius, every enemy within r of (x,y) sits in the 3x3
+// block of cells around the query cell, so the scan is local.
+function bucketAnyNear(grid, x, y, r2) {
+  const cx = Math.floor(x / grid.cell), cy = Math.floor(y / grid.cell);
+  for (let gx = cx - 1; gx <= cx + 1; gx++) {
+    for (let gy = cy - 1; gy <= cy + 1; gy++) {
+      const bucket = grid.map.get((gx << 16) ^ (gy & 0xffff));
+      if (!bucket) continue;
+      for (const e of bucket) {
+        const dx = e.x - x, dy = e.y - y;
+        if (dx * dx + dy * dy < r2) return true;
+      }
+    }
+  }
+  return false;
+}
+
 function norm(dx, dy) {
   const d = Math.hypot(dx, dy) || 1;
   return [dx / d, dy / d, d];
@@ -7352,6 +7387,17 @@ export function step(g, inputs, dt) {
     }
     return arr;
   };
+  // Tick-local bucket over live enemies for the dismantle proximity gate. Built
+  // lazily on first need (most ticks have nobody mid-dismantle, so it costs
+  // nothing) and reused by both the build and watchtower loops, which run before
+  // enemy movement so the indexed positions stay valid. The 6-tile cell matches
+  // the dismantle radius so each query touches only a 3x3 block.
+  const dismantleR2 = (TILE * 6) ** 2;
+  let dismantleBuckets = null;
+  const dismantleEnemyNear = s => {
+    if (!dismantleBuckets) dismantleBuckets = buildEnemyBuckets(g.enemies, TILE * 6);
+    return bucketAnyNear(dismantleBuckets, s.x, s.y, dismantleR2);
+  };
   for (const b of g.builds) {
     if (b.evT > 0) b.evT -= dt;
     if (b.built) {
@@ -7374,12 +7420,7 @@ export function step(g, inputs, dt) {
       if (holdStructure(g, b, b.kind, holders, dt, holderArr[0])) continue;
       // Dismantle (full hp, max level) with no enemies within 6 tiles. Closes
       // the self-seal trap and lets misplaced structures move.
-      let enemyNear = false;
-      const r2 = (TILE * 6) ** 2;
-      for (const e of g.enemies) {
-        if (!e.dead && dist2(e, b) < r2) { enemyNear = true; break; }
-      }
-      if (enemyNear) { b.dismantleT = 0; continue; }
+      if (dismantleEnemyNear(b)) { b.dismantleT = 0; continue; }
       b.dismantleT = (b.dismantleT || 0) + dt * holders;
       if (b.evT <= 0) {
         g.events.push({ type: 'build', x: b.x, y: b.y });
@@ -7487,12 +7528,7 @@ export function step(g, inputs, dt) {
     }
     if (!holders) { t.dismantleT = 0; continue; }
     if (holdStructure(g, t, 'tower', holders, dt, holderArr[0])) continue;
-    let enemyNear = false;
-    const r2 = (TILE * 6) ** 2;
-    for (const e of g.enemies) {
-      if (!e.dead && dist2(e, t) < r2) { enemyNear = true; break; }
-    }
-    if (enemyNear) { t.dismantleT = 0; continue; }
+    if (dismantleEnemyNear(t)) { t.dismantleT = 0; continue; }
     t.dismantleT = (t.dismantleT || 0) + dt * holders;
     if (t.evT <= 0) {
       g.events.push({ type: 'build', x: t.x, y: t.y });
@@ -8598,15 +8634,24 @@ export function snapshot(g, full = true) {
     // minimap and ring-draws its wall radius; the superweapon phase reads x/y as
     // its natural target. `cleared` is computed live from garrison liveness:
     // true once every stationed enemy is dead, so the HUD can mark a fallen keep.
-    ...(g.strongholds && g.strongholds.length ? {
-      strongholds: g.strongholds.map(sh => ({
-        id: sh.id, x: sh.x, y: sh.y, r: sh.r, aggro: sh.aggro, leash: sh.leash,
-        cleared: sh.garrison.every(id => {
-          const e = g.enemies.find(en => en.id === id);
-          return !e || e.dead;
-        }),
-      })),
-    } : {}),
+    ...(g.strongholds && g.strongholds.length ? (() => {
+      // build the live-enemy id index ONCE for this snapshot instead of an
+      // O(garrison) g.enemies.find() per garrison member per keep (was 4
+      // strongholds x garrison x up to 90 enemies). Ids are a monotonic
+      // counter so the map mirrors find()'s first/only match exactly —
+      // byte-identical `cleared` output.
+      const liveById = new Map();
+      for (const en of g.enemies) liveById.set(en.id, en);
+      return {
+        strongholds: g.strongholds.map(sh => ({
+          id: sh.id, x: sh.x, y: sh.y, r: sh.r, aggro: sh.aggro, leash: sh.leash,
+          cleared: sh.garrison.every(id => {
+            const e = liveById.get(id);
+            return !e || e.dead;
+          }),
+        })),
+      };
+    })() : {}),
     // Music Box easter egg: shipped only when enabled (story/stronghold), so
     // every other mode's snapshot is byte-stable. The client reads mode+stem
     // to load the level's track, fragments/altar to draw + ping, assembled +

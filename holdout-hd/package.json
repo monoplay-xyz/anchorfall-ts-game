@@ -12,6 +12,7 @@
     "build-static": "node scripts/build-static.js"
   },
   "dependencies": {
+    "compression": "^1.8.1",
     "express": "^4.19.0",
     "pg": "^8.21.0",
     "ws": "^8.17.0"

@@ -8,15 +8,23 @@ import { render, renderMinimap, addEventFX, initTextures, drawPortrait, drawWeap
 import * as renderMod from './render.js';
 import { playEvent, playUi, setupAudioToggle, setMusicVolume, setVoiceVolume, setSfxVolume, playMusicBox, stopMusicBox } from './audio.js';
 
-const characters = await (await fetch('/shared/characters.json')).json();
-const charMap = charsById(characters);
 // build-static.js rewrites the quoted /api/levels literal below to a relative
 // ./levels.json — that rewrite doubles as the static-build marker: no server
 // means no online play and no shared rankings (personal bests live in
-// localStorage instead; see the rankings section).
+// localStorage instead; see the rankings section). KEEP both fetch URL literals
+// (the characters.json path and the api levels path) as plain quoted strings —
+// the static build does an exact string-replace on them.
 const LEVELS_URL = '/api/levels';
 const IS_STATIC = !LEVELS_URL.startsWith('/api');
-const levels = await (await fetch(LEVELS_URL)).json();
+// characters.json + levels are both needed at module init (charMap/startingRoster
+// and the mode level lists are top-level consts read synchronously all over the
+// file). They're independent fetches, so fire them in PARALLEL and await both —
+// boot pays one round-trip instead of two back-to-back ones.
+const charsReq = fetch('/shared/characters.json').then(r => r.json());
+const levelsReq = fetch(LEVELS_URL).then(r => r.json());
+const characters = await charsReq;
+const charMap = charsById(characters);
+const levels = await levelsReq;
 // Levels are organized by category subdirectory (classic/story/stronghold/
 // ctf/br) and each def carries its subdir as def.category. Mode lists derive
 // from the category; the old per-def flags stay as fallbacks so a stale
@@ -36,7 +44,26 @@ const bastionLevels = levels
 const storyLevels = levels.filter(l => l.category === 'story' || (!l.category && l.story))
   .sort((a, b) => (a.chapter ?? 0) - (b.chapter ?? 0));
 const startingRoster = characters.filter(c => c.starting).map(c => c.id);
-await initTextures();
+// Tile textures are baked procedurally (USE_PNG_OVERRIDES is off in render.js)
+// so initTextures() is pure synchronous CPU — ~27 canvas bakes. We do NOT block
+// boot on it: the default-visible #menu is plain DOM/CSS and drawMenuBackdrop()
+// uses no baked tiles, so the menu paints and wires up first. Baking is kicked
+// off as a microtask (runs right after the rest of module init), and ensureTextures()
+// is an idempotent guard the frame loop calls before the first WORLD render — a
+// session only ever starts after a menu click, many frames later, so the bake is
+// always done by then; the guard just makes that guarantee explicit and bulletproof.
+let texturesReady = false;
+let texturesBaking = null;
+function ensureTextures() {
+  if (texturesReady) return texturesBaking;
+  if (!texturesBaking) {
+    texturesBaking = Promise.resolve(initTextures()).then(() => { texturesReady = true; });
+  }
+  return texturesBaking;
+}
+// Defer the (synchronous) bake off the critical boot path so handler wiring +
+// the first frame schedule run first; the bake lands on the very next microtask.
+Promise.resolve().then(ensureTextures);
 
 const mod = (a, n) => ((a % n) + n) % n;
 
@@ -4976,6 +5003,10 @@ function frame(now) {
         // render module's split pass ships separately, and until it lands
         // (or with 0-1 local seats / Off / demo) render() stays single-view.
         const views = typeof renderMod.renderViews === 'function' ? splitViews(rsnap, dt) : null;
+        // bulletproof guard: a world render needs the baked tile textures. The
+        // boot bake (kicked off as a microtask) is done long before any session
+        // starts; this just synchronously finishes it on the off chance it isn't.
+        if (!texturesReady) ensureTextures();
         if (views) renderMod.renderViews(ctx, rsnap, charMap, views, now / 1000, dt);
         else render(ctx, rsnap, charMap, session.focusPids(), now / 1000, dt);
         updateHUD(snap);

@@ -1,4 +1,5 @@
 import express from 'express';
+import compression from 'compression';
 import { WebSocketServer } from 'ws';
 import fs from 'fs';
 import os from 'os';
@@ -209,8 +210,20 @@ const app = express();
 // address — trust the first X-Forwarded-For hop so req.ip (and every per-IP
 // rate limit above) keys on the real client.
 if (PUBLIC_DEPLOY) app.set('trust proxy', 1);
-app.use('/shared', express.static(path.join(__dirname, 'shared')));
-app.use(express.static(path.join(__dirname, 'public')));
+// gzip/deflate every text response over the threshold (the static JS/CSS, the
+// 490KB /api/levels payload, the rankings JSON). level 6 is the speed/ratio
+// sweet spot; sub-512B frames aren't worth the CPU. Must sit BEFORE the static
+// + API routes so their bodies pass through the compressor.
+app.use(compression({ level: 6, threshold: 512 }));
+// Long-cache the immutable, content-addressed-by-URL assets (.js/.css/.ogg/.png
+// re-fetch only when their URL changes), but never the documents that change in
+// place across deploys (index.html, characters.json and the other JSON) — those
+// stay revalidated so a new build isn't masked by a year-long cache.
+const staticHeaders = (res, filePath) => {
+  if (/\.(js|css|ogg|png)$/i.test(filePath)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+};
+app.use('/shared', express.static(path.join(__dirname, 'shared'), { setHeaders: staticHeaders }));
+app.use(express.static(path.join(__dirname, 'public'), { setHeaders: staticHeaders }));
 
 // --- accounts + cloud profiles (optional; anonymous play is unaffected) ------
 // Postgres when DATABASE_URL is set (Railway), else a local file store.
@@ -413,7 +426,7 @@ function broadcast(room, msg) {
 // are untouched. A connection with no seats on the field sees everything.
 const AOI_TILES = 26;
 const AOI_PX = AOI_TILES * TILE;
-const BACKPRESSURE_MAX = 256 * 1024; // skip state ticks while a socket is this far behind
+const BACKPRESSURE_MAX = 512 * 1024; // skip state ticks while a socket is this far behind (jitter tolerance)
 
 function aoiView(base, pids) {
   const anchors = base.players.filter(p => pids.includes(p.pid));
@@ -430,6 +443,12 @@ function aoiView(base, pids) {
   };
   if (base.patches) s.patches = base.patches.filter(pa => near(pa.x, pa.y));
   if (base.crackers) s.crackers = base.crackers.filter(c => near(c.x, c.y));
+  // shops + hires are world-only interactables (the proximity hint fires within
+  // ~1.5 tiles and they appear on NO map overlay), so they trim to the AOI box
+  // like the other bulk world entities. npcs/towers/vehicles/builds are minimap
+  // AND full-map drawn — they stay whole so the overview maps never lose dots.
+  if (base.shops) s.shops = base.shops.filter(sp => near(sp.x, sp.y));
+  if (base.hires) s.hires = base.hires.filter(h => near(h.x, h.y));
   return s;
 }
 
@@ -450,7 +469,10 @@ function broadcastState(room) {
   }
   for (const [ws, pids] of byWs) {
     if (ws.readyState !== 1) continue;
-    if (ws.bufferedAmount > BACKPRESSURE_MAX) continue;
+    // socket too far behind: skip its heavy state frame this tick, but fire a
+    // tiny ws ping so a stalled/dead TCP peer is surfaced to the keepalive
+    // sweep fast instead of silently squatting its room until it times out
+    if (ws.bufferedAmount > BACKPRESSURE_MAX) { try { ws.ping(); } catch { /* socket mid-close */ } continue; }
     ws.send(JSON.stringify({ t: 'state', s: aoiView(base, pids) }));
   }
 }
