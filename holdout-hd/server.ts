@@ -1,4 +1,3 @@
-// @ts-nocheck — TS migration (issue #4): runtime-migrated to .ts, types pending.
 import express from 'express';
 import compression from 'compression';
 import { WebSocketServer } from 'ws';
@@ -13,10 +12,93 @@ import { createGame, step, snapshot, applyResults, charsById, dailyChallenge, TI
 import * as sim from './shared/game.js';
 import { initDb } from './db.js';
 import { mountAuth } from './auth.js';
+import type { Request, Response } from 'express';
+import type { WebSocket, RawData } from 'ws';
+import type { IncomingMessage } from 'http';
+import type { Pid, Team, GameMode } from './types/common';
+import type { Game, Player as SimPlayer } from './types/entities';
+import type { Snapshot } from './types/snapshot';
+import type { CharacterMap } from './types/character';
+
+// --- server-local types (TS migration, issue #4) -----------------------------
+// `ws` sockets carry a server-attached keepalive counter; declare it on the lib
+// interface so the sweep can read/write it without a cast.
+declare module 'ws' {
+  interface WebSocket {
+    missedPongs?: number;
+  }
+}
+
+/** A server-side seat: a player slot bound to a ws connection. `me` is the
+ *  connection's primary; addLocal grows extra non-primary seats on the same ws. */
+interface Seat {
+  pid: Pid;
+  ws: WebSocket;
+  name: string;
+  charId: string | null;
+  input: Record<string, unknown>;
+  primary: boolean;
+  room?: Room | null;
+  team?: Team;
+}
+
+/** One seat captured inside a mid-level hold reservation. */
+interface HoldSeat {
+  pid: Pid;
+  name: string;
+  charId: string | null;
+  primary: boolean;
+}
+
+/** A mid-level seat-hold reservation (120s rejoin window). */
+interface Hold {
+  name: string;
+  token: string;
+  ip: string;
+  until: number;
+  seats: HoldSeat[];
+}
+
+/** A live room/lobby. */
+interface Room {
+  code: string;
+  mode: GameMode;
+  public: boolean;
+  endless: boolean;
+  daily: boolean;
+  dailyDate: string | null;
+  difficulty: string;
+  hostPid: Pid;
+  players: Map<Pid, Seat>;
+  levelIdx: number;
+  roster: string[];
+  game: Game | null;
+  timer: ReturnType<typeof setInterval> | null;
+  phase: string;
+  holds: Hold[];
+  tick: number;
+  lastActivity: number;
+}
+
+/** A single rankings board entry. */
+interface RankEntry {
+  names: string[];
+  players: number;
+  score: number;
+  timeS: number;
+  date: string;
+  online: boolean;
+  nights?: number;
+  runScore?: number;
+}
+type RankBoards = Record<string, RankEntry[]>;
+
+/** An outbound ws message (heterogeneous payload by `t`). */
+type OutMsg = { t: string; [key: string]: unknown };
 
 // Defense in depth: a rejected promise in an async route (Express 4 doesn't
 // catch these) must never take the whole co-op server down. Log and survive.
-process.on('unhandledRejection', (err) => console.error('unhandledRejection:', err?.message || err));
+process.on('unhandledRejection', (err: unknown) => console.error('unhandledRejection:', (err as { message?: string })?.message || err));
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3001;
@@ -38,7 +120,7 @@ const LOBBY_TTL_MS = Math.max(1000, Number(process.env.LOBBY_TTL_MS) || 10 * 600
 // Trust-boundary name hygiene: drop control / zero-width / bidi-override
 // characters, collapse runs of whitespace, keep the 12-char cap. Applied to
 // every ws player name and to REST rankings names.
-const cleanName = v => {
+const cleanName = (v: unknown) => {
   const s = String(v ?? '')
     .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u2028\u2029\u202A-\u202E\u2066-\u2069\uFEFF]/g, ' ')
     .replace(/\s+/g, ' ').trim().slice(0, 12).trim();
@@ -47,24 +129,24 @@ const cleanName = v => {
 
 // --- load data ---
 const characters = JSON.parse(fs.readFileSync(path.join(__dirname, 'shared/characters.json'), 'utf8'));
-const charMap = charsById(characters);
-const startingRoster = characters.filter(c => c.starting).map(c => c.id);
+const charMap: CharacterMap = charsById(characters);
+const startingRoster = characters.filter((c: any) => c.starting).map((c: any) => c.id);
 
 // levels/ is organized by category subdirectory (classic/story/stronghold/ctf/br);
 // each def carries its subdir name as def.category, and the mode lists below
 // derive from it. /api/levels stays one flat array so the client keeps working.
 const levelsDir = path.join(__dirname, 'levels');
 const CATEGORY_ORDER = ['classic', 'story', 'stronghold', 'ctf', 'br'];
-const catRank = c => { const i = CATEGORY_ORDER.indexOf(c); return i === -1 ? CATEGORY_ORDER.length : i; };
+const catRank = (c: string) => { const i = CATEGORY_ORDER.indexOf(c); return i === -1 ? CATEGORY_ORDER.length : i; };
 const categories = fs.readdirSync(levelsDir, { withFileTypes: true })
   .filter(d => d.isDirectory()).map(d => d.name)
   .sort((a, b) => catRank(a) - catRank(b) || (a < b ? -1 : a > b ? 1 : 0));
-const levels = categories.flatMap(cat =>
+const levels: any[] = categories.flatMap(cat =>
   fs.readdirSync(path.join(levelsDir, cat)).filter(f => f.endsWith('.json')).sort()
     .map(f => {
       const def = JSON.parse(fs.readFileSync(path.join(levelsDir, cat, f), 'utf8'));
       const w = def.tiles[0].length;
-      if (!def.tiles.every(r => r.length === w)) throw new Error(`Level ${cat}/${f}: all tile rows must be the same width`);
+      if (!def.tiles.every((r: string) => r.length === w)) throw new Error(`Level ${cat}/${f}: all tile rows must be the same width`);
       def.category = cat;
       def.key = `${cat}/${f.replace(/\.json$/, '')}`; // rankings board key
       return def;
@@ -75,28 +157,28 @@ const ctfLevels = levels.filter(l => l.category === 'ctf');
 const brLevels = levels.filter(l => l.category === 'br');
 const bastionLevels = levels.filter(l => l.category === 'stronghold');
 const siegeLevels = levels.filter(l => l.category === 'siege');
-const roomLevels = room => room.mode === 'story' ? storyLevels
+const roomLevels = (room: Room): any[] => room.mode === 'story' ? storyLevels
   : room.mode === 'ctf' ? ctfLevels
   : room.mode === 'br' ? brLevels
   : room.mode === 'bastion' ? bastionLevels
   : room.mode === 'siege' ? siegeLevels
   : classicLevels;
-const isPvp = room => room.mode === 'ctf' || room.mode === 'br' || room.mode === 'siege';
+const isPvp = (room: Room) => room.mode === 'ctf' || room.mode === 'br' || room.mode === 'siege';
 // pvp/siege and bastion rooms are one-shots: never saved, never resumed, never
 // advanced — the lobby is the rematch on the same map
-const isOneShot = room => isPvp(room) || room.mode === 'bastion';
+const isOneShot = (room: Room) => isPvp(room) || room.mode === 'bastion';
 // Per-mode room caps (wave 7): pvp fields outgrow the co-op party of 8.
 // Prefer the sim's table once it lands so server and sim can never disagree;
 // seats-per-connection stays 4 everywhere. CTF team cap = MODE_CAPS.ctf / 2.
 const MODE_CAPS = sim.MODE_CAPS || { classic: 8, story: 8, bastion: 8, ctf: 32, br: 16, siege: 10 };
-const roomCap = room => MODE_CAPS[room.mode] || 8;
+const roomCap = (room: Room) => (MODE_CAPS as Record<string, number>)[room.mode] || 8;
 console.log(`Loaded ${levels.length} levels (${classicLevels.length} classic, ${storyLevels.length} story, ${bastionLevels.length} stronghold, ${ctfLevels.length} ctf, ${brLevels.length} br), ${characters.length} characters`);
 
 // SAVES_DIR (default ./saves): every persisted file — campaign saves and
 // rankings.json — writes under it, so a deploy can mount a volume (e.g. /data)
 const savesDir = process.env.SAVES_DIR ? path.resolve(process.env.SAVES_DIR) : path.join(__dirname, 'saves');
 fs.mkdirSync(savesDir, { recursive: true });
-const savePath = code => path.join(savesDir, code.replace(/[^A-Z0-9]/g, '') + '.json');
+const savePath = (code: string) => path.join(savesDir, code.replace(/[^A-Z0-9]/g, '') + '.json');
 
 // --- rankings ----------------------------------------------------------------
 // Boards keyed by level key ("<category>/<filename-stem>", e.g. story/ch01),
@@ -105,16 +187,16 @@ const savePath = code => path.join(savesDir, code.replace(/[^A-Z0-9]/g, '') + '.
 // saves/rankings.json with atomic tmp+rename writes.
 const RANK_MAX = 50;
 const rankingsPath = path.join(savesDir, 'rankings.json');
-let rankings = {};
+let rankings: RankBoards = {};
 try { rankings = JSON.parse(fs.readFileSync(rankingsPath, 'utf8')) || {}; } catch { rankings = {}; }
-const levelKeys = new Set(levels.map(l => l.key));
-const levelByKey = new Map(levels.map(l => [l.key, l]));
+const levelKeys = new Set<string>(levels.map(l => l.key));
+const levelByKey = new Map<string, any>(levels.map(l => [l.key, l]));
 // Endless Siege boards: one per stronghold map, under their own 'endless/'
 // category so the key registry and the GET :cat/:stem route both accept them.
 // They map back to the stronghold def for display names.
-const endlessKeyOf = key => 'endless/' + String(key).split('/')[1];
+const endlessKeyOf = (key: string) => 'endless/' + String(key).split('/')[1];
 for (const l of bastionLevels) { const ek = endlessKeyOf(l.key); levelKeys.add(ek); levelByKey.set(ek, l); }
-const round1 = n => Math.round(n * 10) / 10;
+const round1 = (n: number) => Math.round(n * 10) / 10;
 
 function saveRankings() {
   const tmp = rankingsPath + '.tmp';
@@ -124,7 +206,7 @@ function saveRankings() {
 
 // Insert an entry on its board; returns the 1-based rank or null if it missed
 // the top 50.
-function recordRanking(key, entry) {
+function recordRanking(key: string, entry: RankEntry) {
   // Fixed catalog/endless boards live in levelKeys; daily boards are dynamic
   // (one per UTC date) and validated by shape instead.
   if (!levelKeys.has(key) && !DAILY_KEY_RE.test(key)) return null;
@@ -141,7 +223,7 @@ function recordRanking(key, entry) {
 // a larger party folds the overflow into one "+N more" tail string (so the
 // names array tops out at 9 entries) while `players` keeps the true count.
 // Existing <=8 co-op/ctf entries are untouched.
-const capNames = names => names.length <= 8 ? names : [...names.slice(0, 8), `+${names.length - 8} more`];
+const capNames = (names: string[]) => names.length <= 8 ? names : [...names.slice(0, 8), `+${names.length - 8} more`];
 
 // Online auto-submit: every server-room level CLEAR lands on its board.
 // Co-op (classic/story/stronghold): full party names, final score, g.elapsed.
@@ -151,7 +233,7 @@ const capNames = names => names.length <= 8 ? names : [...names.slice(0, 8), `+$
 // BR: the champion's name (players records the field size); score = the
 // champion's kills; timeS = match length, so equal-kill champions rank by
 // the quicker victory.
-function recordOnlineRun(room, def, g) {
+function recordOnlineRun(room: Room, def: any, g: Game) {
   if (!def?.key) return null;
   if (room.mode === 'siege') return null; // siege is a match, not a score board (v1)
   const stamp = { date: new Date().toISOString(), online: true };
@@ -186,7 +268,7 @@ function recordOnlineRun(room, def, g) {
 // keeps its own log: rankings POST at 10/min, room browser GET at 30/10s
 // (the browser polls every 5s — light enough for a few tabs, heavy enough
 // to shrug off a hammering loop).
-function rateLimited(log, ip, max, windowMs) {
+function rateLimited(log: Map<string, number[]>, ip: string, max: number, windowMs: number) {
   const now = Date.now();
   if (log.size > 500) { // shed stale IPs so the map can't grow unbounded
     for (const [k, v] of log) if (!v.some(t => now - t < windowMs)) log.delete(k);
@@ -197,13 +279,13 @@ function rateLimited(log, ip, max, windowMs) {
   log.set(ip, hits);
   return false;
 }
-const rankPostLog = new Map();
-const rankDayLog = new Map();
-const roomsGetLog = new Map();
-const joinFailLog = new Map(); // ws room-code misses (enumeration throttle)
+const rankPostLog = new Map<string, number[]>();
+const rankDayLog = new Map<string, number[]>();
+const roomsGetLog = new Map<string, number[]>();
+const joinFailLog = new Map<string, number[]>(); // ws room-code misses (enumeration throttle)
 // rankings POST: 10/min plus a 150/day budget per IP (a curl loop can junk
 // boards a lot slower that way; real players submit a handful per session)
-const rankRateLimited = ip => rateLimited(rankPostLog, ip, 10, 60000) || rateLimited(rankDayLog, ip, 150, 86400000);
+const rankRateLimited = (ip: string) => rateLimited(rankPostLog, ip, 10, 60000) || rateLimited(rankDayLog, ip, 150, 86400000);
 
 // --- http ---
 const app = express();
@@ -220,7 +302,7 @@ app.use(compression({ level: 6, threshold: 512 }));
 // re-fetch only when their URL changes), but never the documents that change in
 // place across deploys (index.html, characters.json and the other JSON) — those
 // stay revalidated so a new build isn't masked by a year-long cache.
-const staticHeaders = (res, filePath) => {
+const staticHeaders = (res: import('http').ServerResponse, filePath: string) => {
   if (/\.(js|css|ogg|png)$/i.test(filePath)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
 };
 app.use('/shared', express.static(path.join(__dirname, 'shared'), { setHeaders: staticHeaders }));
@@ -229,7 +311,7 @@ app.use(express.static(path.join(__dirname, 'public'), { setHeaders: staticHeade
 // --- accounts + cloud profiles (optional; anonymous play is unaffected) ------
 // Postgres when DATABASE_URL is set (Railway), else a local file store.
 await initDb(savesDir);
-const authLog = new Map();
+const authLog = new Map<string, number[]>();
 mountAuth(app, {
   json: express.json({ limit: '20kb' }),
   rateLimited: (ip) => rateLimited(authLog, ip, 12, 60000), // 12 register/login tries per minute per IP
@@ -271,14 +353,14 @@ app.get('/api/rooms', (req, res) => {
 // fetch one board, or submit a LOCAL run (sessions simmed in the browser but
 // served from this server). Online room clears are recorded server-side and
 // never POSTed.
-const endlessName = def => `${def.stronghold?.name || def.title || def.name} — Endless`;
+const endlessName = (def: any) => `${def.stronghold?.name || def.title || def.name} — Endless`;
 // Daily Challenge boards are dynamic (one per UTC date), so they aren't in the
 // fixed key registry — they're validated by shape instead. A board is READABLE
 // if well-formed; only today's (±1.5d for clock skew) is WRITEABLE, so a forger
 // can't seed infinite future boards.
 const DAILY_KEY_RE = /^daily\/\d{4}-\d{2}-\d{2}$/;
-const dailyName = key => `Daily — ${key.slice(6)}`;
-function isWriteableDaily(key) {
+const dailyName = (key: string) => `Daily — ${key.slice(6)}`;
+function isWriteableDaily(key: string) {
   if (!DAILY_KEY_RE.test(key)) return false;
   const d = new Date(key.slice(6) + 'T00:00:00Z').getTime();
   if (!Number.isFinite(d)) return false;
@@ -349,24 +431,24 @@ const wss = new WebSocketServer({
   maxPayload: 16 * 1024,
   perMessageDeflate: { clientNoContextTakeover: true, serverNoContextTakeover: true, threshold: 256 },
 });
-const rooms = new Map();
+const rooms = new Map<string, Room>();
 let nextPid = 1;
 
 // Client IP at the ws trust boundary: behind the public proxy the socket's
 // remoteAddress is the proxy itself, so use the nearest-hop X-Forwarded-For
 // entry — the one the platform edge appended; leftmost entries are
 // client-spoofable. Mirrors `trust proxy = 1` on the express side.
-function clientIp(req) {
+function clientIp(req: IncomingMessage) {
   if (PUBLIC_DEPLOY) {
     const xff = req.headers['x-forwarded-for'];
     if (typeof xff === 'string' && xff.trim()) {
-      const last = xff.split(',').pop().trim();
+      const last = xff.split(',').pop()!.trim();
       if (last) return last;
     }
   }
   return req.socket?.remoteAddress || '?';
 }
-const wsPerIp = new Map(); // live socket count per client IP
+const wsPerIp = new Map<string, number>(); // live socket count per client IP
 
 // Keepalive sweep: ping every KEEPALIVE_MS; a socket that misses two pongs
 // in a row is dead TCP (sleeping laptop, vanished phone) — terminate it so
@@ -409,11 +491,11 @@ function makeCode() {
   return code;
 }
 
-function sendTo(p, msg) {
+function sendTo(p: Seat, msg: OutMsg) {
   if (p.ws.readyState === 1) p.ws.send(JSON.stringify(msg));
 }
 
-function broadcast(room, msg) {
+function broadcast(room: Room, msg: OutMsg) {
   const s = JSON.stringify(msg);
   for (const p of room.players.values()) if (p.ws.readyState === 1) p.ws.send(s);
 }
@@ -429,14 +511,14 @@ const AOI_TILES = 26;
 const AOI_PX = AOI_TILES * TILE;
 const BACKPRESSURE_MAX = 512 * 1024; // skip state ticks while a socket is this far behind (jitter tolerance)
 
-function aoiView(base, pids) {
+function aoiView(base: Snapshot, pids: Pid[]): Snapshot {
   const anchors = base.players.filter(p => pids.includes(p.pid));
   if (!anchors.length) return base;
-  const near = (x, y) => {
+  const near = (x: number, y: number) => {
     for (const a of anchors) if (Math.abs(x - a.x) <= AOI_PX && Math.abs(y - a.y) <= AOI_PX) return true;
     return false;
   };
-  const s = {
+  const s: Snapshot = {
     ...base,
     enemies: base.enemies.filter(e => near(e.x, e.y)),
     shots: base.shots.filter(sh => near(sh.x, sh.y)),
@@ -459,11 +541,11 @@ function aoiView(base, pids) {
 // Backpressure: a connection whose socket buffer is over the threshold skips
 // this state tick and catches up on the next under-threshold one; levelStart/
 // levelEnd/lobby/cutscene are never skipped (they go through broadcast/sendTo).
-function broadcastState(room) {
-  const base = snapshot(room.game, false);
+function broadcastState(room: Room) {
+  const base = snapshot(room.game, false) as Snapshot & { mini?: number[][] };
   room.tick++;
   if (room.tick % 3 === 0) base.mini = base.enemies.map(e => [Math.round(e.x / TILE), Math.round(e.y / TILE)]);
-  const byWs = new Map();
+  const byWs = new Map<WebSocket, Pid[]>();
   for (const p of room.players.values()) {
     const arr = byWs.get(p.ws);
     if (arr) arr.push(p.pid); else byWs.set(p.ws, [p.pid]);
@@ -480,13 +562,13 @@ function broadcastState(room) {
 
 // CTF teams alternate over join/seat order (Map insertion order — local seats on
 // one ws slot in where they were added); leavers cause a clean re-alternation.
-function assignTeams(room) {
+function assignTeams(room: Room) {
   if (room.mode !== 'ctf' && room.mode !== 'siege') return;
   let i = 0;
-  for (const p of room.players.values()) p.team = i++ % 2;
+  for (const p of room.players.values()) p.team = (i++ % 2) as Team;
 }
 
-function lobbyState(room) {
+function lobbyState(room: Room): OutMsg {
   assignTeams(room);
   const list = roomLevels(room);
   const def = list[room.levelIdx];
@@ -517,11 +599,11 @@ function lobbyState(room) {
 
 // lobbyState()'s players array without the assignTeams() side effect — safe
 // to ship inside mid-match playerJoined broadcasts (teams must not reshuffle)
-function rosterOf(room) {
+function rosterOf(room: Room) {
   return [...room.players.values()].map(p => ({ pid: p.pid, name: p.name, charId: p.charId, isHost: p.pid === room.hostPid, team: p.team }));
 }
 
-function destroyRoom(room) {
+function destroyRoom(room: Room) {
   if (room.timer) clearInterval(room.timer);
   rooms.delete(room.code);
 }
@@ -532,7 +614,7 @@ function destroyRoom(room) {
 // insensitive) while the level is still running re-binds the seats; expired
 // holds free them; lobby-phase rejoins are just normal joins.
 const HOLD_MS = 120000;
-function pruneHolds(room) {
+function pruneHolds(room: Room) {
   const now = Date.now();
   if (room.holds.length) room.holds = room.holds.filter(h => h.until > now);
 }
@@ -542,7 +624,7 @@ function pruneHolds(room) {
 // through the existing down->pick path (mirroring downPlayer's bookkeeping:
 // a held operative returns to the field as a rescuable captive; CTF redeploys
 // the same operative at the stand; BR stays out — eliminated is eliminated).
-function reviveSeat(g, pid) {
+function reviveSeat(g: Game, pid: Pid) {
   if (typeof sim.revivePlayer === 'function') {
     if (sim.revivePlayer(g, pid) || g.mode !== 'ctf') return;
     // ctf falls through: the sim export refuses pvp, but a held ctf seat
@@ -554,7 +636,7 @@ function reviveSeat(g, pid) {
     const q = g.players.find(pl => pl.pid === pid);
     if (!q || q.state !== 'out') return;
     if (q.charId) { q.state = 'down'; q.respawn = 1; }
-    else { q.state = 'pick'; q.pickIdx = 0; q.pickPrev = { left: true, right: true, fire: true }; }
+    else { q.state = 'pick'; q.pickIdx = 0; q.pickPrev = { left: true, right: true, fire: true } as unknown as boolean; }
     return;
   }
   if (g.mode === 'br') return;
@@ -562,7 +644,7 @@ function reviveSeat(g, pid) {
   if (!p || p.state !== 'out') return;
   if (g.mode !== 'ctf' && p.charId) {
     g.captives.push({ id: 'c' + g.nextCaptiveId++, charId: p.charId, x: p.x, y: p.y, owner: null, fromPlayer: true });
-    p.charId = null;
+    p.charId = null as unknown as string;
   }
   p.state = 'down';
   p.respawn = 1;
@@ -578,14 +660,14 @@ function reviveSeat(g, pid) {
 
 // Smaller team counted on the sim's FIELDED seats (anything but 'out'), so
 // expired-hold ghosts don't skew the balance. Ties go to team 0.
-function smallerTeam(g) {
+function smallerTeam(g: Game): Team {
   const n = [0, 0];
   for (const p of g.players) if (p.state !== 'out' && (p.team === 0 || p.team === 1)) n[p.team]++;
   return n[1] < n[0] ? 1 : 0;
 }
-function teamHasRoom(room, team) {
+function teamHasRoom(room: Room, team: Team) {
   const cap = Math.floor(roomCap(room) / 2); // ctf team cap = MODE_CAPS.ctf / 2
-  return room.game.players.filter(p => p.state !== 'out' && p.team === team).length < cap;
+  return room.game!.players.filter(p => p.state !== 'out' && p.team === team).length < cap;
 }
 
 // CTF ghost purge: a dropped seat is only ever marked 'out' (never spliced),
@@ -594,10 +676,10 @@ function teamHasRoom(room, team) {
 // zero players are fielded. Before a mid-match insert, drop 'out' seats that
 // have no live connection and no live hold; they can never come back, and
 // the sim already auto-drops any flag held by a non-active carrier.
-function purgeDeadCtfSeats(room) {
+function purgeDeadCtfSeats(room: Room) {
   const g = room.game;
   if (!g || g.mode !== 'ctf') return;
-  const held = new Set();
+  const held = new Set<Pid>();
   for (const h of room.holds) for (const s of h.seats) held.add(s.pid);
   for (let i = g.players.length - 1; i >= 0; i--) {
     const p = g.players[i];
@@ -614,7 +696,7 @@ function purgeDeadCtfSeats(room) {
 // roster" — safe because applyResults never lets a pvp game touch the lobby
 // roster). The shim's literal mirrors the sim's spawnPlayer + survival +
 // pvp fields so snapshots/step treat it like any lobby-born seat.
-function insertMidGamePlayer(g, seat) {
+function insertMidGamePlayer(g: Game, seat: { pid: Pid; name: string; team: Team }) {
   if (typeof sim.addPlayerMidGame === 'function') return sim.addPlayerMidGame(g, seat) !== false;
   if (g.status !== 'play' || g.mode !== 'ctf') return false;
   for (const id of Object.keys(charMap)) if (!g.roster.includes(id)) g.roster.push(id);
@@ -627,19 +709,19 @@ function insertMidGamePlayer(g, seat) {
     stimT: 0, actPrev: false, specialPrev: false, itemPrev: false,
     hp: 3, maxHp: 3, shield: 0, item: null, xp: 0, level: 1,
     team: seat.team, kills: 0,
-  });
+  } as unknown as SimPlayer);
   return true;
 }
 
-function endLevel(room) {
-  clearInterval(room.timer);
+function endLevel(room: Room) {
+  clearInterval(room.timer!);
   room.timer = null;
   // a room held open EMPTY for a rejoin window dies the moment its level
   // ends — there is no lobby to come back to with nobody in it
   if (!room.players.size) { room.holds = []; room.game = null; return destroyRoom(room); }
   const list = roomLevels(room);
   const def = list[room.levelIdx]; // the chapter just played
-  const g = room.game;
+  const g = room.game!;
   const res = applyResults(room.roster, g); // pvp: sim returns the roster untouched
   room.roster = res.roster;
   let victory = false;
@@ -653,7 +735,7 @@ function endLevel(room) {
   room.phase = 'lobby';
   room.lastActivity = Date.now(); // fresh idle window for the post-level lobby
   room.holds = []; // back in the lobby, rejoins are just normal joins
-  const msg = { t: 'levelEnd', status: g.status, gained: res.gained, lost: res.lost, roster: room.roster, victory };
+  const msg: OutMsg = { t: 'levelEnd', status: g.status, gained: res.gained, lost: res.lost, roster: room.roster, victory };
   // online rankings auto-submit: clears land on the level's board; the rank
   // rides levelEnd (additive keys) so clients can toast the placement
   const rec = recordOnlineRun(room, def, g);
@@ -673,7 +755,7 @@ function endLevel(room) {
   broadcast(room, lobbyState(room));
 }
 
-function startLevel(room) {
+function startLevel(room: Room) {
   assignTeams(room); // ctf party entries carry their lobby team into the sim
   // own-property check: a prototype-key charId ('constructor', '__proto__'…)
   // would resolve truthy through charMap in the sim and crash the tick
@@ -701,7 +783,7 @@ function startLevel(room) {
   if (room.difficulty && room.difficulty !== 'normal' && !isPvp(room)) {
     gameDef = { ...gameDef, difficulty: room.difficulty };
   }
-  room.game = createGame(gameDef, party, charMap, room.roster);
+  room.game = createGame(gameDef, party, charMap, room.roster) as Game;
   room.phase = 'play';
   room.tick = 0;
   room.holds = []; // seat holds are per-level; a fresh level starts clean
@@ -716,11 +798,11 @@ function startLevel(room) {
       if (!room.holds.length) destroyRoom(room);
       return;
     }
-    const inputs = {};
+    const inputs: Record<number, unknown> = {};
     for (const p of room.players.values()) inputs[p.pid] = p.input;
     step(room.game, inputs, TICK);
     broadcastState(room);
-    if (room.game.status !== 'play') endLevel(room);
+    if (room.game!.status !== 'play') endLevel(room);
   }, TICK * 1000);
 }
 
@@ -772,13 +854,13 @@ wss.on('connection', (ws, req) => {
   };
 
   // `me` is the connection's PRIMARY player; addLocal grows extra seats on the same ws.
-  const me = { pid: nextPid++, ws, name: 'Player', charId: null, input: {}, primary: true, room: null };
-  const ownedBy = room => [...room.players.values()].filter(p => p.ws === ws);
+  const me: Seat = { pid: nextPid++, ws, name: 'Player', charId: null, input: {}, primary: true, room: null };
+  const ownedBy = (room: Room) => [...room.players.values()].filter(p => p.ws === ws);
 
-  ws.on('message', raw => {
+  ws.on('message', (raw: RawData) => {
     if (!takeMsg()) return; // over the flood budget: drop, don't kill
-    let m;
-    try { m = JSON.parse(raw); } catch { return; }
+    let m: any;
+    try { m = JSON.parse(raw as unknown as string); } catch { return; }
     if (!m || typeof m !== 'object' || Array.isArray(m)) return; // `null`/numbers/arrays parse fine but aren't messages
     const room = me.room;
 
@@ -824,7 +906,7 @@ wss.on('connection', (ws, req) => {
         // prototype members — a charId like that reaches the sim, dodges its
         // `if (!ch)` guard, and crashes the 30Hz tick for the whole process.
         const extras = [...new Set(m.roster.map(String))]
-          .filter(id => Object.hasOwn(charMap, id) && !startingRoster.includes(id));
+          .filter((id: any) => Object.hasOwn(charMap, id) && !startingRoster.includes(id));
         roster = [...startingRoster, ...extras].slice(0, characters.length);
       }
       // room visibility (wave 7): the client sends public:true|false from its
@@ -903,14 +985,14 @@ wss.on('connection', (ws, req) => {
         r.players.set(me.pid, me);
         for (const seat of hold.seats) {
           if (seat !== prim) r.players.set(seat.pid, { pid: seat.pid, ws, name: seat.name, charId: seat.charId, input: {}, primary: false });
-          reviveSeat(r.game, seat.pid); // held-out seats re-enter via the respawn-pick flow
+          reviveSeat(r.game!, seat.pid); // held-out seats re-enter via the respawn-pick flow
         }
         sendTo(me, { t: 'joined', you: me.pid, rejoined: true, seats: hold.seats.map(s => s.pid), token: myToken });
         // levelStart-style full snapshot (grid included) — held aside so the
         // tick's pending events aren't drained away from the room
-        const pending = r.game.events.splice(0);
+        const pending = r.game!.events.splice(0);
         sendTo(me, { t: 'levelStart', s: snapshot(r.game, true), mode: r.mode, levelIdx: r.levelIdx });
-        r.game.events.push(...pending);
+        r.game!.events.push(...pending);
         return;
       }
       if (r.players.size >= roomCap(r)) return sendTo(me, { t: 'error', error: 'Room is full' });
@@ -935,10 +1017,10 @@ wss.on('connection', (ws, req) => {
         // has the game view, so no snapshot replay is needed)
         pruneHolds(room);
         purgeDeadCtfSeats(room); // expired drop-outs must not count against the sim caps
-        const team = smallerTeam(room.game);
+        const team = smallerTeam(room.game!);
         if (!teamHasRoom(room, team)) return;
-        const p = { pid: nextPid++, ws, name: cleanName(m.name), charId: null, input: {}, primary: false, team };
-        if (!insertMidGamePlayer(room.game, { pid: p.pid, name: p.name, team })) return;
+        const p: Seat = { pid: nextPid++, ws, name: cleanName(m.name), charId: null, input: {}, primary: false, team };
+        if (!insertMidGamePlayer(room.game!, { pid: p.pid, name: p.name, team })) return;
         room.players.set(p.pid, p);
         sendTo(p, { t: 'localAdded', tag: m.tag, pid: p.pid, midmatch: true, team });
         broadcast(room, { t: 'playerJoined', pid: p.pid, name: p.name, team, players: room.players.size, cap: roomCap(room), roster: rosterOf(room) });
@@ -992,7 +1074,7 @@ wss.on('connection', (ws, req) => {
       if (m.inputs && typeof m.inputs === 'object') {
         for (const [k, v] of Object.entries(m.inputs)) {
           const p = room.players.get(Number(k));
-          if (p && p.ws === ws && v && typeof v === 'object') p.input = v;
+          if (p && p.ws === ws && v && typeof v === 'object') p.input = v as Record<string, unknown>;
         }
       } else me.input = m.input || {}; // legacy single form drives the primary
     }
