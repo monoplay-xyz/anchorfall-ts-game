@@ -8,3 +8,4 @@ node_modules/
 /db.js
 /shared/music-durations.js
 /auth.js
+/server.js
