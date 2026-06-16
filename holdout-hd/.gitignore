@@ -7,3 +7,4 @@ node_modules/
 # the source of truth. Each entry is added when its source is converted .js -> .ts.
 /db.js
 /shared/music-durations.js
+/auth.js

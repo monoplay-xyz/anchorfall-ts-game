@@ -1,3 +1,4 @@
+// @ts-nocheck — TS migration (issue #4): runtime-migrated to .ts, types pending.
 // Account auth: register / login / logout / me, plus cloud profile sync.
 //
 // Security:
