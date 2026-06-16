@@ -21,7 +21,7 @@ import { readdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
-const root = dirname(dirname(fileURLToPath(import.meta.url))); // holdout-hd/
+const root = dirname(dirname(fileURLToPath(import.meta.url))); // repo root
 const SKIP = new Set(['node_modules', 'dist', 'desktop', '.git', 'assets', 'levels', 'saves']);
 
 function walk(dir, acc) {

@@ -19,3 +19,19 @@ nohup.out
 .railway/
 *.chd
 *.zip
+
+# --- TypeScript build artifacts (esbuild emits these .js from their .ts sources;
+# the .ts are the source of truth — see scripts/build.js) ---
+dist/
+/db.js
+/shared/music-durations.js
+/auth.js
+/server.js
+/public/audio.js
+/public/render.js
+/public/client.js
+/public/mapBuilder.js
+/shared/game.js
+/shared/mapValidate.js
+/shared/mapgen.js
+/test/sim.test.js

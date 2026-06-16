@@ -1,5 +1,5 @@
 # MONOLYTHIUM — THE ANCHORFALL game server (public deployment)
-# Build context = holdout-hd/ (set the service root directory accordingly).
+# Build context = repo root (Railway Root Directory = "/").
 FROM node:22-alpine
 
 WORKDIR /app

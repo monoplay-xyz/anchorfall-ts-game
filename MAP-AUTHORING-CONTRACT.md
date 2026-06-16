@@ -1,6 +1,6 @@
 # MAP AUTHORING CONTRACT
 
-The single source of truth for the **level / tile format** in `holdout-hd`. Every
+The single source of truth for the **level / tile format** in this repo. Every
 tool that produces or consumes a level — the **Map Generator (#6)**, the **Map
 Builder (#5)** and the **Community DB (#7)** — builds against this contract.
 

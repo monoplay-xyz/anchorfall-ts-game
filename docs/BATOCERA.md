@@ -9,7 +9,7 @@ file server) and can run Chromium.
 1. Build the static bundle on your dev machine:
 
    ```sh
-   cd holdout-hd
+   cd anchorfall-ts-game
    npm run build-static     # writes dist/
    ```
 
@@ -83,7 +83,7 @@ goes silent. The audio toggle lives in Settings.
 Run the full game on any PC on your network:
 
 ```sh
-cd holdout-hd && npm start    # http://<pc-ip>:3001
+cd anchorfall-ts-game && npm start    # http://<pc-ip>:3001
 ```
 
 and open that URL in the Batocera browser. Same couch experience, plus the

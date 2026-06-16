@@ -15,7 +15,7 @@ const PORT = 3199;
 // into Resources/game (see electron-builder.yml extraResources).
 const GAME_DIR = app.isPackaged
   ? path.join(process.resourcesPath, 'game')
-  : path.join(__dirname, '..'); // holdout-hd/
+  : path.join(__dirname, '..'); // repo root (the game)
 let server = null;
 let win = null;
 

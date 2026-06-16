@@ -46,18 +46,18 @@ jobs:
 
       # devDeps (esbuild/typescript) are needed to transpile the TS game sources.
       - name: Install game deps
-        working-directory: holdout-hd
+        working-directory: .
         run: npm install --no-audit --no-fund
 
       - name: Install desktop deps
-        working-directory: holdout-hd/desktop
+        working-directory: desktop
         run: npm install --no-audit --no-fund
 
       # Transpile the game .ts -> sibling .js (server.js, public/*.js, shared/*.js)
       # BEFORE electron-builder bundles them into Resources/game. Without this the
       # AppImage would ship raw .ts the Electron renderer can't run.
       - name: Build the TS game
-        working-directory: holdout-hd
+        working-directory: .
         run: npm run build
 
       # Bundle this runner's Node binary (correct OS + arch) into runtime/ so the
@@ -65,7 +65,7 @@ jobs:
       # (macOS does this per-arch inside its build step.)
       - name: Stage bundled Node runtime
         if: matrix.plat != 'mac'
-        working-directory: holdout-hd/desktop
+        working-directory: desktop
         run: node scripts/prepare-runtime.js
 
       # @kmamal/sdl ships its SDL shared lib as a SONAME symlink
@@ -74,7 +74,7 @@ jobs:
       # per-arch inside its build step.)
       - name: De-symlink SDL shared libs
         if: matrix.plat == 'linux'
-        working-directory: holdout-hd/desktop
+        working-directory: desktop
         shell: bash
         run: |
           d=node_modules/@kmamal/sdl/dist
@@ -87,7 +87,7 @@ jobs:
       # ---------------- macOS (arm64 + x64 on one Apple-Silicon runner) ----------
       - name: Build macOS
         if: matrix.plat == 'mac'
-        working-directory: holdout-hd/desktop
+        working-directory: desktop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_LINK: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
@@ -140,7 +140,7 @@ jobs:
       # ---------------- Windows ----------------
       - name: Build Windows (unsigned)
         if: matrix.plat == 'win'
-        working-directory: holdout-hd/desktop
+        working-directory: desktop
         run: npx electron-builder --win --publish never
 
       - name: Sign Windows (Azure Trusted Signing)
@@ -156,13 +156,13 @@ jobs:
           endpoint: ${{ vars.AZURE_TRUSTED_SIGNING_ENDPOINT || 'https://eus.codesigning.azure.net/' }}
           trusted-signing-account-name: ${{ vars.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME || 'mono-labs' }}
           certificate-profile-name: ${{ secrets.AZURE_CERT_PROFILE }}
-          files-folder: ${{ github.workspace }}/holdout-hd/desktop/dist
+          files-folder: ${{ github.workspace }}/desktop/dist
           files-folder-filter: exe
           files-folder-recurse: true
 
       - name: Publish Windows to release
         if: matrix.plat == 'win' && env.IS_TAG == 'true'
-        working-directory: holdout-hd/desktop
+        working-directory: desktop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
@@ -177,7 +177,7 @@ jobs:
       # ---------------- Linux ----------------
       - name: Build Linux
         if: matrix.plat == 'linux'
-        working-directory: holdout-hd/desktop
+        working-directory: desktop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -191,8 +191,8 @@ jobs:
         with:
           name: anchorfall-${{ matrix.plat }}-${{ matrix.arch }}
           path: |
-            holdout-hd/desktop/dist/*.dmg
-            holdout-hd/desktop/dist/*.zip
-            holdout-hd/desktop/dist/*.exe
-            holdout-hd/desktop/dist/*.AppImage
+            desktop/dist/*.dmg
+            desktop/dist/*.zip
+            desktop/dist/*.exe
+            desktop/dist/*.AppImage
           if-no-files-found: warn

@@ -64,7 +64,7 @@ When only the web game content/code changed (`public/`, `shared/`, `levels/`,
 source straight into the console’s unpacked AppImage payload:
 
 ```sh
-# from holdout-hd/
+# from the repo root
 scripts/console-update.sh --dry-run     # preview — changes nothing
 scripts/console-update.sh               # apply to the default console
 ```

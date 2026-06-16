@@ -7,7 +7,7 @@ interest-managed.
 
 ## Railway (recommended)
 
-One-time setup from `holdout-hd/`:
+One-time setup from the repo root:
 
 ```sh
 railway login                 # opens the browser once
@@ -19,7 +19,7 @@ railway domain                # get the public https URL
 
 Later deploys are just `railway up` (or connect the GitHub repo in the
 dashboard for deploy-on-push — set the service root directory to
-`holdout-hd/`).
+`/`, the repo root).
 
 ### Accounts + database (optional)
 

@@ -137,7 +137,7 @@ let cueGateAt = new Map(); // cue key -> earliest next allowed play (cooldowns)
 // jsDelivr CDN (the repo is public). The desktop/console app is served from
 // localhost and uses its bundled copy. Everything else (the voice pack) is
 // always local.
-const CDN_MUSIC = 'https://cdn.jsdelivr.net/gh/monoplay-xyz/holdout@main/holdout-hd/public/assets/audio/';
+const CDN_MUSIC = 'https://cdn.jsdelivr.net/gh/monoplay-xyz/anchorfall-ts-game@main/public/assets/audio/';
 const IS_LOCAL = typeof location !== 'undefined' &&
   (/^(localhost|127\.|0\.0\.0\.0)/.test(location.hostname || '') || location.protocol === 'file:');
 function audioUrl(rel: string) {
