@@ -6,16 +6,16 @@
 import { TILE } from '/shared/game.js';
 import { playEvent, setScene } from './audio.js'; // render-detected cues + ambience scene feed
 
-const particles = [];
-const flashes = [];
-const popups = [];
-const rings = [];
-const edgePulses = []; // nightwave warnings: violet bleed from a map edge
-const crackers = []; // landed lure crackers: 'crackerOut' -> 'crackerBoom'/timeout
-const beams = []; // prism tower shots: 'prismBeam' {x,y,tx,ty,dmg,feeders?}
-const zaps = []; // tesla chain lightning: 'teslaZap' {x,y,targets:[{x,y}]}
-const streaks = []; // blink lines: teleports + phase stalkers {x,y,tx,ty,rgb}
-const pendingLevelUps = []; // coordless 'levelUp' events resolved to player pos
+const particles: any[] = [];
+const flashes: any[] = [];
+const popups: any[] = [];
+const rings: any[] = [];
+const edgePulses: any[] = []; // nightwave warnings: violet bleed from a map edge
+const crackers: any[] = []; // landed lure crackers: 'crackerOut' -> 'crackerBoom'/timeout
+const beams: any[] = []; // prism tower shots: 'prismBeam' {x,y,tx,ty,dmg,feeders?}
+const zaps: any[] = []; // tesla chain lightning: 'teslaZap' {x,y,targets:[{x,y}]}
+const streaks: any[] = []; // blink lines: teleports + phase stalkers {x,y,tx,ty,rgb}
+const pendingLevelUps: any[] = []; // coordless 'levelUp' events resolved to player pos
 const houndMood = new Map(); // follower id -> {engaged,lastBark}: bark on engage edge
 let coreAlarmT = 0; // base-core alarm glow, armed by 'coreHit'/'coreDown'
 let lightningT = 0; // RELIC AWAKENING white screen-flash (thunder crack), 0..1
@@ -23,8 +23,8 @@ let shake = 0;
 let punch = 0; // camera zoom-kick on heavy impacts (render-only, networked-safe)
 let darkWorld = false; // set per-frame from snap.dark (story night missions)
 let familyMode = false; // set per-frame from snap.family: bright child-friendly storybook grade
-const tex = {};
-const imageCache = {};
+const tex: Record<string, any> = {};
+const imageCache: Record<string, any> = {};
 
 // --- per-frame gradient caches (render-only perf; visually identical) ---
 // Light pools rebuild ~40-80 radial gradients/frame from a small set of
@@ -111,15 +111,15 @@ const THEME_PAL = {
   crucible:   { skyFill: '#160604', washRgb: '255,90,40',   vignetteRgb: '120,22,8',  ambient: 'ember' },
   reliquary:  { skyFill: '#12100A', washRgb: '230,206,140', vignetteRgb: '70,58,24',  ambient: null },
 };
-function themePal(snap) {
-  return (snap && typeof snap.theme === 'string') ? (THEME_PAL[snap.theme] || null) : null;
+function themePal(snap: any) {
+  return (snap && typeof snap.theme === 'string') ? ((THEME_PAL as any)[snap.theme] || null) : null;
 }
 
 // Anchor Siege (MOBA) team palette — team 0 = blue/cyan, team 1 = red/orange.
 const SIEGE_TEAM = ['#4f91ff', '#ff6a5a'];
 const SIEGE_TEAM_DIM = ['#2a4e8c', '#8c3a32']; // muted body fill / shadow facet
-function siegeTeamCol(team) { return SIEGE_TEAM[(team | 0) % 2]; }
-function siegeTeamDim(team) { return SIEGE_TEAM_DIM[(team | 0) % 2]; }
+function siegeTeamCol(team: any) { return SIEGE_TEAM[(team | 0) % 2]; }
+function siegeTeamDim(team: any) { return SIEGE_TEAM_DIM[(team | 0) % 2]; }
 
 // --- POWER-UP DROPS (Black Ops Zombies-style) ------------------------------
 // One style row per sim power-up type (shared/game.js POWERUP_WEIGHTS): the
@@ -129,24 +129,24 @@ function siegeTeamDim(team) { return SIEGE_TEAM_DIM[(team | 0) % 2]; }
 // `ptype` strings exactly. Anything not in here renders as a neutral diamond.
 const POWERUP_STYLE = {
   fullhealth: { color: '#4FE08A', rgb: '79,224,138',  banner: 'FULL HEALTH!',
-    glyph(ctx) { ctx.fillStyle = '#0B1A10'; ctx.fillRect(-2, -6, 4, 12); ctx.fillRect(-6, -2, 12, 4); } },
+    glyph(ctx: any) { ctx.fillStyle = '#0B1A10'; ctx.fillRect(-2, -6, 4, 12); ctx.fillRect(-6, -2, 12, 4); } },
   stamina:    { color: '#5FB8FF', rgb: '95,184,255',  banner: 'STAMINA!',
-    glyph(ctx) { // lightning bolt
+    glyph(ctx: any) { // lightning bolt
       ctx.fillStyle = '#08101C'; ctx.beginPath();
       ctx.moveTo(1, -7); ctx.lineTo(-4, 1); ctx.lineTo(-0.5, 1);
       ctx.lineTo(-2, 7); ctx.lineTo(5, -2); ctx.lineTo(1, -2); ctx.closePath(); ctx.fill(); } },
   firesale:   { color: '#FFCB45', rgb: '255,203,69',  banner: 'FIRE SALE!',
-    glyph(ctx) { // coin with a slash through it
+    glyph(ctx: any) { // coin with a slash through it
       ctx.fillStyle = '#1C1404'; ctx.beginPath(); ctx.arc(0, 0, 5.5, 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = '#FFCB45'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(0, 0, 5.5, 0, Math.PI * 2); ctx.stroke();
       ctx.fillStyle = '#FFCB45'; ctx.font = 'bold 8px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText('$', 0, 0.5); } },
   maxammo:    { color: '#C77BFF', rgb: '199,123,255',  banner: 'MAX AMMO!',
-    glyph(ctx) { // upward chevrons (rank-up)
+    glyph(ctx: any) { // upward chevrons (rank-up)
       ctx.strokeStyle = '#1A0E22'; ctx.lineWidth = 1.8; ctx.lineJoin = 'round';
       for (const oy of [2, -2]) { ctx.beginPath(); ctx.moveTo(-5, oy + 2); ctx.lineTo(0, oy - 3); ctx.lineTo(5, oy + 2); ctx.stroke(); } } },
   nuke:       { color: '#FF5A4A', rgb: '255,90,74',   banner: 'NUKE!',
-    glyph(ctx) { // skull
+    glyph(ctx: any) { // skull
       ctx.fillStyle = '#1A0606'; ctx.beginPath(); ctx.arc(0, -1, 5, 0, Math.PI * 2); ctx.fill();
       ctx.fillRect(-3, 2, 6, 4);
       ctx.fillStyle = '#FF5A4A'; ctx.beginPath();
@@ -155,7 +155,7 @@ const POWERUP_STYLE = {
 };
 
 // deterministic RNG so baked textures are stable between loads
-function mulberry32(seed) {
+function mulberry32(seed: any) {
   return function () {
     seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
     let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
@@ -164,14 +164,14 @@ function mulberry32(seed) {
   };
 }
 
-function bake(w, h, fn, seed = 1) {
+function bake(w: any, h: any, fn: any, seed = 1) {
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
   fn(c.getContext('2d'), mulberry32(seed));
   return c;
 }
 
-function shade(hex, amt) {
+function shade(hex: any, amt: any) {
   const n = parseInt(hex.slice(1), 16);
   const r = Math.max(0, Math.min(255, (n >> 16) + amt));
   const g = Math.max(0, Math.min(255, ((n >> 8) & 255) + amt));
@@ -179,7 +179,7 @@ function shade(hex, amt) {
   return `rgb(${r},${g},${b})`;
 }
 
-function mix(hexA, hexB, t) {
+function mix(hexA: any, hexB: any, t: any) {
   const a = parseInt(hexA.slice(1), 16), b = parseInt(hexB.slice(1), 16);
   const r = Math.round((a >> 16) + (((b >> 16) & 255) - (a >> 16)) * t);
   const g = Math.round(((a >> 8) & 255) + (((b >> 8) & 255) - ((a >> 8) & 255)) * t);
@@ -187,15 +187,15 @@ function mix(hexA, hexB, t) {
   return `rgb(${r},${g},${bl})`;
 }
 
-function fract(v) { return v - Math.floor(v); }
-function flick(n) { return fract(Math.sin(n * 127.1) * 43758.5453); }
+function fract(v: any) { return v - Math.floor(v); }
+function flick(n: any) { return fract(Math.sin(n * 127.1) * 43758.5453); }
 
 // ============================== TILE BAKERS ==============================
 // One baker per floor letter; each variant seeded so maps look hand-mottled.
 
 // '.' MEADOW — cool moonlit grass, the only green-leaning ground.
-function bakeMeadow(seed) {
-  return bake(TILE, TILE, (ctx, rnd) => {
+function bakeMeadow(seed: any) {
+  return bake(TILE, TILE, (ctx: any, rnd: any) => {
     ctx.fillStyle = '#26323F';
     ctx.fillRect(0, 0, TILE, TILE);
     ctx.fillStyle = 'rgba(22,30,38,0.4)';
@@ -222,8 +222,8 @@ function bakeMeadow(seed) {
 }
 
 // ',' FOREST FLOOR — darker, warmer leaf litter under canopy shade.
-function bakeForest(seed) {
-  return bake(TILE, TILE, (ctx, rnd) => {
+function bakeForest(seed: any) {
+  return bake(TILE, TILE, (ctx: any, rnd: any) => {
     ctx.fillStyle = '#221C22';
     ctx.fillRect(0, 0, TILE, TILE);
     for (let i = 0; i < 9; i++) {
@@ -250,8 +250,8 @@ function bakeForest(seed) {
 }
 
 // ':' SWAMP MUD — wet olive-brown ground; cold sheen on warm mud = slow.
-function bakeSwamp(seed) {
-  return bake(TILE, TILE, (ctx, rnd) => {
+function bakeSwamp(seed: any) {
+  return bake(TILE, TILE, (ctx: any, rnd: any) => {
     ctx.fillStyle = '#2A2820';
     ctx.fillRect(0, 0, TILE, TILE);
     for (let i = 0; i < 3; i++) {
@@ -283,8 +283,8 @@ function bakeSwamp(seed) {
 }
 
 // ';' WORKED STONE — operator-cut flagstone; man-made and orderly.
-function bakeStone(seed) {
-  return bake(TILE, TILE, (ctx, rnd) => {
+function bakeStone(seed: any) {
+  return bake(TILE, TILE, (ctx: any, rnd: any) => {
     const gx = 18 + Math.floor(rnd() * 12);
     const gy = 18 + Math.floor(rnd() * 12);
     const slabs = [[0, 0, gx, gy], [gx, 0, TILE - gx, gy], [0, gy, gx, TILE - gy], [gx, gy, TILE - gx, TILE - gy]];
@@ -318,8 +318,8 @@ function bakeStone(seed) {
 }
 
 // '_' SCORCHED ASH — Entropy-burned dead ground; darkest walkable tile.
-function bakeAsh(seed) {
-  return bake(TILE, TILE, (ctx, rnd) => {
+function bakeAsh(seed: any) {
+  return bake(TILE, TILE, (ctx: any, rnd: any) => {
     ctx.fillStyle = '#17141A';
     ctx.fillRect(0, 0, TILE, TILE);
     for (let i = 0; i < 5; i++) {
@@ -357,8 +357,8 @@ function bakeAsh(seed) {
 }
 
 // '~' WATER — deep cold blue-black, the strongest moonlight stage.
-function bakeWater(seed) {
-  return bake(TILE, TILE, (ctx, rnd) => {
+function bakeWater(seed: any) {
+  return bake(TILE, TILE, (ctx: any, rnd: any) => {
     ctx.fillStyle = '#101A2E';
     ctx.fillRect(0, 0, TILE, TILE);
     for (let i = 0; i < 2; i++) {
@@ -384,8 +384,8 @@ function bakeWater(seed) {
 }
 
 // '#' ROCK WALL top face — raised blocking graphite rock.
-function bakeRock(seed) {
-  return bake(TILE, TILE, (ctx, rnd) => {
+function bakeRock(seed: any) {
+  return bake(TILE, TILE, (ctx: any, rnd: any) => {
     ctx.fillStyle = '#3A3F4E';
     ctx.fillRect(0, 0, TILE, TILE);
     // angular facets
@@ -436,9 +436,9 @@ function bakeRock(seed) {
 }
 
 // 'T' TREE — canopy discs over forest floor, baked 64x64 with contact shadow.
-function bakeTree(seed) {
+function bakeTree(seed: any) {
   const S = 64;
-  return bake(S, S, (ctx, rnd) => {
+  return bake(S, S, (ctx: any, rnd: any) => {
     ctx.clearRect(0, 0, S, S);
     // soft radial contact shadow sells the top-down depth
     const sg = ctx.createRadialGradient(34, 46, 2, 34, 46, 16);
@@ -471,14 +471,14 @@ function bakeTree(seed) {
 }
 
 // 'o' SANDBAGS — warm khaki defenses against the cold night.
-function bakeSandbags(seed) {
-  return bake(TILE, TILE, (ctx, rnd) => {
+function bakeSandbags(seed: any) {
+  return bake(TILE, TILE, (ctx: any, rnd: any) => {
     ctx.clearRect(0, 0, TILE, TILE);
     ctx.fillStyle = 'rgba(21,19,26,0.6)';
     ctx.beginPath();
     ctx.ellipse(TILE / 2, TILE - 8, 21, 6, 0, 0, Math.PI * 2);
     ctx.fill();
-    const bag = (x, y, w, h) => {
+    const bag = (x: any, y: any, w: any, h: any) => {
       ctx.fillStyle = shade('#4A4232', Math.floor((rnd() - 0.4) * 14));
       ctx.beginPath();
       ctx.ellipse(x, y, w, h, 0, 0, Math.PI * 2);
@@ -504,8 +504,8 @@ function bakeSandbags(seed) {
 }
 
 // '*' CAMPFIRE stones + scorch (the flame itself is drawn live each frame).
-function bakeFirebase(seed) {
-  return bake(TILE, TILE, (ctx, rnd) => {
+function bakeFirebase(seed: any) {
+  return bake(TILE, TILE, (ctx: any, rnd: any) => {
     ctx.clearRect(0, 0, TILE, TILE);
     ctx.fillStyle = '#17141A';
     ctx.beginPath();
@@ -534,8 +534,8 @@ function bakeFirebase(seed) {
 }
 
 // '=' SAND — pale moonlit dunes; the lightest ground in the frontier.
-function bakeSand(seed) {
-  return bake(TILE, TILE, (ctx, rnd) => {
+function bakeSand(seed: any) {
+  return bake(TILE, TILE, (ctx: any, rnd: any) => {
     ctx.fillStyle = '#5E563E';
     ctx.fillRect(0, 0, TILE, TILE);
     // dune ripple shadows: long shallow arcs
@@ -574,8 +574,8 @@ function bakeSand(seed) {
 }
 
 // '!' LAVA — black crust riven by molten channels (glow/shimmer animate live).
-function bakeLava(seed) {
-  return bake(TILE, TILE, (ctx, rnd) => {
+function bakeLava(seed: any) {
+  return bake(TILE, TILE, (ctx: any, rnd: any) => {
     ctx.fillStyle = '#1E0D07';
     ctx.fillRect(0, 0, TILE, TILE);
     // crust plates
@@ -611,8 +611,8 @@ function bakeLava(seed) {
 }
 
 // '^' ICE — glacial sheen, pressure cracks and old skid lines.
-function bakeIce(seed) {
-  return bake(TILE, TILE, (ctx, rnd) => {
+function bakeIce(seed: any) {
+  return bake(TILE, TILE, (ctx: any, rnd: any) => {
     ctx.fillStyle = '#27384C';
     ctx.fillRect(0, 0, TILE, TILE);
     // sheen patches
@@ -665,8 +665,8 @@ function bakeIce(seed) {
 
 // '+' CINDER-CRUST (Emberwaste/Crucible) — crusted lava-flat plaza: dark basalt
 // crust with faint orange seam-glow in the cracks (no damage, just a hot look).
-function bakeCinder(seed) {
-  return bake(TILE, TILE, (ctx, rnd) => {
+function bakeCinder(seed: any) {
+  return bake(TILE, TILE, (ctx: any, rnd: any) => {
     ctx.fillStyle = '#1C1410';
     ctx.fillRect(0, 0, TILE, TILE);
     // crust plates
@@ -695,8 +695,8 @@ function bakeCinder(seed) {
 }
 
 // '-' PACKED-SNOW (Glacis) — pale wind-packed drift bank; subtle ripple ridges.
-function bakeSnowpack(seed) {
-  return bake(TILE, TILE, (ctx, rnd) => {
+function bakeSnowpack(seed: any) {
+  return bake(TILE, TILE, (ctx: any, rnd: any) => {
     ctx.fillStyle = '#C7D6E6';
     ctx.fillRect(0, 0, TILE, TILE);
     for (let i = 0; i < 4; i++) {
@@ -720,8 +720,8 @@ function bakeSnowpack(seed) {
 }
 
 // '@' PEAT-BOG (Sunken Mire) — soggy dark peat with sickly green seep pools.
-function bakePeat(seed) {
-  return bake(TILE, TILE, (ctx, rnd) => {
+function bakePeat(seed: any) {
+  return bake(TILE, TILE, (ctx: any, rnd: any) => {
     ctx.fillStyle = '#1C1A12';
     ctx.fillRect(0, 0, TILE, TILE);
     for (let i = 0; i < 3; i++) {
@@ -745,8 +745,8 @@ function bakePeat(seed) {
 }
 
 // '/' UNSTABLE-SLAB (Voidscar) — cracked stone shelf rimmed by a faint void glow.
-function bakeSlab(seed) {
-  return bake(TILE, TILE, (ctx, rnd) => {
+function bakeSlab(seed: any) {
+  return bake(TILE, TILE, (ctx: any, rnd: any) => {
     // base cracked stone (slate)
     ctx.fillStyle = '#2A2C3A';
     ctx.fillRect(0, 0, TILE, TILE);
@@ -820,8 +820,8 @@ const FLOOR_TEX = {
 // Unknown letters fall back to meadow so classic maps (and future letters)
 // never break. Tall/decor letters pick a fitting ground to sit on.
 // ('~' water, '!' lava and '%' void are painted live in the floor pass.)
-function floorTex(c, x, y) {
-  let f = FLOOR_TEX[c];
+function floorTex(c: any, x: any, y: any) {
+  let f = (FLOOR_TEX as any)[c];
   if (!f) {
     if (c === 'T') f = FLOOR_TEX[','];
     else if (c === 'E' || c === 'K') f = FLOOR_TEX[';'];
@@ -837,7 +837,7 @@ function floorTex(c, x, y) {
 // + wasted requests per load). Flip to true if real PNG art is ever added.
 const USE_PNG_OVERRIDES = false;
 
-function loadImage(src) {
+function loadImage(src: any) {
   return new Promise((res, rej) => {
     const img = new Image();
     img.onload = () => res(img);
@@ -846,7 +846,7 @@ function loadImage(src) {
   });
 }
 
-function loadCached(src) {
+function loadCached(src: any) {
   if (!USE_PNG_OVERRIDES) return Promise.reject(); // no override PNGs: procedural fallback, no 404
   imageCache[src] ||= loadImage(src);
   return imageCache[src];
@@ -927,7 +927,7 @@ const PORTRAIT_CAST = {
 };
 
 // Hair back layers (drawn behind the head) for the long styles.
-function portraitHairBack(ctx, style, col, dark) {
+function portraitHairBack(ctx: any, style: any, col: any, dark: any) {
   ctx.fillStyle = dark;
   if (style === 'pony') {
     // high tail swinging out left
@@ -966,7 +966,7 @@ function portraitHairBack(ctx, style, col, dark) {
 }
 
 // Hair front/top layers, drawn over the head. cx=28, head top ~12.5.
-function portraitHairFront(ctx, style, col, dark, fine) {
+function portraitHairFront(ctx: any, style: any, col: any, dark: any, fine: any) {
   ctx.fillStyle = col;
   if (style === 'pixie') {
     ctx.beginPath();
@@ -1154,16 +1154,16 @@ function portraitHairFront(ctx, style, col, dark, fine) {
   }
 }
 
-export function drawPortrait(canvas, ch, size = 56) {
+export function drawPortrait(canvas: any, ch: any, size = 56) {
   canvas.width = size; canvas.height = size;
   const ctx = canvas.getContext('2d');
   loadCached(`/assets/portrait2_${ch.id}.png`)
-    .then(img => ctx.drawImage(img, 0, 0, size, size))
+    .then((img: any) => ctx.drawImage(img, 0, 0, size, size))
     .catch(() => {
       const s = size / 56;
       const fine = size >= 80; // extra micro-detail only when it can resolve
-      const cfg = PORTRAIT_CAST[ch.id] ?? { fem: false, skin: 2, hair: 'crop', hairCol: '#2A211A', expr: 'stoic', prop: 'ear' };
-      const ex = PORTRAIT_EXPR[cfg.expr] ?? PORTRAIT_EXPR.stoic;
+      const cfg = (PORTRAIT_CAST as any)[ch.id] ?? { fem: false, skin: 2, hair: 'crop', hairCol: '#2A211A', expr: 'stoic', prop: 'ear' };
+      const ex = (PORTRAIT_EXPR as any)[cfg.expr] ?? PORTRAIT_EXPR.stoic;
       const skin = SKIN_TONES[cfg.skin] ?? SKIN_TONES[2];
       const skinDk = shade(skin, -34);
       const hairDk = shade(cfg.hairCol, -22);
@@ -1491,7 +1491,7 @@ export function drawPortrait(canvas, ch, size = 56) {
 }
 
 // Group the weapon kinds into readable held-silhouette classes.
-function weaponClass(kind) {
+function weaponClass(kind: any) {
   switch (kind) {
     case 'rail': case 'ghost': return 'long';
     case 'railcannon': return 'long'; // field pickup: heavy pierce rail
@@ -1508,14 +1508,14 @@ function weaponClass(kind) {
 }
 
 // HUD weapon silhouette. Override with /assets/weapon2_<id>.png.
-export function drawWeaponIcon(canvas, chOrWeapon) {
+export function drawWeaponIcon(canvas: any, chOrWeapon: any) {
   const weapon = chOrWeapon.weapon || chOrWeapon;
   const ctx = canvas.getContext('2d');
   const W = canvas.width, H = canvas.height;
   ctx.clearRect(0, 0, W, H);
   if (chOrWeapon.id) {
     loadCached(`/assets/weapon2_${chOrWeapon.id}.png`)
-      .then(img => { ctx.clearRect(0, 0, W, H); ctx.drawImage(img, 0, 0, W, H); })
+      .then((img: any) => { ctx.clearRect(0, 0, W, H); ctx.drawImage(img, 0, 0, W, H); })
       .catch(() => {});
   }
   const cls = weaponClass(weapon.kind);
@@ -1622,7 +1622,7 @@ export function drawWeaponIcon(canvas, chOrWeapon) {
 // field kinds reads as its own silhouette (flamer = thrower, railcannon =
 // long rail, stormgun = arc emitter, mortarMk2 = launcher tube); the amber
 // corner braces mark it as field issue rather than a character's own arm.
-export function drawFieldWeaponIcon(canvas, fieldWeapon) {
+export function drawFieldWeaponIcon(canvas: any, fieldWeapon: any) {
   const kind = typeof fieldWeapon === 'string' ? fieldWeapon : (fieldWeapon?.kind ?? '');
   drawWeaponIcon(canvas, { kind });
   const ctx = canvas.getContext('2d');
@@ -1641,7 +1641,7 @@ export function drawFieldWeaponIcon(canvas, fieldWeapon) {
 }
 
 // ============================== EVENT FX ==============================
-function burstAt(x, y, n, color, speed = 120, life = 0.4) {
+function burstAt(x: any, y: any, n: any, color: any, speed = 120, life = 0.4) {
   for (let i = 0; i < n; i++) {
     const a = Math.random() * Math.PI * 2;
     const v = speed * (0.4 + Math.random() * 0.6);
@@ -1650,16 +1650,16 @@ function burstAt(x, y, n, color, speed = 120, life = 0.4) {
 }
 
 // On-the-spot leveling: gold flare + floating LVL banner at the operator.
-function levelUpFX(x, y, level) {
+function levelUpFX(x: any, y: any, level: any) {
   rings.push({ x, y, r0: 6, r1: 42, life: 0.6, max: 0.6, color: PAL.lythGold, w: 2.5 });
   burstAt(x, y, 14, PAL.lythGold, 160, 0.55);
   burstAt(x, y, 6, PAL.lythPale, 210, 0.4);
   popups.push({ x, y: y - 28, text: `LVL ${level ?? 2}`, life: 1.2, max: 1.2, color: PAL.lythGold });
 }
 
-export function addEventFX(ev) {
-  const burst = (n, color, speed = 120, life = 0.4) => burstAt(ev.x, ev.y, n, color, speed, life);
-  const ring = (r1, color, life = 0.5, w = 3, r0 = 5) =>
+export function addEventFX(ev: any) {
+  const burst = (n: any, color: any, speed = 120, life = 0.4) => burstAt(ev.x, ev.y, n, color, speed, life);
+  const ring = (r1: any, color: any, life = 0.5, w = 3, r0 = 5) =>
     rings.push({ x: ev.x, y: ev.y, r0, r1, life, max: life, color, w });
 
   // shoot flashes carry the shooter's weapon evolution when the sim ships it
@@ -1803,14 +1803,14 @@ export function addEventFX(ev) {
   // --- POWER-UP DROPS (Black Ops Zombies-style) ---
   else if (ev.type === 'powerupDrop') {
     // a rare token materializes at the corpse: a quick typed-color halo + sparkle
-    const st = POWERUP_STYLE[ev.ptype];
+    const st = (POWERUP_STYLE as any)[ev.ptype];
     const col = st ? st.color : PAL.lythPale;
     ring(34, col, 0.6, 2.5); burst(10, col, 130, 0.5); burst(4, '#ffffff', 90, 0.35);
   }
   else if (ev.type === 'powerup') {
     // a friendly grabbed it: a bright pickup burst on the spot (the big typed
     // on-screen banner rides the client's DOM banner path via bannerFor)
-    const st = POWERUP_STYLE[ev.ptype];
+    const st = (POWERUP_STYLE as any)[ev.ptype];
     const col = st ? st.color : PAL.lythPale;
     ring(60, col, 0.8, 3.5); ring(34, '#ffffff', 0.6, 2.5);
     burst(24, col, 220, 0.8); burst(10, '#ffffff', 150, 0.5);
@@ -1833,7 +1833,7 @@ export function addEventFX(ev) {
   else if (ev.type === 'dash') burst(8, ev.kind ? PAL.glitch : PAL.relay, 140, 0.3);
   else if (ev.type === 'wave') {
     // a nightwave pours in from one map edge: directional violet pulse + banner
-    const dir = { n: 'NORTH', s: 'SOUTH', e: 'EAST', w: 'WEST' }[ev.edge] || '';
+    const dir = ({ n: 'NORTH', s: 'SOUTH', e: 'EAST', w: 'WEST' } as any)[ev.edge] || '';
     edgePulses.push({ edge: ev.edge || 'n', life: 2.6, max: 2.6 });
     popups.push({
       screen: true, x: 0, y: 0,
@@ -2025,7 +2025,7 @@ export function addEventFX(ev) {
   else if (ev.type === 'turretType') {
     // RA2 carousel confirm: the turret comes online wearing its type colors
     if (ev.x != null) {
-      const col = { prism: PAL.relay, tesla: PAL.eye, toxin: '#8CC850' }[ev.ttype] || PAL.teal;
+      const col = ({ prism: PAL.relay, tesla: PAL.eye, toxin: '#8CC850' } as any)[ev.ttype] || PAL.teal;
       ring(36, col, 0.5, 2.5);
       burst(10, col, 130, 0.45);
       popups.push({ x: ev.x, y: ev.y - 30, text: `${String(ev.ttype || 'gun').toUpperCase()} ONLINE`, life: 1, max: 1, color: col });
@@ -2263,7 +2263,7 @@ export function addEventFX(ev) {
 // step or decay anyone's stride. '' = the shared single camera (today's keys).
 const pose = new Map();
 let poseNs = '';
-function poseFor(key, x, y, dt) {
+function poseFor(key: any, x: any, y: any, dt: any) {
   if (!key) return { ph: 0, amp: 0, fx: 0, fy: 1 };
   if (poseNs) key = poseNs + key;
   if (pose.size > 900) pose.clear(); // long expeditions: ids keep growing
@@ -2279,7 +2279,7 @@ function poseFor(key, x, y, dt) {
 }
 
 // Standard Moonsteel rim light, cast from the upper-left, screen-fixed.
-function rimArc(ctx, x, y, r, alpha = 0.5, lw = 1.5) {
+function rimArc(ctx: any, x: any, y: any, r: any, alpha = 0.5, lw = 1.5) {
   ctx.save();
   ctx.strokeStyle = PAL.moonsteel;
   ctx.globalAlpha *= alpha;
@@ -2290,7 +2290,7 @@ function rimArc(ctx, x, y, r, alpha = 0.5, lw = 1.5) {
   ctx.restore();
 }
 
-function shadowBlob(ctx, x, y, rx, ry) {
+function shadowBlob(ctx: any, x: any, y: any, rx: any, ry: any) {
   ctx.fillStyle = 'rgba(11,10,20,0.5)';
   ctx.beginPath();
   ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2);
@@ -2298,7 +2298,7 @@ function shadowBlob(ctx, x, y, rx, ry) {
 }
 
 // Held weapon silhouettes in rotated space (facing = -y), gunmetal.
-function drawHeldWeapon(ctx, cls) {
+function drawHeldWeapon(ctx: any, cls: any) {
   const gm = PAL.graphPlate, dk = PAL.graphDark, hi = PAL.moonsteel;
   ctx.save();
   if (cls === 'long') {
@@ -2370,7 +2370,7 @@ function drawHeldWeapon(ctx, cls) {
 // ============================== OPERATORS ==============================
 // Monolythium frontier operators: graphite plate over dark underlayer, boxy
 // backpack rig, relay-cyan visor, char-color energy trim, teal squad markings.
-function drawSoldier(ctx, x, y, fx, fy, color, t, isMe, invuln, opts = {}) {
+function drawSoldier(ctx: any, x: any, y: any, fx: any, fy: any, color: any, t: any, isMe: any, invuln: any, opts: any = {}) {
   const ang = Math.atan2(fy, fx);
   const { ph, amp } = poseFor(opts.key, x, y, opts.dt || 0.016);
   const swim = !!opts.swim; // half-submerged crawl: the Selkie crossing water
@@ -2472,7 +2472,7 @@ function drawSoldier(ctx, x, y, fx, fy, color, t, isMe, invuln, opts = {}) {
 }
 
 // Ripple wake peeling off a swimmer; drawn under the operator.
-function drawSwimWake(ctx, p, t) {
+function drawSwimWake(ctx: any, p: any, t: any) {
   ctx.save();
   const base = ctx.globalAlpha;
   ctx.strokeStyle = 'rgba(94,107,140,0.55)';
@@ -2497,7 +2497,7 @@ function drawSwimWake(ctx, p, t) {
 }
 
 // Downed operator: slumped on the ground, faint life-sign visor pulse.
-function drawCaptive(ctx, c, color, t) {
+function drawCaptive(ctx: any, c: any, color: any, t: any) {
   const { x, y } = c;
   ctx.save();
   shadowBlob(ctx, x, y + 8, 13, 5);
@@ -2545,9 +2545,9 @@ const KIND_ALIAS = {
   u: 'pyrebeetle', pyre: 'pyrebeetle', beetle: 'pyrebeetle', pyrebeetle: 'pyrebeetle', pyreBeetle: 'pyrebeetle',
 };
 const KIND_R_NEW = { husk: 10, forkalpha: 13, acolyte: 11, voltwraith: 11, phasestalker: 12, pyrebeetle: 11 };
-for (const [k, canon] of Object.entries(KIND_ALIAS)) KIND_R[k] = KIND_R_NEW[canon];
+for (const [k, canon] of Object.entries(KIND_ALIAS)) (KIND_R as any)[k] = (KIND_R_NEW as any)[canon];
 
-function drawEye(ctx, x, y, r, alpha = 1) {
+function drawEye(ctx: any, x: any, y: any, r: any, alpha = 1) {
   ctx.save();
   ctx.globalAlpha *= alpha;
   ctx.shadowColor = PAL.relay;
@@ -2564,7 +2564,7 @@ function drawEye(ctx, x, y, r, alpha = 1) {
 // A pair of burning eyes (red by default, violet for the ghost) with a strong
 // bloom, sized up so they read through the event's darkness like the night
 // hunters' eyes. Used by the nightmare drawEnemy branches below.
-function drawDreadEyes(ctx, e, ahead = 7, r = 2.2, rgb = '255,60,60', spread = 3.2) {
+function drawDreadEyes(ctx: any, e: any, ahead = 7, r = 2.2, rgb = '255,60,60', spread = 3.2) {
   const fx = e.fx || 1, fy = e.fy || 0;
   const px = -fy, py = fx; // perpendicular for the two-eye spacing
   const cx = e.x + fx * ahead, cy = e.y + fy * ahead;
@@ -2581,7 +2581,7 @@ function drawDreadEyes(ctx, e, ahead = 7, r = 2.2, rgb = '255,60,60', spread = 3
 }
 // A short violet/grey wake dragged opposite the heading — every nightmare leaves
 // a brief motion trail so the swarm reads as fast and unnatural.
-function drawNightmareTrail(ctx, e, len = 14, rgb = '90,46,140') {
+function drawNightmareTrail(ctx: any, e: any, len = 14, rgb = '90,46,140') {
   const fx = e.fx || 0, fy = e.fy || 1;
   ctx.save();
   const tg = ctx.createLinearGradient(e.x, e.y, e.x - fx * len, e.y - fy * len);
@@ -2600,8 +2600,8 @@ function drawNightmareTrail(ctx, e, len = 14, rgb = '90,46,140') {
 // --- Family Mode monster softeners (visual only; gated by the caller) ---
 // A round pastel cushion drawn UNDER the normal monster art: it rounds the
 // spiky silhouette and washes the whole shape toward a cuddly pastel.
-function drawFamilyMonsterBase(ctx, e, t) {
-  const r = KIND_R[e.kind] || 13; // caller already applies the ~1.3x family scale
+function drawFamilyMonsterBase(ctx: any, e: any, t: any) {
+  const r = (KIND_R as any)[e.kind] || 13; // caller already applies the ~1.3x family scale
   const bob = Math.sin(t * 2 + e.id * 1.3) * 1.2; // gentle idle breathing
   ctx.save();
   // soft outer glow halo
@@ -2627,8 +2627,8 @@ function drawFamilyMonsterBase(ctx, e, t) {
 
 // Big friendly eyes + a little smile drawn OVER the body, facing the enemy's
 // heading so the cuddly face leads its movement.
-function drawFamilyMonsterFace(ctx, e, t) {
-  const r = KIND_R[e.kind] || 13; // caller already applies the ~1.3x family scale
+function drawFamilyMonsterFace(ctx: any, e: any, t: any) {
+  const r = (KIND_R as any)[e.kind] || 13; // caller already applies the ~1.3x family scale
   const bob = Math.sin(t * 2 + e.id * 1.3) * 1.2;
   const fx = e.fx || 1, fy = e.fy || 0;
   const fl = Math.hypot(fx, fy) || 1;
@@ -2671,10 +2671,10 @@ function drawFamilyMonsterFace(ctx, e, t) {
   ctx.restore();
 }
 
-function drawEnemy(ctx, e, t, dt) {
+function drawEnemy(ctx: any, e: any, t: any, dt: any) {
   const a = Math.atan2(e.fy, e.fx);
   const { ph } = poseFor('e' + e.id, e.x, e.y, dt);
-  const kind = KIND_ALIAS[e.kind] || e.kind; // frontier III aliases
+  const kind = (KIND_ALIAS as any)[e.kind] || e.kind; // frontier III aliases
 
   if (e.kind === 'grunt') {
     // ENTROPY CRAWLER — low six-limbed tick of static, wider than tall
@@ -4031,7 +4031,7 @@ function drawEnemy(ctx, e, t, dt) {
 }
 
 // ============================== WORLD SET PIECES ==============================
-function tear(ctx, x, y, w, h) {
+function tear(ctx: any, x: any, y: any, w: any, h: any) {
   ctx.beginPath();
   ctx.moveTo(x, y - h);
   ctx.quadraticCurveTo(x + w, y - h * 0.35, x, y + h * 0.28);
@@ -4040,7 +4040,7 @@ function tear(ctx, x, y, w, h) {
 }
 
 // Live campfire flame over a baked stone ring. Warmth = safety.
-function drawCampfire(ctx, px, py, gx, gy, t, lights) {
+function drawCampfire(ctx: any, px: any, py: any, gx: any, gy: any, t: any, lights: any) {
   const cx = px + TILE / 2, cy = py + TILE / 2 + 2;
   const jt = Math.floor(t * 8) + gx * 13.37 + gy * 7.77;
   const j = flick(jt), j2 = flick(jt + 5);
@@ -4067,7 +4067,7 @@ function drawCampfire(ctx, px, py, gx, gy, t, lights) {
 }
 
 // LYTH crystal node — warm landmark; shards shrink as it takes damage.
-function drawCrystal(ctx, c, t, lights) {
+function drawCrystal(ctx: any, c: any, t: any, lights: any) {
   const { x, y } = c;
   ctx.save();
   ctx.strokeStyle = '#14161E';
@@ -4110,7 +4110,7 @@ function drawCrystal(ctx, c, t, lights) {
 // Shard pickup — the signature warm LYTH glow; must read at full-screen range.
 // Drops may carry a kind ('medkit'/'shield'/'cracker'/'token'); plain shards
 // (no kind) render exactly as before.
-function drawDrop(ctx, d, t, lights) {
+function drawDrop(ctx: any, d: any, t: any, lights: any) {
   if (d.kind && d.kind !== 'shards' && d.kind !== 'shard') { drawItemDrop(ctx, d, t, lights); return; }
   const bob = Math.sin(t * (Math.PI * 2 / 1.2) + (d.x + d.y) * 0.07) * 2;
   const y = d.y - 5 + bob;
@@ -4154,8 +4154,8 @@ function drawDrop(ctx, d, t, lights) {
 // Floating Black-Ops-Zombies power-up: a bobbing, pulsing, glowing token with a
 // type-specific glyph (POWERUP_STYLE). Blinks in its last ~2s before despawn
 // (pu.ttl, emitted by the sim). All cosmetic — pickup is sim-driven walk-over.
-function drawPowerup(ctx, pu, t, lights) {
-  const st = POWERUP_STYLE[pu.type] || { color: PAL.lythPale, rgb: '255,239,194', glyph: null };
+function drawPowerup(ctx: any, pu: any, t: any, lights: any) {
+  const st = (POWERUP_STYLE as any)[pu.type] || { color: PAL.lythPale, rgb: '255,239,194', glyph: null };
   const phase = t * 2.2 + (pu.x + pu.y) * 0.05;
   const bob = Math.sin(phase) * 3;
   const pulse = 0.6 + 0.4 * (0.5 + 0.5 * Math.sin(t * 5 + (pu.x + pu.y) * 0.03)); // 0.6..1.0
@@ -4199,7 +4199,7 @@ function drawPowerup(ctx, pu, t, lights) {
 }
 
 // Stranded operator — hooded indigo cloak, lantern, face never shown.
-function drawNpc(ctx, n, t, lights) {
+function drawNpc(ctx: any, n: any, t: any, lights: any) {
   const bob = Math.sin(t * 1.4 + (n.x || 0) * 0.05) * 0.8;
   const x = n.x, y = n.y + bob;
   shadowBlob(ctx, x, n.y + 10, 11, 4.5);
@@ -4282,15 +4282,15 @@ const SHOP_OFFER_NAMES = {
   token: 'WEAPON TOKEN +1', shield: 'SHIELD +2', cracker: 'CRACKER', medkit: 'MEDKIT',
   toxin: 'TOXIN CANISTER', mask: 'BREATHER MASK', turret: 'TURRET', wall: 'WALL', barricade: 'BARRICADE',
 };
-function shopOfferLabel(o) {
-  const base = SHOP_OFFER_NAMES[o.what] ?? String(o.what || '').toUpperCase();
+function shopOfferLabel(o: any) {
+  const base = (SHOP_OFFER_NAMES as any)[o.what] ?? String(o.what || '').toUpperCase();
   const qty = (o.amount && o.amount > 1) ? ` ×${o.amount}` : '';
   return o.place ? `PLACE: ${base}${qty}` : `${base}${qty}`;
 }
 
 // 'C' — supply cache. Closed: graphite chest with LYTH-gold banding and a
 // winking latch so it reads at range. Opened: lid thrown back, looted dark.
-function drawChest(ctx, c, t, lights) {
+function drawChest(ctx: any, c: any, t: any, lights: any) {
   const { x, y } = c;
   shadowBlob(ctx, x, y + 7, 12, 4.5);
   ctx.save();
@@ -4339,7 +4339,7 @@ function drawChest(ctx, c, t, lights) {
 
 // 'V' — shared mounts. Stag: antlered land mount saddled in Frontier Teal.
 // Skiff: flat-bottomed boat; wake ripples peel off the stern underway.
-function drawVehicle(ctx, v, t, dt, lights) {
+function drawVehicle(ctx: any, v: any, t: any, dt: any, lights: any) {
   const { x, y } = v;
   const ridden = (v.rider ?? null) != null;
   const { ph, amp } = poseFor('v' + (v.id ?? `${v.kind}:${x}`), x, y, dt);
@@ -4453,7 +4453,7 @@ function drawVehicle(ctx, v, t, dt, lights) {
 
 // 'W' — watchtower: stilted graphite platform. Destroyed towers leave
 // splintered stilts and a rebuild hologram, like a fresh job site.
-function drawTower(ctx, tw, t, lights) {
+function drawTower(ctx: any, tw: any, t: any, lights: any) {
   const { x, y } = tw;
   const lvl = Math.max(1, Math.min(3, tw.level ?? 1));
   if ((tw.hp ?? 1) <= 0) {
@@ -4527,7 +4527,7 @@ function drawTower(ctx, tw, t, lights) {
 
 // Faint, team-neutral dashed polylines so players can read the two lanes.
 // Drawn FIRST (under everything) — the call site sits right after terrain.
-function drawSiegeLanes(ctx, lanes, inView, t) {
+function drawSiegeLanes(ctx: any, lanes: any, inView: any, t: any) {
   if (!lanes || !lanes.length) return;
   ctx.save();
   ctx.lineWidth = 3;
@@ -4552,7 +4552,7 @@ function drawSiegeLanes(ctx, lanes, inView, t) {
 
 // A team-colored turret glyph (diamond tower) with a thin hp pip bar above it.
 // Destroyed towers read as grey rubble with no bar. Level 2/3 sit a touch bigger.
-function drawSiegeTower(ctx, tw, t, lights) {
+function drawSiegeTower(ctx: any, tw: any, t: any, lights: any) {
   const { x, y } = tw;
   const lvl = Math.max(1, tw.level | 0 || 1);
   const s = 0.6 * TILE * (1 + (Math.min(3, lvl) - 1) * 0.12); // ~0.6*TILE, +12%/lvl
@@ -4618,7 +4618,7 @@ function drawSiegeTower(ctx, tw, t, lights) {
 // shoot down. Drawn neutral AMBER (no team color) as an upright faceted shard on
 // a dark plinth, with a thin hp pip bar so its killable state reads. It dies when
 // hp hits 0 (the snapshot stops shipping it), so there's no rubble state here.
-function drawSiegePrism(ctx, pr, t, lights) {
+function drawSiegePrism(ctx: any, pr: any, t: any, lights: any) {
   const { x, y } = pr;
   const s = 0.5 * TILE;
   const col = PAL.lythGold;
@@ -4653,7 +4653,7 @@ function drawSiegePrism(ctx, pr, t, lights) {
 // reads UNCLAIMED (team -1, dim grey), ARMED (team-tinted live plate with hot
 // teeth + a pulse), or SPENT (cooling — a dark plate with a thin recharge pip).
 // Snapshot fields: team, armed, cool (cool only ships while > 0).
-function drawSiegeTrap(ctx, tr, t, lights) {
+function drawSiegeTrap(ctx: any, tr: any, t: any, lights: any) {
   const { x, y } = tr;
   const s = 0.45 * TILE;
   const unclaimed = (tr.team ?? -1) < 0;
@@ -4703,7 +4703,7 @@ function drawSiegeTrap(ctx, tr, t, lights) {
 // is a small diamond (~0.3*TILE); the MOBA Wave-B kinds read distinctly:
 //  - TANK: a fat dim hexagonal hull with a slow-ring telegraph (its aura)
 //  - WAR MONGER: a bright forward-raked chevron, larger than a grunt
-function drawSiegeMinion(ctx, m, t) {
+function drawSiegeMinion(ctx: any, m: any, t: any) {
   const col = siegeTeamCol(m.team);
   if (m.kind === 'tank') {
     const r = 0.5 * TILE;
@@ -4756,7 +4756,7 @@ function drawSiegeMinion(ctx, m, t) {
   ctx.fillRect(m.x - 1, m.y - r * 0.5, 2, 2);
   drawMinionHp(ctx, m, col, r);
 }
-function drawMinionHp(ctx, m, col, r) {
+function drawMinionHp(ctx: any, m: any, col: any, r: any) {
   if (m.maxHp && m.hp != null && m.hp < m.maxHp) {
     const frac = Math.max(0, Math.min(1, m.hp / m.maxHp));
     const bw = r * 1.6, bx = m.x - bw / 2, by = m.y - r - 4;
@@ -4768,14 +4768,14 @@ function drawMinionHp(ctx, m, col, r) {
 }
 
 // '#rrggbb' -> 'r,g,b' for the lights pool (rgb strings, not hex).
-function hexRgb(hex) {
+function hexRgb(hex: any) {
   const n = parseInt(hex.slice(1), 16);
   return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`;
 }
 
 // Prominent screen-space hp bars per team: team 0 top-left, team 1 top-right.
 // Pulses when that team's core is open (towers down → vulnerable). Screen space.
-function drawSiegeCoreBars(ctx, VW, cores, siege, t) {
+function drawSiegeCoreBars(ctx: any, VW: any, cores: any, siege: any, t: any) {
   const open = siege?.open ?? [];
   ctx.save();
   ctx.textBaseline = 'alphabetic';
@@ -4841,7 +4841,7 @@ function drawSiegeCoreBars(ctx, VW, cores, siege, t) {
 // vs enemies (red, team 1) read at a glance. The LOCAL player(s) get a brighter,
 // thicker double ring plus a "YOU" caret bobbing overhead. World space; the
 // call site already culls by inView and gates on snap.mode === 'siege'.
-function drawSiegeTeamRing(ctx, x, y, team, isMe, t) {
+function drawSiegeTeamRing(ctx: any, x: any, y: any, team: any, isMe: any, t: any) {
   const col = siegeTeamCol(team);
   ctx.save();
   // flat ground disc + ring, a touch larger than the operative's focus ellipse
@@ -4896,12 +4896,12 @@ function drawSiegeTeamRing(ctx, x, y, team, isMe, t) {
 // "ANCHOR" (pulsing brighter when that core is OPEN/vulnerable); on-screen → a
 // faint target reticle on the core itself. Gated on snap.mode === 'siege' at the
 // call site; drawn outside the camera transform alongside the other HUD markers.
-function drawSiegeEnemyAnchor(ctx, camera, cores, siege, localTeams, t) {
+function drawSiegeEnemyAnchor(ctx: any, camera: any, cores: any, siege: any, localTeams: any, t: any) {
   const open = siege?.open ?? [];
   ctx.save();
   for (const team of localTeams) {
     const enemyTeam = (team | 0) % 2 === 0 ? 1 : 0;
-    const core = cores.find(c => ((c.team | 0) % 2) === enemyTeam);
+    const core = cores.find((c: any) => ((c.team | 0) % 2) === enemyTeam);
     if (!core || core.x == null) continue;
     const col = siegeTeamCol(enemyTeam);
     const vuln = !!open[enemyTeam];
@@ -4975,7 +4975,7 @@ function drawSiegeEnemyAnchor(ctx, camera, cores, siege, localTeams, t) {
 // --- NEW objective render (map-overhaul): light FX, gated by the caller -----
 // capture_hill: a control ring around the contested zone + a fill arc that
 // sweeps with the meter. Cyan held, amber idle, red contested. Pure canvas.
-function drawCaptureZone(ctx, cap, t, lights) {
+function drawCaptureZone(ctx: any, cap: any, t: any, lights: any) {
   const R = (cap.radius || 3) * TILE;
   const frac = cap.duration > 0 ? Math.max(0, Math.min(1, (cap.ownerT || 0) / cap.duration)) : 0;
   const col = cap.contested ? PAL.red : cap.held ? PAL.relay : PAL.lythAmber;
@@ -5007,7 +5007,7 @@ function drawCaptureZone(ctx, cap, t, lights) {
 
 // escort_push: a dotted lane to the goal + the anchor body with an hp bar. A
 // green pulse when pushing, amber when idle, red while contested.
-function drawEscort(ctx, es, t, inView, lights) {
+function drawEscort(ctx: any, es: any, t: any, inView: any, lights: any) {
   const path = es.path || [];
   ctx.save();
   // dotted path
@@ -5069,7 +5069,7 @@ function drawEscort(ctx, es, t, inView, lights) {
 }
 
 // bridge_cross_hold: a pulsing "CROSS" beacon at the far redoubt until reached.
-function drawBridgeMark(ctx, br, t) {
+function drawBridgeMark(ctx: any, br: any, t: any) {
   ctx.save();
   ctx.globalAlpha = 0.5 + 0.4 * Math.sin(t * 3.5);
   ctx.strokeStyle = PAL.lythAmber;
@@ -5091,7 +5091,7 @@ function drawBridgeMark(ctx, br, t) {
   ctx.restore();
 }
 
-function drawCore(ctx, core, t, lights) {
+function drawCore(ctx: any, core: any, t: any, lights: any) {
   const { x, y } = core;
   const frac = Math.max(0, Math.min(1, (core.hp ?? 30) / (core.maxHp || 30)));
   const alarm = Math.min(1, coreAlarmT);
@@ -5154,7 +5154,7 @@ function drawCore(ctx, core, t, lights) {
 }
 
 // 'S' — trader stall: lantern-lit counter; the carousel appears while in use.
-function drawShop(ctx, s, t, snap, lights) {
+function drawShop(ctx: any, s: any, t: any, snap: any, lights: any) {
   const { x, y } = s;
   shadowBlob(ctx, x, y + 8, 16, 5.5);
   ctx.fillStyle = PAL.graphDark; // counter
@@ -5207,7 +5207,7 @@ function drawShop(ctx, s, t, snap, lights) {
   // Live offers ride the snapshot (so toxin/mask/placeables show + cycle right);
   // older snapshots without the key fall back to the classic implicit list.
   const offers = (snap.shopOffers && snap.shopOffers.length)
-    ? snap.shopOffers.map(o => [shopOfferLabel(o), o.cost])
+    ? snap.shopOffers.map((o: any) => [shopOfferLabel(o), o.cost])
     : SHOP_OFFERS;
   const sel = Math.max(0, Math.min(offers.length - 1, shopper.shop.idx ?? 0));
   const pw = 172, phh = 16 + offers.length * 14 + 14;
@@ -5222,7 +5222,7 @@ function drawShop(ctx, s, t, snap, lights) {
   ctx.textAlign = 'left';
   ctx.fillStyle = PAL.teal;
   ctx.fillText('FRONTIER TRADER', px + 8, py + 11);
-  offers.forEach(([label, cost], i) => {
+  offers.forEach(([label, cost]: any[], i: any) => {
     const ry = py + 16 + i * 14;
     if (i === sel) {
       ctx.fillStyle = 'rgba(111,216,242,0.14)';
@@ -5251,7 +5251,7 @@ const POST_JOBS = new Set(['farmer', 'engineer', 'smith']);
 // The hired hand standing at their post, working. One body per post job so a
 // hired farmer/engineer/smith reads on the field (the unhired hooded recruit
 // is drawn separately, below). Pure render — the sim already runs the effect.
-function drawHiredWorker(ctx, h, t, lights) {
+function drawHiredWorker(ctx: any, h: any, t: any, lights: any) {
   const { x, y } = h;
   const job = String(h.job ?? '');
   // worker stands just left of the signal fire; a slow work-cycle drives props
@@ -5336,7 +5336,7 @@ function drawHiredWorker(ctx, h, t, lights) {
   rimArc(ctx, wx, wy - 6 + bob, 6, 0.3);
 }
 
-function drawHirePost(ctx, h, t, lights) {
+function drawHirePost(ctx: any, h: any, t: any, lights: any) {
   const { x, y } = h;
   shadowBlob(ctx, x, y + 8, 13, 4.5);
   ctx.strokeStyle = '#4A4232'; // signpost
@@ -5388,7 +5388,7 @@ function drawHirePost(ctx, h, t, lights) {
 }
 
 // Built 'farm' plot — four visual growth stages; LYTH-gold grain at stage 3.
-function drawFarm(ctx, b, t, lights) {
+function drawFarm(ctx: any, b: any, t: any, lights: any) {
   const { x, y } = b;
   const stage = Math.max(0, Math.min(3, b.stage ?? 0));
   ctx.fillStyle = '#2A2218'; // tilled plot
@@ -5442,7 +5442,7 @@ function drawFarm(ctx, b, t, lights) {
 // 'D' — ctf flag. At base: banner flying from its stone stand. Dropped:
 // leaning where it fell, with a return-timer pulse. Carried: see the
 // player pass (drawCarriedFlag).
-function drawFlag(ctx, f, t, lights) {
+function drawFlag(ctx: any, f: any, t: any, lights: any) {
   const { x, y } = f;
   const team = (f.team ?? 0) % 2;
   const col = TEAM_COL[team], rgb = TEAM_RGB[team];
@@ -5485,7 +5485,7 @@ function drawFlag(ctx, f, t, lights) {
 }
 
 // Banner strapped to a flag carrier, streaming behind them.
-function drawCarriedFlag(ctx, x, y, f, t) {
+function drawCarriedFlag(ctx: any, x: any, y: any, f: any, t: any) {
   const team = (f.team ?? 0) % 2;
   const col = TEAM_COL[team];
   ctx.save();
@@ -5514,7 +5514,7 @@ function drawCarriedFlag(ctx, x, y, f, t) {
 }
 
 // A lure cracker mid-lob: tumbling red charge on its overWalls arc.
-function drawCrackerFlight(ctx, c, t) {
+function drawCrackerFlight(ctx: any, c: any, t: any) {
   ctx.save();
   ctx.translate(c.x, c.y);
   ctx.rotate(t * 9);
@@ -5533,7 +5533,7 @@ function drawCrackerFlight(ctx, c, t) {
 
 // A landed lure cracker: blinking charge + attract-radius pulse out to the
 // 9-tile lure range. The boom FX arrives via the 'crackerBoom' event.
-function drawCrackerCharge(ctx, c, t, lights) {
+function drawCrackerCharge(ctx: any, c: any, t: any, lights: any) {
   const k = 1 - c.life / c.max; // 0 fresh -> 1 about to blow
   const on = Math.floor(t * (4 + k * 14)) % 2 === 0;
   shadowBlob(ctx, c.x, c.y + 3, 5, 2);
@@ -5564,8 +5564,8 @@ function drawCrackerCharge(ctx, c, t, lights) {
 }
 
 // Night-wave mutation reads: each mutation gets one unmistakable overlay.
-function drawMutation(ctx, e, t, lights) {
-  const r = (KIND_R[e.kind] || 13) * (e.mutation === 'bulk' ? 1.22 : 1);
+function drawMutation(ctx: any, e: any, t: any, lights: any) {
+  const r = ((KIND_R as any)[e.kind] || 13) * (e.mutation === 'bulk' ? 1.22 : 1);
   if (e.mutation === 'feral') {
     // speed streaks shedding off the body
     ctx.save();
@@ -5626,7 +5626,7 @@ function drawMutation(ctx, e, t, lights) {
 // booleans (stun/burn/tox/conv[erted]) or a packed numeric e.st
 // (1 stun | 2 burn | 4 tox | 8 converted). All optional — classic snapshots
 // carry none of these and skip the overlay entirely.
-function enemyStatus(e) {
+function enemyStatus(e: any) {
   const packed = typeof e.st === 'number' ? e.st : 0;
   return {
     stun: (e.stunT ?? 0) > 0 || !!e.stun || !!(packed & 1),
@@ -5636,8 +5636,8 @@ function enemyStatus(e) {
   };
 }
 
-function drawStatusFX(ctx, e, st, t, lights) {
-  const r = KIND_R[e.kind] || 13;
+function drawStatusFX(ctx: any, e: any, st: any, t: any, lights: any) {
+  const r = (KIND_R as any)[e.kind] || 13;
   const seed = e.id * 7.31;
   if (st.burn) {
     // aflame: tongues licking off the body + rising embers
@@ -5723,7 +5723,7 @@ function drawStatusFX(ctx, e, st, t, lights) {
 // ============================== GROUND PATCHES ==============================
 // g.patches [{x,y,kind:'burn'|'toxin',r(px),ttl}] — lingering area effects.
 // Burn: flickering flame pool. Toxin: bubbling green slick that slows.
-function drawPatch(ctx, pa, t, lights) {
+function drawPatch(ctx: any, pa: any, t: any, lights: any) {
   const r = pa.r || TILE * 1.2;
   const fade = pa.ttl != null ? Math.max(0, Math.min(1, pa.ttl / 0.8)) : 1;
   if (fade <= 0) return;
@@ -5800,7 +5800,7 @@ function drawPatch(ctx, pa, t, lights) {
 // Combat hires bound to an operator: hound / archer / caster. They wear one
 // strip of their owner's char color so squads can tell whose dog that is.
 
-function drawHound(ctx, fo, t, dt, col) {
+function drawHound(ctx: any, fo: any, t: any, dt: any, col: any) {
   const { ph, amp, fx, fy } = poseFor('f' + fo.id, fo.x, fo.y, dt);
   const a = Math.atan2(fy, fx);
   shadowBlob(ctx, fo.x, fo.y + 6, 10, 4);
@@ -5855,7 +5855,7 @@ function drawHound(ctx, fo, t, dt, col) {
   rimArc(ctx, fo.x, fo.y - 3, 7, 0.35);
 }
 
-function drawArcherFollower(ctx, fo, t, dt, col) {
+function drawArcherFollower(ctx: any, fo: any, t: any, dt: any, col: any) {
   const { ph, amp, fx, fy } = poseFor('f' + fo.id, fo.x, fo.y, dt);
   const a = Math.atan2(fy, fx);
   shadowBlob(ctx, fo.x, fo.y + 8, 9, 3.6);
@@ -5908,7 +5908,7 @@ function drawArcherFollower(ctx, fo, t, dt, col) {
   rimArc(ctx, fo.x, fo.y - 4, 6.5, 0.35);
 }
 
-function drawCasterFollower(ctx, fo, t, dt, col, lights) {
+function drawCasterFollower(ctx: any, fo: any, t: any, dt: any, col: any, lights: any) {
   const { ph, amp, fx, fy } = poseFor('f' + fo.id, fo.x, fo.y, dt);
   const a = Math.atan2(fy, fx);
   const bob = Math.sin(t * 1.7 + fo.id) * 0.8;
@@ -5962,7 +5962,7 @@ function drawCasterFollower(ctx, fo, t, dt, col, lights) {
   lights.push({ x: fo.x, y: fo.y - 10, r: 18, rgb: '138,152,184', a: 0.05 });
 }
 
-function drawFollower(ctx, fo, t, dt, col, lights) {
+function drawFollower(ctx: any, fo: any, t: any, dt: any, col: any, lights: any) {
   if (fo.kind === 'hound') drawHound(ctx, fo, t, dt, col);
   else if (fo.kind === 'caster') drawCasterFollower(ctx, fo, t, dt, col, lights);
   else if (fo.kind === 'defender') drawDefender(ctx, fo, t, dt);
@@ -5974,7 +5974,7 @@ function drawFollower(ctx, fo, t, dt, col, lights) {
 // A recruited STRANDED OPERATOR: a friendly base defender. Ownerless, so it
 // wears the squad teal (not a seat color) — a scrappy civvy with a slung rifle
 // who garrisons the stronghold. Distinct silhouette from the hired archer.
-function drawDefender(ctx, fo, t, dt) {
+function drawDefender(ctx: any, fo: any, t: any, dt: any) {
   const { ph, amp, fx, fy } = poseFor('f' + fo.id, fo.x, fo.y, dt);
   const a = Math.atan2(fy, fx);
   shadowBlob(ctx, fo.x, fo.y + 8, 8.5, 3.4);
@@ -6011,7 +6011,7 @@ function drawDefender(ctx, fo, t, dt) {
 
 // A STRANDED OPERATOR waiting on the field (un-recruited, un-carried): a slumped
 // civvy by a small distress flare so the squad can spot who needs help.
-function drawStranded(ctx, o, t) {
+function drawStranded(ctx: any, o: any, t: any) {
   const { x, y } = o;
   ctx.save();
   shadowBlob(ctx, x, y + 8, 11, 4.4);
@@ -6037,7 +6037,7 @@ function drawStranded(ctx, o, t) {
 
 // A SCRAP item: a generic salvage cog/bolt — clearly NOT a relic shard (which
 // glows gold/cyan). Dull steel with a rust tinge.
-function drawScrap(ctx, s, t) {
+function drawScrap(ctx: any, s: any, t: any) {
   const { x, y } = s;
   const spin = t * 0.9 + (x + y) * 0.01;
   ctx.save();
@@ -6067,7 +6067,7 @@ function drawScrap(ctx, s, t) {
 // Every snapshot field here is optional: classic and pre-frontier snapshots
 // carry none of them and render exactly as before.
 
-let sealCarriers = []; // active players carrying a lythseal, set per frame
+let sealCarriers: any[] = []; // active players carrying a lythseal, set per frame
 
 // The eight Monolythium runes, indexed by glyph symbol 0-7.
 const GLYPH_RUNES = ['ANCHOR', 'WAVE', 'VERTEX', 'SEAL', 'FORK', 'BURN', 'QUORUM', 'DRIFT'];
@@ -6090,7 +6090,7 @@ const doorAnim = new Map(); // door id -> slide 0 (closed) .. 1 (open)
 
 // One vector rune per symbol, drawn around the current origin at scale s.
 // Caller sets strokeStyle/fillStyle (lit gold vs engraved graphite).
-function drawRune(ctx, sym, s) {
+function drawRune(ctx: any, sym: any, s: any) {
   ctx.lineWidth = Math.max(1.1, s * 0.2);
   ctx.lineCap = 'round';
   ctx.beginPath();
@@ -6149,8 +6149,8 @@ function drawRune(ctx, sym, s) {
 
 // One absorb charge from a Null Acolyte: a glitch-violet shell, clearly NOT
 // the relay-cyan of a friendly shield. Pops via the 'shield' hit event.
-function drawEnemyShield(ctx, e, t) {
-  const r = (KIND_R[e.kind] || 13) + 5;
+function drawEnemyShield(ctx: any, e: any, t: any) {
+  const r = ((KIND_R as any)[e.kind] || 13) + 5;
   ctx.save();
   const a = 0.32 + 0.14 * Math.sin(t * 4 + e.id);
   ctx.strokeStyle = `rgba(142,79,209,${a + 0.2})`;
@@ -6174,7 +6174,7 @@ function drawEnemyShield(ctx, e, t) {
 }
 
 // Mini ground silhouette for a field weapon pickup, drawn around the origin.
-function drawPickupShape(ctx, kind) {
+function drawPickupShape(ctx: any, kind: any) {
   const dk = PAL.graphDark, gm = PAL.graphPlate;
   if (kind === 'flamer') {
     ctx.fillStyle = dk; ctx.fillRect(-8, -3.5, 12, 7);
@@ -6215,8 +6215,8 @@ function drawPickupShape(ctx, kind) {
 
 // 'A' — field weapon pickup on the ground: bobbing silhouette over a kind-
 // colored glow ring. Teammates can grab dropped ones (ammo rides the sim).
-function drawFieldPickup(ctx, pk, t, lights) {
-  const st = PICKUP_STYLE[pk.kind] || { rgb: '255,217,138', col: '#FFD98A', label: String(pk.kind || 'WEAPON').toUpperCase() };
+function drawFieldPickup(ctx: any, pk: any, t: any, lights: any) {
+  const st = (PICKUP_STYLE as any)[pk.kind] || { rgb: '255,217,138', col: '#FFD98A', label: String(pk.kind || 'WEAPON').toUpperCase() };
   const bob = Math.sin(t * (Math.PI * 2 / 1.6) + (pk.x + pk.y) * 0.05) * 2;
   ctx.save();
   ctx.fillStyle = 'rgba(11,10,20,0.35)';
@@ -6239,7 +6239,7 @@ function drawFieldPickup(ctx, pk, t, lights) {
 
 // 'I' — quest item: a proof fragment / relic. Carried, it trails its bearer
 // in warm motes; on the ground it pings like treasure.
-function drawQuestItem(ctx, q, t, lights) {
+function drawQuestItem(ctx: any, q: any, t: any, lights: any) {
   const carried = (q.carrier ?? null) != null;
   const bob = carried ? 0 : Math.sin(t * (Math.PI * 2 / 1.3) + (q.x + q.y) * 0.06) * 2;
   const y = q.y - 6 + bob;
@@ -6298,7 +6298,7 @@ function drawQuestItem(ctx, q, t, lights) {
 
 // Quest marker over an NPC: gold '!' = quests waiting, relay '?' = come talk,
 // something is ready to settle. Reads several optional snapshot spellings.
-function npcQuestMark(n, quests) {
+function npcQuestMark(n: any, quests: any) {
   // explicit flags on the npc win
   const qs = n.questState ?? n.qstate ?? n.quest;
   if (qs === 'done' || qs === 'complete' || qs === 'ready' || n.questDone || n.questReady) return '?';
@@ -6316,7 +6316,7 @@ function npcQuestMark(n, quests) {
   return null;
 }
 
-function drawQuestMark(ctx, x, y, mark, t) {
+function drawQuestMark(ctx: any, x: any, y: any, mark: any, t: any) {
   const bob = Math.sin(t * 2.6 + x * 0.05) * 1.6;
   const col = mark === '?' ? PAL.relay : PAL.lythGold;
   ctx.save();
@@ -6332,7 +6332,7 @@ function drawQuestMark(ctx, x, y, mark, t) {
 // 'Q' — relay switch console: one fallen operator's "voice" in the Count.
 // Off: grey-green gutter lamp. On: steady checkpoint gold. A burned console
 // (sw.burned) is fused black — an exiled equivocator; it never counts again.
-function drawSwitch(ctx, sw, t, lights) {
+function drawSwitch(ctx: any, sw: any, t: any, lights: any) {
   const { x, y } = sw;
   const burned = !!(sw.burned || sw.dead);
   const on = !!sw.on && !burned;
@@ -6395,7 +6395,7 @@ function drawSwitch(ctx, sw, t, lights) {
 
 // 'J' — glyph stone: a standing stone bearing one of the eight runes.
 // Lit stones burn checkpoint gold; the wrong order spins the whole ring back.
-function drawGlyphStone(ctx, gl, t, lights) {
+function drawGlyphStone(ctx: any, gl: any, t: any, lights: any) {
   const { x, y } = gl;
   const lit = !!gl.lit;
   shadowBlob(ctx, x, y + 7, 10, 4);
@@ -6436,7 +6436,7 @@ function drawGlyphStone(ctx, gl, t, lights) {
 // 'X' — BLS pillar: pre-Fall classical cryptography. Beautiful, tiny, fast —
 // and forgeable now. Cracks open in stages under player fire; while one
 // stands, the field still honors the old curve.
-function drawPillar(ctx, pi, t, lights, idx = 0) {
+function drawPillar(ctx: any, pi: any, t: any, lights: any, idx = 0) {
   const { x, y } = pi;
   const maxHp = pi.maxHp ?? 12;
   const frac = Math.max(0, Math.min(1, (pi.hp ?? maxHp) / maxHp));
@@ -6515,7 +6515,7 @@ function drawPillar(ctx, pi, t, lights, idx = 0) {
 
 // 'Z' — the seal forge: Hask's threshold crucible. Seven fragment slots ring
 // the basin; fewer than seven melt to slag, so the rim says so in fire.
-function drawForge(ctx, fo, t, lights) {
+function drawForge(ctx: any, fo: any, t: any, lights: any) {
   const { x, y } = fo;
   const j = flick(Math.floor(t * 8) + x * 1.3);
   shadowBlob(ctx, x, y + 8, 15, 5.5);
@@ -6567,7 +6567,7 @@ function drawForge(ctx, fo, t, lights) {
 // The ruin altar: a broken stone plinth. Each restored fragment seats a small
 // amethyst chip in its rim, so the plinth visibly fills as the squad delivers;
 // at 4/4 the whole altar glows and a soft note-glyph hovers over it.
-function drawMusicAltar(ctx, a, mb, t, lights) {
+function drawMusicAltar(ctx: any, a: any, mb: any, t: any, lights: any) {
   const { x, y } = a;
   const done = !!mb.complete;
   shadowBlob(ctx, x, y + 9, 16, 6);
@@ -6636,7 +6636,7 @@ function drawMusicAltar(ctx, a, mb, t, lights) {
 
 // A loose music-box fragment: a small floating amethyst shard with a soft
 // glow and a "▼ FRAGMENT" prompt, mirroring the captive RESCUE marker.
-function drawMusicFragment(ctx, f, t, lights, loose = true) {
+function drawMusicFragment(ctx: any, f: any, t: any, lights: any, loose = true) {
   const { x, y } = f;
   const bob = Math.sin(t * 2.4 + (x + y) * 0.02) * 2.5;
   const pulse = 0.5 + 0.5 * Math.sin(t * 4 + x * 0.05);
@@ -6680,7 +6680,7 @@ function drawMusicFragment(ctx, f, t, lights, loose = true) {
 // locked in. While unfilled it idles dim with an empty socket; filled, it
 // glows + throws a beam. When ALL FOUR are filled (allDone) every mount blazes
 // with an EXTREME glow + a tall light pillar, readable clear across the map.
-function drawMusicMount(ctx, m, t, lights, allDone) {
+function drawMusicMount(ctx: any, m: any, t: any, lights: any, allDone: any) {
   const { x, y } = m;
   const filled = !!m.filled;
   const pulse = 0.5 + 0.5 * Math.sin(t * 3 + (x + y) * 0.01);
@@ -6742,7 +6742,7 @@ function drawMusicMount(ctx, m, t, lights, allDone) {
 // center. The wall segments + the garrison draw through the normal build/enemy
 // pipelines; this is purely the "this is an enemy keep" overlay. A cleared keep
 // fades to a spent grey scorch. Drawn on the ground, beneath every entity.
-function drawStronghold(ctx, sh, t, lights) {
+function drawStronghold(ctx: any, sh: any, t: any, lights: any) {
   const { x, y } = sh;
   const rPx = ((sh.r ?? 2) + 0.5) * TILE;
   const cleared = !!sh.cleared;
@@ -6774,7 +6774,7 @@ function drawStronghold(ctx, sh, t, lights) {
 // while charging, a gold pulse + "READY" when armed, and dull wreckage once
 // spent/destroyed. Nuke reads orange (a warhead silo), weather reads blue (a
 // storm spire). Gated on snap.superweapon, so it never draws in other modes.
-function drawSuperweapon(ctx, sw, t, lights) {
+function drawSuperweapon(ctx: any, sw: any, t: any, lights: any) {
   const { x, y } = sw;
   const weather = sw.type === 'weather';
   const col = weather ? '#9fd0ff' : '#ffae5a';
@@ -6842,7 +6842,7 @@ function drawSuperweapon(ctx, sw, t, lights) {
 // the lingering radiation crater (a sickly green pool that fades with ttl), and
 // the weather storm (a churning blue cloud, lighter during its warning window).
 // Gated on snap.hazards, so untouched modes never reach here.
-function drawHazardField(ctx, hz, t, lights) {
+function drawHazardField(ctx: any, hz: any, t: any, lights: any) {
   const { x, y } = hz;
   const r = hz.radius ?? TILE;
   ctx.save();
@@ -6887,7 +6887,7 @@ function drawHazardField(ctx, hz, t, lights) {
 
 // Doors: closed bulkheads read as walls (they block movement, sight, shots).
 // Open ones slide their two panels apart along the door's long axis.
-function drawDoor(ctx, d, t, dt, lights) {
+function drawDoor(ctx: any, d: any, t: any, dt: any, lights: any) {
   const id = d.id ?? `${d.x},${d.y}`;
   const target = d.open ? 1 : 0;
   let k = doorAnim.get(id);
@@ -6966,7 +6966,7 @@ function drawDoor(ctx, d, t, dt, lights) {
 
 // 'O' — settled corridor pad: two anchor-gates sharing one settled state.
 // Stand on it and the world agrees you've moved. Pair color by lower id.
-function drawTeleportPad(ctx, tp, t, snap, lights) {
+function drawTeleportPad(ctx: any, tp: any, t: any, snap: any, lights: any) {
   const { x, y } = tp;
   const pair = Math.min(tp.id ?? 0, tp.twin ?? tp.id ?? 0);
   const rgb = TP_PAIR_RGB[((pair % TP_PAIR_RGB.length) + TP_PAIR_RGB.length) % TP_PAIR_RGB.length];
@@ -7025,7 +7025,7 @@ function drawTeleportPad(ctx, tp, t, snap, lights) {
 
 // Built 'beacon' — the save point: a settled-light pylon. Checkpoint gold,
 // perfectly steady; a slow settled ring breathes off it every few seconds.
-function drawBeacon(ctx, b, t, lights) {
+function drawBeacon(ctx: any, b: any, t: any, lights: any) {
   const { x, y } = b;
   shadowBlob(ctx, x, y + 8, 10, 4);
   // squat tapered pylon, gold-trimmed
@@ -7063,7 +7063,7 @@ function drawBeacon(ctx, b, t, lights) {
 
 // The carried LythiumSeal: a checkpoint you bring with you. A gold lantern
 // ring orbits the bearer; Phantoms inside it cannot hold their disguise.
-function drawSealAura(ctx, x, y, t, lights) {
+function drawSealAura(ctx: any, x: any, y: any, t: any, lights: any) {
   ctx.save();
   const breath = 0.5 + 0.5 * Math.sin(t * 1.6);
   ctx.strokeStyle = `rgba(255,217,138,${0.3 + 0.18 * breath})`;
@@ -7089,7 +7089,7 @@ function drawSealAura(ctx, x, y, t, lights) {
 }
 
 // Jagged lightning path appended to the current path (no stroke here).
-function jagPath(ctx, x0, y0, x1, y1, segs, mag, seed) {
+function jagPath(ctx: any, x0: any, y0: any, x1: any, y1: any, segs: any, mag: any, seed: any) {
   ctx.moveTo(x0, y0);
   const dx = x1 - x0, dy = y1 - y0;
   const len = Math.hypot(dx, dy) || 1;
@@ -7103,7 +7103,7 @@ function jagPath(ctx, x0, y0, x1, y1, segs, mag, seed) {
 }
 
 // Gold service chevrons under an upgraded structure (level 2-3).
-function drawLevelPips(ctx, x, y, level) {
+function drawLevelPips(ctx: any, x: any, y: any, level: any) {
   const lvl = level ?? 1;
   if (lvl <= 1) return;
   ctx.save();
@@ -7119,7 +7119,7 @@ function drawLevelPips(ctx, x, y, level) {
 }
 
 // Survival reads on operators: tiny hearts shown only while hurt.
-function drawHeartPips(ctx, x, y, hp, maxHp) {
+function drawHeartPips(ctx: any, x: any, y: any, hp: any, maxHp: any) {
   ctx.save();
   const w = 7;
   const x0 = x - (maxHp * w) / 2 + w / 2;
@@ -7139,7 +7139,7 @@ function drawHeartPips(ctx, x, y, hp, maxHp) {
 
 // Mission-XP level pips: one small gold diamond per level-up (levels 2-4),
 // drawn beside the operator's name. Absent on classic snapshots (no p.level).
-function drawLevelDiamonds(ctx, x, y, level) {
+function drawLevelDiamonds(ctx: any, x: any, y: any, level: any) {
   const n = Math.max(0, Math.min(4, level ?? 1) - 1);
   if (!n) return;
   ctx.save();
@@ -7156,7 +7156,7 @@ function drawLevelDiamonds(ctx, x, y, level) {
 }
 
 // Relay-cyan shield bubble: thin at 1 charge, doubled-bright at 2.
-function drawShieldBubble(ctx, x, y, shield, t) {
+function drawShieldBubble(ctx: any, x: any, y: any, shield: any, t: any) {
   ctx.save();
   const a = 0.3 + 0.12 * Math.sin(t * 3.2 + x * 0.05);
   ctx.strokeStyle = `rgba(111,216,242,${a + (shield >= 2 ? 0.25 : 0)})`;
@@ -7176,7 +7176,7 @@ function drawShieldBubble(ctx, x, y, shield, t) {
 }
 
 // Item drops (chest loot): medkit / shield / cracker / weapon token.
-function drawItemDrop(ctx, d, t, lights) {
+function drawItemDrop(ctx: any, d: any, t: any, lights: any) {
   const bob = Math.sin(t * (Math.PI * 2 / 1.4) + (d.x + d.y) * 0.07) * 2;
   const y = d.y - 5 + bob;
   let a2 = 1;
@@ -7275,7 +7275,7 @@ function drawItemDrop(ctx, d, t, lights) {
 }
 
 // Screen-space moon glyph for bastion nights; crimson on blood moons.
-function drawMoonGlyph(ctx, VW, nightK, blood, t) {
+function drawMoonGlyph(ctx: any, VW: any, nightK: any, blood: any, t: any) {
   const x = VW - 58, y = 56, r = 14;
   ctx.save();
   ctx.globalAlpha = Math.min(1, nightK * 1.4);
@@ -7310,7 +7310,7 @@ function drawMoonGlyph(ctx, VW, nightK, blood, t) {
 }
 
 // ============================== BUILD SITES ==============================
-function holoShape(ctx, kind, x, y) {
+function holoShape(ctx: any, kind: any, x: any, y: any) {
   if (kind === 'pylon') {
     ctx.beginPath();
     ctx.moveTo(x - 7, y + 8); ctx.lineTo(x - 3.5, y - 22); ctx.lineTo(x + 3.5, y - 22); ctx.lineTo(x + 7, y + 8);
@@ -7353,7 +7353,7 @@ function holoShape(ctx, kind, x, y) {
   }
 }
 
-function drawHpPips(ctx, x, y, frac) {
+function drawHpPips(ctx: any, x: any, y: any, frac: any) {
   const n = 7, lit = Math.max(1, Math.ceil(n * frac));
   ctx.save();
   for (let i = 0; i < n; i++) {
@@ -7363,7 +7363,7 @@ function drawHpPips(ctx, x, y, frac) {
   ctx.restore();
 }
 
-function drawBarricade(ctx, b, t) {
+function drawBarricade(ctx: any, b: any, t: any) {
   const { x, y } = b;
   const hpf = Math.max(0, Math.min(1, (b.hp ?? 14) / (b.maxHp || 14)));
   // side face below the plate (pseudo-3D)
@@ -7412,8 +7412,8 @@ function drawBarricade(ctx, b, t) {
 // run (joint seams toward built neighbors, end caps where the run stops,
 // level trims, damage cracks). Bases built from these are damageable,
 // repairable, upgradable — never indestructible '#' grid.
-let wallIdx = { list: null, set: null };
-function wallSetFor(snap) {
+let wallIdx: { list: any; set: any } = { list: null, set: null };
+function wallSetFor(snap: any) {
   const list = snap?.builds ?? [];
   if (wallIdx.list !== list) {
     const set = new Set();
@@ -7425,7 +7425,7 @@ function wallSetFor(snap) {
   return wallIdx.set;
 }
 
-function drawWallSegment(ctx, b, t, snap) {
+function drawWallSegment(ctx: any, b: any, t: any, snap: any) {
   const set = wallSetFor(snap);
   const gx = Math.floor(b.x / TILE), gy = Math.floor(b.y / TILE);
   const px = gx * TILE, py = gy * TILE;
@@ -7526,7 +7526,7 @@ function drawWallSegment(ctx, b, t, snap) {
 // ---- COMM TOWER ('comm' build): mission-prep structure. Unbuilt sites read
 // as a BROKEN tower (leaning lattice, fallen dish, dying sparks); repaired,
 // it stands straight with a blinking beacon and rising signal rings.
-function drawCommTower(ctx, b, t, broken, lights) {
+function drawCommTower(ctx: any, b: any, t: any, broken: any, lights: any) {
   const { x, y } = b;
   shadowBlob(ctx, x + 2, y + 7, 14, 5);
   ctx.save();
@@ -7617,7 +7617,7 @@ function drawCommTower(ctx, b, t, broken, lights) {
 // ---- THE ANCHORCRAFT, LANDED (stronghold early extraction): all four
 // beacons lit under wave pressure and the vessel comes down by the base.
 // Boarding glow marks the hatch; she waits — boarding stays optional.
-function drawShip(ctx, ship, t, lights) {
+function drawShip(ctx: any, ship: any, t: any, lights: any) {
   const { x, y } = ship;
   const breath = 0.7 + 0.3 * Math.sin(t * 1.6);
   // scorched landing ground
@@ -7730,7 +7730,7 @@ function drawShip(ctx, ship, t, lights) {
 }
 
 // Shared tripod + ring base for every turret type.
-function turretBase(ctx, x, y) {
+function turretBase(ctx: any, x: any, y: any) {
   ctx.strokeStyle = PAL.graphPlate;
   ctx.lineWidth = 3;
   for (const la of [-Math.PI / 2, Math.PI / 6, Math.PI * 5 / 6]) {
@@ -7747,7 +7747,7 @@ function turretBase(ctx, x, y) {
 }
 
 // Visual target: nearest awake enemy within `tiles` of the turret.
-function turretAim(snap, x, y, t, tiles = 5) {
+function turretAim(snap: any, x: any, y: any, t: any, tiles = 5) {
   let ta = t * 0.6, best = (TILE * tiles) ** 2;
   for (const e of snap.enemies || []) {
     if (e.awake === false) continue;
@@ -7759,7 +7759,7 @@ function turretAim(snap, x, y, t, tiles = 5) {
 
 // PRISM — faceted crystal head; nearby prisms feed it charge (RA2 homage).
 // The killing beam itself arrives via the 'prismBeam' event.
-function drawPrismTower(ctx, b, t, snap, lights) {
+function drawPrismTower(ctx: any, b: any, t: any, snap: any, lights: any) {
   const { x, y } = b;
   turretBase(ctx, x, y);
   // feeder filaments from other built prisms within 4 tiles (cap 3, like the sim)
@@ -7810,7 +7810,7 @@ function drawPrismTower(ctx, b, t, snap, lights) {
 
 // TESLA — graphite coil stack, relay orb crawling with idle arcs.
 // Chain zaps arrive via the 'teslaZap' event.
-function drawTeslaTower(ctx, b, t, lights) {
+function drawTeslaTower(ctx: any, b: any, t: any, lights: any) {
   const { x, y } = b;
   turretBase(ctx, x, y);
   for (let i = 0; i < 4; i++) {
@@ -7852,7 +7852,7 @@ function drawTeslaTower(ctx, b, t, lights) {
 }
 
 // TOXIN — squat sludge vat with a sprayer nozzle; lobs globs at the swarm.
-function drawToxinTurret(ctx, b, t, snap, lights) {
+function drawToxinTurret(ctx: any, b: any, t: any, snap: any, lights: any) {
   const { x, y } = b;
   turretBase(ctx, x, y);
   // vat dome with a sludge window
@@ -7888,7 +7888,7 @@ function drawToxinTurret(ctx, b, t, snap, lights) {
   lights.push({ x, y: y - 6, r: 24, rgb: '120,190,70', a: 0.08 });
 }
 
-function drawTurret(ctx, b, t, snap, lights) {
+function drawTurret(ctx: any, b: any, t: any, snap: any, lights: any) {
   // RA2-style type selection: b.ttype rides the snapshot ('gun' when absent,
   // so pre-combat-depth snapshots keep the classic gun turret).
   const ttype = b.ttype || 'gun';
@@ -7927,7 +7927,7 @@ const TTYPE_OFFERS = [
   ['tesla', 'TESLA — CHAIN STUN'],
   ['toxin', 'TOXIN — AREA DENIAL'],
 ];
-function drawTypeSelect(ctx, b, t) {
+function drawTypeSelect(ctx: any, b: any, t: any) {
   const { x, y } = b;
   // the live carousel cursor ships as tsIdx (ttype only exists once confirmed)
   const selIdx = Math.max(0, Math.min(TTYPE_OFFERS.length - 1, b.tsIdx ?? 0));
@@ -7967,7 +7967,7 @@ function drawTypeSelect(ctx, b, t) {
   ctx.restore();
 }
 
-function drawPylon(ctx, b, t, lights) {
+function drawPylon(ctx: any, b: any, t: any, lights: any) {
   const { x, y } = b;
   shadowBlob(ctx, x, y + 8, 10, 4);
   // tapered graphite mast
@@ -8013,7 +8013,7 @@ function drawPylon(ctx, b, t, lights) {
   lights.push({ x, y: y - 24, r: 42, rgb: '111,216,242', a: 0.1 });
 }
 
-function drawBuild(ctx, b, t, snap, lights) {
+function drawBuild(ctx: any, b: any, t: any, snap: any, lights: any) {
   const { x, y } = b;
   if (b.built) {
     if (b.kind === 'barricade') drawBarricade(ctx, b, t);
@@ -8113,7 +8113,7 @@ function drawBuild(ctx, b, t, snap, lights) {
 // intent (open ground, clear of builds/core/enemies) — purely cosmetic, so a
 // disagreement just mis-tints one frame, never the actual placement.
 const GHOST_BUILD_R = 18, GHOST_CORE_R = 18, GHOST_ENEMY_R = 14;
-function ghostTilePlaceable(snap, x, y) {
+function ghostTilePlaceable(snap: any, x: any, y: any) {
   const gx = Math.floor(x / TILE), gy = Math.floor(y / TILE);
   const c = snap.grid?.[gy]?.[gx];
   if (c === undefined || c === '#' || c === 'T' || c === '~' || c === 'o' || c === '%') return false;
@@ -8124,7 +8124,7 @@ function ghostTilePlaceable(snap, x, y) {
   for (const e of snap.enemies ?? []) if (!e.dead && (e.x - x) ** 2 + (e.y - y) ** 2 < er) return false;
   return true;
 }
-function tintTile(ctx, x, y, ok, t) {
+function tintTile(ctx: any, x: any, y: any, ok: any, t: any) {
   const gx = Math.floor(x / TILE) * TILE, gy = Math.floor(y / TILE) * TILE;
   const pulse = 0.18 + 0.07 * Math.sin(t * 4);
   ctx.fillStyle = ok ? `rgba(95,210,180,${pulse})` : `rgba(224,90,90,${pulse})`;
@@ -8133,7 +8133,7 @@ function tintTile(ctx, x, y, ok, t) {
   ctx.lineWidth = 1.5;
   ctx.strokeRect(gx + 2, gy + 2, TILE - 4, TILE - 4);
 }
-function drawGhostHolo(ctx, kind, x, y, ok) {
+function drawGhostHolo(ctx: any, kind: any, x: any, y: any, ok: any) {
   ctx.save();
   ctx.globalAlpha = 0.5;
   ctx.strokeStyle = ok ? PAL.pylonBlue : 'rgba(224,90,90,0.9)';
@@ -8145,7 +8145,7 @@ function drawGhostHolo(ctx, kind, x, y, ok) {
 }
 // Draw one operative's live placement ghost. `me` is a snapshot player carrying
 // `placing` (+ ghostX/ghostY, and wallAnchorX/Y once a wall anchor is dropped).
-function drawPlacementGhost(ctx, snap, me, t) {
+function drawPlacementGhost(ctx: any, snap: any, me: any, t: any) {
   if (!me.placing || me.ghostX === undefined || me.ghostY === undefined) return;
   const kind = me.placing;
   if (kind === 'wall' && me.wallAnchorX !== undefined) {
@@ -8186,7 +8186,7 @@ function drawPlacementGhost(ctx, snap, me, t) {
 // no aim cursor — just a pulsing ring + "FIRE TO LAUNCH" on the silo so the owner
 // knows the trigger is live. Gated by the caller to a READY device whose owner is
 // a local focus seat, so it never appears for non-owners or spent/charging states.
-function drawSuperLaunchPrompt(ctx, sw, t) {
+function drawSuperLaunchPrompt(ctx: any, sw: any, t: any) {
   const weather = sw.type === 'weather';
   const col = weather ? '#9fd0ff' : '#ffae5a';
   const pulse = 0.5 + 0.5 * Math.sin(t * 5);
@@ -8210,7 +8210,7 @@ function drawSuperLaunchPrompt(ctx, sw, t) {
 
 // ============================== THE ANCHOR ==============================
 // 2-tile graphite monolith; dormant until the relay quorum is met.
-function drawAnchor(ctx, cx, baseY, gate, t, lights) {
+function drawAnchor(ctx: any, cx: any, baseY: any, gate: any, t: any, lights: any) {
   const open = !gate || gate.open;
   const need = gate?.need || 0;
   const built = gate?.built || 0;
@@ -8351,7 +8351,7 @@ function drawAnchor(ctx, cx, baseY, gate, t, lights) {
 // type -> the gamepad face-button glyph for the game's ACT/interact button.
 // (ACT maps to pad button 2: Xbox 'X', PlayStation square, Switch 'Y'.) Pure
 // and side-effect-free so it can be unit-exercised from a node stub.
-export function glyphForType(type) {
+export function glyphForType(type: any) {
   switch (type) {
     case 'xbox': return 'X';
     case 'ps4':
@@ -8374,7 +8374,7 @@ let promptCtxSet = false; // false until client.js first pushes a context
 
 // type: 'keyboard'|'xbox'|'ps4'|'ps5'|'switch'|'generic'. kbLabel: the live
 // keyboard ACT key (defaults to 'E'). Computes both glyphs and stores them.
-export function setPromptGlyphContext(type, kbLabel) {
+export function setPromptGlyphContext(type: any, kbLabel: any) {
   promptKbGlyph = (kbLabel == null || kbLabel === '') ? 'E' : String(kbLabel);
   promptPadGlyph = glyphForType(type) ?? 'X';
   promptIsPad = type != null && type !== 'keyboard';
@@ -8395,12 +8395,12 @@ export function promptButton() {
 // Swap the literal 'E/X' token any prompt string carries for the active pair.
 // Matches the exact 'E/X' the prompt sources are authored with so unrelated
 // glyphs in a label are never touched.
-function rewritePromptGlyph(text) {
+function rewritePromptGlyph(text: any) {
   return typeof text === 'string' ? text.replace(/E\/X/g, promptButton()) : text;
 }
 
 // World-space interaction prompt ('[E/X] TALK', '[hold E/X] BUILD ...').
-function drawPrompt(ctx, x, y, text, t) {
+function drawPrompt(ctx: any, x: any, y: any, text: any, t: any) {
   text = rewritePromptGlyph(text);
   ctx.save();
   ctx.font = 'bold 10px monospace';
@@ -8435,12 +8435,12 @@ const ZOOM_MAX = 1.15;
 // branch, whose map clamps (and the never-wider-than-the-map zoom floor)
 // keep zoomed views inside the map exactly as before.
 let viewZoom = 1;
-export function setViewZoom(factor) {
+export function setViewZoom(factor: any) {
   const f = +factor;
   viewZoom = Number.isFinite(f) ? Math.min(2, Math.max(1, f)) : 1;
 }
 
-function computeCamera(camera, snap, focus, dt) {
+function computeCamera(camera: any, snap: any, focus: any, dt: any) {
   const VW = camera.vw, VH = camera.vh;
   const W = snap.w * TILE, H = snap.h * TILE;
   const fitZ = Math.min(VW / W, VH / H);
@@ -8449,8 +8449,8 @@ function computeCamera(camera, snap, focus, dt) {
     // Classic single-screen levels: frame the whole map, centered.
     tx = W / 2; ty = H / 2; tz = Math.min(fitZ, ZOOM_MAX * viewZoom);
   } else {
-    let pts = snap.players.filter(p => p.state === 'active' && focus.has(p.pid));
-    if (!pts.length) pts = snap.players.filter(p => p.state === 'active');
+    let pts = snap.players.filter((p: any) => p.state === 'active' && focus.has(p.pid));
+    if (!pts.length) pts = snap.players.filter((p: any) => p.state === 'active');
     if (!pts.length) pts = [{ x: camera.x, y: camera.y }];
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const p of pts) {
@@ -8486,7 +8486,7 @@ function computeCamera(camera, snap, focus, dt) {
 
 // A fresh viewport camera opens exactly where the shared camera was looking,
 // then glides to its own target — so the split transition reads as one motion.
-function viewCamFor(id, rect) {
+function viewCamFor(id: any, rect: any) {
   let c = viewCams.get(id);
   if (!c) {
     c = { x: cam.x, y: cam.y, z: cam.z, key: cam.key, vw: rect.w, vh: rect.h };
@@ -8497,12 +8497,12 @@ function viewCamFor(id, rect) {
   return c;
 }
 
-function camInView(camera, x, y, m = 70) {
+function camInView(camera: any, x: any, y: any, m = 70) {
   return Math.abs(x - camera.x) < camera.vw / 2 / camera.z + m
     && Math.abs(y - camera.y) < camera.vh / 2 / camera.z + m;
 }
 
-function camToScreen(camera, x, y) {
+function camToScreen(camera: any, x: any, y: any) {
   return [(x - camera.x) * camera.z + camera.vw / 2, (y - camera.y) * camera.z + camera.vh / 2];
 }
 
@@ -8511,7 +8511,7 @@ function camToScreen(camera, x, y) {
 // the SHARED camera, which renderViews keeps warm every frame (single view it
 // IS the active camera; split-screen it tracks the union focus). Returns null
 // until the camera has rendered at least once (vw/vh seeded from the canvas).
-export function screenToWorld(px, py) {
+export function screenToWorld(px: any, py: any) {
   if (!cam.vw || !cam.vh) return null;
   return { x: cam.x + (px - cam.vw / 2) / cam.z, y: cam.y + (py - cam.vh / 2) / cam.z };
 }
@@ -8521,13 +8521,13 @@ export function screenToWorld(px, py) {
 // view's OWN camera (split-screen safe). Null until the mouse moves / on leave;
 // the reticle then falls back to the device's snapshot target where available.
 let aimScreen = null;
-export function setAimScreen(px, py) {
+export function setAimScreen(px: any, py: any) {
   aimScreen = (px == null || py == null) ? null : { x: px, y: py };
 }
 
 // Exit tiles never move; scan the grid once per level.
-let exitCache = { key: null, cols: [] };
-function exitTiles(snap) {
+let exitCache: { key: any; cols: any[] } = { key: null, cols: [] };
+function exitTiles(snap: any) {
   const key = snap.grid || snap.name;
   if (exitCache.key === key) return exitCache.cols;
   const cols = [];
@@ -8538,7 +8538,7 @@ function exitTiles(snap) {
   return cols;
 }
 
-function drawEdgeArrowFor(ctx, camera, wx, wy, color, label) {
+function drawEdgeArrowFor(ctx: any, camera: any, wx: any, wy: any, color: any, label: any) {
   const VW = camera.vw, VH = camera.vh, M = 30;
   let [sx, sy] = camToScreen(camera, wx, wy);
   const cx = VW / 2, cy = VH / 2;
@@ -8575,7 +8575,7 @@ function drawEdgeArrowFor(ctx, camera, wx, wy, color, label) {
 // identical on every machine, no sim involvement. ~10-tile reveal radius,
 // accumulated per mission, reset whenever the level (grid) changes. Maps
 // small enough to frame whole-screen are considered fully scouted.
-const explore = { key: null, w: 0, h: 0, mask: null, count: 0, fogCanvas: null, fogCount: -1 };
+const explore: { key: any; w: number; h: number; mask: any; count: number; fogCanvas: any; fogCount: number } = { key: null, w: 0, h: 0, mask: null, count: 0, fogCanvas: null, fogCount: -1 };
 
 // Mode gate, set by the client each frame (story/stronghold/expedition fog
 // it; versus + classic arcade don't). Disabled: the minimap skips the fog
@@ -8583,9 +8583,9 @@ const explore = { key: null, w: 0, h: 0, mask: null, count: 0, fogCanvas: null, 
 // path shows the whole field. The ledger itself keeps accumulating, so
 // re-enabling fog mid-mission picks up where exploration left off.
 let fogEnabled = true;
-export function setFogEnabled(on) { fogEnabled = !!on; }
+export function setFogEnabled(on: any) { fogEnabled = !!on; }
 
-function updateExplore(snap) {
+function updateExplore(snap: any) {
   const key = snap.grid || snap.name;
   if (explore.key !== key) {
     explore.key = key;
@@ -8622,13 +8622,13 @@ function updateExplore(snap) {
 }
 
 // The client may grab the live mask (e.g. to pass into drawFullMap).
-export function exploreMask(snap) {
+export function exploreMask(snap: any) {
   if (snap?.grid) updateExplore(snap);
   return explore.mask;
 }
 
 // has a world-space point been scouted? (no mask / fog disabled: show all)
-function seenAt(wx, wy) {
+function seenAt(wx: any, wy: any) {
   if (!fogEnabled) return true;
   const m = explore.mask;
   if (!m) return true;
@@ -8666,7 +8666,7 @@ function fogLayer() {
 // ============================== WEATHER FX ==============================
 // Screen-space weather layers driven by snap.weather ('rain'|'snow'|
 // 'ashstorm'|'fog'). Pure functions of t — deterministic drift, no state.
-function drawWeather(ctx, VW, VH, weather, t) {
+function drawWeather(ctx: any, VW: any, VH: any, weather: any, t: any) {
   if (!weather || weather === 'clear') return;
   ctx.save();
   if (weather === 'thunderstorm') {
@@ -8780,7 +8780,7 @@ function drawWeather(ctx, VW, VH, weather, t) {
 // weather layers), and a no-op for unthemed levels (the caller only invokes it
 // with a theme palette). Snow/rain themes just lean on drawWeather, so this
 // only paints the non-weather kinds: rising embers, drifting fallout, toxic fog.
-function drawHazardAmbient(ctx, snap, t, VW, VH, tpal) {
+function drawHazardAmbient(ctx: any, snap: any, t: any, VW: any, VH: any, tpal: any) {
   if (!tpal || !tpal.ambient) return;
   const kind = tpal.ambient;
   // snow/rain are handled by the weather layer the theme already implies
@@ -8856,7 +8856,7 @@ function drawHazardAmbient(ctx, snap, t, VW, VH, tpal) {
 // ============================== ALARM HUD ==============================
 // Big blinking countdown banner: dusk/nightwave inbound (<15s on the day
 // clock), BR zone about to shrink, CTF sudden death. Center-top, unmissable.
-function drawCountdownBanner(ctx, VW, snap, t) {
+function drawCountdownBanner(ctx: any, VW: any, snap: any, t: any) {
   let secs = null, label = '', col = PAL.glitch;
   const cyc = snap.cycle;
   if (cyc && cyc.phase === 'day' && cyc.t != null && cyc.t <= 15 && cyc.t > 0) {
@@ -8890,7 +8890,7 @@ function drawCountdownBanner(ctx, VW, snap, t) {
 // NEW OBJECTIVE HUD (map-overhaul): a compact center-top readout for the three
 // new win-gates. Gated entirely on the snapshot keys (capture/escort/bridge), so
 // it never paints on a classic/CTF/BR/plain-bastion frame. One bar at a time.
-function drawObjectiveHud(ctx, VW, snap, t) {
+function drawObjectiveHud(ctx: any, VW: any, snap: any, t: any) {
   let label = null, frac = 0, col = PAL.relay, sub = '';
   if (snap.capture) {
     const c = snap.capture;
@@ -8940,7 +8940,7 @@ function drawObjectiveHud(ctx, VW, snap, t) {
 // that run on a clock — FIRE SALE (free builds) and STAMINA (free sprint). Gated
 // by the caller (only drawn when a timer is in the snapshot), so classic frames
 // never paint a chip. Pulses in the final 3s.
-function drawPowerupTimers(ctx, VW, snap, t) {
+function drawPowerupTimers(ctx: any, VW: any, snap: any, t: any) {
   const chips = [];
   if (snap.fireSaleT > 0) chips.push({ label: 'FIRE SALE', secs: snap.fireSaleT, color: POWERUP_STYLE.firesale.color });
   if (snap.freeSprintT > 0) chips.push({ label: 'FREE SPRINT', secs: snap.freeSprintT, color: POWERUP_STYLE.stamina.color });
@@ -8971,7 +8971,7 @@ function drawPowerupTimers(ctx, VW, snap, t) {
 
 // RELIC AWAKENING HUD: a compact center-top readout of the survival timer and
 // the live bonus (which bleeds with hits + deaths). Pulses red near the end.
-function drawRelicHud(ctx, VW, horde, t) {
+function drawRelicHud(ctx: any, VW: any, horde: any, t: any) {
   const rem = Math.max(0, horde.remaining ?? 0);
   const mm = Math.floor(rem / 60), ss = Math.floor(rem % 60);
   const timer = `${mm}:${String(ss).padStart(2, '0')}`;
@@ -9010,7 +9010,7 @@ function drawRelicHud(ctx, VW, horde, t) {
 // Build-available hint: shown once the awakening was survived (superweaponUnlocked)
 // but no device exists yet — points the player at the pause-menu build entry. A
 // small unobtrusive banner, gated by the caller so classic runs never see it.
-function drawSuperweaponBuildHint(ctx, VW, t) {
+function drawSuperweaponBuildHint(ctx: any, VW: any, t: any) {
   ctx.save();
   ctx.textAlign = 'center';
   const pulse = 0.55 + 0.35 * Math.sin(t * 3);
@@ -9024,7 +9024,7 @@ function drawSuperweaponBuildHint(ctx, VW, t) {
   ctx.fillText('PAUSE → BUILD SUPERWEAPON', VW / 2, 212);
   ctx.restore();
 }
-function drawSuperweaponHud(ctx, VW, sw, t) {
+function drawSuperweaponHud(ctx: any, VW: any, sw: any, t: any) {
   if (!sw || (sw.state !== 'charging' && sw.state !== 'ready' && sw.state !== 'building')) return;
   const weather = sw.type === 'weather';
   const col = weather ? '#9fd0ff' : '#ffae5a';
@@ -9058,7 +9058,7 @@ function drawSuperweaponHud(ctx, VW, sw, t) {
 // a "FIRE PLACE / SPECIAL CANCEL" hint sits above it. Gated by the caller to a
 // seat that actually has inventory, so classic seats draw nothing. Drawn in this
 // view's screen space (VW/VH are this cell's dims).
-function drawInventoryBar(ctx, VW, VH, me, t) {
+function drawInventoryBar(ctx: any, VW: any, VH: any, me: any, t: any) {
   const inv = me.inventory;
   if (!inv || !inv.length) return;
   const sel = me.invIdx || 0;
@@ -9109,7 +9109,7 @@ function drawInventoryBar(ctx, VW, VH, me, t) {
 
 // Beacon pips: stronghold beacon-defense HUD — one monolith pip per beacon,
 // gold while lit, cracked violet-grey while dark. Lose only if ALL go dark.
-function drawBeaconPips(ctx, VW, cores, t) {
+function drawBeaconPips(ctx: any, VW: any, cores: any, t: any) {
   const n = cores.length;
   const w = 22, x0 = VW / 2 - (n * w) / 2 + w / 2;
   ctx.save();
@@ -9138,14 +9138,14 @@ function drawBeaconPips(ctx, VW, cores, t) {
 // render(): the classic single-view entry point — a thin wrapper over
 // renderViews with one full-canvas view through the shared camera. Byte-for-
 // byte today's output: same camera object, same op order, no clip/chip pass.
-export function render(ctx, snap, charMap, focusPids, t, dt) {
+export function render(ctx: any, snap: any, charMap: any, focusPids: any, t: any, dt: any) {
   renderViews(ctx, snap, charMap, [{
     id: 'shared', kind: 'player', pid: null, focus: focusPids,
     rect: { x: 0, y: 0, w: ctx.canvas.width, h: ctx.canvas.height },
   }], t, dt);
 }
 
-function toPidSet(f) {
+function toPidSet(f: any) {
   return f instanceof Set ? f : new Set(Array.isArray(f) ? f : f != null ? [f] : []);
 }
 
@@ -9155,7 +9155,7 @@ function toPidSet(f) {
 // rect through its own camera; a 'map' view reuses drawFullMap (fog-aware)
 // inside its cell. Global alerts (banners, wave countdown, beacon pips) and
 // the seam dividers draw once, full-canvas, after the cells.
-export function renderViews(ctx, snap, charMap, views, t, dt) {
+export function renderViews(ctx: any, snap: any, charMap: any, views: any, t: any, dt: any) {
   setScene(snap); // ambience beds/music/weather follow the live snapshot
   // a lite snapshot can arrive before levelStart re-attaches the cached grid
   if (!snap.grid || !Array.isArray(views) || !views.length) return;
@@ -9228,7 +9228,7 @@ export function renderViews(ctx, snap, charMap, views, t, dt) {
 // FX particles, flashes, popups, rings, door/level ledgers: shared world
 // state, decayed once per frame and then drawn per viewport with that
 // viewport's culling. (Hoisted out of the old render() body verbatim.)
-function advanceFrameFx(snap, dt) {
+function advanceFrameFx(snap: any, dt: any) {
   shake = Math.max(0, shake - dt * 18);
   punch = Math.max(0, punch - dt * 1.1); // settle the zoom-kick back over ~0.4s
   for (let i = particles.length - 1; i >= 0; i--) {
@@ -9277,13 +9277,13 @@ function advanceFrameFx(snap, dt) {
   // coordless levelUp events: anchor the flare to the player this frame
   while (pendingLevelUps.length) {
     const lu = pendingLevelUps.pop();
-    const p = snap.players.find(pl => pl.pid === lu.pid && pl.state === 'active');
+    const p = snap.players.find((pl: any) => pl.pid === lu.pid && pl.state === 'active');
     if (p) levelUpFX(p.x, p.y, lu.level);
   }
 }
 
 // One world + screen-space pass into a viewport rect through its camera.
-function renderWorldView(ctx, snap, charMap, t, dt, opts) {
+function renderWorldView(ctx: any, snap: any, charMap: any, t: any, dt: any, opts: any) {
   const { view, rect, camera, clipped, globalUi, stateDt } = opts;
   const focus = opts.focus;
   if (clipped) {
@@ -9295,8 +9295,8 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
   }
   poseNs = opts.ns || '';
   // camera-space helpers, bound to THIS viewport's camera
-  const inView = (x, y, m = 70) => camInView(camera, x, y, m);
-  const drawEdgeArrow = (ectx, wx, wy, color, label) => drawEdgeArrowFor(ectx, camera, wx, wy, color, label);
+  const inView = (x: any, y: any, m = 70) => camInView(camera, x, y, m);
+  const drawEdgeArrow = (ectx: any, wx: any, wy: any, color: any, label: any) => drawEdgeArrowFor(ectx, camera, wx, wy, color, label);
   // new snapshot fields are optional: classic levels must keep rendering
   const builds = snap.builds ?? [];
   const crystals = snap.crystals ?? [];
@@ -9330,8 +9330,8 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
   // lythseal bearers light up Classical Phantoms within 6 tiles (drawEnemy);
   // the seal rides its own snapshot field now (hasSeal/lythseal), never the
   // item slot — every alias is honored for older snapshots
-  sealCarriers = (snap.players ?? []).filter(p => p.state === 'active' && (p.hasSeal || p.lythseal || p.seal));
-  const lights = []; // per-frame light pools (campfires, LYTH, pylons...)
+  sealCarriers = (snap.players ?? []).filter((p: any) => p.state === 'active' && (p.hasSeal || p.lythseal || p.seal));
+  const lights: any[] = []; // per-frame light pools (campfires, LYTH, pylons...)
   // night grade: story dark missions are full night; bastion maps breathe
   // through a smooth dusk/dawn tint driven by the cycle clock (last 6s).
   familyMode = snap.family === true; // bright child-friendly storybook grade
@@ -9652,7 +9652,7 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
   for (const tp of teleports) if (inView(tp.x, tp.y, 60)) drawTeleportPad(ctx, tp, t, snap, lights);
   for (const sw of switches) if (inView(sw.x, sw.y, 60)) drawSwitch(ctx, sw, t, lights);
   for (const gl of glyphs) if (inView(gl.x, gl.y, 60)) drawGlyphStone(ctx, gl, t, lights);
-  pillars.forEach((pi, pidx) => { if (inView(pi.x, pi.y, 90)) drawPillar(ctx, pi, t, lights, pidx); });
+  pillars.forEach((pi: any, pidx: any) => { if (inView(pi.x, pi.y, 90)) drawPillar(ctx, pi, t, lights, pidx); });
   for (const fo2 of forges) if (inView(fo2.x, fo2.y, 80)) drawForge(ctx, fo2, t, lights);
   for (const pk of pickups) if (inView(pk.x, pk.y, 60)) drawFieldPickup(ctx, pk, t, lights);
   for (const q of qitems) if (inView(q.x, q.y, 60)) drawQuestItem(ctx, q, t, lights);
@@ -9700,7 +9700,7 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
   // ring so you can see how long to hold (mirrors the build-progress arc). Gated:
   // cycle.hornP only ships while the horn is actually charging.
   if (snap.cycle && snap.cycle.hornP > 0) {
-    const litPosts = cores.length ? cores.filter(c => (c.hp ?? 1) > 0) : (core ? [core] : []);
+    const litPosts = cores.length ? cores.filter((c: any) => (c.hp ?? 1) > 0) : (core ? [core] : []);
     for (const pst of litPosts) {
       if (!inView(pst.x, pst.y, 120)) continue;
       ctx.save();
@@ -9783,7 +9783,7 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
   if (snap.musicBox) {
     const mb = snap.musicBox;
     if (mb.mounts) {
-      const allDone = !!mb.complete || mb.mounts.every(m => m.filled);
+      const allDone = !!mb.complete || mb.mounts.every((m: any) => m.filled);
       for (const m of mb.mounts) {
         if (inView(m.x, m.y, 120)) drawMusicMount(ctx, m, t, lights, allDone);
       }
@@ -9880,7 +9880,7 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
       ctx.globalAlpha = Math.min(1, e.hurt / 0.14) * 0.4;
       ctx.fillStyle = PAL.red;
       ctx.beginPath();
-      ctx.arc(e.x, e.y, (KIND_R[e.kind] || 13) + 1, 0, Math.PI * 2);
+      ctx.arc(e.x, e.y, ((KIND_R as any)[e.kind] || 13) + 1, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
     }
@@ -9902,7 +9902,7 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
 
   // --- acolyte shield-threads: each Null Acolyte tends its nearest ward ---
   for (const e of snap.enemies) {
-    if ((KIND_ALIAS[e.kind] || e.kind) !== 'acolyte' || e.awake === false || !inView(e.x, e.y, 300)) continue;
+    if (((KIND_ALIAS as any)[e.kind] || e.kind) !== 'acolyte' || e.awake === false || !inView(e.x, e.y, 300)) continue;
     let ward = null, best = (TILE * 6) ** 2;
     for (const o of snap.enemies) {
       if (o === e || !o.shielded) continue;
@@ -10106,8 +10106,8 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
 
   // --- interaction prompts near focus players (build sites take priority) ---
   const R2 = (TILE * 1.5) ** 2;
-  const focusActive = snap.players.filter(p => p.state === 'active' && focus.has(p.pid));
-  const promptSites = new Set();
+  const focusActive = snap.players.filter((p: any) => p.state === 'active' && focus.has(p.pid));
+  const promptSites = new Set<any>();
   const busyPids = new Set();
   for (const fp of focusActive) {
     let bestB = null, bd = R2;
@@ -10144,7 +10144,7 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
   }
   // frontier III interactables join the same one-nearest-prompt chain
   for (const pk of pickups) {
-    const st2 = PICKUP_STYLE[pk.kind];
+    const st2 = (PICKUP_STYLE as any)[pk.kind];
     cands.push({ x: pk.x, y: pk.y, py: pk.y - 24, text: `[E/X] TAKE ${st2?.label ?? String(pk.kind || 'WEAPON').toUpperCase()}` });
   }
   for (const fo2 of forges) cands.push({ x: fo2.x, y: fo2.y, py: fo2.y - 28, text: '[hold E/X] FORGE LYTHSEAL 20◆ + FRAGMENT' });
@@ -10178,7 +10178,7 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
     if (core) cands.push({ x: core.x, y: core.y, py: core.y - 62, text: '[hold E/X] SOUND THE HORN' });
   }
   if (ship?.landed) cands.push({ x: ship.x, y: ship.y, py: ship.y - 46, text: '[E/X] BOARD THE ANCHORCRAFT' });
-  const promptOthers = new Set();
+  const promptOthers = new Set<any>();
   for (const fp of focusActive) {
     if (busyPids.has(fp.pid)) continue;
     let bestC = null, cd = R2;
@@ -10334,7 +10334,7 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
       // jagged core, re-rolled every frame
       const frame = Math.floor(t * 30) + (s.x | 0);
       ctx.lineCap = 'round';
-      for (const [w2, col2] of [[3.5, 'rgba(111,216,242,0.45)'], [1.4, PAL.eye]]) {
+      for (const [w2, col2] of [[3.5, 'rgba(111,216,242,0.45)'], [1.4, PAL.eye]] as any[]) {
         ctx.strokeStyle = col2;
         ctx.shadowColor = PAL.relay;
         ctx.shadowBlur = w2 > 2 ? 8 : 0;
@@ -10454,7 +10454,7 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
     ctx.globalAlpha = k;
     ctx.lineCap = 'round';
     // glow pass then hot core, both jagged, chaining target to target
-    for (const [w2, col2, mag] of [[4, 'rgba(111,216,242,0.5)', 8], [1.6, PAL.eye, 7]]) {
+    for (const [w2, col2, mag] of [[4, 'rgba(111,216,242,0.5)', 8], [1.6, PAL.eye, 7]] as any[]) {
       ctx.strokeStyle = col2;
       ctx.shadowColor = PAL.relay;
       ctx.shadowBlur = w2 > 2 ? 10 : 0;
@@ -10605,7 +10605,7 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
       ctx.stroke();
       ctx.restore();
     }
-    if (f.evo === 'shock' && !PICKUP_STYLE[f.weapon]) { // field weapons skip evos
+    if (f.evo === 'shock' && !(PICKUP_STYLE as any)[f.weapon]) { // field weapons skip evos
       // blue crackle forking off the muzzle
       const frame = Math.floor(t * 40);
       ctx.save();
@@ -10836,9 +10836,9 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
     drawEdgeArrow(ctx, p.x, p.y, col, p.name.toUpperCase().slice(0, 6));
   }
   const farCaptives = snap.captives
-    .filter(c => !c.owner && !inView(c.x, c.y, -20))
-    .map(c => ({ c, d: (c.x - camera.x) ** 2 + (c.y - camera.y) ** 2 }))
-    .sort((a, b) => a.d - b.d)
+    .filter((c: any) => !c.owner && !inView(c.x, c.y, -20))
+    .map((c: any) => ({ c, d: (c.x - camera.x) ** 2 + (c.y - camera.y) ** 2 }))
+    .sort((a: any, b: any) => a.d - b.d)
     .slice(0, 6);
   for (const { c } of farCaptives) drawEdgeArrow(ctx, c.x, c.y, '#5fd2b4', 'RESCUE');
   if (exitCols.length) {
@@ -10896,8 +10896,8 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
   // seat actually has p.inventory, so classic seats keep a clean HUD. ---
   {
     const invMe = view.pid != null
-      ? snap.players.find(p => p.pid === view.pid)
-      : snap.players.find(p => focus.has(p.pid) && p.inventory && p.inventory.length);
+      ? snap.players.find((p: any) => p.pid === view.pid)
+      : snap.players.find((p: any) => focus.has(p.pid) && p.inventory && p.inventory.length);
     if (invMe && invMe.inventory && invMe.inventory.length) drawInventoryBar(ctx, VW, VH, invMe, t);
   }
 
@@ -10909,9 +10909,9 @@ function renderWorldView(ctx, snap, charMap, t, dt, opts) {
 
 // Name + hearts chip in the lower-left corner of a splitscreen cell, in the
 // seat's color (drawn in view-local coords — the cell clip/translate is live).
-function drawViewChip(ctx, snap, charMap, view, rect) {
+function drawViewChip(ctx: any, snap: any, charMap: any, view: any, rect: any) {
   if (view.pid == null) return;
-  const p = (snap.players ?? []).find(pl => pl.pid === view.pid);
+  const p = (snap.players ?? []).find((pl: any) => pl.pid === view.pid);
   const name = (String(view.name ?? p?.name ?? '').toUpperCase()
     || 'P' + ((view.seat ?? 0) + 1)).slice(0, 10);
   const col = view.color || (p && charMap[p.charId]?.color) || PAL.relay;
@@ -10950,7 +10950,7 @@ function drawViewChip(ctx, snap, charMap, view, rect) {
 // The 3-seat layout's 4th cell: the live field map (fog-aware, objectives),
 // reusing drawFullMap with the client-passed fog mask. A ctx proxy narrows
 // the perceived canvas to the cell so drawFullMap's own layout math fits.
-function drawMapCell(ctx, snap, view, rect) {
+function drawMapCell(ctx: any, snap: any, view: any, rect: any) {
   ctx.save();
   ctx.beginPath();
   ctx.rect(rect.x, rect.y, rect.w, rect.h);
@@ -10965,7 +10965,7 @@ function drawMapCell(ctx, snap, view, rect) {
 
 // A pass-through ctx whose .canvas reports the viewport's size — lets
 // full-canvas painters (drawFullMap) render inside a cell unmodified.
-function viewportCtx(ctx, w, h) {
+function viewportCtx(ctx: any, w: any, h: any) {
   const fakeCanvas = { width: w, height: h };
   return new Proxy(ctx, {
     get(target, prop) {
@@ -10980,7 +10980,7 @@ function viewportCtx(ctx, w, h) {
 // Splitscreen global pass: screen alerts that belong to the whole couch, not
 // a cell — banners (LOW TIME / THE ANCHOR WAKES), the blinking countdown,
 // beacon pips. Drawn once, full-canvas, after every viewport has rendered.
-function drawGlobalScreenFx(ctx, snap, t, VW, VH) {
+function drawGlobalScreenFx(ctx: any, snap: any, t: any, VW: any, VH: any) {
   ctx.save();
   // RELIC AWAKENING thunder flash across the whole couch
   if (lightningT > 0) {
@@ -11017,7 +11017,7 @@ function drawGlobalScreenFx(ctx, snap, t, VW, VH) {
 // Thin seam lines over the viewport edges: a 2px Void Night core with a teal
 // energy edge on each side. Drawn from the live rects, so the dividers track
 // the 0.25s split/merge transition exactly.
-function drawDividers(ctx, views, CW, CH) {
+function drawDividers(ctx: any, views: any, CW: any, CH: any) {
   ctx.save();
   for (const v of views) {
     const r = v.rect;
@@ -11048,8 +11048,8 @@ const MM_TILE = {
   // map-overhaul biome floors: cinder '+', packed-snow '-', peat '@', slab '/'
   '+': '#241915', '-': '#B6C7DA', '@': '#1F1D14', '/': '#2A2C3A',
 };
-let mmCache = { key: null, canvas: null };
-export function renderMinimap(ctx, snap, focusPids) {
+let mmCache: { key: any; canvas: any } = { key: null, canvas: null };
+export function renderMinimap(ctx: any, snap: any, focusPids: any) {
   if (!snap.grid) return;
   const focus = focusPids instanceof Set ? focusPids
     : new Set(Array.isArray(focusPids) ? focusPids : [focusPids]);
@@ -11059,12 +11059,12 @@ export function renderMinimap(ctx, snap, focusPids) {
   if (mmCache.key !== key) {
     const c = document.createElement('canvas');
     c.width = W; c.height = H;
-    const mctx = c.getContext('2d');
+    const mctx = c.getContext('2d')!;
     mctx.fillStyle = PAL.voidNight;
     mctx.fillRect(0, 0, W, H);
     for (let y = 0; y < snap.h; y++) {
       for (let x = 0; x < snap.w; x++) {
-        const col = MM_TILE[snap.grid[y][x]] ?? MM_TILE['.']; // 'E' stays dynamic
+        const col = (MM_TILE as any)[snap.grid[y][x]] ?? MM_TILE['.']; // 'E' stays dynamic
         if (!col || snap.grid[y][x] === 'E') continue;
         mctx.fillStyle = col;
         mctx.fillRect(x * TILE * sx, y * TILE * sy, TILE * sx + 0.5, TILE * sy + 0.5);
@@ -11089,7 +11089,7 @@ export function renderMinimap(ctx, snap, focusPids) {
   // on scouted tiles (players + mission objectives always show).
   const fog = fogEnabled ? fogLayer() : null;
   if (fog) ctx.drawImage(fog, 0, 0, W, H);
-  const dot = (x, y, col, r = 2.5) => {
+  const dot = (x: any, y: any, col: any, r = 2.5) => {
     ctx.fillStyle = col;
     ctx.beginPath();
     ctx.arc(x * sx, y * sy, r, 0, Math.PI * 2);
@@ -11104,7 +11104,7 @@ export function renderMinimap(ctx, snap, focusPids) {
   for (const c of snap.crystals ?? []) if (seenAt(c.x, c.y)) dot(c.x, c.y, PAL.lythAmber, 2);
   for (const d of snap.drops ?? []) if (seenAt(d.x, d.y)) dot(d.x, d.y, PAL.lythGold, 1.5);
   // power-up tokens: rare + short-lived, so ping them brightly in their type color
-  for (const pu of snap.powerups ?? []) dot(pu.x, pu.y, (POWERUP_STYLE[pu.type] || { color: PAL.lythPale }).color, 2.2);
+  for (const pu of snap.powerups ?? []) dot(pu.x, pu.y, ((POWERUP_STYLE as any)[pu.type] || { color: PAL.lythPale }).color, 2.2);
   for (const b of snap.builds ?? []) {
     if (b.kind === 'wall' && b.built) continue; // already drawn as wall pixels
     if (!seenAt(b.x, b.y)) continue;
@@ -11148,7 +11148,7 @@ export function renderMinimap(ctx, snap, focusPids) {
     ctx.fillRect(pi.x * sx - 1.5, pi.y * sy - 2, 3, 4);
   }
   for (const fo2 of snap.forges ?? []) if (seenAt(fo2.x, fo2.y)) dot(fo2.x, fo2.y, PAL.lythAmber, 2.4);
-  for (const pk of snap.pickups ?? []) if (seenAt(pk.x, pk.y)) dot(pk.x, pk.y, (PICKUP_STYLE[pk.kind] || {}).col || PAL.lythGold, 2);
+  for (const pk of snap.pickups ?? []) if (seenAt(pk.x, pk.y)) dot(pk.x, pk.y, ((PICKUP_STYLE as any)[pk.kind] || {}).col || PAL.lythGold, 2);
   for (const q of snap.qitems ?? []) if (seenAt(q.x, q.y)) dot(q.x, q.y, '#FFEFC2', 2.2);
   // stranded operators (amber distress) + scrap (dull steel): def.stranded only
   for (const o of snap.stranded ?? []) if (seenAt(o.x, o.y)) dot(o.x, o.y, PAL.lythAmber, 2.4);
@@ -11236,12 +11236,12 @@ export function renderMinimap(ctx, snap, focusPids) {
 // over the dimmed game — terrain, fog, entities, objectives, camera rect.
 // The client calls this on top of its normal frame while the button is held;
 // pass mask=null to use the renderer's own exploration ledger.
-let fmCache = { key: null, canvas: null };
-export function drawFullMap(ctx, snap, mask, focus, opts = {}) {
+let fmCache: { key: any; canvas: any } = { key: null, canvas: null };
+export function drawFullMap(ctx: any, snap: any, mask: any, focus: any, opts: any = {}) {
   if (!snap?.grid) return;
   updateExplore(snap);
   const m = mask ?? (fogEnabled ? explore.mask : null); // fog off: internal path shows all
-  const seen2 = (wx, wy) => {
+  const seen2 = (wx: any, wy: any) => {
     if (!m) return true;
     const x = Math.max(0, Math.min(snap.w - 1, Math.floor(wx / TILE)));
     const y = Math.max(0, Math.min(snap.h - 1, Math.floor(wy / TILE)));
@@ -11258,7 +11258,7 @@ export function drawFullMap(ctx, snap, mask, focus, opts = {}) {
   const sc = Math.min((W * 0.86) / (snap.w * TILE), (H * 0.78) / (snap.h * TILE));
   const mw = snap.w * TILE * sc, mh = snap.h * TILE * sc;
   const ox = (W - mw) / 2, oy = (H - mh) / 2 + H * 0.015;
-  const px = (wx) => ox + wx * sc, py = (wy) => oy + wy * sc;
+  const px = (wx: any) => ox + wx * sc, py = (wy: any) => oy + wy * sc;
   // frame plate
   ctx.fillStyle = 'rgba(13,14,24,0.95)';
   ctx.fillRect(ox - 10, oy - 10, mw + 20, mh + 20);
@@ -11270,14 +11270,14 @@ export function drawFullMap(ctx, snap, mask, focus, opts = {}) {
   if (fmCache.key !== key) {
     const c = document.createElement('canvas');
     c.width = snap.w; c.height = snap.h;
-    const fctx = c.getContext('2d');
+    const fctx = c.getContext('2d')!;
     fctx.fillStyle = PAL.voidNight;
     fctx.fillRect(0, 0, snap.w, snap.h);
     for (let y = 0; y < snap.h; y++) {
       for (let x = 0; x < snap.w; x++) {
         const ch2 = snap.grid[y][x];
         if (ch2 === 'E') continue;
-        fctx.fillStyle = MM_TILE[ch2] ?? MM_TILE['.'];
+        fctx.fillStyle = (MM_TILE as any)[ch2] ?? MM_TILE['.'];
         fctx.fillRect(x, y, 1, 1);
       }
     }
@@ -11312,7 +11312,7 @@ export function drawFullMap(ctx, snap, mask, focus, opts = {}) {
   }
   ctx.imageSmoothingEnabled = smoothWas;
   const ds = Math.max(2, cell * 0.42); // dot scale
-  const dot = (wx, wy, col, k = 1) => {
+  const dot = (wx: any, wy: any, col: any, k = 1) => {
     ctx.fillStyle = col;
     ctx.beginPath();
     ctx.arc(px(wx), py(wy), ds * k, 0, Math.PI * 2);
@@ -11328,7 +11328,7 @@ export function drawFullMap(ctx, snap, mask, focus, opts = {}) {
   for (const n of snap.npcs ?? []) if (seen2(n.x, n.y)) dot(n.x, n.y, PAL.coldHi, 0.7);
   for (const c of snap.chests ?? []) if (!c.opened && seen2(c.x, c.y)) dot(c.x, c.y, PAL.lythGold, 0.6);
   for (const tw of snap.towers ?? []) if ((tw.hp ?? 1) > 0 && seen2(tw.x, tw.y)) dot(tw.x, tw.y, PAL.moonsteel, 0.7);
-  for (const pk of snap.pickups ?? []) if (seen2(pk.x, pk.y)) dot(pk.x, pk.y, (PICKUP_STYLE[pk.kind] || {}).col || PAL.lythGold, 0.7);
+  for (const pk of snap.pickups ?? []) if (seen2(pk.x, pk.y)) dot(pk.x, pk.y, ((PICKUP_STYLE as any)[pk.kind] || {}).col || PAL.lythGold, 0.7);
   for (const q of snap.qitems ?? []) if (seen2(q.x, q.y)) dot(q.x, q.y, '#FFEFC2', 0.7);
   for (const o of snap.stranded ?? []) if (seen2(o.x, o.y)) dot(o.x, o.y, PAL.lythAmber, 0.9);
   for (const s of snap.scrap ?? []) if (seen2(s.x, s.y)) dot(s.x, s.y, '#8A8270', 0.7);
@@ -11437,7 +11437,7 @@ export function drawFullMap(ctx, snap, mask, focus, opts = {}) {
 // from flick(), subtle drift/pulse animation from t. The client owns the slide
 // state machine; we only paint.
 
-function csSky(ctx, W, H, top, bottom, end = 1) {
+function csSky(ctx: any, W: any, H: any, top: any, bottom: any, end = 1) {
   const g = ctx.createLinearGradient(0, 0, 0, H * end);
   g.addColorStop(0, top);
   g.addColorStop(1, bottom);
@@ -11445,7 +11445,7 @@ function csSky(ctx, W, H, top, bottom, end = 1) {
   ctx.fillRect(0, 0, W, H * end + 1);
 }
 
-function csStars(ctx, W, H, n, t, hMax = 0.6, seed = 0) {
+function csStars(ctx: any, W: any, H: any, n: any, t: any, hMax = 0.6, seed = 0) {
   for (let i = 0; i < n; i++) {
     const tw = 0.5 + 0.5 * Math.sin(t * (0.4 + flick(seed + i * 4.9) * 1.1) + i * 2.4);
     ctx.fillStyle = `rgba(223,243,255,${(0.08 + 0.4 * flick(seed + i * 3.3)) * tw})`;
@@ -11454,7 +11454,7 @@ function csStars(ctx, W, H, n, t, hMax = 0.6, seed = 0) {
   }
 }
 
-function csMotes(ctx, W, H, n, rgb, t, drift = 10, rise = 5, seed = 0) {
+function csMotes(ctx: any, W: any, H: any, n: any, rgb: any, t: any, drift = 10, rise = 5, seed = 0) {
   for (let i = 0; i < n; i++) {
     const sp = 0.4 + flick(seed + i * 2.3);
     const x = (((flick(seed + i * 1.7) * (W + 60) + t * drift * sp) % (W + 60)) + W + 60) % (W + 60) - 30;
@@ -11467,7 +11467,7 @@ function csMotes(ctx, W, H, n, rgb, t, drift = 10, rise = 5, seed = 0) {
   }
 }
 
-function csRidge(ctx, W, H, baseY, amp, color, seed) {
+function csRidge(ctx: any, W: any, H: any, baseY: any, amp: any, color: any, seed: any) {
   ctx.fillStyle = color;
   ctx.beginPath();
   ctx.moveTo(-10, H + 10);
@@ -11483,7 +11483,7 @@ function csRidge(ctx, W, H, baseY, amp, color, seed) {
   ctx.fill();
 }
 
-function csGlow(ctx, x, y, r, rgb, a) {
+function csGlow(ctx: any, x: any, y: any, r: any, rgb: any, a: any) {
   if (r <= 0 || a <= 0) return;
   const g = ctx.createRadialGradient(x, y, 0, x, y, r);
   g.addColorStop(0, `rgba(${rgb},${a})`);
@@ -11492,7 +11492,7 @@ function csGlow(ctx, x, y, r, rgb, a) {
   ctx.fillRect(x - r, y - r, r * 2, r * 2);
 }
 
-function csMonolith(ctx, x, baseY, w, h, fill) {
+function csMonolith(ctx: any, x: any, baseY: any, w: any, h: any, fill: any) {
   ctx.fillStyle = fill;
   ctx.beginPath();
   ctx.moveTo(x - w / 2, baseY);
@@ -11504,7 +11504,7 @@ function csMonolith(ctx, x, baseY, w, h, fill) {
 }
 
 // ANCHORCRAFT — the crew's vessel hanging over the dark frontier.
-function artAnchorcraft(ctx, W, H, t) {
+function artAnchorcraft(ctx: any, W: any, H: any, t: any) {
   csSky(ctx, W, H, '#0B0A14', '#10131F');
   csStars(ctx, W, H, 90, t, 0.75);
   csGlow(ctx, W * 0.18, H * 0.16, H * 0.3, '94,107,140', 0.16); // moon haze
@@ -11573,7 +11573,7 @@ function artAnchorcraft(ctx, W, H, t) {
 }
 
 // CROSSING — the meadow road toward a distant dormant monolith.
-function artCrossing(ctx, W, H, t) {
+function artCrossing(ctx: any, W: any, H: any, t: any) {
   csSky(ctx, W, H, '#0B0A14', '#141B28', 0.55);
   csStars(ctx, W, H, 70, t, 0.5);
   const horizon = H * 0.52;
@@ -11629,7 +11629,7 @@ function artCrossing(ctx, W, H, t) {
 }
 
 // BASIN — drowned LYTH refinery, warm crystal light in black water.
-function artBasin(ctx, W, H, t) {
+function artBasin(ctx: any, W: any, H: any, t: any) {
   csSky(ctx, W, H, '#0B0A14', '#0E1420', 0.46);
   csStars(ctx, W, H, 40, t, 0.4);
   const wl = H * 0.46; // waterline
@@ -11693,7 +11693,7 @@ function artBasin(ctx, W, H, t) {
 }
 
 // QUORUM — a field of dead relay pylons; one still answers.
-function artQuorum(ctx, W, H, t) {
+function artQuorum(ctx: any, W: any, H: any, t: any) {
   csSky(ctx, W, H, '#0B0A14', '#10131D', 0.6);
   csStars(ctx, W, H, 60, t, 0.55);
   const horizon = H * 0.58;
@@ -11744,7 +11744,7 @@ function artQuorum(ctx, W, H, t) {
 }
 
 // FORKFALL — a city skyline duplicated and mirrored, split by a glitch seam.
-function artForkfall(ctx, W, H, t) {
+function artForkfall(ctx: any, W: any, H: any, t: any) {
   csSky(ctx, W, H, '#0B0A14', '#131022', 0.75);
   csStars(ctx, W, H, 46, t, 0.45);
   const base = H * 0.66;
@@ -11810,7 +11810,7 @@ function artForkfall(ctx, W, H, t) {
 }
 
 // SIEGE — torchlight on the palisade against a violet tide.
-function artSiege(ctx, W, H, t) {
+function artSiege(ctx: any, W: any, H: any, t: any) {
   csSky(ctx, W, H, '#0B0A14', '#160D24', 0.65);
   csStars(ctx, W, H, 30, t, 0.35);
   const horizon = H * 0.52;
@@ -11880,7 +11880,7 @@ function artSiege(ctx, W, H, t) {
 }
 
 // SETTLEMENT — the last great Anchor, half-lit over its town.
-function artSettlement(ctx, W, H, t) {
+function artSettlement(ctx: any, W: any, H: any, t: any) {
   csSky(ctx, W, H, '#0B0A14', '#11131F', 0.8);
   csStars(ctx, W, H, 80, t, 0.7);
   const baseY = H * 0.82;
@@ -11950,7 +11950,7 @@ function artSettlement(ctx, W, H, t) {
 }
 
 // CAMPFIRE — operators resting in the warm light.
-function artCampfire(ctx, W, H, t) {
+function artCampfire(ctx: any, W: any, H: any, t: any) {
   csSky(ctx, W, H, '#0B0A14', '#0F1119', 0.5);
   csStars(ctx, W, H, 55, t, 0.45);
   csRidge(ctx, W, H, H * 0.55, H * 0.06, '#0F121A', 71);
@@ -12033,7 +12033,7 @@ function artCampfire(ctx, W, H, t) {
 }
 
 // ENTROPY — a wall of violet static unwriting the terrain.
-function artEntropy(ctx, W, H, t) {
+function artEntropy(ctx: any, W: any, H: any, t: any) {
   csSky(ctx, W, H, '#0B0A14', '#10141D', 0.6);
   csStars(ctx, W, H, 50, t, 0.5);
   csRidge(ctx, W, H, H * 0.6, H * 0.08, '#131720', 91);
@@ -12093,7 +12093,7 @@ function artEntropy(ctx, W, H, t) {
 }
 
 // DAWN — the anchored frontier at first light. The one warm sky.
-function artDawn(ctx, W, H, t) {
+function artDawn(ctx: any, W: any, H: any, t: any) {
   const sg = ctx.createLinearGradient(0, 0, 0, H * 0.62);
   sg.addColorStop(0, '#0B0A14');
   sg.addColorStop(0.45, '#222338');
@@ -12178,14 +12178,14 @@ const CUTSCENE_ART = {
 
 // Full-canvas story slide: art scene + title + typewriter lines + FIRE hint.
 // The client owns timing; slideElapsed is seconds since this slide appeared.
-export function drawCutscene(ctx, slide, t, slideElapsed, holdT = 0, holdThreshold = 3) {
+export function drawCutscene(ctx: any, slide: any, t: any, slideElapsed: any, holdT = 0, holdThreshold = 3) {
   const W = ctx.canvas.width, H = ctx.canvas.height;
   ctx.save();
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
   ctx.fillStyle = PAL.voidNight;
   ctx.fillRect(0, 0, W, H);
-  (CUTSCENE_ART[slide?.art] || artCrossing)(ctx, W, H, t);
+  ((CUTSCENE_ART as any)[slide?.art] || artCrossing)(ctx, W, H, t);
   // cinematic letterbox
   const lb = Math.round(H * 0.04);
   ctx.fillStyle = 'rgba(7,6,12,0.9)';
@@ -12213,8 +12213,8 @@ export function drawCutscene(ctx, slide, t, slideElapsed, holdT = 0, holdThresho
   ctx.fillRect(x0 + 1, ty + ts * 0.35, Math.min(W * 0.26, 240), 2);
   ctx.globalAlpha = 1;
   // body lines — typewriter reveal over ~2.5s
-  const lines = (slide?.lines || []).map(l => String(l ?? ''));
-  const totalChars = Math.max(1, lines.reduce((s, l) => s + l.length, 0));
+  const lines = (slide?.lines || []).map((l: any) => String(l ?? ''));
+  const totalChars = Math.max(1, lines.reduce((s: any, l: any) => s + l.length, 0));
   const shown = Math.floor(totalChars * Math.max(0, Math.min(1, (slideElapsed - 0.35) / 2.5)));
   const ls = Math.max(14, Math.round(H * 0.026));
   ctx.font = `${ls}px ui-monospace, Menlo, monospace`;
@@ -12269,7 +12269,7 @@ export function drawCutscene(ctx, slide, t, slideElapsed, holdT = 0, holdThresho
 
 // Cheap animated backdrop behind the DOM menu: dark field, a distant dormant
 // monolith, drifting motes. Called every frame while no session exists.
-export function drawMenuBackdrop(ctx, t) {
+export function drawMenuBackdrop(ctx: any, t: any) {
   setScene(null); // menus: fade mission ambience back to the quiet base bed
   const W = ctx.canvas.width, H = ctx.canvas.height;
   ctx.save();
@@ -12315,8 +12315,8 @@ export function drawMenuBackdrop(ctx, t) {
 // A small, self-contained looping demo of a character's weapon — faithful to its
 // count / spread / curve / range / pierce / aoe / over-walls, WITHOUT touching the
 // sim. Driven from client's frame() loop each frame with t in seconds.
-const _ap = { id: null, shots: [], fx: [], cd: 0, last: 0 };
-export function drawAbilityPreview(ctx, char, t) {
+const _ap: { id: any; shots: any[]; fx: any[]; cd: number; last: number } = { id: null, shots: [], fx: [], cd: 0, last: 0 };
+export function drawAbilityPreview(ctx: any, char: any, t: any) {
   const W = ctx.canvas.width, H = ctx.canvas.height;
   ctx.clearRect(0, 0, W, H);
   if (!char) return;
@@ -12416,7 +12416,7 @@ export function drawAbilityPreview(ctx, char, t) {
 }
 
 // human-readable behavior tags for a weapon (carousel caption)
-export function weaponTags(w) {
+export function weaponTags(w: any) {
   if (!w) return [];
   const tags = [];
   if (w.pierce === true || w.pierce > 0) tags.push('PIERCE');

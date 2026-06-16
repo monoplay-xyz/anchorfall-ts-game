@@ -1,3 +1,17 @@
+// TS migration (issue #4): runtime-migrated to .ts.
+// The shared sim is loaded at runtime by an ABSOLUTE specifier the browser
+// resolves to /shared/game.js; tsc's bundler resolution can't follow a leading
+// '/', and a path-specifier `declare module` would be read as an augmentation
+// (TS2664), so the two value imports below are silenced — the bindings type as
+// `any`, which suits a render/UI client. Erased at emit; the import statements
+// stay byte-identical.
+declare global {
+  interface Window {
+    anchorfallDesktop?: any;
+    __carouselId?: any;
+    __dbg?: (...a: any[]) => any;
+  }
+}
 import { TILE, createGame, step, snapshot, applyResults, charsById, dailyChallenge } from '/shared/game.js';
 // Namespace import so optional sim features (serializeGame/restoreGame for save
 // beacons) can ship independently — accessed via gameMod.* with runtime checks.
@@ -29,21 +43,21 @@ const levels = await levelsReq;
 // ctf/br) and each def carries its subdir as def.category. Mode lists derive
 // from the category; the old per-def flags stay as fallbacks so a stale
 // flat build (no category field) keeps working.
-const campaign = levels.filter(l => l.category ? l.category === 'classic' : !l.expedition);
-const expeditions = levels.filter(l => !l.category && l.expedition && !l.mode && !l.story);
-const ctfLevels = levels.filter(l => l.category === 'ctf' || (!l.category && l.mode === 'ctf'));
-const brLevels = levels.filter(l => l.category === 'br' || (!l.category && l.mode === 'br'));
-const siegeLevels = levels.filter(l => l.category === 'siege' || (!l.category && l.mode === 'siege'));
-const familyLevels = levels.filter(l => l.category === 'family' || (!l.category && l.family));
+const campaign = levels.filter((l: any) => l.category ? l.category === 'classic' : !l.expedition);
+const expeditions = levels.filter((l: any) => !l.category && l.expedition && !l.mode && !l.story);
+const ctfLevels = levels.filter((l: any) => l.category === 'ctf' || (!l.category && l.mode === 'ctf'));
+const brLevels = levels.filter((l: any) => l.category === 'br' || (!l.category && l.mode === 'br'));
+const siegeLevels = levels.filter((l: any) => l.category === 'siege' || (!l.category && l.mode === 'siege'));
+const familyLevels = levels.filter((l: any) => l.category === 'family' || (!l.category && l.family));
 // Stronghold campaign (sim/server mode 'bastion'): sh01..sh25 ordered by
 // their stronghold.level number, filename order as the fallback.
 const bastionLevels = levels
-  .filter(l => l.category === 'stronghold' || (!l.category && l.mode === 'bastion'))
-  .sort((a, b) => (a.stronghold?.level ?? 999) - (b.stronghold?.level ?? 999));
+  .filter((l: any) => l.category === 'stronghold' || (!l.category && l.mode === 'bastion'))
+  .sort((a: any, b: any) => (a.stronghold?.level ?? 999) - (b.stronghold?.level ?? 999));
 // Story chapters, ordered by their chapter number.
-const storyLevels = levels.filter(l => l.category === 'story' || (!l.category && l.story))
-  .sort((a, b) => (a.chapter ?? 0) - (b.chapter ?? 0));
-const startingRoster = characters.filter(c => c.starting).map(c => c.id);
+const storyLevels = levels.filter((l: any) => l.category === 'story' || (!l.category && l.story))
+  .sort((a: any, b: any) => (a.chapter ?? 0) - (b.chapter ?? 0));
+const startingRoster = characters.filter((c: any) => c.starting).map((c: any) => c.id);
 // Tile textures are baked procedurally (USE_PNG_OVERRIDES is off in render.js)
 // so initTextures() is pure synchronous CPU — ~27 canvas bakes. We do NOT block
 // boot on it: the default-visible #menu is plain DOM/CSS and drawMenuBackdrop()
@@ -53,7 +67,7 @@ const startingRoster = characters.filter(c => c.starting).map(c => c.id);
 // session only ever starts after a menu click, many frames later, so the bake is
 // always done by then; the guard just makes that guarantee explicit and bulletproof.
 let texturesReady = false;
-let texturesBaking = null;
+let texturesBaking: any = null;
 function ensureTextures() {
   if (texturesReady) return texturesBaking;
   if (!texturesBaking) {
@@ -65,9 +79,9 @@ function ensureTextures() {
 // the first frame schedule run first; the bake lands on the very next microtask.
 Promise.resolve().then(ensureTextures);
 
-const mod = (a, n) => ((a % n) + n) % n;
+const mod = (a: any, n: any) => ((a % n) + n) % n;
 
-const $ = id => document.getElementById(id);
+const $ = (id: string): any => document.getElementById(id);
 const canvas = $('game');
 // Declared early: fitStage() (used by the aspect/overscan settings applied at
 // init, well above) references stageEl — a late `const` here is a temporal
@@ -85,32 +99,32 @@ const TEAMC = ['#5ea7ff', '#ff7a6a'];
 const TEAM_NAME = ['TEAM A', 'TEAM B'];
 // Per-mode room caps (client mirror of the server's MODE_CAPS — addLocal
 // gating + lobby copy; the server clamps authoritatively).
-const MODE_CAPS = { classic: 8, story: 8, bastion: 8, ctf: 32, br: 16 };
-const roomCapOf = mode => MODE_CAPS[mode] ?? 8;
+const MODE_CAPS: Record<string, any> = { classic: 8, story: 8, bastion: 8, ctf: 32, br: 16 };
+const roomCapOf = (mode: any) => MODE_CAPS[mode] ?? 8;
 // Host visibility preference, persisted PER MODE GROUP: versus rooms (ctf/br)
 // default Public, co-op rooms (classic/story/bastion) default Private. The
 // host message always carries the explicit public flag (additive — an older
 // server simply ignores it).
 const VIS_KEY = 'holdout-hd.visibility'; // { coop: 'public'|'private', versus: ... }
-const VIS_GROUP = mode => (mode === 'ctf' || mode === 'br') ? 'versus' : 'coop';
-let visPrefs = {};
-try { visPrefs = JSON.parse(localStorage.getItem(VIS_KEY)) || {}; } catch {}
-function visOf(group) {
+const VIS_GROUP = (mode: any) => (mode === 'ctf' || mode === 'br') ? 'versus' : 'coop';
+let visPrefs: any = {};
+try { visPrefs = JSON.parse(localStorage.getItem(VIS_KEY) as string) || {}; } catch {}
+function visOf(group: any) {
   const v = visPrefs?.[group];
   return v === 'public' || v === 'private' ? v : (group === 'versus' ? 'public' : 'private');
 }
-const ITEM_ICON = { cracker: '✷ ', medkit: '✚ ', shield: '⬡ ', toxin: '☣ ', controller: '◉ ', lythseal: '❖ ' };
+const ITEM_ICON: Record<string, any> = { cracker: '✷ ', medkit: '✚ ', shield: '⬡ ', toxin: '☣ ', controller: '◉ ', lythseal: '❖ ' };
 // item-slot display name overrides (default: kind.toUpperCase())
-const ITEM_LABEL = { controller: 'MIND LINK', lythseal: 'LYTH SEAL' };
+const ITEM_LABEL: Record<string, any> = { controller: 'MIND LINK', lythseal: 'LYTH SEAL' };
 // field weapon pickups: display names for the weapon panel while one is held
-const FIELD_WEAPON_LABEL = { flamer: 'FLAMER', railcannon: 'RAIL CANNON', stormgun: 'STORM GUN', mortarMk2: 'MORTAR MK2' };
+const FIELD_WEAPON_LABEL: Record<string, any> = { flamer: 'FLAMER', railcannon: 'RAIL CANNON', stormgun: 'STORM GUN', mortarMk2: 'MORTAR MK2' };
 
 // ---------- save beacon storage (LOCAL story sessions only) ----------
 // The sim's serializeGame/restoreGame exports may land independently — both
 // reads are guarded, so an older shared/game.js just means no resume offer.
-function loadBeacon(chapter) {
+function loadBeacon(chapter: any) {
   try {
-    const b = JSON.parse(localStorage.getItem(BEACON_KEY));
+    const b = JSON.parse(localStorage.getItem(BEACON_KEY) as string);
     return b && b.chapter === chapter && b.data ? b : null;
   } catch { return null; }
 }
@@ -124,14 +138,14 @@ function clearBeacon() { localStorage.removeItem(BEACON_KEY); }
 // back the physical device they were holding when the run was suspended.
 function loadSuspend() {
   try {
-    const s = JSON.parse(localStorage.getItem(SUSPEND_KEY));
+    const s = JSON.parse(localStorage.getItem(SUSPEND_KEY) as string);
     return s && s.data && typeof s.levelIdx === 'number'
       && ['classic', 'story', 'bastion'].includes(s.mode) ? s : null;
   } catch { return null; }
 }
 function clearSuspend() { localStorage.removeItem(SUSPEND_KEY); }
 
-let session = null;
+let session: any = null;
 setupAudioToggle($('btnAudio'));
 // ?demo=1 -> 4-bot attract mode; ?demo=2 -> same but pacifist (never fires)
 const demoMode = +(new URLSearchParams(location.search).get('demo') || 0);
@@ -139,8 +153,8 @@ const demoMode = +(new URLSearchParams(location.search).get('demo') || 0);
 // ---------- input devices ----------
 // Couch co-op input model: the keyboard is split into two devices and up to
 // four gamepads are polled. A device "joins" the local lobby by pressing fire.
-const keys = {};
-addEventListener('keydown', e => {
+const keys: Record<string, boolean> = {};
+addEventListener('keydown', (e: any) => {
   if (e.target?.tagName === 'INPUT') return;
   keys[e.code] = true;
   // Tab is the kb1 MAP hold — without preventDefault it would walk DOM focus
@@ -154,8 +168,8 @@ addEventListener('keyup', e => { keys[e.code] = false; });
 // renderer's shared camera (renderMod.screenToWorld). Null until the mouse has
 // moved over the canvas, so controller-only couches never feed an aim point and
 // the sim falls back to arrow/stick stepping (placementCursor handles both).
-let mouseCanvas = null;
-function trackMouse(e) {
+let mouseCanvas: any = null;
+function trackMouse(e: any) {
   const r = canvas.getBoundingClientRect();
   if (r.width < 1 || r.height < 1) return;
   mouseCanvas = {
@@ -177,14 +191,14 @@ const SUPER_KINDS = new Set(['nuke', 'weather']);
 // True once a player survived the relic awakening AND no device exists yet: the
 // seat may channel a one-shot nuke/weather machine. Drives the pause-menu build
 // entry + the on-screen hint; the sim no-ops inp.superBuild until then anyway.
-function seatCanBuildSuper(snap) {
+function seatCanBuildSuper(snap: any) {
   return !!(snap && snap.superweaponUnlocked && !snap.superweapon);
 }
 // True when an armed superweapon is READY to LAUNCH AND this seat is its owner
 // (only the owner may launch). The launch is aimless — the sim auto-targets the
 // densest hostile cluster — so this only drives the one-button launch input + the
 // "press to launch" prompt, NOT any aim/reticle.
-function seatCanFireSuper(snap, pid) {
+function seatCanFireSuper(snap: any, pid: any) {
   const sw = snap && snap.superweapon;
   return !!(sw && sw.state === 'ready' && sw.ownerPid === pid);
 }
@@ -192,9 +206,9 @@ function seatCanFireSuper(snap, pid) {
 // — so we never spend uplink bytes on aim during ordinary play. (The superweapon
 // no longer uses aim: it auto-targets, fired with a plain trigger.) The sim
 // ignores aim outside placement anyway; this just keeps the input message lean.
-function seatNeedsAim(snap, pid) {
+function seatNeedsAim(snap: any, pid: any) {
   if (!snap) return false;
-  const me = snap.players?.find(p => p.pid === pid);
+  const me = snap.players?.find((p: any) => p.pid === pid);
   return !!(me && me.placing);
 }
 
@@ -225,13 +239,13 @@ const KB2_DEF = { up: ['ArrowUp'], down: ['ArrowDown'], left: ['ArrowLeft'], rig
 const PAD_DEF = { up: [12], down: [13], left: [14], right: [15], fire: [0, 7], special: [1, 5], act: [2], item: [3], start: [9], map: [8], invSel: [4], place: [6], drop: [10], sprint: [11] };
 const ACTIONS = ['up', 'down', 'left', 'right', 'fire', 'special', 'act', 'item', 'start', 'map', 'invSel', 'place', 'drop', 'sprint'];
 const BIND_KEY = 'holdout-hd.binds'; // { kb1:{action:code}, kb2:{...}, pad:{action:btnIdx} }
-let binds = {};
-try { binds = JSON.parse(localStorage.getItem(BIND_KEY)) || {}; } catch {}
-let KB1 = {}, KB2 = {}, PADMAP = {};
+let binds: any = {};
+try { binds = JSON.parse(localStorage.getItem(BIND_KEY) as string) || {}; } catch {}
+let KB1: any = {}, KB2: any = {}, PADMAP: any = {};
 function applyBinds() {
   // an override of explicit null means "unbound" (a default that lost its key
   // to a remap conflict); a missing key falls back to the device defaults
-  const eff = (def, o) => Object.fromEntries(ACTIONS.map(a =>
+  const eff = (def: any, o: any) => Object.fromEntries(ACTIONS.map(a =>
     [a, o && a in o ? (o[a] != null ? [o[a]] : []) : (def[a] ?? [])]));
   KB1 = eff(KB1_DEF, binds.kb1);
   KB2 = eff(KB2_DEF, binds.kb2);
@@ -243,22 +257,22 @@ function saveBinds() {
   applyBinds();
 }
 const DEVICES = ['kb1', 'kb2', 'gp0', 'gp1', 'gp2', 'gp3'];
-const DEVICE_LABEL = { kb1: 'Keyboard WASD', kb2: 'Keyboard Arrows', gp0: 'Pad 1', gp1: 'Pad 2', gp2: 'Pad 3', gp3: 'Pad 4' };
+const DEVICE_LABEL: Record<string, any> = { kb1: 'Keyboard WASD', kb2: 'Keyboard Arrows', gp0: 'Pad 1', gp1: 'Pad 2', gp2: 'Pad 3', gp3: 'Pad 4' };
 
-function readKeys(map) {
-  const o = {};
-  for (const k in map) o[k] = map[k].some(c => keys[c]);
+function readKeys(map: any): any {
+  const o: any = {};
+  for (const k in map) o[k] = map[k].some((c: any) => keys[c]);
   return o;
 }
 
-function readPad(i) {
+function readPad(i: any) {
   const gp = navigator.getGamepads?.()[i];
   if (!gp || !gp.connected) return null;
   const ax = gp.axes[0] || 0, ay = gp.axes[1] || 0;
   // Linux/Batocera pads often expose the d-pad as a HAT on axes 6/7 instead
   // of buttons 12-15 — honor both, so carousel/menu d-pad input always lands
   const hx = gp.axes[6] || 0, hy = gp.axes[7] || 0;
-  const b = a => (PADMAP[a] || []).some(j => !!gp.buttons[j]?.pressed);
+  const b = (a: any) => (PADMAP[a] || []).some((j: any) => !!gp.buttons[j]?.pressed);
   const DZ = 0.35;
   return {
     up: ay < -DZ || hy < -0.5 || b('up'),
@@ -278,15 +292,15 @@ function readPad(i) {
   };
 }
 
-function readDevice(id) {
+function readDevice(id: any): any {
   if (id === 'kb1') return readKeys(KB1);
   if (id === 'kb2') return readKeys(KB2);
   return readPad(+id.slice(2));
 }
 
-const prevDev = {};
-function pollDevices() {
-  const out = {};
+const prevDev: any = {};
+function pollDevices(): Record<string, any> {
+  const out: Record<string, any> = {};
   for (const id of DEVICES) {
     const cur = readDevice(id);
     if (!cur) { prevDev[id] = null; continue; }
@@ -318,7 +332,7 @@ function pollDevices() {
 // and track which device the player is actually using.
 
 // Infer a pad type from its W3C id string (browser fallback). Pure.
-function inferPadType(id) {
+function inferPadType(id: any) {
   const s = String(id || '').toLowerCase();
   // PlayStation: DualSense (ps5) vs DualShock (ps4) where distinguishable
   if (/dualsense|ps5|playstation 5|sony.*0ce6|0ce6/.test(s)) return 'ps5';
@@ -357,14 +371,14 @@ function controllerList() {
 }
 
 // Type for a specific pad index (native list first, else inference).
-function padTypeForIndex(i) {
+function padTypeForIndex(i: any) {
   for (const c of controllerList()) if (c.index === i) return c.type || 'generic';
   const gp = navigator.getGamepads?.()[i];
   return gp ? inferPadType(gp.id) : 'generic';
 }
 
 // Map a DEVICES id (kb1/kb2/gp0..gp3) to a controller type for prompts.
-function deviceType(id) {
+function deviceType(id: any) {
   if (id === 'kb1' || id === 'kb2') return 'keyboard';
   if (id.startsWith('gp')) return padTypeForIndex(+id.slice(2));
   return 'keyboard';
@@ -372,7 +386,7 @@ function deviceType(id) {
 
 // A friendly per-player label for the Settings readout ('Xbox Wireless',
 // 'Keyboard'). Pads prefer the native/inferred name; keyboards read 'Keyboard'.
-function deviceReadout(id) {
+function deviceReadout(id: any) {
   if (id === 'kb1') return 'Keyboard (WASD)';
   if (id === 'kb2') return 'Keyboard (Arrows)';
   const i = +id.slice(2);
@@ -384,8 +398,8 @@ function deviceReadout(id) {
 // The most-recently-active device id (any input edge marks it). Drives the
 // prompt glyph in Auto mode. Seeded to kb1 so the very first prompt has a type.
 let activeDevId = 'kb1';
-function noteActiveDevice(polled) {
-  for (const [id, st] of Object.entries(polled)) {
+function noteActiveDevice(polled: any) {
+  for (const [id, st] of Object.entries<any>(polled)) {
     if (st.fire || st.special || st.act || st.item || st.start
       || st.up || st.down || st.left || st.right) { activeDevId = id; return; }
   }
@@ -395,8 +409,8 @@ function noteActiveDevice(polled) {
 // rest force a fixed glyph regardless of what's plugged in.
 const GLYPH_KEY = 'holdout-hd.glyphstyle';
 const GLYPH_MODES = ['auto', 'keyboard', 'xbox', 'playstation', 'switch'];
-const GLYPH_LABEL = { auto: 'Auto', keyboard: 'Keyboard', xbox: 'Xbox', playstation: 'PlayStation', switch: 'Switch' };
-const GLYPH_OVERRIDE_TYPE = { keyboard: 'keyboard', xbox: 'xbox', playstation: 'ps5', switch: 'switch' };
+const GLYPH_LABEL: Record<string, any> = { auto: 'Auto', keyboard: 'Keyboard', xbox: 'Xbox', playstation: 'PlayStation', switch: 'Switch' };
+const GLYPH_OVERRIDE_TYPE: Record<string, any> = { keyboard: 'keyboard', xbox: 'xbox', playstation: 'ps5', switch: 'switch' };
 let glyphStyle = localStorage.getItem(GLYPH_KEY) || 'auto';
 if (!GLYPH_MODES.includes(glyphStyle)) glyphStyle = 'auto';
 
@@ -406,10 +420,10 @@ if (!GLYPH_MODES.includes(glyphStyle)) glyphStyle = 'auto';
 // Threaded into the def as def.difficulty so the shared sim scales spawn counts.
 const DIFF_KEY = 'holdout-hd.difficulty';
 const DIFF_MODES = ['easy', 'normal', 'extreme'];
-const DIFF_LABEL = { easy: 'Easy', normal: 'Normal', extreme: 'Extreme' };
+const DIFF_LABEL: Record<string, any> = { easy: 'Easy', normal: 'Normal', extreme: 'Extreme' };
 let difficulty = localStorage.getItem(DIFF_KEY) || 'normal';
 if (!DIFF_MODES.includes(difficulty)) difficulty = 'normal';
-function setDifficulty(d) {
+function setDifficulty(d: any) {
   if (!DIFF_MODES.includes(d)) return;
   difficulty = d;
   try { localStorage.setItem(DIFF_KEY, d); } catch {}
@@ -428,7 +442,7 @@ function actKeyLabel() {
 // the live keyboard ACT key) into the renderer's prompt-glyph context. Called
 // each frame after noteActiveDevice — cheap, and render.js dedupes nothing so
 // we guard with a signature to avoid needless work.
-let glyphSig = null;
+let glyphSig: any = null;
 function applyPromptGlyph() {
   const type = glyphStyle === 'auto'
     ? deviceType(activeDevId)
@@ -442,8 +456,8 @@ function applyPromptGlyph() {
 
 // Online play: one player per machine, so any device drives them. `exclude`
 // drops devices the leave dialog has captured for menu navigation.
-function mergedInput(exclude, needAim) {
-  const o = { up: false, down: false, left: false, right: false, fire: false, special: false, act: false, item: false, invSel: false, place: false, drop: false, sprint: false };
+function mergedInput(exclude: any, needAim: any) {
+  const o: any = { up: false, down: false, left: false, right: false, fire: false, special: false, act: false, item: false, invSel: false, place: false, drop: false, sprint: false };
   for (const id of DEVICES) {
     if (exclude?.has(id)) continue;
     const c = readDevice(id);
@@ -462,8 +476,8 @@ function mergedInput(exclude, needAim) {
 }
 
 // ---------- dialogue box (NPC talk lines; game keeps running) ----------
-let dlgTimer = 0;
-function showDialogue(ev) {
+let dlgTimer: any = 0;
+function showDialogue(ev: any) {
   const box = $('dialogueBox');
   // 'talk' carries the gift amount on the first conversation; tolerate either
   // a plain number or a {shards} object so classic/newer sims both work.
@@ -479,8 +493,8 @@ function hideDialogue() {
   $('dialogueBox').hidden = true;
 }
 // ---------- event banner (big one-liners over the play field) ----------
-let bannerTimer = 0;
-function showBanner(text, blood = false, dur = 3200) {
+let bannerTimer: any = 0;
+function showBanner(text: any, blood = false, dur = 3200) {
   const el = $('banner');
   el.textContent = text;
   el.classList.toggle('blood', !!blood);
@@ -509,8 +523,8 @@ function hideBanner() {
 // the rest). A small queue plays them through instead: the visible toast
 // holds for ~2s, then the next waiting one shows. At most 3 wait in line —
 // a full line drops its OLDEST waiting entry, so the newest is never lost.
-let toastTimer = 0;
-const toastQueue = [];
+let toastTimer: any = 0;
+const toastQueue: any[] = [];
 let toastShowing = false;
 function pumpToasts() {
   const next = toastQueue.shift();
@@ -528,7 +542,7 @@ function pumpToasts() {
   el.hidden = false;
   toastTimer = setTimeout(pumpToasts, next.dur);
 }
-function showToast(text, dur = 2000, front = false) {
+function showToast(text: any, dur = 2000, front = false) {
   toastQueue.push({ text, dur, front });
   while (toastQueue.length > 3) toastQueue.shift(); // oldest waiting drops first
   if (!toastShowing) pumpToasts();
@@ -543,25 +557,25 @@ function hideToast() {
 }
 // Per-loot toast text; chest events only carry `amount` for some loots, so
 // every count read is guarded. Unknown future loots fall back to their name.
-const LOOT_TOAST = {
-  shards: ev => `+${ev.amount ?? 0}◆ SHARDS`,
-  cracker: ev => `CRACKER${(ev.amount ?? 1) > 1 ? ' ×' + ev.amount : ''}`,
-  medkit: ev => `MEDKIT${(ev.amount ?? 1) > 1 ? ' ×' + ev.amount : ''}`,
+const LOOT_TOAST: Record<string, any> = {
+  shards: (ev: any) => `+${ev.amount ?? 0}◆ SHARDS`,
+  cracker: (ev: any) => `CRACKER${(ev.amount ?? 1) > 1 ? ' ×' + ev.amount : ''}`,
+  medkit: (ev: any) => `MEDKIT${(ev.amount ?? 1) > 1 ? ' ×' + ev.amount : ''}`,
   shield: () => 'SHIELD +2',
   token: () => 'WEAPON TOKEN — DMG UP',
-  toxin: ev => `TOXIN${(ev.amount ?? 1) > 1 ? ' ×' + ev.amount : ''}`,
+  toxin: (ev: any) => `TOXIN${(ev.amount ?? 1) > 1 ? ' ×' + ev.amount : ''}`,
   controller: () => 'MIND LINK',
 };
-function chestToast(ev) {
+function chestToast(ev: any) {
   const text = (LOOT_TOAST[ev.loot] ?? (() => String(ev.loot).toUpperCase()))(ev);
   // a remote opener's loot is still worth a toast, but named so it reads right
   const focus = session?.focusPids?.() ?? new Set();
   return ev.pid == null || focus.has(ev.pid) ? text : `${playerName(ev.pid)} — ${text}`;
 }
-const playerName = pid =>
-  session?.snap?.players?.find(p => p.pid === pid)?.name ?? 'P' + ((pid ?? 0) + 1);
+const playerName = (pid: any) =>
+  session?.snap?.players?.find((p: any) => p.pid === pid)?.name ?? 'P' + ((pid ?? 0) + 1);
 // Returns { text, blood } for events that deserve a banner; null otherwise.
-function bannerFor(ev) {
+function bannerFor(ev: any) {
   switch (ev.type) {
     case 'dusk': return {
       text: ev.bloodMoon ? `BLOOD MOON — NIGHT ${ev.nightNo ?? '?'}` : `NIGHT ${ev.nightNo ?? '?'} FALLS`,
@@ -606,7 +620,7 @@ function bannerFor(ev) {
     case 'supplyDrop': return { text: 'SUPPLY DROP INBOUND' };
     // POWER-UP pickup (Black Ops Zombies-style): a big typed team-wide banner.
     // ev.ptype matches the sim's power-up type strings.
-    case 'powerup': return { text: POWERUP_BANNER[ev.ptype] ?? 'POWER-UP!', blood: ev.ptype === 'nuke' };
+    case 'powerup': return { text: (POWERUP_BANNER as any)[ev.ptype] ?? 'POWER-UP!', blood: ev.ptype === 'nuke' };
   }
   return null;
 }
@@ -618,9 +632,9 @@ const POWERUP_BANNER = {
   maxammo: 'MAX AMMO!',
   nuke: 'NUKE!',
 };
-const EDGE_NAME = { n: 'NORTH', e: 'EAST', s: 'SOUTH', w: 'WEST' };
+const EDGE_NAME: Record<string, any> = { n: 'NORTH', e: 'EAST', s: 'SOUTH', w: 'WEST' };
 // One funnel for sim events: FX + audio + banners + the DOM dialogue box.
-function handleEvent(ev) {
+function handleEvent(ev: any) {
   // tag a hit with whether it landed on one of THIS connection's seats, so the
   // renderer only shakes/flashes the screen when it's your own operator hit.
   if (ev.type === 'playerHit') ev.mine = (session?.focusPids?.() ?? new Set()).has(ev.pid);
@@ -662,7 +676,7 @@ function handleEvent(ev) {
   if (b) showBanner(b.text, b.blood);
 }
 // supply-drop map pings: live while the dropped cache still sits unopened
-const supplyPings = [];
+const supplyPings: any[] = [];
 
 // Alien Relic: keep the level track in sync with the snapshot. playMusicBox is
 // idempotent (no-op while the same mode+stem is already looping), so a flat
@@ -670,14 +684,14 @@ const supplyPings = [];
 // where the relic is already complete. Anything else stops the track. All
 // guarded in audio.js against missing mp3s — a console with no music assets
 // never crashes or spams.
-function syncMusicBox(snap) {
+function syncMusicBox(snap: any) {
   const mb = snap?.musicBox;
   if (mb && mb.complete && snap.status === 'play') playMusicBox(mb.mode, mb.stem);
   else stopMusicBox();
 }
 
 // ---------- screens ----------
-function show(id) {
+function show(id: any) {
   hideDialogue();
   hideBanner();
   hideToast();
@@ -697,23 +711,23 @@ function hideAll() {
   closePauseUi();
   for (const s of ['menu', 'lobby', 'msg']) $(s).hidden = true;
 }
-function showMsg(title, body, btnLabel, onOk, altLabel, onAlt) {
+function showMsg(title: any, body: any, btnLabel: any, onOk: any, altLabel?: any, onAlt?: any) {
   $('msgTitle').textContent = title;
   $('msgBody').textContent = body;
   $('btnMsgOk').textContent = btnLabel || 'Continue';
-  $('btnMsgOk').onclick = e => { e.currentTarget.blur(); onOk(); };
+  $('btnMsgOk').onclick = (e: any) => { e.currentTarget.blur(); onOk(); };
   // optional second action ('Resume from beacon' on a local story fail) — a
   // ghost button so blind FIRE still defaults to the primary, DOWN reaches it
   const alt = $('btnMsgAlt');
   alt.hidden = !altLabel;
   alt.textContent = altLabel || '';
-  alt.onclick = altLabel ? (e => { e.currentTarget.blur(); onAlt?.(); }) : null;
+  alt.onclick = altLabel ? ((e: any) => { e.currentTarget.blur(); onAlt?.(); }) : null;
   show('msg');
 }
-function resultText(res) {
+function resultText(res: any) {
   let s = '';
-  if (res.gained?.length) s += `Recruited: ${res.gained.map(id => charMap[id].name).join(', ')}\n`;
-  if (res.lost?.length) s += `Lost in the field: ${res.lost.map(id => charMap[id].name).join(', ')}\n`;
+  if (res.gained?.length) s += `Recruited: ${res.gained.map((id: any) => charMap[id].name).join(', ')}\n`;
+  if (res.lost?.length) s += `Lost in the field: ${res.lost.map((id: any) => charMap[id].name).join(', ')}\n`;
   return s;
 }
 
@@ -724,17 +738,17 @@ function resultText(res) {
 // screen opens. Lobby exception: joined couch players' dpads drive their pick
 // cursor, so there only un-joined devices steer the ring, and only the device
 // that moved it may fire it (a stray FIRE must still mean "join the lobby").
-let navScreen = null, navEl = null, navDev = null;
+let navScreen: any = null, navEl: any = null, navDev: any = null;
 
 function visibleScreen() {
   for (const s of ['pause', 'msg', 'lobby', 'menu']) if (!$(s).hidden) return s;
   return null;
 }
-function navButtons(screenId) {
+function navButtons(screenId: any) {
   return [...$(screenId).querySelectorAll('button')]
     .filter(b => !b.disabled && b.offsetParent !== null); // skips [hidden] buttons
 }
-function setNavFocus(el) {
+function setNavFocus(el: any) {
   navEl = el;
   for (const b of document.querySelectorAll('.navfocus')) if (b !== el) b.classList.remove('navfocus');
   el?.classList.add('navfocus');
@@ -744,7 +758,7 @@ function setNavFocus(el) {
 }
 // Runs before session.tick each frame; consumes (zeroes) the *Just edges it
 // handles so the session never double-acts on the same press.
-function navTick(polled) {
+function navTick(polled: any) {
   if (remapListen) return; // a rebind capture owns every input until it lands
   if (remapBoundGuard > 0) { remapBoundGuard--; return; } // the landing press must not nav
   const screen = visibleScreen();
@@ -765,7 +779,7 @@ function navTick(polled) {
       || btns[0]
     );
   }
-  for (const [dev, st] of Object.entries(polled)) {
+  for (const [dev, st] of Object.entries<any>(polled)) {
     if (screen === 'lobby' && session?.deviceOf?.(dev)) continue; // joined player: dpad = pick cursor
     // menu pages: SPECIAL (pad B) or START (Escape) backs out one page
     if (screen === 'menu' && (st.specialJust || st.startJust)) {
@@ -783,7 +797,7 @@ function navTick(polled) {
     if (screen === 'menu' && navEl?.dataset?.cycle && (st.leftJust || st.rightJust)) {
       const d = st.rightJust ? 1 : -1;
       st.leftJust = st.rightJust = false;
-      ({ display: cycleDisplayMode, aspect: cycleAspect, overscan: cycleOverscan }[navEl.dataset.cycle])?.(d);
+      (({ display: cycleDisplayMode, aspect: cycleAspect, overscan: cycleOverscan }) as any)[navEl.dataset.cycle]?.(d);
       navDev = dev;
     }
     const gridEl = screen === 'menu' ? navEl?.closest?.('.navgrid') : null;
@@ -845,8 +859,8 @@ function navTick(polled) {
 // the other couch seats on this connection keep playing. UP/DOWN (or
 // LEFT/RIGHT) move the focus ring, FIRE activates, START/B backs out; the
 // mouse clicks buttons directly as everywhere else.
-let pauseUi = null; // { onBack, onClose, devs } — devs null = every device navs (local pause)
-function openPauseUi({ title, body, hint, items, onBack, onClose, devs = null }) {
+let pauseUi: any = null; // { onBack, onClose, devs } — devs null = every device navs (local pause)
+function openPauseUi({ title, body, hint, items, onBack, onClose, devs = null }: any) {
   closePauseUi();
   $('pauseTitle').textContent = title;
   $('pauseBody').textContent = body;
@@ -858,7 +872,7 @@ function openPauseUi({ title, body, hint, items, onBack, onClose, devs = null })
     b.type = 'button';
     if (it.ghost) b.className = 'ghost';
     b.textContent = it.label;
-    b.onclick = e => { e.currentTarget.blur(); it.onPick(); };
+    b.onclick = (e: any) => { e.currentTarget.blur(); it.onPick(); };
     host.appendChild(b);
   }
   pauseUi = { onBack, onClose, devs };
@@ -877,13 +891,13 @@ function closePauseUi() {
 }
 // Runs each frame between navTick and session.tick; consumes (zeroes) every
 // edge it handles so the session never double-acts on the same press.
-function pauseUiTick(polled) {
+function pauseUiTick(polled: any) {
   if (!pauseUi) return;
   const btns = [...$('pauseBtns').querySelectorAll('button')]
     .filter(b => !b.disabled && b.offsetParent !== null);
   if (!btns.length) return;
   if (!navEl || !btns.includes(navEl)) setNavFocus(btns[0]);
-  for (const [dev, st] of Object.entries(polled)) {
+  for (const [dev, st] of Object.entries<any>(polled)) {
     if (pauseUi.devs && !pauseUi.devs.has(dev)) {
       // online: this device's seat keeps playing — its own START press pulls
       // it into the open dialog instead of stacking a second one
@@ -909,14 +923,14 @@ function pauseUiTick(polled) {
   }
 }
 
-function renderLobby({ title, info, hint, players, roster, canStart, cursors = [], onCard, onStep, teamCols = false, allowDupes = false, showDifficulty = false, onDifficulty }) {
+function renderLobby({ title, info, hint, players, roster, canStart, cursors = [], onCard, onStep, teamCols = false, allowDupes = false, showDifficulty = false, onDifficulty }: any) {
   $('lobbyTitle').textContent = title;
   $('roomInfo').innerHTML = info;
   $('lobbyHint').textContent = hint || '';
   const pl = $('playerList');
   pl.innerHTML = '';
   pl.classList.toggle('teamcols', !!teamCols);
-  const makeChip = p => {
+  const makeChip = (p: any) => {
     const chip = document.createElement('span');
     chip.className = 'pchip';
     const col = p.charId ? charMap[p.charId].color : (p.color || '#555');
@@ -929,7 +943,7 @@ function renderLobby({ title, info, hint, players, roster, canStart, cursors = [
     for (const t of [0, 1]) {
       const colEl = document.createElement('div');
       colEl.className = 'tcol';
-      const members = players.filter(p => (p.team ?? 0) === t);
+      const members = players.filter((p: any) => (p.team ?? 0) === t);
       const head = document.createElement('div');
       head.className = 'thead';
       head.style.color = TEAMC[t];
@@ -944,9 +958,9 @@ function renderLobby({ title, info, hint, players, roster, canStart, cursors = [
   // ---- character carousel: one focused operative, browse ◀/▶, live preview ----
   const grid = $('charGrid');
   grid.innerHTML = '';
-  const takenBy = {};
+  const takenBy: any = {};
   for (const p of players) if (p.charId) (takenBy[p.charId] ??= []).push(p);
-  const myCur = cursors.find(c => c.me) || cursors[0];
+  const myCur = cursors.find((c: any) => c.me) || cursors[0];
   const n = roster.length || 1;
   const fidx = (((myCur ? myCur.idx : 0) % n) + n) % n;
   const fid = roster[fidx];
@@ -956,7 +970,7 @@ function renderLobby({ title, info, hint, players, roster, canStart, cursors = [
     const card = document.createElement('div');
     card.className = 'bigcard';
     const owners = takenBy[fid] || [];
-    const owner = owners.find(o => o.me) || owners.find(o => o.badge) || owners[0];
+    const owner = owners.find((o: any) => o.me) || owners.find((o: any) => o.badge) || owners[0];
     let blocked = false;
     if (owner) {
       if (owner.me) card.classList.add('selected');
@@ -970,7 +984,7 @@ function renderLobby({ title, info, hint, players, roster, canStart, cursors = [
     if (owners.length) {
       const ow = document.createElement('div');
       ow.className = 'powner';
-      owners.slice(0, 4).forEach(o => {
+      owners.slice(0, 4).forEach((o: any) => {
         const b = document.createElement('div');
         b.className = 'pbadge';
         b.textContent = o.badge || '✓';
@@ -1008,7 +1022,7 @@ function renderLobby({ title, info, hint, players, roster, canStart, cursors = [
   const dots = $('carDots');
   if (dots) {
     dots.innerHTML = '';
-    roster.forEach((id, i) => {
+    roster.forEach((id: any, i: any) => {
       const d = document.createElement('div');
       d.className = 'cdot' + (i === fidx ? ' here' : '');
       if (takenBy[id]) { d.classList.add('picked'); d.style.background = charMap[id].color; }
@@ -1036,8 +1050,8 @@ function renderLobby({ title, info, hint, players, roster, canStart, cursors = [
 }
 
 // ---------- HUD ----------
-const squadCards = {};
-function buildSquadPanels(roster) {
+const squadCards: any = {};
+function buildSquadPanels(roster: any) {
   const host = $('squadPanels');
   host.innerHTML = '';
   for (const k of Object.keys(squadCards)) delete squadCards[k];
@@ -1099,30 +1113,30 @@ function updateMissionPanel() {
 // back to the level def's quest list); story/bastion maps without quests show
 // the level objective as the standing main. Classic/versus snapshots carry no
 // quests and aren't story sessions, so the panel never appears — unchanged.
-let objSig = null;
+let objSig: any = null;
 function resetObjectives() {
   objSig = null;
   const host = $('objectivesPanel');
   host.hidden = true;
   $('objList').innerHTML = '';
 }
-function updateObjectives(snap) {
+function updateObjectives(snap: any) {
   const host = $('objectivesPanel');
   const list = session?.levelList?.() ?? campaign;
   const lvl = list[Math.min(session?.levelIdxView?.() ?? 0, list.length - 1)];
   const defs = lvl?.quests ?? [];
-  const defOf = q => defs.find(d => d.id === q.id);
+  const defOf = (q: any) => defs.find((d: any) => d.id === q.id);
   const quests = (snap.quests ?? [])
-    .filter(q => q.state !== 'hidden')
-    .map(q => ({
+    .filter((q: any) => q.state !== 'hidden')
+    .map((q: any) => ({
       ...q,
       title: q.title ?? defOf(q)?.title ?? 'OBJECTIVE',
       main: q.main ?? defOf(q)?.main ?? false,
     }));
   let rows;
   if (quests.length) {
-    const main = quests.find(q => q.main) ?? quests[0];
-    rows = [{ ...main, mainRow: true }, ...quests.filter(q => q !== main).slice(0, 3)];
+    const main = quests.find((q: any) => q.main) ?? quests[0];
+    rows = [{ ...main, mainRow: true }, ...quests.filter((q: any) => q !== main).slice(0, 3)];
   } else if (session?.story || session?.bastionMode?.()) {
     rows = [{ title: snap.objective || lvl?.objective || 'Reach the exit gate', state: snap.status === 'cleared' ? 'done' : 'active', mainRow: true }];
   } else {
@@ -1180,19 +1194,19 @@ function updateObjectives(snap) {
 // Hearts row per LOCAL player (survival maps only — players carry hp/maxHp).
 // DOM is rebuilt only when the signature changes; classic snapshots have no
 // hp so the panel stays hidden and nothing regresses.
-let heartsSig = null;
+let heartsSig: any = null;
 function resetHearts() {
   heartsSig = null;
   const host = $('heartsPanel');
   host.hidden = true;
   host.innerHTML = '';
 }
-function updateHearts(snap) {
+function updateHearts(snap: any) {
   const host = $('heartsPanel');
   const focus = session?.focusPids?.() ?? new Set();
-  const rows = (snap.players ?? []).filter(p => focus.has(p.pid) && p.maxHp != null);
+  const rows = (snap.players ?? []).filter((p: any) => focus.has(p.pid) && p.maxHp != null);
   if (!rows.length) { if (!host.hidden) resetHearts(); return; }
-  const sig = rows.map(p =>
+  const sig = rows.map((p: any) =>
     [p.pid, p.charId, p.state, p.hp ?? 0, p.maxHp, p.shield ?? 0, p.team ?? ''].join(':')).join('|');
   if (sig === heartsSig) return;
   heartsSig = sig;
@@ -1215,7 +1229,7 @@ function updateHearts(snap) {
 }
 
 // Item slot in the weapon panel (single slot: cracker/medkit/shield).
-function updateItemSlot(me) {
+function updateItemSlot(me: any) {
   const el = $('wItem');
   if (!me || me.maxHp == null) { el.hidden = true; return; }
   el.hidden = false;
@@ -1233,7 +1247,7 @@ function updateItemSlot(me) {
 
 // Bastion (day/night + core) and PvP (ctf score / br zone) mission readouts.
 // Every field is optional — absent on classic/story snapshots.
-function updateModePanels(snap) {
+function updateModePanels(snap: any) {
   const cyc = snap.cycle;
   $('bastionInfo').hidden = !cyc;
   if (cyc) {
@@ -1259,7 +1273,7 @@ function updateModePanels(snap) {
     const cores = snap.cores;
     pips.hidden = !cores?.length;
     if (cores?.length) {
-      pips.innerHTML = cores.map(c => `<span class="bpip ${(c.hp ?? 0) > 0 ? 'lit' : 'dark'}">⬟</span>`).join('')
+      pips.innerHTML = cores.map((c: any) => `<span class="bpip ${(c.hp ?? 0) > 0 ? 'lit' : 'dark'}">⬟</span>`).join('')
         + (snap.ship?.landed ? ' <span class="bship">⏏ SHIP DOWN — BOARD TO EXTRACT</span>' : '');
     }
   }
@@ -1270,20 +1284,20 @@ function updateModePanels(snap) {
   if (snap.caps) {
     // ctf score — relative ("YOU/FOE") when every local seat shares a team,
     // neutral when a couch hosts both teams
-    const teams = new Set((snap.players ?? []).filter(p => focus.has(p.pid) && p.team != null).map(p => p.team));
+    const teams = new Set((snap.players ?? []).filter((p: any) => focus.has(p.pid) && p.team != null).map((p: any) => p.team));
     const caps = snap.caps;
     if (teams.size === 1) {
-      const mine = [...teams][0];
+      const mine: any = [...teams][0];
       text = `YOU ${caps[mine] ?? 0} — ${caps[1 - mine] ?? 0} FOE`;
     } else {
       text = `${TEAM_NAME[0]} ${caps[0] ?? 0} — ${caps[1] ?? 0} ${TEAM_NAME[1]}`;
     }
     if (snap.flags?.length) {
-      const st = f => f.carrier != null ? 'TAKEN' : (f.atBase ?? true) ? 'AT BASE' : 'DROPPED';
-      text += '\n' + snap.flags.map(f => `${TEAM_NAME[f.team] ?? 'FLAG'}: ${st(f)}`).join(' · ');
+      const st = (f: any) => f.carrier != null ? 'TAKEN' : (f.atBase ?? true) ? 'AT BASE' : 'DROPPED';
+      text += '\n' + snap.flags.map((f: any) => `${TEAM_NAME[f.team] ?? 'FLAG'}: ${st(f)}`).join(' · ');
     }
   } else if (snap.zone) {
-    const remaining = (snap.players ?? []).filter(p => p.state !== 'out' && p.state !== 'extracted').length;
+    const remaining = (snap.players ?? []).filter((p: any) => p.state !== 'out' && p.state !== 'extracted').length;
     text = `${remaining} REMAIN`;
     const sh = snap.zone.shrinkT;
     if (sh != null && sh > 0) text += ` · ZONE SHRINKS ${Math.ceil(sh)}s`;
@@ -1293,19 +1307,19 @@ function updateModePanels(snap) {
 
   // spectate tag: every local seat is out but the match plays on (camera
   // already falls back to the remaining active players)
-  const locals = (snap.players ?? []).filter(p => focus.has(p.pid));
+  const locals = (snap.players ?? []).filter((p: any) => focus.has(p.pid));
   $('spectateTag').hidden =
-    !(snap.status === 'play' && locals.length > 0 && locals.every(p => p.state === 'out'));
+    !(snap.status === 'play' && locals.length > 0 && locals.every((p: any) => p.state === 'out'));
 }
 
-function charStatus(id, snap) {
+function charStatus(id: any, snap: any) {
   for (const p of snap.players) if (p.charId === id && p.state === 'active') return ['IN FIELD', 'infield', 100];
   for (const c of snap.captives) if (c.charId === id) return [c.owner != null ? 'CARRIED' : 'DOWN', 'down', 30];
   if (snap.rescued.includes(id)) return ['EXTRACTED', '', 100];
   return ['READY', '', 100];
 }
 
-function updateHUD(snap) {
+function updateHUD(snap: any) {
   // Family Mode shows the shared lives heart instead of a score
   $('hScore').textContent = snap.family ? `\u{1F49A} ${snap.familyLives ?? 0}` : (snap.score ?? 0).toLocaleString();
   // untimed maps (story/bastion) count UP from elapsed and never tint red;
@@ -1319,9 +1333,9 @@ function updateHUD(snap) {
   // when a couch hosts both teams). Everything else shows the squad pool.
   if (snap.teamShards) {
     const focus = session?.focusPids?.() ?? new Set();
-    const teams = new Set((snap.players ?? []).filter(p => focus.has(p.pid) && p.team != null).map(p => p.team));
+    const teams = new Set((snap.players ?? []).filter((p: any) => focus.has(p.pid) && p.team != null).map((p: any) => p.team));
     $('hShards').textContent = teams.size === 1
-      ? '◆' + Math.floor(snap.teamShards[[...teams][0]] ?? 0)
+      ? '◆' + Math.floor(snap.teamShards[[...teams][0] as any] ?? 0)
       : `A◆${Math.floor(snap.teamShards[0] ?? 0)} B◆${Math.floor(snap.teamShards[1] ?? 0)}`;
   } else {
     $('hShards').textContent = '◆' + Math.floor(snap.shards ?? 0);
@@ -1340,7 +1354,7 @@ function updateHUD(snap) {
     gateEl.hidden = true;
   }
 
-  for (const [id, card] of Object.entries(squadCards)) {
+  for (const [id, card] of Object.entries<any>(squadCards)) {
     const [label, cls, pct] = charStatus(id, snap);
     card.className = 'squadcard' + (cls ? ' ' + cls : '');
     card.querySelector('.st').textContent = label;
@@ -1351,7 +1365,7 @@ function updateHUD(snap) {
   // tick. The compact mini array (global, tile-rounded, every 3rd tick — the
   // net session keeps the latest attached) carries the true hostile count.
   const enemies = snap.enemies ?? [];
-  const sleeping = enemies.filter(e => e.awake === false).length;
+  const sleeping = enemies.filter((e: any) => e.awake === false).length;
   const hostiles = snap.mini ? Math.max(snap.mini.length, enemies.length) : enemies.length;
   // followers (combat hires/dogs) ship only on maps with hire posts; the
   // squad cap is 5 (2 per player) so the count reads against the pool
@@ -1361,8 +1375,8 @@ function updateHUD(snap) {
     + (followers ? ` · Followers: ${followers}/5` : '');
 
   const focus = session?.focusPids() ?? new Set();
-  const me = snap.players.find(p => focus.has(p.pid) && p.state === 'active' && p.charId)
-    || snap.players.find(p => p.pid === session?.primaryPid());
+  const me = snap.players.find((p: any) => focus.has(p.pid) && p.state === 'active' && p.charId)
+    || snap.players.find((p: any) => p.pid === session?.primaryPid());
   const ch = me?.charId ? charMap[me.charId] : null;
   const fw = me?.fieldWeapon;
   // field pickups read relay-cyan in the panel; character weapons keep amber
@@ -1422,11 +1436,11 @@ function updateHUD(snap) {
 // dots keep working beyond the interest radius. Everything else rides the
 // snap untouched — players/objectives/flags are always shipped in full, and
 // local sessions never carry a mini field (full snapshots, no change).
-function miniSnap(snap) {
+function miniSnap(snap: any) {
   if (!snap.mini) return snap;
   return {
     ...snap,
-    enemies: snap.mini.map(m => ({ x: ((m?.[0] ?? 0) + 0.5) * TILE, y: ((m?.[1] ?? 0) + 0.5) * TILE })),
+    enemies: snap.mini.map((m: any) => ({ x: ((m?.[0] ?? 0) + 0.5) * TILE, y: ((m?.[1] ?? 0) + 0.5) * TILE })),
   };
 }
 
@@ -1461,8 +1475,8 @@ function fogActive() {
 //     mask, focus }  map cell only: fog mask (null = no fog) + local pid Set
 const SPLIT_KEY = 'holdout-hd.splitscreen';
 const SPLIT_MODES = ['off', 'dynamic', 'always'];
-const SPLIT_LABEL = { off: 'Off', dynamic: 'Dynamic', always: 'Always' };
-let splitMode = localStorage.getItem(SPLIT_KEY);
+const SPLIT_LABEL: Record<string, any> = { off: 'Off', dynamic: 'Dynamic', always: 'Always' };
+let splitMode: any = localStorage.getItem(SPLIT_KEY);
 if (!SPLIT_MODES.includes(splitMode)) splitMode = 'dynamic';
 const SPLIT_OUT = 0.62;     // dynamic: split when locals no longer fit at this zoom
 const SPLIT_IN = 0.78;      // dynamic: merge once they'd fit at this zoom again
@@ -1477,7 +1491,7 @@ function localSeatInfo() {
 // Zoom at which ONE shared camera would fit every ACTIVE local seat (the
 // shared camera's own bbox-fit math). Infinity when 0-1 are active — a lone
 // survivor always "fits", so dynamic mode merges while teammates are down.
-function localFitZoom(snap, pids, vw, vh) {
+function localFitZoom(snap: any, pids: any, vw: any, vh: any) {
   // mirror computeCamera's whole-map branch (render.js): a map the shared
   // camera frames whole-screen can never need a split
   if (Math.min(vw / (snap.w * TILE), vh / (snap.h * TILE)) >= 0.8) return Infinity;
@@ -1493,7 +1507,7 @@ function localFitZoom(snap, pids, vw, vh) {
 }
 // Per-frame split/merge state machine. Returns views[] while split (or mid-
 // transition), null for the classic single-view render().
-function splitViews(snap, dt) {
+function splitViews(snap: any, dt: any) {
   if (split.session !== session) { split.session = session; split.on = false; split.k = 0; }
   // Anchor Siege (MOBA) is a single-camera mode: you follow your own hero, and
   // its bot allies must never spawn extra splitscreen viewports.
@@ -1501,14 +1515,14 @@ function splitViews(snap, dt) {
   // a seat only counts once its pid exists in the snapshot (net seats can be
   // claimed mid-lobby; a dead seat's pid leaves the player list)
   const seats = localSeatInfo()
-    .filter(s => (snap.players ?? []).some(p => p.pid === s.pid))
+    .filter((s: any) => (snap.players ?? []).some((p: any) => p.pid === s.pid))
     .slice(0, 4);
   if (seats.length < 2) { split.on = false; split.k = 0; return null; }
   let want;
   if (session.versusMode?.() === 'br') want = true; // couch-BR: forced Always
   else if (splitMode === 'always') want = true;
   else if (splitMode === 'dynamic') {
-    const fz = localFitZoom(snap, new Set(seats.map(s => s.pid)), canvas.width, canvas.height);
+    const fz = localFitZoom(snap, new Set(seats.map((s: any) => s.pid)), canvas.width, canvas.height);
     want = fz < (split.on ? SPLIT_IN : SPLIT_OUT); // hysteresis — no flicker
   } else want = false; // 'off'
   split.on = want;
@@ -1520,11 +1534,11 @@ function splitViews(snap, dt) {
 // During the transition the primary cell lerps from full-canvas while the
 // other cells grow in from their canvas edge/corner (a merge runs the same
 // lerp backwards, so secondary cells shrink away as P1 retakes the screen).
-function buildViews(snap, seats) {
+function buildViews(snap: any, seats: any) {
   const W = canvas.width, H = canvas.height;
   const k = split.k, e = k * k * (3 - 2 * k); // smoothstep the bounds lerp
-  const L = (a, b) => Math.round(a + (b - a) * e);
-  const lerpRect = (a, b) => ({ x: L(a.x, b.x), y: L(a.y, b.y), w: L(a.w, b.w), h: L(a.h, b.h) });
+  const L = (a: any, b: any) => Math.round(a + (b - a) * e);
+  const lerpRect = (a: any, b: any) => ({ x: L(a.x, b.x), y: L(a.y, b.y), w: L(a.w, b.w), h: L(a.h, b.h) });
   const full = { x: 0, y: 0, w: W, h: H };
   const hw = Math.round(W / 2), hh = Math.round(H / 2);
   const two = seats.length === 2;
@@ -1535,7 +1549,7 @@ function buildViews(snap, seats) {
   const anchors = two
     ? [full, { x: W, y: 0, w: 0, h: H }]
     : [full, { x: W, y: 0, w: 0, h: 0 }, { x: 0, y: H, w: 0, h: 0 }, { x: W, y: H, w: 0, h: 0 }];
-  const views = seats.map((s, i) => ({
+  const views = seats.map((s: any, i: any) => ({
     id: 'p' + s.pid, kind: 'player', pid: s.pid, seat: i,
     name: s.name, color: PCOLORS[i],
     rect: lerpRect(anchors[i], cells[i]),
@@ -1544,7 +1558,7 @@ function buildViews(snap, seats) {
     views.push({
       id: 'map', kind: 'map', pid: null, seat: 3,
       mask: fogActive() ? (renderMod.exploreMask?.(snap) ?? null) : null,
-      focus: new Set(seats.map(s => s.pid)),
+      focus: new Set(seats.map((s: any) => s.pid)),
       rect: lerpRect(anchors[3], cells[3]),
     });
   }
@@ -1554,8 +1568,8 @@ function buildViews(snap, seats) {
 // ---------- wave countdown (center-top blinking banner) ----------
 // Driven from snap.cycle (<15s to dusk), the BR zone clock and the CTF
 // sudden-death timer — every read optional so classic snapshots no-op.
-let cdSig = null;
-function updateCountdown(snap) {
+let cdSig: any = null;
+function updateCountdown(snap: any) {
   let text = '', blood = false;
   if (snap.status === 'play') {
     const cyc = snap.cycle;
@@ -1584,8 +1598,8 @@ function updateCountdown(snap) {
 // the escalation level on the snapshot; the chip pins while it's live. Every
 // read is optional — classic/older snapshots never carry the field, so the
 // chip simply never shows there.
-let otSig = null;
-function updateOvertime(snap) {
+let otSig: any = null;
+function updateOvertime(snap: any) {
   // the chip pins for the WHOLE of sudden death: the sim ships the overtime
   // key from the horn on (level 0 for the first 20s), so the key's presence
   // is the live flag — 'OVERTIME' at 0, 'OVERTIME +n' once escalation ticks.
@@ -1605,16 +1619,16 @@ function updateOvertime(snap) {
 // Shows the CURRENT bindings (remap-aware) plus a contextual hint when a
 // local seat stands near a shop/carousel/tower/build site.
 let ctrlHudOn = localStorage.getItem('holdout-hd.ctrlhud') !== '0';
-let ctrlSig = null;
-function updateControlsOverlay(snap, me) {
+let ctrlSig: any = null;
+function updateControlsOverlay(snap: any, me: any) {
   const el = $('ctrlOverlay');
   if (!ctrlHudOn || !session || snap.status !== 'play' || visibleScreen() || session.cutscene) {
     if (!el.hidden) el.hidden = true;
     ctrlSig = null;
     return;
   }
-  const k = a => keyLabel((KB1[a] ?? [])[0]);
-  const pb = a => padLabel((PADMAP[a] ?? [])[0]);
+  const k = (a: any) => keyLabel((KB1[a] ?? [])[0]);
+  const pb = (a: any) => padLabel((PADMAP[a] ?? [])[0]);
   const rows = [
     `MOVE  WASD · STICK/D-PAD`,
     `FIRE  ${k('fire')} · ${pb('fire')}`,
@@ -1630,13 +1644,13 @@ function updateControlsOverlay(snap, me) {
   }
   let hint = '';
   if (me && me.state === 'active') {
-    const near = (o) => o && ((o.x - me.x) ** 2 + (o.y - me.y) ** 2) < (1.5 * TILE) ** 2;
+    const near = (o: any) => o && ((o.x - me.x) ** 2 + (o.y - me.y) ** 2) < (1.5 * TILE) ** 2;
     if (me.shop) hint = `SHOP — HOLD ${k('act')}/${pb('act')} + ◄ ► CYCLES · FIRE BUYS`;
     else if (me.selecting) hint = `TURRET TYPE — HOLD ${k('act')}/${pb('act')} + ◄ ► CYCLES · FIRE CONFIRMS`;
-    else if ((snap.builds ?? []).some(b => !b.built && near(b))) hint = `HOLD ${k('act')}/${pb('act')} BUILDS · SHOOT YOUR OWN WALLS TO DEMOLISH`;
-    else if ((snap.towers ?? []).some(t => (t.hp ?? 1) > 0 && t.occupant == null && near(t))) hint = `${k('act')}/${pb('act')} MANS THE TOWER`;
-    else if ((snap.shops ?? []).some(s => near(s))) hint = `HOLD ${k('act')}/${pb('act')} BROWSES THE STALL`;
-    else if ((snap.npcs ?? []).some(n => near(n))) hint = `${k('act')}/${pb('act')} TALKS`;
+    else if ((snap.builds ?? []).some((b: any) => !b.built && near(b))) hint = `HOLD ${k('act')}/${pb('act')} BUILDS · SHOOT YOUR OWN WALLS TO DEMOLISH`;
+    else if ((snap.towers ?? []).some((t: any) => (t.hp ?? 1) > 0 && t.occupant == null && near(t))) hint = `${k('act')}/${pb('act')} MANS THE TOWER`;
+    else if ((snap.shops ?? []).some((s: any) => near(s))) hint = `HOLD ${k('act')}/${pb('act')} BROWSES THE STALL`;
+    else if ((snap.npcs ?? []).some((n: any) => near(n))) hint = `${k('act')}/${pb('act')} TALKS`;
   }
   const sig = rows.join('|') + '#' + hint;
   if (sig === ctrlSig) return;
@@ -1650,7 +1664,7 @@ function updateControlsOverlay(snap, me) {
 // A scaled copy of the freshly drawn minimap (fog, entities and the camera
 // rect are already baked in) centered over the dimmed field, plus pulsing
 // objective markers. Pure client/render — released, it vanishes instantly.
-function drawMapOverlay(ctx, snap, t) {
+function drawMapOverlay(ctx: any, snap: any, t: any) {
   const W = ctx.canvas.width, H = ctx.canvas.height;
   ctx.save();
   ctx.fillStyle = 'rgba(4,6,11,0.8)';
@@ -1666,12 +1680,12 @@ function drawMapOverlay(ctx, snap, t) {
   ctx.lineWidth = 2;
   ctx.strokeRect(dx - 1.5, dy - 1.5, dw + 3, dh + 3);
   // objective markers (world px -> overlay px), fog-respecting
-  const px = x => dx + (x / (snap.w * TILE)) * dw;
-  const py = y => dy + (y / (snap.h * TILE)) * dh;
+  const px = (x: any) => dx + (x / (snap.w * TILE)) * dw;
+  const py = (y: any) => dy + (y / (snap.h * TILE)) * dh;
   const fogMask = fogActive() ? renderMod.exploreMask?.(snap) : null; // fog off = all seen
-  const seen = (x, y) => !fogMask
+  const seen = (x: any, y: any) => !fogMask
     || !!fogMask[Math.min(snap.h - 1, Math.max(0, Math.floor(y / TILE))) * snap.w + Math.min(snap.w - 1, Math.max(0, Math.floor(x / TILE)))];
-  const ring = (x, y, col) => {
+  const ring = (x: any, y: any, col: any) => {
     ctx.strokeStyle = col;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
@@ -1694,7 +1708,7 @@ function drawMapOverlay(ctx, snap, t) {
   // entries whose chest is gone or looted fall out of the list
   for (let i = supplyPings.length - 1; i >= 0; i--) {
     const sp = supplyPings[i];
-    const chest = (snap.chests ?? []).find(c => Math.abs(c.x - sp.x) < 1 && Math.abs(c.y - sp.y) < 1);
+    const chest = (snap.chests ?? []).find((c: any) => Math.abs(c.x - sp.x) < 1 && Math.abs(c.y - sp.y) < 1);
     if (!chest || chest.opened) { supplyPings.splice(i, 1); continue; }
     ring(sp.x, sp.y, 'rgba(255,217,138,0.95)');
   }
@@ -1714,7 +1728,7 @@ function drawMapOverlay(ctx, snap, t) {
 // advances OUR slides. hold: online intros — the last slide stays up (done
 // fires once, e.g. to send cutsceneDone) until levelStart tears it down, so
 // the host paces the whole room.
-function startSlides(sess, slides, done, opts = {}) {
+function startSlides(sess: any, slides: any, done: any, opts: any = {}) {
   if (demoMode || !slides?.length || typeof renderMod.drawCutscene !== 'function') return done();
   hideAll();
   hideDialogue();
@@ -1723,7 +1737,7 @@ function startSlides(sess, slides, done, opts = {}) {
   canvas.onclick = () => { sess.cutsceneClick = true; }; // mouse can advance too
   sess.cutscene = { slides, idx: 0, t: 0, done, hold: !!opts.hold, holdHint: opts.holdHint || '', waiting: false, fired: false, holdT: 0, holdThreshold: 3 };
 }
-function slidesTick(sess, polled, dt) {
+function slidesTick(sess: any, polled: any, dt: any) {
   const cs = sess.cutscene;
   cs.t += dt;
   // hold FIRE/START for holdThreshold seconds to SKIP the whole cutscene (a
@@ -1731,7 +1745,7 @@ function slidesTick(sess, polled, dt) {
   // let the host skip, so the room stays in sync.
   const mayHoldSkip = (sess.isHost?.() ?? true);
   let holding = false;
-  for (const st of Object.values(polled)) if (st.fire || st.start) { holding = true; break; }
+  for (const st of Object.values<any>(polled)) if (st.fire || st.start) { holding = true; break; }
   cs.holdT = (holding && mayHoldSkip) ? (cs.holdT || 0) + dt : 0;
   if (cs.holdT >= cs.holdThreshold) {
     cs.holdT = 0;
@@ -1740,7 +1754,7 @@ function slidesTick(sess, polled, dt) {
   }
   let adv = cs.t >= 12 || sess.cutsceneClick; // idle couch still auto-advances
   sess.cutsceneClick = false;
-  for (const st of Object.values(polled)) {
+  for (const st of Object.values<any>(polled)) {
     if (st.fireJust || st.startJust) { st.fireJust = st.startJust = false; adv = true; }
   }
   if (!adv) return;
@@ -1759,7 +1773,7 @@ function slidesTick(sess, polled, dt) {
     playUi('cutscene');
   }
 }
-function endSlides(sess) {
+function endSlides(sess: any) {
   sess.cutscene = null;
   canvas.classList.remove('cutscene');
   canvas.onclick = null;
@@ -1771,7 +1785,11 @@ function endSlides(sess) {
 
 // ---------- local couch session (1-4 players, one screen) ----------
 class LocalSession {
-  constructor(save, opts = {}) {
+  // ad-hoc instance fields (game/snap/roster/levels/cheat state etc.) are
+  // assigned across many methods; an index signature types them all `any`
+  // without restating each field — keeps this a pure type-only annotation.
+  [key: string]: any;
+  constructor(save?: any, opts: any = {}) {
     this.story = !!opts.story;
     // local versus ('ctf'|'br'): one-map match list, no autosave, no roster churn
     this.mode = ['ctf', 'br', 'siege'].includes(opts.mode) ? opts.mode : null;
@@ -1805,7 +1823,7 @@ class LocalSession {
     // co-op (classic/story/stronghold): always surface earned operators, even
     // when resuming a save whose stored roster predates the unlock. Versus is
     // left exactly as it was.
-    if (!this.mode) this.roster = [...new Set([...this.roster, ...profileUnlocked().filter(id => !startingRoster.includes(id))])];
+    if (!this.mode) this.roster = [...new Set([...this.roster, ...profileUnlocked().filter((id: any) => !startingRoster.includes(id))])];
     // Daily: a one-map list of the seeded def, so the lobby/HUD/start() all read it.
     if (this.daily) { this.levels = [this.daily.def]; this.levelIdx = 0; }
     if (this.tutorial && opts.tutorialDef) { this.levels = [opts.tutorialDef]; this.levelIdx = 0; }
@@ -1816,21 +1834,21 @@ class LocalSession {
     this.inLobby = false;
     this.cutscene = null; // { slides, idx, t, done } — intro/outro state machine
   }
-  focusPids() { return new Set(this.players.map(p => p.pid)); }
+  focusPids() { return new Set(this.players.map((p: any) => p.pid)); }
   primaryPid() { return 0; }
   // splitscreen seats: join order = cell order (demo bots never split —
   // localSeatInfo gates on demoMode before this is consulted)
-  localSeats() { return this.players.map(p => ({ pid: p.pid, name: p.name })); }
+  localSeats() { return this.players.map((p: any) => ({ pid: p.pid, name: p.name })); }
   levelIdxView() { return this.levelIdx; }
   levelList() { return this.levels; }
   versusMode() { return this.mode; }
   bastionMode() { return this.bastion; }
   // seats alternate ctf teams by join order (P1/P3 vs P2/P4)
-  teamOf(p) { return (this.mode === 'ctf' || this.mode === 'siege') ? p.pid % 2 : this.mode === 'br' ? p.pid : null; }
+  teamOf(p: any) { return (this.mode === 'ctf' || this.mode === 'siege') ? p.pid % 2 : this.mode === 'br' ? p.pid : null; }
   canStart() {
     // siege is solo-playable: one human deploys and the field is padded with bots
     const min = this.mode === 'siege' ? 1 : this.mode ? 2 : 1;
-    return this.players.length >= min && this.players.every(p => p.charId);
+    return this.players.length >= min && this.players.every((p: any) => p.charId);
   }
 
   lobby() {
@@ -1842,7 +1860,7 @@ class LocalSession {
     const lvl = this.levels[this.levelIdx];
     const ctf = this.mode === 'ctf';
     // versus lobbies tint badges/cursors by team so the split reads at a glance
-    const colorOf = p => ctf ? TEAMC[p.pid % 2] : PCOLORS[p.pid];
+    const colorOf = (p: any) => ctf ? TEAMC[p.pid % 2] : PCOLORS[p.pid];
     renderLobby({
       title: this.story
         ? (lvl.title || `Chapter ${this.levelIdx + 1} — ${lvl.name}`)
@@ -1865,15 +1883,15 @@ class LocalSession {
         + 'Once everyone has picked, FIRE again — or START — to DEPLOY. SPECIAL (B / F / RShift) backs out to the menu. '
         + (ctf ? 'Blue seats are Team A, red seats Team B — odd joins vs even joins.'
           : 'Hold ACT (X / E) on a build site to construct — LYTH shards drop from fallen Entropy.'),
-      players: this.players.map(p => ({
+      players: this.players.map((p: any) => ({
         name: p.name, charId: p.charId, isHost: p.pid === 0, me: false,
         badge: 'P' + (p.pid + 1), color: colorOf(p), team: this.teamOf(p),
       })),
       roster: this.roster,
       canStart: this.canStart(),
-      cursors: this.players.map(p => ({ idx: p.cursor, color: colorOf(p), badge: 'P' + (p.pid + 1), picked: !!p.charId, me: p.pid === 0 })),
-      onCard: id => this.clickChar(id),
-      onStep: dir => {
+      cursors: this.players.map((p: any) => ({ idx: p.cursor, color: colorOf(p), badge: 'P' + (p.pid + 1), picked: !!p.charId, me: p.pid === 0 })),
+      onCard: (id: any) => this.clickChar(id),
+      onStep: (dir: any) => {
         if (!this.players.length) this.join('kb1');
         const p = this.players[0];
         if (p && !p.charId) { p.cursor = mod(p.cursor + dir, this.roster.length); this.renderLobby(); }
@@ -1887,8 +1905,8 @@ class LocalSession {
       onDifficulty: () => { cycleDifficulty(); this.renderLobby(); },
     });
   }
-  deviceOf(id) { return this.players.find(p => p.device === id); }
-  join(device) {
+  deviceOf(id: any) { return this.players.find((p: any) => p.device === id); }
+  join(device: any) {
     if (this.players.length >= 4 || this.deviceOf(device)) return;
     const pid = this.players.length;
     const name = pid === 0
@@ -1897,35 +1915,35 @@ class LocalSession {
     this.players.push({ pid, name, device, charId: null, cursor: 0, missingT: 0 });
     this.renderLobby();
   }
-  unjoin(p) {
+  unjoin(p: any) {
     const i = this.players.indexOf(p);
     if (i < 0) return;
     this.players.splice(i, 1);
-    this.players.forEach((q, idx) => {
+    this.players.forEach((q: any, idx: any) => {
       q.pid = idx;
       if (/^P[1-4]$/.test(q.name)) q.name = 'P' + (idx + 1);
     });
     this.renderLobby();
   }
-  clickChar(id) {
+  clickChar(id: any) {
     if (!this.players.length) this.join('kb1');
     this.pick(this.players[0], id);
   }
-  pick(p, id) {
+  pick(p: any, id: any) {
     if (p.charId === id) {
       p.charId = null;
     } else {
       // versus drops uniqueness entirely (matches the sim: identity = name +
       // team color, so even same-team duplicates are fine in ctf/br).
       // Classic/story/co-op stay strictly unique.
-      const taken = !this.mode && this.players.some(o => o !== p && o.charId === id);
+      const taken = !this.mode && this.players.some((o: any) => o !== p && o.charId === id);
       if (taken || !this.roster.includes(id)) return;
       p.charId = id;
       p.cursor = this.roster.indexOf(id);
     }
     this.renderLobby();
   }
-  lobbyTick(polled, dt) {
+  lobbyTick(polled: any, dt: any) {
     let moved = false;
     // a joined gamepad that vanished before picking (battery died) would
     // block Deploy forever — drop it after a grace period
@@ -1936,7 +1954,7 @@ class LocalSession {
         if (p.missingT > 3) this.unjoin(p);
       } else p.missingT = 0;
     }
-    for (const [dev, st] of Object.entries(polled)) {
+    for (const [dev, st] of Object.entries<any>(polled)) {
       // SPECIAL / B (or Esc) anywhere in the lobby backs out to the menu
       if (st.specialJust) { st.specialJust = false; return this.leave(); }
       const p = this.deviceOf(dev);
@@ -1968,8 +1986,8 @@ class LocalSession {
     // teamOf alternates by pid, so the humans + even-pid bots face the odd-pid
     // bots — every human gets allies AND opponents.
     if (this.mode === 'siege' && this.players.length < 6) {
-      const pool = this.roster.filter(id => charMap[id]);
-      let pid = this.players.length ? Math.max(...this.players.map(p => p.pid)) + 1 : 0;
+      const pool = this.roster.filter((id: any) => charMap[id]);
+      let pid = this.players.length ? Math.max(...this.players.map((p: any) => p.pid)) + 1 : 0;
       while (this.players.length < 6) {
         this.players.push({ pid, name: 'BOT' + pid, device: 'bot' + pid, charId: pool[pid % pool.length] || this.roster[0], cursor: 0, missingT: 0 });
         pid++;
@@ -1995,7 +2013,7 @@ class LocalSession {
       this.game = createGame(
         lvl,
         // versus party entries carry team (ctf: alternating seats, br: own pid)
-        this.players.map(p => ({
+        this.players.map((p: any) => ({
           pid: p.pid, name: p.name, charId: p.charId,
           ...(this.mode ? { team: this.teamOf(p) } : {}),
         })),
@@ -2018,8 +2036,8 @@ class LocalSession {
   // player advances. If the renderer doesn't ship cutscenes (yet), or we're in
   // demo/attract mode (bots can't press FIRE, &warp needs the sim immediately),
   // startSlides skips straight to done().
-  startCutscene(slides, done) { startSlides(this, slides, done); }
-  cutsceneTick(polled, dt) { slidesTick(this, polled, dt); }
+  startCutscene(slides: any, done: any) { startSlides(this, slides, done); }
+  cutsceneTick(polled: any, dt: any) { slidesTick(this, polled, dt); }
   togglePause() {
     if (!this.game || this.game.status !== 'play') return;
     if (this.paused) {
@@ -2034,7 +2052,7 @@ class LocalSession {
   // the cheats sub-panel can re-open it on Back without re-toggling paused.
   openPauseRoot() {
     this.paused = true; // re-assert across closePauseUi when returning from a sub-panel
-    const items = [{ label: 'Resume', onPick: () => closePauseUi() }];
+    const items: any[] = [{ label: 'Resume', onPick: () => closePauseUi() }];
     // Relic superweapon (NORMAL play): once the awakening was survived and no
     // device exists, any player may channel the one-shot nuke/weather machine.
     // Routes through inp.superBuild (works online + couch), unlike the dev cheat
@@ -2069,7 +2087,7 @@ class LocalSession {
   // caller to seatCanBuildSuper, so it never appears outside an unlocked run.
   openSuperBuildMenu() {
     this.paused = true; // re-assert across closePauseUi when sub-panel re-enters
-    const queue = kind => { this.queueSuperBuild(kind); closePauseUi(); };
+    const queue = (kind: any) => { this.queueSuperBuild(kind); closePauseUi(); };
     openPauseUi({
       title: 'Build Superweapon',
       body: 'The relic grants ONE doomsday device. Pick a site near your operative, then stand on it for ~6s to assemble — enemies will rush it.',
@@ -2089,12 +2107,12 @@ class LocalSession {
   // Queue a one-shot superBuild edge for the local primary seat. tick() drains it
   // into that seat's input on the very next step and clears it, so the sim sees a
   // single rising edge of inp.superBuild (matching the dev/keybind contract).
-  queueSuperBuild(kind) { if (SUPER_KINDS.has(kind)) this.pendingSuperBuild = kind; }
+  queueSuperBuild(kind: any) { if (SUPER_KINDS.has(kind)) this.pendingSuperBuild = kind; }
   // Dev cheats are gated to a SOLO OFFLINE run: a LocalSession (never the online
   // NetSession), a single human seat, and never a versus mode (ctf/br/siege).
   // Demo/attract runs never see it either.
   cheatsAvailable() {
-    return !this.mode && !demoMode && this.players.filter(p => !p.device?.startsWith('bot')).length === 1;
+    return !this.mode && !demoMode && this.players.filter((p: any) => !p.device?.startsWith('bot')).length === 1;
   }
   // The cheats sub-panel. Re-renders itself after each toggle/action so the
   // labels reflect live state. Enabling ANY cheat sets a sticky dev/dirty flag
@@ -2114,10 +2132,10 @@ class LocalSession {
     // while the operative keeps moving, aiming and building. Additive like above.
     if (c.pauseTime === undefined) c.pauseTime = false;
     const SPEEDS = [1, 5, 10, 100]; // Off / x5 / x10 / x100
-    const speedLabel = v => v <= 1 ? 'OFF' : '×' + v;
-    const onState = b => b ? 'ON' : 'OFF';
+    const speedLabel = (v: any) => v <= 1 ? 'OFF' : '×' + v;
+    const onState = (b: any) => b ? 'ON' : 'OFF';
     const dirty = () => { g.devMode = true; }; // sticky for the whole run
-    const me = g.players.find(p => p.pid === this.primaryPid()) || g.players[0];
+    const me = g.players.find((p: any) => p.pid === this.primaryPid()) || g.players[0];
     const reopen = () => this.openCheatMenu();
     const items = [
       { label: `God Mode: ${onState(c.god)}`, onPick: () => { c.god = !c.god; if (c.god) dirty(); reopen(); } },
@@ -2200,7 +2218,7 @@ class LocalSession {
   // state (charging, ~60s timer) so the charge/ready/launch path is demoable
   // without surviving the awakening first. The launch runs through the normal
   // input contract (a plain superFire trigger; the sim auto-targets) once ready.
-  cheatBuildSuperweapon(kind, me) {
+  cheatBuildSuperweapon(kind: any, me: any) {
     const g = this.game;
     if (!g || !me) return;
     g.superweaponUnlocked = true;
@@ -2216,7 +2234,7 @@ class LocalSession {
   // here from the pause overlay instead of rebuilding it. Browse ◀/▶ (pad d-pad/
   // stick, mouse, arrows), FIRE/A confirms and swaps the live operative, SPECIAL/
   // START/ESC backs out. Solo-only (gated by the cheats panel that opened it).
-  cheatPickCharacter(me) {
+  cheatPickCharacter(me: any) {
     const g = this.game;
     if (!g || !me) return;
     closePauseUi();     // tear the cheats dialog down (its onClose clears paused)
@@ -2243,7 +2261,7 @@ class LocalSession {
       canStart: false,
       cursors: [{ idx: cc.idx, color: PCOLORS[0], badge: 'P1', picked: false, me: true }],
       onCard: () => this.confirmCheatCarousel(),
-      onStep: dir => { cc.idx = mod(cc.idx + dir, cc.ids.length); this.renderCheatCarousel(); },
+      onStep: (dir: any) => { cc.idx = mod(cc.idx + dir, cc.ids.length); this.renderCheatCarousel(); },
       allowDupes: true, // dev tool: never "taken"/blocked by the current char
     });
     void focusId; // renderLobby reads idx; focusId kept for clarity/debugging
@@ -2265,11 +2283,11 @@ class LocalSession {
   }
   // Input pump for the operator-select cards (pad/keyboard). Mouse is handled by
   // renderLobby's ◀/▶ + card onclick. Mirrors the lobby's left/right + fire nav.
-  cheatCarouselTick(polled) {
+  cheatCarouselTick(polled: any) {
     const cc = this.cheatCarousel;
     if (!cc) return;
     let moved = false;
-    for (const st of Object.values(polled)) {
+    for (const st of Object.values<any>(polled)) {
       if (st.specialJust || st.startJust) { st.specialJust = st.startJust = false; return this.cancelCheatCarousel(); }
       if (st.leftJust || st.upJust) { cc.idx = mod(cc.idx - 1, cc.ids.length); moved = true; }
       if (st.rightJust || st.downJust) { cc.idx = mod(cc.idx + 1, cc.ids.length); moved = true; }
@@ -2282,7 +2300,7 @@ class LocalSession {
   // applied at fire time off p.level). Routes through the sim's grantXp so the
   // level-up events fire exactly as an earned climb would. No-op on arcade seats
   // (1-hit classic players never level — they have no p.level field).
-  cheatMaxOut(me) {
+  cheatMaxOut(me: any) {
     const g = this.game;
     if (!g || !me || typeof gameMod.maxOutPlayer !== 'function') return;
     gameMod.maxOutPlayer(g, me.pid);
@@ -2317,7 +2335,7 @@ class LocalSession {
         at: Date.now(),
         // additive: each seat's physical device, so the resumed run hands
         // every player back the controller they were actually holding
-        seats: this.players.map(p => ({ pid: p.pid, device: p.device })),
+        seats: this.players.map((p: any) => ({ pid: p.pid, device: p.device })),
       }));
     } catch {
       // storage quota — stay paused rather than quit and silently lose the run
@@ -2326,7 +2344,7 @@ class LocalSession {
     }
     this.leave();
   }
-  tick(polled, dt) {
+  tick(polled: any, dt: any) {
     if (this.cutscene) return this.cutsceneTick(polled, dt);
     if (this.inLobby) return this.lobbyTick(polled, dt);
     // operator-select cards (dev): the carousel owns input until it confirms/backs
@@ -2334,12 +2352,12 @@ class LocalSession {
     if (!this.game) {
       // a mission-end dialog is up: fire/start on any device clicks through,
       // so a controller-only couch never needs the mouse
-      for (const st of Object.values(polled)) {
+      for (const st of Object.values<any>(polled)) {
         if (st.fireJust || st.startJust) { $('btnMsgOk').click(); break; }
       }
       return;
     }
-    for (const [dev, st] of Object.entries(polled)) {
+    for (const [dev, st] of Object.entries<any>(polled)) {
       if (st.startJust && this.deviceOf(dev)) { this.togglePause(); break; }
     }
     // SOLO PAUSE = real halt: while paused — or while ANY pause/cheat overlay is
@@ -2349,7 +2367,7 @@ class LocalSession {
     // the source of truth, so the world stays frozen the whole time the menu is
     // open. Enemies, timers and projectiles all hold until Resume.
     if (this.paused || pauseUi || this.game.status !== 'play') return;
-    const inputs = {};
+    const inputs: any = {};
     for (const p of this.players) {
       if (p.device.startsWith('bot')) { inputs[p.pid] = this.botInput(p, dt); continue; }
       const st = polled[p.device];
@@ -2393,10 +2411,10 @@ class LocalSession {
   // Attract-mode bot (?demo=1): walks east toward the exit, shoots what gets
   // close, holds ACT at build sites/NPCs. Reads only snapshot state, so it is
   // safe on classic maps where builds/npcs do not exist.
-  botInput(p, dt) {
-    const inp = { up: false, down: false, left: false, right: false, fire: false, special: false, act: false, item: false };
+  botInput(p: any, dt: any) {
+    const inp: any = { up: false, down: false, left: false, right: false, fire: false, special: false, act: false, item: false };
     const snap = this.snap;
-    const me = snap?.players?.find(q => q.pid === p.pid);
+    const me = snap?.players?.find((q: any) => q.pid === p.pid);
     if (!me) return inp;
     const b = p.bot ??= { bias: p.pid % 2 ? 1 : -1, lastX: me.x, t: 0, pulse: 0 };
     if (me.state === 'pick') {
@@ -2417,7 +2435,7 @@ class LocalSession {
     inp.right = true;
     if (b.bias < 0) inp.up = true; else inp.down = true;
 
-    const steerTo = (tx, ty) => {
+    const steerTo = (tx: any, ty: any) => {
       inp.up = inp.down = inp.left = inp.right = false;
       if (tx - me.x > 0.25 * TILE) inp.right = true; else if (me.x - tx > 0.25 * TILE) inp.left = true;
       if (ty - me.y > 0.25 * TILE) inp.down = true; else if (me.y - ty > 0.25 * TILE) inp.up = true;
@@ -2426,10 +2444,10 @@ class LocalSession {
     // Anchor Siege bot: shoot the nearest enemy tower, then minion, else advance
     // on the enemy core; retreat to your own core when low.
     if (snap.mode === 'siege' && snap.siege) {
-      const dst = o => Math.hypot(o.x - me.x, o.y - me.y);
+      const dst = (o: any) => Math.hypot(o.x - me.x, o.y - me.y);
       const foe = me.team === 0 ? 1 : 0;
       if ((me.hp ?? 9) <= 1) {
-        const own = (snap.cores || []).find(c => c.team === me.team);
+        const own = (snap.cores || []).find((c: any) => c.team === me.team);
         if (own) steerTo(own.x, own.y);
         return inp;
       }
@@ -2461,27 +2479,27 @@ class LocalSession {
         if (!tgt && tank) {
           inp.fire = true;
           if (tankD < KITE) {
-            const own = (snap.cores || []).find(c => c.team === me.team);
+            const own = (snap.cores || []).find((c: any) => c.team === me.team);
             if (own) steerTo(own.x, own.y); // back off out of the slow ring
           } else { steerTo(tank.x, tank.y); }
           return inp;
         }
       }
       if (tgt) { inp.fire = true; steerTo(tgt.x, tgt.y); return inp; }
-      const fc = (snap.cores || []).find(c => c.team === foe);
+      const fc = (snap.cores || []).find((c: any) => c.team === foe);
       if (fc) steerTo(fc.x, fc.y);
       return inp;
     }
 
     // hold ACT at an unbuilt build site (nudging to stay in range) or near an NPC
-    const dist = o => Math.hypot(o.x - me.x, o.y - me.y);
-    const site = (snap.builds ?? []).find(s => !s.built && dist(s) <= 1.4 * TILE);
+    const dist = (o: any) => Math.hypot(o.x - me.x, o.y - me.y);
+    const site = (snap.builds ?? []).find((s: any) => !s.built && dist(s) <= 1.4 * TILE);
     if (site) {
       inp.act = true;
       steerTo(site.x, site.y);
       return inp;
     }
-    if ((snap.npcs ?? []).some(n => dist(n) <= 1.4 * TILE)) inp.act = true;
+    if ((snap.npcs ?? []).some((n: any) => dist(n) <= 1.4 * TILE)) inp.act = true;
 
     // engage AWAKE enemies within ~5 tiles (sleeping ones may be unreachable
     // behind walls — chasing them deadlocks the eastward march)
@@ -2524,7 +2542,7 @@ class LocalSession {
       && typeof g.w === 'number' && Number.isFinite(g.w) && g.w > 0
       && typeof g.h === 'number' && Number.isFinite(g.h) && g.h > 0
       && Array.isArray(g.grid) && g.grid.length === g.h
-      && g.grid.every(row => typeof row === 'string' && row.length === g.w);
+      && g.grid.every((row: any) => typeof row === 'string' && row.length === g.w);
     if (!valid) {
       clearBeacon(); // unreadable/corrupt beacon: regroup in the lobby
       this.lobby();
@@ -2544,8 +2562,8 @@ class LocalSession {
     // the game drops, then route every submitRun/recordProgress through guards
     // that no-op when dirty (demoMode is already covered inside both helpers).
     const devDirty = !!this.game.devMode;
-    const submitRunMaybe = (...a) => { if (!devDirty) submitRun(...a); };
-    const recordProgressMaybe = (...a) => { if (!devDirty) recordProgress(...a); };
+    const submitRunMaybe = (...a: any[]) => { if (!devDirty) (submitRun as any)(...a); };
+    const recordProgressMaybe = (...a: any[]) => { if (!devDirty) (recordProgress as any)(...a); };
     if (devDirty) showToast('DEV MODE — score not recorded', 3000, true);
     const res = applyResults(this.roster, this.game);
     const cleared = this.game.status === 'cleared';
@@ -2555,7 +2573,7 @@ class LocalSession {
     const endlessNights = this.endless ? (this.game.cycle?.nightNo || 0) : 0; // survival metric
     const runKills = this.game.kills || 0;                      // milestone: total kills
     const runRescues = (this.game.rescued || []).length;        // milestone: total rescues
-    const playedOps = this.players.map(p => p.charId).filter(Boolean); // milestone: distinct operators
+    const playedOps = this.players.map((p: any) => p.charId).filter(Boolean); // milestone: distinct operators
     this.game = null;
     this.paused = false;
     for (const p of this.players) { p.charId = null; p.cursor = 0; p.bot = null; }
@@ -2593,7 +2611,7 @@ class LocalSession {
       if (!demoMode) recordProgressMaybe({ gamePlayed: true, missionCleared: true, strongholdClear: this.bastion, kills: runKills, rescues: runRescues, score, operators: playedOps });
       // rankings: one board entry per cleared level (server POST, or static-
       // build local bests). submitRun no-ops on demo runs and keyless defs.
-      submitRunMaybe(lvl, this.players.map(p => p.name), this.players.length, score, timeS);
+      submitRunMaybe(lvl, this.players.map((p: any) => p.name), this.players.length, score, timeS);
       this.roster = res.roster;
       if (this.story) {
         this.levelIdx++;
@@ -2609,7 +2627,7 @@ class LocalSession {
             // never regress: clearing a resumed OLDER chapter while a further
             // story save exists must not pull that save backwards
             let cur = null;
-            try { cur = JSON.parse(localStorage.getItem(STORY_KEY)); } catch {}
+            try { cur = JSON.parse(localStorage.getItem(STORY_KEY) as string); } catch {}
             if (!((cur?.chapter ?? 0) > this.levelIdx + 1)) {
               localStorage.setItem(STORY_KEY, JSON.stringify({ chapter: this.levelIdx + 1, roster: this.roster }));
             }
@@ -2652,7 +2670,7 @@ class LocalSession {
       // never regress the campaign bookmark: clearing a RESUMED older run
       // while a further classic save exists must not pull that save backwards
       let curSave = null;
-      try { curSave = JSON.parse(localStorage.getItem(SAVE_KEY)); } catch {}
+      try { curSave = JSON.parse(localStorage.getItem(SAVE_KEY) as string); } catch {}
       if (!((curSave?.levelIdx ?? -1) > this.levelIdx)) {
         localStorage.setItem(SAVE_KEY, JSON.stringify({ levelIdx: this.levelIdx, roster: this.roster }));
       }
@@ -2666,7 +2684,7 @@ class LocalSession {
         // Daily runs land on the shared daily board; free Endless on the map's own board.
         const base = levelKeyOf(lvl);
         const ekey = this.daily ? 'daily/' + this.daily.dateStr : (base ? 'endless/' + base.split('/')[1] : null);
-        if (ekey) submitRunMaybe(lvl, this.players.map(p => p.name), this.players.length, nights * 100000 + Math.min(99999, score), timeS, { key: ekey });
+        if (ekey) submitRunMaybe(lvl, this.players.map((p: any) => p.name), this.players.length, nights * 100000 + Math.min(99999, score), timeS, { key: ekey });
       }
       // milestone progress: best/total endless nights + (for dailies) the day + run stats
       if (!demoMode) recordProgressMaybe({ gamePlayed: true, endlessNights: nights, dailyDate: this.daily ? this.daily.dateStr : undefined, kills: runKills, rescues: runRescues, score, operators: playedOps });
@@ -2707,18 +2725,18 @@ class LocalSession {
     this.paused = false;
     let body;
     if (this.mode === 'ctf' && winner != null) {
-      const winners = this.players.filter(p => p.pid % 2 === winner).map(p => p.name);
+      const winners = this.players.filter((p: any) => p.pid % 2 === winner).map((p: any) => p.name);
       body = `${TEAM_NAME[winner] ?? 'A team'} takes the match${winners.length ? ` — ${winners.join(', ')}` : ''}`
         + (caps ? `\nCaptures: ${caps[0] ?? 0} — ${caps[1] ?? 0}` : '');
       // CTF board contract: the winning team's run — score = captures x1000,
       // timeS = match length, players = match size
       submitRun(lvl, winners, this.players.length, (caps?.[winner] ?? 0) * 1000, timeS);
     } else if (this.mode === 'br' && winner != null) {
-      const name = this.players.find(p => p.pid === winner)?.name ?? 'P' + (winner + 1);
+      const name = this.players.find((p: any) => p.pid === winner)?.name ?? 'P' + (winner + 1);
       body = `${name} is the last operative standing.`;
       // BR board contract: the last operative standing — score = their kills
       // (per-player kill ledger), timeS = match length, players = match size
-      const kills = g?.players?.find(p => p.pid === winner)?.kills ?? 0;
+      const kills = g?.players?.find((p: any) => p.pid === winner)?.kills ?? 0;
       submitRun(lvl, [name], this.players.length, kills, timeS);
     } else {
       body = 'The match is over.';
@@ -2726,10 +2744,10 @@ class LocalSession {
     // milestone progress: CTF/BR wins (when a local seat is on the winning side) + games/kills
     if (!demoMode) {
       const myPids = this.focusPids?.() ?? new Set();
-      const ctfWin = this.mode === 'ctf' && winner != null && [...myPids].some(pid => pid % 2 === winner);
+      const ctfWin = this.mode === 'ctf' && winner != null && [...myPids].some((pid: any) => pid % 2 === winner);
       const brWin = this.mode === 'br' && winner != null && myPids.has(winner);
-      const myKills = (g?.players || []).reduce((s, p) => s + (myPids.has(p.pid) ? (p.kills || 0) : 0), 0);
-      recordProgress({ gamePlayed: true, ctfWin, brWin, kills: myKills, operators: this.players.map(p => p.charId).filter(Boolean) });
+      const myKills = (g?.players || []).reduce((s: any, p: any) => s + (myPids.has(p.pid) ? (p.kills || 0) : 0), 0);
+      recordProgress({ gamePlayed: true, ctfWin, brWin, kills: myKills, operators: this.players.map((p: any) => p.charId).filter(Boolean) });
     }
     for (const p of this.players) { p.charId = null; p.cursor = 0; p.bot = null; }
     playUi('victory');
@@ -2741,11 +2759,11 @@ class LocalSession {
       if (!demoMode) { localStorage.removeItem(STORY_KEY); clearBeacon(); }
       // saga complete (ch11 Genesis Drift): the dialog speaks the finale's
       // own language — see levels/story/ch11.json outro + the saga slides
-      showMsg('Genesis Holds', `The First Anchor settles, and a hundred anchors answer in one breath.\nThe frontier holds end to end. Keep the signal alive.\nFinal roster: ${this.roster.map(id => charMap[id].name).join(', ')}`, 'Main Menu', () => this.leave());
+      showMsg('Genesis Holds', `The First Anchor settles, and a hundred anchors answer in one breath.\nThe frontier holds end to end. Keep the signal alive.\nFinal roster: ${this.roster.map((id: any) => charMap[id].name).join(', ')}`, 'Main Menu', () => this.leave());
       return;
     }
     localStorage.removeItem(SAVE_KEY);
-    showMsg('Campaign Complete!', `You held out to the end.\nFinal roster: ${this.roster.map(id => charMap[id].name).join(', ')}`, 'Main Menu', () => this.leave());
+    showMsg('Campaign Complete!', `You held out to the end.\nFinal roster: ${this.roster.map((id: any) => charMap[id].name).join(', ')}`, 'Main Menu', () => this.leave());
   }
   leave() { session = null; show('menu'); refreshContinue(); }
 }
@@ -2757,7 +2775,11 @@ class LocalSession {
 // request extra pids with addLocal. A machine with no bound seat keeps the
 // classic mouse flow (legacy single-input form, primary pid).
 class NetSession {
-  constructor(mode, code, hostMode = 'classic', hostLevelIdx = null, opts = {}) {
+  // ad-hoc instance fields (ws/snap/seats/lobbyData/cursors etc.) are assigned
+  // across many methods; an index signature types them all `any` without
+  // restating each — a pure type-only annotation.
+  [key: string]: any;
+  constructor(mode: any, code: any, hostMode = 'classic', hostLevelIdx: any = null, opts: any = {}) {
     const hostDaily = hostMode === 'bastion' && !!opts.daily;
     const hostEndless = hostMode === 'bastion' && (!!opts.endless || hostDaily);
     this.endless = hostEndless;
@@ -2786,7 +2808,7 @@ class NetSession {
     this.ws = new WebSocket(`${proto}://${location.host}`);
     this.ws.onopen = () => {
       if (mode === 'host') {
-        const msg = { t: 'host', name: this.name, resume: code };
+        const msg: any = { t: 'host', name: this.name, resume: code };
         // room visibility: always explicit (per-mode-group toggle on the
         // Online page; versus defaults public, co-op private). Additive —
         // an older server ignores the flag and keeps rooms private.
@@ -2817,7 +2839,7 @@ class NetSession {
         this.ws.send(JSON.stringify({ t: 'join', room: code, name: this.name }));
       }
     };
-    this.ws.onmessage = e => this.onMsg(JSON.parse(e.data));
+    this.ws.onmessage = (e: any) => this.onMsg(JSON.parse(e.data));
     this.ws.onclose = () => {
       clearInterval(this.inputTimer);
       if (session !== this) return;
@@ -2849,7 +2871,7 @@ class NetSession {
     this.inputTimer = setInterval(() => {
       if (this.ws.readyState !== 1 || this.snap?.status !== 'play') return;
       if (this.seats.size) {
-        const inputs = {};
+        const inputs: any = {};
         for (const [dev, pid] of this.seats) inputs[pid] = this.deviceInput(dev);
         this.ws.send(JSON.stringify({ t: 'input', inputs }));
       } else {
@@ -2874,8 +2896,8 @@ class NetSession {
     return md === 'ctf' || md === 'br' ? md : null;
   }
   bastionMode() { return this.lobbyData?.mode === 'bastion'; }
-  isHost() { return !!this.lobbyData?.players.find(p => p.pid === this.myPid)?.isHost; }
-  pickOf(pid) { return this.lobbyData?.players.find(p => p.pid === pid)?.charId || null; }
+  isHost() { return !!this.lobbyData?.players.find((p: any) => p.pid === this.myPid)?.isHost; }
+  pickOf(pid: any) { return this.lobbyData?.players.find((p: any) => p.pid === pid)?.charId || null; }
   focusPids() { return this.seats.size ? new Set(this.seats.values()) : new Set([this.myPid]); }
   primaryPid() { return this.myPid; }
 
@@ -2883,7 +2905,7 @@ class NetSession {
   // Buffer the last TWO net frames with their arrival times. Render-only: the
   // sim never runs here and this.snap stays the raw authoritative frame, so
   // netcode parity is untouched.
-  pushNetSnap(snap) {
+  pushNetSnap(snap: any) {
     if (!snap) { this.netBuf = null; return; }
     const recv = performance.now();
     const cur = this.netBuf?.cur;
@@ -2895,7 +2917,7 @@ class NetSession {
   // Falls back to the raw snap whenever interpolation can't apply (one frame
   // only, not in play, degenerate timing). Matches entities by id/pid and
   // SNAPs (no blend) for newcomers/leavers or jumps > 1 tile (respawn/blink).
-  renderSnap(now) {
+  renderSnap(now: any) {
     const buf = this.netBuf;
     if (!buf || !buf.prev || !buf.cur) return this.snap;
     const cur = buf.cur, prev = buf.prev;
@@ -2911,7 +2933,7 @@ class NetSession {
     a = a < 0 ? 0 : a > 1 ? 1 : a;
     const JUMP2 = (TILE * TILE) * 1.0; // squared 1-tile threshold for SNAP
     // index prev entities by their match key for O(1) lookup
-    const lerpArr = (curArr, prevArr, keyOf) => {
+    const lerpArr = (curArr: any, prevArr: any, keyOf: any) => {
       if (!Array.isArray(curArr)) return curArr;
       if (!Array.isArray(prevArr) || !prevArr.length || a <= 0) return curArr;
       const pmap = new Map();
@@ -2929,15 +2951,15 @@ class NetSession {
     };
     const cs = cur.snap, ps = prev.snap;
     const out = { ...cs };
-    out.players = lerpArr(cs.players, ps.players, e => 'p' + e.pid);
-    out.enemies = lerpArr(cs.enemies, ps.enemies, e => e.id);
-    out.shots = lerpArr(cs.shots, ps.shots, e => e.id);
-    if (cs.followers) out.followers = lerpArr(cs.followers, ps.followers, e => e.id);
-    if (cs.captives) out.captives = lerpArr(cs.captives, ps.captives, e => e.charId + '@' + e.owner);
-    if (cs.vehicles) out.vehicles = lerpArr(cs.vehicles, ps.vehicles, e => e.id);
-    if (cs.flags) out.flags = lerpArr(cs.flags, ps.flags, e => e.team);
+    out.players = lerpArr(cs.players, ps.players, (e: any) => 'p' + e.pid);
+    out.enemies = lerpArr(cs.enemies, ps.enemies, (e: any) => e.id);
+    out.shots = lerpArr(cs.shots, ps.shots, (e: any) => e.id);
+    if (cs.followers) out.followers = lerpArr(cs.followers, ps.followers, (e: any) => e.id);
+    if (cs.captives) out.captives = lerpArr(cs.captives, ps.captives, (e: any) => e.charId + '@' + e.owner);
+    if (cs.vehicles) out.vehicles = lerpArr(cs.vehicles, ps.vehicles, (e: any) => e.id);
+    if (cs.flags) out.flags = lerpArr(cs.flags, ps.flags, (e: any) => e.team);
     if (cs.siege && ps.siege) {
-      out.siege = { ...cs.siege, minions: lerpArr(cs.siege.minions, ps.siege.minions, e => e.id) };
+      out.siege = { ...cs.siege, minions: lerpArr(cs.siege.minions, ps.siege.minions, (e: any) => e.id) };
     }
     return out;
   }
@@ -2947,8 +2969,8 @@ class NetSession {
   localSeats() {
     return [...this.seats.values()].map((pid, i) => ({
       pid,
-      name: this.lobbyData?.players.find(p => p.pid === pid)?.name
-        ?? this.snap?.players?.find(p => p.pid === pid)?.name
+      name: this.lobbyData?.players.find((p: any) => p.pid === pid)?.name
+        ?? this.snap?.players?.find((p: any) => p.pid === pid)?.name
         ?? 'P' + (i + 1),
     }));
   }
@@ -2961,8 +2983,8 @@ class NetSession {
           : md === 'bastion' ? bastionLevels : campaign;
   }
   // navTick: a bound device's dpad drives its pick cursor, not the focus ring
-  deviceOf(dev) { return this.seats.has(dev) ? dev : null; }
-  deviceInput(dev) {
+  deviceOf(dev: any) { return this.seats.has(dev) ? dev : null; }
+  deviceInput(dev: any) {
     // a device captured by the open leave dialog navigates the menu, not the
     // match — its seat stands idle while the rest of the couch keeps playing
     if (this.menuDevs?.has(dev)) return {};
@@ -2974,7 +2996,7 @@ class NetSession {
       else this.fireSquelch.delete(dev);
     }
     const pid = this.seats.get(dev);
-    const o = { up: c.up, down: c.down, left: c.left, right: c.right, fire, special: c.special, act: c.act, item: c.item, invSel: c.invSel, place: c.place, drop: c.drop, sprint: c.sprint };
+    const o: any = { up: c.up, down: c.down, left: c.left, right: c.right, fire, special: c.special, act: c.act, item: c.item, invSel: c.invSel, place: c.place, drop: c.drop, sprint: c.sprint };
     // online couch: the lone pointer aims keyboard seats only (pad seats step),
     // and only while that seat is placing a structure
     if (dev.startsWith('kb') && seatNeedsAim(this.snap, pid)) {
@@ -2990,7 +3012,7 @@ class NetSession {
     }
     return o;
   }
-  onMsg(m) {
+  onMsg(m: any) {
     if (m.t === 'joined') {
       this.myPid = m.you;
       // mid-level rejoin: the server re-binds this connection's held seats
@@ -3037,8 +3059,8 @@ class NetSession {
       // Guarded against the explicit message's record so a MID-LEVEL
       // migration's stale diff can't re-toast minutes later at levelEnd, and
       // deferred past this batch's renderLobby/hideToast like the explicit one.
-      const prevHost = this.lobbyData?.players?.find(p => p.isHost);
-      const newHost = m.players.find(p => p.isHost);
+      const prevHost = this.lobbyData?.players?.find((p: any) => p.isHost);
+      const newHost = m.players.find((p: any) => p.isHost);
       if (prevHost && newHost && newHost.pid !== prevHost.pid && newHost.pid !== this.hostToastPid) {
         this.hostToastPid = newHost.pid;
         setTimeout(() => showToast(`HOST MIGRATED — ${String(newHost.name || 'PLAYER').toUpperCase()} LEADS`, 3200, true), 60);
@@ -3052,7 +3074,7 @@ class NetSession {
         const mine = new Set(this.seats.values());
         for (const p of m.players) {
           if (p.pid === this.myPid || mine.has(p.pid)) continue;
-          if (prevPlayers.some(q => q.pid === p.pid)) continue;
+          if (prevPlayers.some((q: any) => q.pid === p.pid)) continue;
           if (this.joinToasted.has(p.pid)) continue;
           this.joinToasted.add(p.pid);
           showToast(`${String(p.name || 'PLAYER').toUpperCase()} JOINED — ${TEAM_NAME[p.team] ?? 'THE MATCH'}`, 3000);
@@ -3061,9 +3083,9 @@ class NetSession {
       this.lobbyData = m;
       // a seat whose pid the server no longer lists is dead — unbind it
       for (const [dev, pid] of [...this.seats]) {
-        if (!m.players.some(p => p.pid === pid)) this.unbindSeat(dev);
+        if (!m.players.some((p: any) => p.pid === pid)) this.unbindSeat(dev);
       }
-      const me = m.players.find(p => p.pid === this.myPid);
+      const me = m.players.find((p: any) => p.pid === this.myPid);
       this.myPick = me?.charId || null;
       // never stomp a live game, an open dialog or a playing cutscene —
       // renderLobby runs when they dismiss
@@ -3130,13 +3152,13 @@ class NetSession {
         if (m.roster && this.lobbyData) this.lobbyData.roster = m.roster;
         let body;
         if (vm === 'ctf' && m.winner != null) {
-          const myTeam = this.lobbyData?.players.find(p => p.pid === this.myPid)?.team;
+          const myTeam = this.lobbyData?.players.find((p: any) => p.pid === this.myPid)?.team;
           body = `${TEAM_NAME[m.winner] ?? 'A team'} takes the match`
             + (myTeam != null ? (myTeam === m.winner ? ' — VICTORY' : ' — DEFEAT') : '')
             + (m.caps ? `\nCaptures: ${m.caps[0] ?? 0} — ${m.caps[1] ?? 0}` : '');
         } else if (vm === 'br' && m.winner != null) {
-          const w = this.lobbyData?.players.find(p => p.pid === m.winner)
-            ?? this.snap?.players?.find(p => p.pid === m.winner);
+          const w = this.lobbyData?.players.find((p: any) => p.pid === m.winner)
+            ?? this.snap?.players?.find((p: any) => p.pid === m.winner);
           body = `${w?.name ?? 'Player ' + m.winner} is the last operative standing.`;
         } else {
           body = 'The match is over.';
@@ -3163,7 +3185,7 @@ class NetSession {
           // victory() dialog and the ch11 outro slides)
           showMsg(story ? 'Genesis Holds' : 'Campaign Complete!',
             (story ? 'The First Anchor settles, and a hundred anchors answer in one breath.\nThe frontier holds end to end. Keep the signal alive.\n' : '')
-            + resultText(m) + `Final roster: ${m.roster.map(id => charMap[id].name).join(', ')}`,
+            + resultText(m) + `Final roster: ${m.roster.map((id: any) => charMap[id].name).join(', ')}`,
             'OK', () => this.leave());
         } else if (m.status === 'cleared') {
           showMsg(story ? 'Chapter Cleared' : 'Mission Cleared',
@@ -3204,7 +3226,7 @@ class NetSession {
   renderLobby() {
     const m = this.lobbyData;
     if (!m) return;
-    const allPicked = m.players.every(p => p.charId);
+    const allPicked = m.players.every((p: any) => p.charId);
     const story = m.mode === 'story';
     const vm = this.versusMode();
     const ctf = vm === 'ctf';
@@ -3225,17 +3247,17 @@ class NetSession {
         + 'The mouse picks for the first seat.'
         + (ctf ? ' Capture the Flag: badge colors are your team — seats alternate. Duplicate operatives are allowed.'
           : vm === 'br' ? ' Battle Royale: free-for-all, 2+ players to start.' : ''),
-      players: m.players.map(p => ({
+      players: m.players.map((p: any) => ({
         ...p,
         me: p.pid === this.myPid,
         // ctf: team badge color sets (server assigns p.team); seat number text
         // for local seats, team letter for everyone else
         badge: seatNo.has(p.pid)
-          ? 'P' + (seatNo.get(p.pid) + 1)
+          ? 'P' + (seatNo.get(p.pid)! + 1)
           : (ctf && p.team != null ? (p.team ? 'B' : 'A') : undefined),
         color: ctf && p.team != null
           ? TEAMC[p.team]
-          : (seatNo.has(p.pid) ? PCOLORS[seatNo.get(p.pid)] : undefined),
+          : (seatNo.has(p.pid) ? PCOLORS[seatNo.get(p.pid)!] : undefined),
       })),
       roster: m.roster,
       canStart: this.isHost() && allPicked && (!vm || m.players.length >= 2),
@@ -3246,8 +3268,8 @@ class NetSession {
         picked: !!this.pickOf(pid),
         me: pid === this.myPid,
       })),
-      onCard: id => this.pickChar(id),
-      onStep: dir => {
+      onCard: (id: any) => this.pickChar(id),
+      onStep: (dir: any) => {
         const e = [...this.seats.entries()].find(([, pid]) => pid === this.myPid);
         if (e) { const dev = e[0]; this.cursors[dev] = mod((this.cursors[dev] ?? 0) + dir, m.roster.length); this.renderLobby(); }
       },
@@ -3256,27 +3278,27 @@ class NetSession {
     });
   }
   // mouse click — picks for the primary seat (legacy form, no pid)
-  pickChar(id) { this.ws.send(JSON.stringify({ t: 'select', charId: id })); }
+  pickChar(id: any) { this.ws.send(JSON.stringify({ t: 'select', charId: id })); }
   start() { this.ws.send(JSON.stringify({ t: 'start' })); }
-  unbindSeat(dev) {
+  unbindSeat(dev: any) {
     this.seats.delete(dev);
     delete this.cursors[dev];
     delete this.missingT[dev];
   }
-  dropSeat(dev) { // START on an unpicked extra seat / dead pad: hand the pid back
+  dropSeat(dev: any) { // START on an unpicked extra seat / dead pad: hand the pid back
     const pid = this.seats.get(dev);
     if (pid == null) return;
     this.unbindSeat(dev);
     if (pid !== this.myPid) this.ws.send(JSON.stringify({ t: 'removeLocal', pid }));
     this.renderLobby(); // server re-broadcasts, but reflect the unbind now
   }
-  claimSeat(dev) {
+  claimSeat(dev: any) {
     if (this.myPid == null) return;
     if (![...this.seats.values()].includes(this.myPid)) {
       // first FIRE binds that device to the primary pid
       this.seats.set(dev, this.myPid);
       this.cursors[dev] = 0;
-      if (this.rebindQueue) this.rebindQueue = this.rebindQueue.filter(p => p !== this.myPid);
+      if (this.rebindQueue) this.rebindQueue = this.rebindQueue.filter((p: any) => p !== this.myPid);
       this.renderLobby();
       return;
     }
@@ -3296,7 +3318,7 @@ class NetSession {
     this.pendingSeats.set(dev, performance.now());
     this.ws.send(JSON.stringify({ t: 'addLocal', name: 'P' + (this.seats.size + this.pendingSeats.size), tag: dev }));
   }
-  lobbyTick(polled, dt) {
+  lobbyTick(polled: any, dt: any) {
     const m = this.lobbyData;
     if (!m) return;
     // a request the server never answered (room filled meanwhile) must not
@@ -3313,7 +3335,7 @@ class NetSession {
       } else this.missingT[dev] = 0;
     }
     let moved = false;
-    for (const [dev, st] of Object.entries(polled)) {
+    for (const [dev, st] of Object.entries<any>(polled)) {
       // SPECIAL / B (or Esc) leaves the room back to the menu
       if (st.specialJust) { st.specialJust = false; return this.leave(); }
       const pid = this.seats.get(dev);
@@ -3346,11 +3368,11 @@ class NetSession {
     }
     if (moved) this.renderLobby();
   }
-  tick(polled, dt) {
+  tick(polled: any, dt: any) {
     if (this.cutscene) return slidesTick(this, polled, dt);
     if (!$('msg').hidden) {
       // mission-end dialog: fire/start on any device clicks through
-      for (const st of Object.values(polled)) {
+      for (const st of Object.values<any>(polled)) {
         if (st.fireJust || st.startJust) { $('btnMsgOk').click(); break; }
       }
       return;
@@ -3359,7 +3381,7 @@ class NetSession {
     // Esc/Start during an active match opens the leave dialog (lobby phases
     // keep their Leave button; pauseUiTick owns every input while it is up)
     if (!pauseUi) {
-      for (const [dev, st] of Object.entries(polled)) {
+      for (const [dev, st] of Object.entries<any>(polled)) {
         if (st.startJust) {
           st.startJust = false;
           this.openLeaveDialog(dev);
@@ -3371,7 +3393,7 @@ class NetSession {
     // FIRE (join order = seat order); the press doubles as the seat's first
     // shot/pick input, which is fine for a squad re-entering the field
     if (this.rebindQueue?.length && this.snap?.status === 'play') {
-      for (const [dev, st] of Object.entries(polled)) {
+      for (const [dev, st] of Object.entries<any>(polled)) {
         if (!st.fireJust || this.seats.has(dev)) continue;
         const pid = this.rebindQueue.shift();
         this.seats.set(dev, pid);
@@ -3384,7 +3406,7 @@ class NetSession {
   // side, so this is a LEAVE dialog, not a pause. Only the opening device
   // (plus any other device that presses START while it is up) is captured for
   // menu navigation — the other couch seats on this connection keep playing.
-  openLeaveDialog(dev) {
+  openLeaveDialog(dev: any) {
     if (pauseUi || !this.snap || this.snap.status !== 'play') return;
     this.menuDevs = new Set([dev]);
     const room = this.lobbyData?.room || this.joinCode || '';
@@ -3409,7 +3431,7 @@ class NetSession {
   }
   // Queue a one-shot superBuild edge for this connection's player; the input
   // dispatcher drains it into the next uplink (single rising edge) and clears it.
-  queueSuperBuild(kind) { if (SUPER_KINDS.has(kind)) this.pendingSuperBuild = kind; }
+  queueSuperBuild(kind: any) { if (SUPER_KINDS.has(kind)) this.pendingSuperBuild = kind; }
   close() {
     clearInterval(this.inputTimer);
     this.ws.onclose = null;
@@ -3426,13 +3448,13 @@ class NetSession {
 const SH_KEY = 'holdout-hd.stronghold';
 // Canonical unlock schedule (contract-fixed). Used as the fallback when a
 // level def doesn't carry def.stronghold.unlock yet — defs win when present.
-const SH_UNLOCKS = {
+const SH_UNLOCKS: Record<string, any> = {
   2: 'sniper', 3: 'raider', 4: 'pyro', 5: 'engineer', 6: 'bastion', 8: 'duelist',
   10: 'volt', 12: 'boomer', 14: 'warden', 16: 'shade', 18: 'helix', 20: 'seal', 23: 'atlas',
 };
 function loadShSave() {
   try {
-    const s = JSON.parse(localStorage.getItem(SH_KEY));
+    const s = JSON.parse(localStorage.getItem(SH_KEY) as string);
     if (s && typeof s === 'object') {
       return {
         unlocked: Math.max(1, Math.min(bastionLevels.length || 25, Math.floor(s.unlocked) || 1)),
@@ -3443,7 +3465,7 @@ function loadShSave() {
   } catch {}
   return { unlocked: 1, beaten: [], chars: [] };
 }
-function shUnlockOf(def, n) { return def?.stronghold?.unlock ?? SH_UNLOCKS[n] ?? null; }
+function shUnlockOf(def: any, n: any) { return def?.stronghold?.unlock ?? SH_UNLOCKS[n] ?? null; }
 // Stronghold lobby roster: 4 starters + every operative the save has earned.
 // --- Operator milestones: new operators earned by playing the loop ----------
 // Endless nights survived, Daily Challenge completions, and missions cleared
@@ -3451,41 +3473,41 @@ function shUnlockOf(def, n) { return def?.stronghold?.unlock ?? SH_UNLOCKS[n] ??
 // operator joins the co-op roster everywhere.
 const PROFILE_KEY = 'holdout-hd.profile';
 function loadProfile() {
-  let p = {};
-  try { const j = JSON.parse(localStorage.getItem(PROFILE_KEY)); if (j && typeof j === 'object') p = j; } catch {}
-  const intOf = k => Math.max(0, Math.floor(p[k]) || 0);
-  const out = {
+  let p: any = {};
+  try { const j = JSON.parse(localStorage.getItem(PROFILE_KEY) as string); if (j && typeof j === 'object') p = j; } catch {}
+  const intOf = (k: any) => Math.max(0, Math.floor(p[k]) || 0);
+  const out: any = {
     bestEndlessNights: intOf('bestEndlessNights'), missionsCleared: intOf('missionsCleared'),
     strongholdClears: intOf('strongholdClears'), totalKills: intOf('totalKills'),
     totalRescues: intOf('totalRescues'), bestRunScore: intOf('bestRunScore'),
     gamesPlayed: intOf('gamesPlayed'), endlessNightsTotal: intOf('endlessNightsTotal'),
     ctfWins: intOf('ctfWins'), brWins: intOf('brWins'),
     dailyDates: Array.isArray(p.dailyDates) ? p.dailyDates.slice(0, 400) : [],
-    operatorsPlayed: Array.isArray(p.operatorsPlayed) ? p.operatorsPlayed.filter(id => charMap[id]) : [],
-    unlocked: Array.isArray(p.unlocked) ? p.unlocked.filter(id => charMap[id]) : [],
+    operatorsPlayed: Array.isArray(p.operatorsPlayed) ? p.operatorsPlayed.filter((id: any) => charMap[id]) : [],
+    unlocked: Array.isArray(p.unlocked) ? p.unlocked.filter((id: any) => charMap[id]) : [],
   };
   out.distinctOperators = out.operatorsPlayed.length; // derived, for the wisp milestone
   return out;
 }
-function saveProfile(p) { try { localStorage.setItem(PROFILE_KEY, JSON.stringify(p)); } catch {} }
+function saveProfile(p: any) { try { localStorage.setItem(PROFILE_KEY, JSON.stringify(p)); } catch {} }
 const OPERATOR_UNLOCKS = [
-  { id: 'ranger',   need: 8,  how: 'Survive 8 nights in one Endless run', val: p => p.bestEndlessNights },
-  { id: 'sentinel', need: 3,  how: 'Complete Daily Challenges on 3 days', val: p => p.dailyDates.length },
-  { id: 'tempest',  need: 12, how: 'Clear 12 missions (any mode)',        val: p => p.missionsCleared },
-  { id: 'vandal', need: 1500, how: 'Rack up 1500 total kills.', val: p => p.totalKills },
-  { id: 'rampart', need: 8, how: 'Clear 8 strongholds.', val: p => p.strongholdClears },
-  { id: 'cinder', need: 18000, how: 'Score 18000 in a single run.', val: p => p.bestRunScore },
-  { id: 'vesper', need: 40, how: 'Play 40 games.', val: p => p.gamesPlayed },
-  { id: 'howitz', need: 60, how: 'Survive 60 endless nights total.', val: p => p.endlessNightsTotal },
-  { id: 'quill', need: 18, how: 'Clear 18 missions in any mode.', val: p => p.missionsCleared },
-  { id: 'frost', need: 8, how: 'Win 8 Capture the Flag matches.', val: p => p.ctfWins },
-  { id: 'hymn', need: 60, how: 'Rescue 60 captives across the campaign.', val: p => p.totalRescues },
-  { id: 'mirage', need: 8, how: 'Win 8 Battle Royale matches.', val: p => p.brWins },
-  { id: 'wisp', need: 14, how: 'Play 14 distinct operators.', val: p => p.distinctOperators },
+  { id: 'ranger',   need: 8,  how: 'Survive 8 nights in one Endless run', val: (p: any) => p.bestEndlessNights },
+  { id: 'sentinel', need: 3,  how: 'Complete Daily Challenges on 3 days', val: (p: any) => p.dailyDates.length },
+  { id: 'tempest',  need: 12, how: 'Clear 12 missions (any mode)',        val: (p: any) => p.missionsCleared },
+  { id: 'vandal', need: 1500, how: 'Rack up 1500 total kills.', val: (p: any) => p.totalKills },
+  { id: 'rampart', need: 8, how: 'Clear 8 strongholds.', val: (p: any) => p.strongholdClears },
+  { id: 'cinder', need: 18000, how: 'Score 18000 in a single run.', val: (p: any) => p.bestRunScore },
+  { id: 'vesper', need: 40, how: 'Play 40 games.', val: (p: any) => p.gamesPlayed },
+  { id: 'howitz', need: 60, how: 'Survive 60 endless nights total.', val: (p: any) => p.endlessNightsTotal },
+  { id: 'quill', need: 18, how: 'Clear 18 missions in any mode.', val: (p: any) => p.missionsCleared },
+  { id: 'frost', need: 8, how: 'Win 8 Capture the Flag matches.', val: (p: any) => p.ctfWins },
+  { id: 'hymn', need: 60, how: 'Rescue 60 captives across the campaign.', val: (p: any) => p.totalRescues },
+  { id: 'mirage', need: 8, how: 'Win 8 Battle Royale matches.', val: (p: any) => p.brWins },
+  { id: 'wisp', need: 14, how: 'Play 14 distinct operators.', val: (p: any) => p.distinctOperators },
 ];
-function profileUnlocked() { return loadProfile().unlocked.filter(id => charMap[id]); }
+function profileUnlocked() { return loadProfile().unlocked.filter((id: any) => charMap[id]); }
 // Apply a finished run's progress; toast any operator it just earned.
-function recordProgress(up) {
+function recordProgress(up: any) {
   const p = loadProfile();
   if (up.endlessNights != null) { p.bestEndlessNights = Math.max(p.bestEndlessNights, up.endlessNights); p.endlessNightsTotal += Math.max(0, up.endlessNights | 0); }
   if (up.dailyDate && !p.dailyDates.includes(up.dailyDate)) p.dailyDates.push(up.dailyDate);
@@ -3514,7 +3536,7 @@ function recordProgress(up) {
 }
 // co-op roster base = starters + any milestone-earned operators
 function coopRoster() {
-  return [...startingRoster, ...profileUnlocked().filter(id => !startingRoster.includes(id))];
+  return [...startingRoster, ...profileUnlocked().filter((id: any) => !startingRoster.includes(id))];
 }
 function strongholdRoster() {
   const s = loadShSave();
@@ -3522,7 +3544,7 @@ function strongholdRoster() {
   return [...startingRoster, ...new Set(earned)];
 }
 // Operator gallery status: starter / earned / locked-with-progress.
-function operatorStatus(ch) {
+function operatorStatus(ch: any) {
   if (ch.starting) return { txt: 'STARTER', on: true };
   if (ch.milestone) {
     const p = loadProfile();
@@ -3539,7 +3561,7 @@ function renderOperators() {
   const grid = $('opGrid');
   if (!grid) return;
   grid.innerHTML = '';
-  const tier = ch => ch.starting ? 0 : ch.milestone ? 2 : 1; // starters · rescues · milestones
+  const tier = (ch: any) => ch.starting ? 0 : ch.milestone ? 2 : 1; // starters · rescues · milestones
   [...characters].sort((a, b) => tier(a) - tier(b)).forEach(ch => {
     const st = operatorStatus(ch);
     const card = document.createElement('div');
@@ -3557,7 +3579,7 @@ function renderOperators() {
   });
 }
 // Records a cleared level; returns 'UNLOCKED — …' toast lines for the caller.
-function shRecordClear(def) {
+function shRecordClear(def: any) {
   const n = def?.stronghold?.level ?? (bastionLevels.indexOf(def) + 1);
   if (!(n >= 1)) return [];
   const s = loadShSave();
@@ -3594,10 +3616,10 @@ function shRecordClear(def) {
 const BESTS_KEY = 'holdout-hd.bests';     // static: { [levelKey]: [entry...] }
 const LASTRUN_KEY = 'holdout-hd.lastrun'; // { key, score, timeS, date } — board highlight
 const RANK_CATS = ['daily', 'story', 'stronghold', 'endless', 'classic', 'ctf', 'br'];
-const RANK_CAT_LABEL = { daily: 'DAILY CHALLENGE', story: 'STORY', stronghold: 'STRONGHOLD', endless: 'ENDLESS SIEGE', classic: 'CLASSIC', ctf: 'VERSUS — CTF', br: 'VERSUS — ROYALE' };
-const pad2 = n => String(n).padStart(2, '0');
-const rankSlug = s => String(s ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'level';
-let rankIndex = null; // latest GET /api/rankings payload (server builds only)
+const RANK_CAT_LABEL: Record<string, any> = { daily: 'DAILY CHALLENGE', story: 'STORY', stronghold: 'STRONGHOLD', endless: 'ENDLESS SIEGE', classic: 'CLASSIC', ctf: 'VERSUS — CTF', br: 'VERSUS — ROYALE' };
+const pad2 = (n: any) => String(n).padStart(2, '0');
+const rankSlug = (s: any) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'level';
+let rankIndex: any = null; // latest GET /api/rankings payload (server builds only)
 
 // levelKey for a def. story/stronghold/classic stems reconstruct exactly from
 // def fields (chXX / shXX / levelXX match the level filenames); a def.file or
@@ -3605,7 +3627,7 @@ let rankIndex = null; // latest GET /api/rankings payload (server builds only)
 // ctf/br defs carry no stem: prefer a served board in that category whose
 // name matches (online matches are recorded under the true filename stem),
 // else fall back to a name slug. Legacy expedition defs have no board.
-function levelKeyOf(def) {
+function levelKeyOf(def: any) {
   if (!def) return null;
   const cat = def.category ?? (def.chapter || def.story ? 'story'
     : def.mode === 'bastion' ? 'stronghold'
@@ -3625,35 +3647,35 @@ function levelKeyOf(def) {
   // the server's online auto-records from day one
   const pin = RANK_STEM_PIN[cat + '/' + def.name];
   if (pin) return cat + '/' + pin;
-  const inCat = (rankIndex?.levels ?? []).filter(l => typeof l.key === 'string' && l.key.startsWith(cat + '/'));
-  const hit = inCat.find(l => l.name === def.name) ?? (inCat.length === 1 ? inCat[0] : null);
+  const inCat = (rankIndex?.levels ?? []).filter((l: any) => typeof l.key === 'string' && l.key.startsWith(cat + '/'));
+  const hit = inCat.find((l: any) => l.name === def.name) ?? (inCat.length === 1 ? inCat[0] : null);
   return hit ? hit.key : cat + '/' + rankSlug(def.name);
 }
-const RANK_STEM_PIN = { 'ctf/Twin Relays': 'level21-ctf', 'br/The Shattering': 'level22-br' };
+const RANK_STEM_PIN: Record<string, any> = { 'ctf/Twin Relays': 'level21-ctf', 'br/The Shattering': 'level22-br' };
 // key -> def, for display names of boards the server hasn't listed (yet)
 const rankKeyDef = new Map();
 for (const d of levels) {
   const k = levelKeyOf(d);
   if (k && !rankKeyDef.has(k)) rankKeyDef.set(k, d);
 }
-function rankNameOf(key) {
+function rankNameOf(key: any) {
   const def = rankKeyDef.get(key);
   return def ? String(def.stronghold?.name ?? def.title ?? def.name ?? key) : (key.split('/')[1] ?? key);
 }
 
 function loadBests() {
   try {
-    const b = JSON.parse(localStorage.getItem(BESTS_KEY));
+    const b = JSON.parse(localStorage.getItem(BESTS_KEY) as string);
     if (b && typeof b === 'object' && !Array.isArray(b)) return b;
   } catch {}
   return {};
 }
 function loadLastRun() {
-  try { return JSON.parse(localStorage.getItem(LASTRUN_KEY)) || null; } catch { return null; }
+  try { return JSON.parse(localStorage.getItem(LASTRUN_KEY) as string) || null; } catch { return null; }
 }
-const RANK_ORDER = {
-  score: (a, b) => (b.score - a.score) || (a.timeS - b.timeS), // the server's board order
-  fastest: (a, b) => (a.timeS - b.timeS) || (b.score - a.score),
+const RANK_ORDER: Record<string, any> = {
+  score: (a: any, b: any) => (b.score - a.score) || (a.timeS - b.timeS), // the server's board order
+  fastest: (a: any, b: any) => (a.timeS - b.timeS) || (b.score - a.score),
 };
 async function refreshRankIndex() {
   if (IS_STATIC) return null;
@@ -3669,7 +3691,7 @@ if (!IS_STATIC) refreshRankIndex();
 // One local clear -> one board entry. Toasts RUN RECORDED — #rank when the
 // run places top 50 (the toast is deferred a beat: the results dialog that
 // opens in the same tick clears the toast queue as every screen change does).
-async function submitRun(def, names, players, score, timeS, opts = {}) {
+async function submitRun(def: any, names: any, players: any, score: any, timeS: any, opts: any = {}) {
   if (demoMode) return;
   // unpinned versus maps resolve their key against the served board index —
   // make sure it's loaded before deriving (no-op for static/known stems)
@@ -3681,7 +3703,7 @@ async function submitRun(def, names, players, score, timeS, opts = {}) {
   if (!key) return;
   const label = String(def.stronghold?.name ?? def.name ?? key).toUpperCase();
   const entry = {
-    names: names.slice(0, 8).map(n => String(n).slice(0, 12)),
+    names: names.slice(0, 8).map((n: any) => String(n).slice(0, 12)),
     players: Math.max(1, Math.min(8, Math.round(players) || 1)),
     score: Math.max(0, Math.round(score) || 0),
     timeS: Math.max(0, Math.round((Number(timeS) || 0) * 10) / 10),
@@ -3717,22 +3739,22 @@ async function submitRun(def, names, players, score, timeS, opts = {}) {
 // boards worth listing even with no entries yet: where the current saves are
 function saveLevelKeys() {
   const keys = new Set();
-  const add = def => { const k = levelKeyOf(def); if (k) keys.add(k); };
+  const add = (def: any) => { const k = levelKeyOf(def); if (k) keys.add(k); };
   try {
-    const s = JSON.parse(localStorage.getItem(SAVE_KEY));
+    const s = JSON.parse(localStorage.getItem(SAVE_KEY) as string);
     if (s && campaign.length) add(campaign[Math.max(0, Math.min(s.levelIdx ?? 0, campaign.length - 1))]);
   } catch {}
   try {
-    const s = JSON.parse(localStorage.getItem(STORY_KEY));
+    const s = JSON.parse(localStorage.getItem(STORY_KEY) as string);
     if (s && storyLevels.length) add(storyLevels[Math.max(0, Math.min((s.chapter ?? 1) - 1, storyLevels.length - 1))]);
   } catch {}
   const sh = loadShSave();
-  bastionLevels.forEach((lvl, i) => { if ((lvl.stronghold?.level ?? i + 1) <= sh.unlocked) add(lvl); });
+  bastionLevels.forEach((lvl: any, i: any) => { if ((lvl.stronghold?.level ?? i + 1) <= sh.unlocked) add(lvl); });
   return keys;
 }
 
 // ---------- rankings UI (pageRank picker -> pageRankBoard) ----------
-let rankBoardKey = null, rankBoardName = '', rankSort = 'score', rankEntries = null;
+let rankBoardKey: any = null, rankBoardName = '', rankSort = 'score', rankEntries: any = null;
 async function renderRankPicker() {
   const host = $('rankGroups');
   const note = $('rankNote');
@@ -3743,26 +3765,26 @@ async function renderRankPicker() {
   host.innerHTML = '<div class="rgrp">LOADING…</div>';
   let boards;
   if (IS_STATIC) {
-    boards = Object.entries(loadBests())
+    boards = Object.entries<any>(loadBests())
       .filter(([, list]) => Array.isArray(list))
       .map(([key, list]) => ({ key, name: rankNameOf(key), count: list.length }));
   } else {
     await refreshRankIndex();
-    boards = (rankIndex?.levels ?? []).filter(l => l && typeof l.key === 'string')
-      .map(l => ({ key: l.key, name: String(l.name || rankNameOf(l.key)), count: Math.max(0, Math.round(l.count) || 0) }));
+    boards = (rankIndex?.levels ?? []).filter((l: any) => l && typeof l.key === 'string')
+      .map((l: any) => ({ key: l.key, name: String(l.name || rankNameOf(l.key)), count: Math.max(0, Math.round(l.count) || 0) }));
   }
   if (menuPageId !== 'pageRank') return; // the page changed while fetching
   // the current saves' levels join the list so the boards you're playing
   // toward are reachable before anyone records a run on them
-  const have = new Set(boards.map(b => b.key));
+  const have = new Set(boards.map((b: any) => b.key));
   for (const key of saveLevelKeys()) {
     if (!have.has(key)) boards.push({ key, name: rankNameOf(key), count: 0 });
   }
   host.innerHTML = '';
-  const catOf = key => RANK_CATS.find(c => key.startsWith(c + '/')) ?? 'other';
+  const catOf = (key: any) => RANK_CATS.find(c => key.startsWith(c + '/')) ?? 'other';
   for (const cat of [...RANK_CATS, 'other']) {
-    const group = boards.filter(b => catOf(b.key) === cat)
-      .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+    const group = boards.filter((b: any) => catOf(b.key) === cat)
+      .sort((a: any, b: any) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
     if (!group.length) continue;
     const h = document.createElement('div');
     h.className = 'rgrp';
@@ -3777,7 +3799,7 @@ async function renderRankPicker() {
       const ct = document.createElement('b');
       ct.textContent = b.count ? `${b.count} ${b.count === 1 ? 'RUN' : 'RUNS'}` : '—';
       btn.append(nm, ct);
-      btn.onclick = e => {
+      btn.onclick = (e: any) => {
         e.currentTarget.blur();
         playUi('select');
         rankBoardKey = b.key;
@@ -3812,7 +3834,7 @@ async function renderRankBoard() {
     }
     if (menuPageId !== 'pageRankBoard') return; // backed out while fetching
   }
-  const rows = rankEntries.filter(e => e && typeof e === 'object')
+  const rows = rankEntries.filter((e: any) => e && typeof e === 'object')
     .slice().sort(RANK_ORDER[rankSort] ?? RANK_ORDER.score).slice(0, 50);
   host.innerHTML = '';
   if (!rows.length) {
@@ -3835,15 +3857,15 @@ async function renderRankBoard() {
   const lastRun = loadLastRun();
   const myName = ($('nameInput').value.trim() || 'P1').toLowerCase();
   let mine = lastRun && lastRun.key === rankBoardKey
-    ? rows.find(e => e.score === lastRun.score && e.timeS === lastRun.timeS)
+    ? rows.find((e: any) => e.score === lastRun.score && e.timeS === lastRun.timeS)
     : null;
-  mine ??= rows.filter(e => (e.names ?? []).some(n => String(n).toLowerCase() === myName))
-    .sort((a, b) => String(b.date ?? '').localeCompare(String(a.date ?? '')))[0] ?? null;
-  const fmtT = s => {
+  mine ??= rows.filter((e: any) => (e.names ?? []).some((n: any) => String(n).toLowerCase() === myName))
+    .sort((a: any, b: any) => String(b.date ?? '').localeCompare(String(a.date ?? '')))[0] ?? null;
+  const fmtT = (s: any) => {
     const t = Math.max(0, Number(s) || 0);
     return `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
   };
-  rows.forEach((e, i) => {
+  rows.forEach((e: any, i: any) => {
     // rows are inert BUTTONS so the pad focus ring can walk them: navTick
     // treats every visible button as a nav target and setNavFocus
     // scrollIntoViews the ring — a pad-only couch can reach row 50 of a
@@ -3855,7 +3877,7 @@ async function renderRankBoard() {
     // and fold the rest into '+N more' so the row never explodes
     // the server stores at most 8 real names plus a literal '+N more' tail —
     // strip the tail and fold from the true player count instead
-    const names = (Array.isArray(e.names) ? e.names : []).map(n => String(n)).filter(n => !/^\+\d+ more$/.test(n));
+    const names = (Array.isArray(e.names) ? e.names : []).map((n: any) => String(n)).filter((n: any) => !/^\+\d+ more$/.test(n));
     const total = Math.max(Number(e.players) || 0, names.length);
     const nameTxt = total > 4
       ? `${names.slice(0, 4).join(', ')} +${total - 4} more`
@@ -3882,8 +3904,8 @@ async function renderRankBoard() {
 // CTF rooms joinable mid-match (joinableNow) — those get a LIVE tag. The list
 // auto-refreshes every 5s while the page is open; rows are pad-navigable
 // buttons and a press joins through the existing NetSession join flow.
-const BROWSE_MODE_LABEL = { classic: 'CLASSIC', story: 'STORY', bastion: 'STRONGHOLD', ctf: 'CTF', br: 'ROYALE' };
-let browseTimer = null;
+const BROWSE_MODE_LABEL: Record<string, any> = { classic: 'CLASSIC', story: 'STORY', bastion: 'STRONGHOLD', ctf: 'CTF', br: 'ROYALE' };
+let browseTimer: any = null;
 let browseSeq = 0; // stale-fetch guard: only the newest request may render
 function stopBrowse() {
   if (browseTimer) { clearInterval(browseTimer); browseTimer = null; }
@@ -3945,7 +3967,7 @@ async function renderBrowse() {
       tag.textContent = 'LIVE';
       row.appendChild(tag);
     }
-    row.onclick = e => {
+    row.onclick = (e: any) => {
       e.currentTarget.blur();
       if (session) return;
       playUi('select');
@@ -3962,7 +3984,7 @@ async function renderBrowse() {
 
 // ---------- menu pages (MAIN / SINGLEPLAYER / VERSUS / ONLINE / SETTINGS /
 // REMAP / STRONGHOLD SELECT / BROWSE) — DOM screens inside #menu, pad-navigable ----
-const MENU_PARENT = {
+const MENU_PARENT: Record<string, any> = {
   pagePlay: 'pageMain',
   pageSingle: 'pagePlay', pageVersus: 'pagePlay', pageOnline: 'pagePlay',
   pageClassic: 'pageSingle', pageStory: 'pageSingle',
@@ -3973,9 +3995,9 @@ const MENU_PARENT = {
 let menuPageId = 'pageMain';
 let shPurpose = 'local'; // why the level select is open: 'local' | 'host'
 let shEndless = false; // Endless Siege toggle on the stronghold select screen
-function showMenuPage(id) {
+function showMenuPage(id: any) {
   menuPageId = id;
-  for (const el of document.querySelectorAll('#menu .mpage')) el.hidden = el.id !== id;
+  for (const el of document.querySelectorAll('#menu .mpage') as any) el.hidden = el.id !== id;
   cancelRemapListen();
   setNavFocus(null); // navTick re-picks a default focus on the new page
   // Classic/Story New-vs-Continue pages: re-read save slots so Continue shows
@@ -4029,10 +4051,10 @@ function renderShGrid() {
           : 'beat a stronghold to unlock the next · new operatives join the roster');
     };
     paintEndless();
-    eb.onclick = e => { e.currentTarget.blur(); shEndless = !shEndless; playUi('select'); paintEndless(); };
+    eb.onclick = (e: any) => { e.currentTarget.blur(); shEndless = !shEndless; playUi('select'); paintEndless(); };
   }
   grid.innerHTML = '';
-  bastionLevels.forEach((lvl, idx) => {
+  bastionLevels.forEach((lvl: any, idx: any) => {
     const sh = lvl.stronghold ?? {};
     const n = sh.level ?? idx + 1;
     const locked = n > s.unlocked;
@@ -4047,14 +4069,14 @@ function renderShGrid() {
       + `<span class="shmark">${locked ? '🔒' : beaten ? '✔' : ''}</span></span>`
       + `<span class="shname">${sh.name ?? lvl.name ?? '—'}</span>`
       + `<span class="shmeta">${sh.sizeLabel ?? '?'} · <i class="pips">${'●'.repeat(diff)}${'○'.repeat(5 - diff)}</i> · ${sh.waves ?? '?'} waves</span>`
-      + `<span class="shbadges">${(sh.newFeatures ?? []).slice(0, 2).map(f => `<i class="shnew">NEW · ${f}</i>`).join('')}`
+      + `<span class="shbadges">${(sh.newFeatures ?? []).slice(0, 2).map((f: any) => `<i class="shnew">NEW · ${f}</i>`).join('')}`
       + (cid && charMap[cid] ? `<i class="shchar">+${charMap[cid].name.toUpperCase()}</i>` : '')
       + `</span>`;
     card.dataset.blurb = locked
       ? `Locked — beat stronghold ${String(n - 1).padStart(2, '0')} to open the way.`
       : (sh.blurb ?? lvl.objective ?? '');
     card.onmouseenter = () => { $('shBlurb').textContent = card.dataset.blurb || ' '; };
-    card.onclick = e => {
+    card.onclick = (e: any) => {
       e.currentTarget.blur();
       if (locked) return playUi('locked');
       startStronghold(idx, shEndless);
@@ -4062,7 +4084,7 @@ function renderShGrid() {
     grid.appendChild(card);
   });
 }
-function startStronghold(idx, endless = false) {
+function startStronghold(idx: any, endless = false) {
   if (session) return;
   playUi('select');
   if (shPurpose === 'host') {
@@ -4076,37 +4098,37 @@ function startStronghold(idx, endless = false) {
 // ---------- input remapping (Settings > Input remapping) ----------
 // Listen-for-next-press rebinding per action, per device (both keyboard seats
 // + one shared gamepad layout), saved to localStorage via saveBinds().
-const ACTION_LABEL = {
+const ACTION_LABEL: Record<string, any> = {
   up: 'MOVE UP', down: 'MOVE DOWN', left: 'MOVE LEFT', right: 'MOVE RIGHT',
   fire: 'FIRE', special: 'SPECIAL', act: 'INTERACT / BUILD', item: 'ITEM',
   start: 'PAUSE / START', map: 'MAP (HOLD)',
   invSel: 'CYCLE PLACEABLE', place: 'PLACE STRUCTURE', drop: 'DROP / GIVE',
   sprint: 'SPRINT (HOLD)',
 };
-const KEY_NICE = {
+const KEY_NICE: Record<string, any> = {
   Space: 'SPACE', Slash: '/', Period: '.', Comma: ',', Escape: 'ESC', Backspace: 'BKSP',
   ShiftRight: 'R-SHIFT', ShiftLeft: 'L-SHIFT', ControlRight: 'R-CTRL', ControlLeft: 'L-CTRL',
   Enter: 'ENTER', Tab: 'TAB',
 };
-const keyLabel = c => c == null ? '—' : (KEY_NICE[c] ?? String(c).replace(/^Key|^Digit|^Arrow/, '').toUpperCase());
-const PADBTN_NICE = {
+const keyLabel = (c: any) => c == null ? '—' : (KEY_NICE[c] ?? String(c).replace(/^Key|^Digit|^Arrow/, '').toUpperCase());
+const PADBTN_NICE: Record<string, any> = {
   0: 'A', 1: 'B', 2: 'X', 3: 'Y', 4: 'LB', 5: 'RB', 6: 'LT', 7: 'RT',
   8: 'SELECT', 9: 'START', 10: 'L3', 11: 'R3', 12: 'D-UP', 13: 'D-DOWN', 14: 'D-LEFT', 15: 'D-RIGHT',
 };
-const padLabel = j => j == null ? '—' : (PADBTN_NICE[j] ?? 'BTN ' + j);
-function bindLabel(dev, action) {
+const padLabel = (j: any) => j == null ? '—' : (PADBTN_NICE[j] ?? 'BTN ' + j);
+function bindLabel(dev: any, action: any) {
   const m = dev === 'pad' ? PADMAP : dev === 'kb1' ? KB1 : KB2;
   const list = m[action] ?? [];
   if (!list.length) return '—';
   return list.map(dev === 'pad' ? padLabel : keyLabel).join(' / ');
 }
 let remapDev = 'kb1';
-let remapListen = null; // { dev, action, t0 } while waiting for a press
-let remapHeld = null;   // pad buttons already down when listening started
+let remapListen: any = null; // { dev, action, t0 } while waiting for a press
+let remapHeld: any = null;   // pad buttons already down when listening started
 let remapBoundGuard = 0; // frames navTick skips after a pad bind lands (the
                          // landing press must not double as B-back/A-click)
 function renderRemap() {
-  for (const b of document.querySelectorAll('#remapDevs .rdev')) {
+  for (const b of document.querySelectorAll('#remapDevs .rdev') as any) {
     b.classList.toggle('active', b.dataset.dev === remapDev);
   }
   const host = $('remapList');
@@ -4117,11 +4139,11 @@ function renderRemap() {
     row.className = 'rrow' + (binds[remapDev] && a in binds[remapDev] ? ' custom' : ''); // null (unbound) is custom too
     const listening = remapListen && remapListen.dev === remapDev && remapListen.action === a;
     row.innerHTML = `<span>${ACTION_LABEL[a] ?? a.toUpperCase()}</span><b>${listening ? 'PRESS…' : bindLabel(remapDev, a)}</b>`;
-    row.onclick = e => { e.currentTarget.blur(); startRemapListen(remapDev, a); };
+    row.onclick = (e: any) => { e.currentTarget.blur(); startRemapListen(remapDev, a); };
     host.appendChild(row);
   }
 }
-function startRemapListen(dev, action) {
+function startRemapListen(dev: any, action: any) {
   cancelRemapListen();
   remapListen = { dev, action, t0: performance.now() };
   if (dev === 'pad') {
@@ -4141,21 +4163,21 @@ function startRemapListen(dev, action) {
 // unless the default is the same code); a conflicting DEFAULT binding gets an
 // explicit null override, which applyBinds treats as unbound ('—' in the UI).
 // Reset-to-defaults deletes the whole device key, clearing nulls too.
-function unbindConflicts(dev, action) {
+function unbindConflicts(dev: any, action: any) {
   const o = binds[dev];
   const code = o?.[action];
   if (code == null) return;
   const defs = dev === 'pad' ? PAD_DEF : dev === 'kb1' ? KB1_DEF : KB2_DEF;
   for (const a of ACTIONS) {
     if (a === action) continue;
-    const live = a in o ? (o[a] != null ? [o[a]] : []) : (defs[a] ?? []);
+    const live = a in o ? (o[a] != null ? [o[a]] : []) : ((defs as any)[a] ?? []);
     if (!live.includes(code)) continue;
-    if (a in o && !(defs[a] ?? []).includes(code)) delete o[a]; // default returns, conflict-free
+    if (a in o && !((defs as any)[a] ?? []).includes(code)) delete o[a]; // default returns, conflict-free
     else o[a] = null; // the default holds this code — explicitly unbound
     showToast(`UNBOUND ${ACTION_LABEL[a] ?? a.toUpperCase()} — ${(dev === 'pad' ? padLabel : keyLabel)(code)} REASSIGNED`, 2600, true);
   }
 }
-function remapKeyCapture(e) {
+function remapKeyCapture(e: any) {
   if (!remapListen || remapListen.dev === 'pad' || e.repeat) return;
   e.preventDefault();
   e.stopPropagation();
@@ -4240,13 +4262,13 @@ function refreshContinue() {
 refreshContinue();
 
 // page navigation buttons + every Back control (mouse path; pad B mirrors it)
-$('btnPlay').onclick = e => { e.currentTarget.blur(); showMenuPage('pagePlay'); };
-$('btnSingle').onclick = e => { e.currentTarget.blur(); showMenuPage('pageSingle'); };
+$('btnPlay').onclick = (e: any) => { e.currentTarget.blur(); showMenuPage('pagePlay'); };
+$('btnSingle').onclick = (e: any) => { e.currentTarget.blur(); showMenuPage('pageSingle'); };
 // Single Player → mode → New Game/Continue: pick the mode first, then decide
-$('btnClassic').onclick = e => { e.currentTarget.blur(); showMenuPage('pageClassic'); };
-$('btnStoryMode').onclick = e => { e.currentTarget.blur(); showMenuPage('pageStory'); };
-$('btnVersus').onclick = e => { e.currentTarget.blur(); showMenuPage('pageVersus'); };
-$('btnOnline').onclick = e => { e.currentTarget.blur(); showMenuPage('pageOnline'); };
+$('btnClassic').onclick = (e: any) => { e.currentTarget.blur(); showMenuPage('pageClassic'); };
+$('btnStoryMode').onclick = (e: any) => { e.currentTarget.blur(); showMenuPage('pageStory'); };
+$('btnVersus').onclick = (e: any) => { e.currentTarget.blur(); showMenuPage('pageVersus'); };
+$('btnOnline').onclick = (e: any) => { e.currentTarget.blur(); showMenuPage('pageOnline'); };
 // Daily Challenge: today's UTC date seeds the same map + twist for everyone,
 // played as an endless siege onto a shared daily board. Couch-local launch.
 const todayUTC = () => new Date().toISOString().slice(0, 10);
@@ -4268,19 +4290,19 @@ function paintDaily() {
   b.textContent = `Daily Challenge — ${spec.label}`;
   if (map) b.title = `${map.stronghold?.name ?? map.name} · ${spec.label} · ${todayUTC()}`;
 }
-$('btnDaily').onclick = e => { e.currentTarget.blur(); startDaily(); };
+$('btnDaily').onclick = (e: any) => { e.currentTarget.blur(); startDaily(); };
 paintDaily();
 
 // --- Tutorial coach: a scripted first mission teaching the core verbs -------
 // Reuses level 1 (Outer Barricade) untimed, with an on-screen coach that
 // advances as the new player moves, fires, rescues the pinned marksman, and
 // extracts. No saves, no rankings — just onboarding.
-let tut = null; // { step, kills, rescued, moved, lastPos } while a tutorial runs
+let tut: any = null; // { step, kills, rescued, moved, lastPos } while a tutorial runs
 const TUTORIAL_STEPS = [
   { text: '① MOVE — left stick, or WASD / Arrow keys', ok: 'Moving!', done: () => tut.moved > TILE * 5 },
   { text: '② HOLD FIRE to break the cordon — RT · Space · Enter', ok: 'Nice shooting!', done: () => tut.kills >= 2 },
   { text: '③ RESCUE — walk into the pinned marksman to free them', ok: 'Rescued!', done: () => tut.rescued >= 1 },
-  { text: '④ EXTRACT — reach the glowing exit', ok: '', done: (snap) => snap.status === 'cleared' },
+  { text: '④ EXTRACT — reach the glowing exit', ok: '', done: (snap: any) => snap.status === 'cleared' },
 ];
 function startTutorial() {
   if (session) return;
@@ -4291,18 +4313,18 @@ function startTutorial() {
   session = new LocalSession(null, { tutorial: true, tutorialDef: def });
   session.lobby();
 }
-function tutorialEvent(ev) { // funneled from handleEvent while a tutorial runs
+function tutorialEvent(ev: any) { // funneled from handleEvent while a tutorial runs
   if (!tut) return;
   if (ev.type === 'die') tut.kills++;
   else if (ev.type === 'pickup') tut.rescued++;
 }
 function endTutorialCoach() { tut = null; const el = $('tutorialCoach'); if (el) el.hidden = true; }
-function tutorialTick(snap) {
+function tutorialTick(snap: any) {
   const el = $('tutorialCoach');
   if (!tut || !el) { if (el) el.hidden = true; return; }
   // accumulate the local operator's travel for the MOVE step
   const mine = session.focusPids?.() ?? new Set();
-  const me = (snap.players || []).find(p => mine.has(p.pid)) || (snap.players || [])[0];
+  const me = (snap.players || []).find((p: any) => mine.has(p.pid)) || (snap.players || [])[0];
   if (me) {
     if (tut.lastPos) tut.moved += Math.hypot(me.x - tut.lastPos.x, me.y - tut.lastPos.y);
     tut.lastPos = { x: me.x, y: me.y };
@@ -4319,8 +4341,8 @@ function tutorialTick(snap) {
     setTimeout(() => el.classList.remove('ok'), 600);
   }
 }
-$('btnTutorial').onclick = e => { e.currentTarget.blur(); startTutorial(); };
-$('btnBrowse').onclick = e => { e.currentTarget.blur(); showMenuPage('pageBrowse'); };
+$('btnTutorial').onclick = (e: any) => { e.currentTarget.blur(); startTutorial(); };
+$('btnBrowse').onclick = (e: any) => { e.currentTarget.blur(); showMenuPage('pageBrowse'); };
 // room visibility toggles (Online page): cycle Public/Private per mode group,
 // persisted; the choice rides the next host message's explicit public flag
 const visSync = () => {
@@ -4328,7 +4350,7 @@ const visSync = () => {
   $('btnVisVersus').textContent = `Versus visibility: ${visOf('versus') === 'public' ? 'Public' : 'Private'}`;
 };
 for (const [btn, grp] of [['btnVisCoop', 'coop'], ['btnVisVersus', 'versus']]) {
-  $(btn).onclick = e => {
+  $(btn).onclick = (e: any) => {
     e.currentTarget.blur();
     visPrefs[grp] = visOf(grp) === 'public' ? 'private' : 'public';
     try { localStorage.setItem(VIS_KEY, JSON.stringify(visPrefs)); } catch {}
@@ -4345,7 +4367,7 @@ const ctfMapSync = () => {
   $('btnCtfMap').textContent = label;
   $('btnCtfMapV').textContent = label; // versus-page mirror (couch CTF uses the same pick)
 };
-for (const id of ['btnCtfMap', 'btnCtfMapV']) $(id).onclick = e => {
+for (const id of ['btnCtfMap', 'btnCtfMapV']) $(id).onclick = (e: any) => {
   e.currentTarget.blur();
   if (!ctfLevels.length) return;
   ctfMapIdx = (ctfMapIdx + 1) % ctfLevels.length;
@@ -4353,12 +4375,12 @@ for (const id of ['btnCtfMap', 'btnCtfMapV']) $(id).onclick = e => {
   ctfMapSync();
 };
 ctfMapSync();
-$('btnRankings').onclick = e => { e.currentTarget.blur(); showMenuPage('pageRank'); };
-$('btnOperators').onclick = e => { e.currentTarget.blur(); showMenuPage('pageOperators'); };
+$('btnRankings').onclick = (e: any) => { e.currentTarget.blur(); showMenuPage('pageRank'); };
+$('btnOperators').onclick = (e: any) => { e.currentTarget.blur(); showMenuPage('pageOperators'); };
 
 // --- Account: register / sign in, cloud-sync the milestone profile -----------
-let authUser = null;
-function acctMsg(t, err) { const e = $('acctMsg'); if (e) { e.textContent = t || ' '; e.style.color = err ? '#ff7a6a' : '#5fd2b4'; } }
+let authUser: any = null;
+function acctMsg(t: any, err?: any) { const e = $('acctMsg'); if (e) { e.textContent = t || ' '; e.style.color = err ? '#ff7a6a' : '#5fd2b4'; } }
 function paintAccount() {
   if (!$('pageAccount')) return;
   $('acctForms').hidden = !!authUser;
@@ -4367,7 +4389,7 @@ function paintAccount() {
 }
 // Merge two profiles: best of each stat, union of the id/date arrays — so logging
 // in on a new device keeps both local and cloud progress.
-function mergeProfiles(a, b) {
+function mergeProfiles(a: any, b: any) {
   const out = { ...a };
   for (const k of ['bestEndlessNights', 'missionsCleared', 'strongholdClears', 'totalKills', 'totalRescues', 'bestRunScore', 'gamesPlayed', 'endlessNightsTotal', 'ctfWins', 'brWins'])
     out[k] = Math.max(a[k] || 0, b[k] || 0);
@@ -4376,7 +4398,7 @@ function mergeProfiles(a, b) {
   out.unlocked = [...new Set([...(a.unlocked || []), ...(b.unlocked || [])])].filter(id => charMap[id]);
   return out;
 }
-let cloudPushT = null;
+let cloudPushT: any = null;
 function pushCloudProfile() {
   if (!authUser || IS_STATIC) return;
   clearTimeout(cloudPushT);
@@ -4407,7 +4429,7 @@ async function refreshAuth() {
   } catch {}
   paintAccount();
 }
-async function acctSubmit(path) {
+async function acctSubmit(path: any) {
   const name = $('acctName').value.trim(), password = $('acctPass').value;
   if (!name || !password) return acctMsg('enter a username and password', true);
   acctMsg('…');
@@ -4423,45 +4445,45 @@ async function acctSubmit(path) {
   } catch { acctMsg('network error', true); }
 }
 if ($('btnAccount')) {
-  $('btnAccount').onclick = e => { e.currentTarget.blur(); showMenuPage('pageAccount'); paintAccount(); acctMsg(''); };
-  $('btnRegister').onclick = e => { e.currentTarget.blur(); acctSubmit('register'); };
-  $('btnLogin').onclick = e => { e.currentTarget.blur(); acctSubmit('login'); };
-  $('btnSyncNow').onclick = e => { e.currentTarget.blur(); pullCloudProfile(); acctMsg('syncing…'); };
-  $('btnLogout').onclick = async e => { e.currentTarget.blur(); try { await fetch('/api/auth/logout', { method: 'POST' }); } catch {} authUser = null; paintAccount(); acctMsg('signed out'); };
-  $('acctPass').addEventListener('keydown', ev => { if (ev.key === 'Enter') acctSubmit('login'); });
+  $('btnAccount').onclick = (e: any) => { e.currentTarget.blur(); showMenuPage('pageAccount'); paintAccount(); acctMsg(''); };
+  $('btnRegister').onclick = (e: any) => { e.currentTarget.blur(); acctSubmit('register'); };
+  $('btnLogin').onclick = (e: any) => { e.currentTarget.blur(); acctSubmit('login'); };
+  $('btnSyncNow').onclick = (e: any) => { e.currentTarget.blur(); pullCloudProfile(); acctMsg('syncing…'); };
+  $('btnLogout').onclick = async (e: any) => { e.currentTarget.blur(); try { await fetch('/api/auth/logout', { method: 'POST' }); } catch {} authUser = null; paintAccount(); acctMsg('signed out'); };
+  $('acctPass').addEventListener('keydown', (ev: any) => { if (ev.key === 'Enter') acctSubmit('login'); });
 }
 refreshAuth();
-$('btnSettings').onclick = e => { e.currentTarget.blur(); showMenuPage('pageSettings'); };
+$('btnSettings').onclick = (e: any) => { e.currentTarget.blur(); showMenuPage('pageSettings'); };
 // native desktop (Electron) shell: a real Quit-to-Desktop button on the main menu
 if (window.anchorfallDesktop?.isDesktop) {
   const q = $('btnQuitDesktop');
-  if (q) { q.hidden = false; q.onclick = e => { e.currentTarget.blur(); window.anchorfallDesktop.quit(); }; }
+  if (q) { q.hidden = false; q.onclick = (e: any) => { e.currentTarget.blur(); window.anchorfallDesktop.quit(); }; }
 }
-$('btnRemap').onclick = e => { e.currentTarget.blur(); showMenuPage('pageRemap'); };
+$('btnRemap').onclick = (e: any) => { e.currentTarget.blur(); showMenuPage('pageRemap'); };
 // rankings board: toggle score-order <-> fastest-order (entries are cached,
 // so the toggle re-sorts without refetching)
-$('btnRankSort').onclick = e => {
+$('btnRankSort').onclick = (e: any) => {
   e.currentTarget.blur();
   rankSort = rankSort === 'score' ? 'fastest' : 'score';
   renderRankBoard();
 };
-for (const b of document.querySelectorAll('#menu .mback')) {
-  b.onclick = e => {
+for (const b of document.querySelectorAll('#menu .mback') as any) {
+  b.onclick = (e: any) => {
     e.currentTarget.blur();
     // pageSh's data-back is static — route by who opened it instead
     showMenuPage(menuPageId === 'pageSh' ? shBackTarget()
       : (b.dataset.back || MENU_PARENT[menuPageId] || 'pageMain'));
   };
 }
-for (const b of document.querySelectorAll('#remapDevs .rdev')) {
-  b.onclick = e => {
+for (const b of document.querySelectorAll('#remapDevs .rdev') as any) {
+  b.onclick = (e: any) => {
     e.currentTarget.blur();
     cancelRemapListen();
     remapDev = b.dataset.dev;
     renderRemap();
   };
 }
-$('btnRemapReset').onclick = e => {
+$('btnRemapReset').onclick = (e: any) => {
   e.currentTarget.blur();
   cancelRemapListen();
   delete binds[remapDev];
@@ -4470,7 +4492,7 @@ $('btnRemapReset').onclick = e => {
   showToast('BINDINGS RESET — ' + (remapDev === 'pad' ? 'GAMEPAD' : DEVICE_LABEL[remapDev]).toUpperCase(), 2200, true);
 };
 const ctrlHudSync = () => { $('btnCtrlHud').textContent = `Controls overlay: ${ctrlHudOn ? 'On' : 'Off'}`; };
-$('btnCtrlHud').onclick = e => {
+$('btnCtrlHud').onclick = (e: any) => {
   e.currentTarget.blur();
   ctrlHudOn = !ctrlHudOn;
   try { localStorage.setItem('holdout-hd.ctrlhud', ctrlHudOn ? '1' : '0'); } catch {}
@@ -4479,7 +4501,7 @@ $('btnCtrlHud').onclick = e => {
 ctrlHudSync();
 // splitscreen mode: Off -> Dynamic -> Always (persisted; default Dynamic)
 const splitSync = () => { $('btnSplitscreen').textContent = `Splitscreen: ${SPLIT_LABEL[splitMode]}`; };
-$('btnSplitscreen').onclick = e => {
+$('btnSplitscreen').onclick = (e: any) => {
   e.currentTarget.blur();
   splitMode = SPLIT_MODES[(SPLIT_MODES.indexOf(splitMode) + 1) % SPLIT_MODES.length];
   try { localStorage.setItem(SPLIT_KEY, splitMode); } catch {}
@@ -4498,7 +4520,7 @@ const zoomSync = () => {
   $('btnGameZoom').textContent = `Game zoom: ${gameZoom}%`;
   renderMod.setViewZoom?.(gameZoom / 100); // applied on boot + every change
 };
-$('btnGameZoom').onclick = e => {
+$('btnGameZoom').onclick = (e: any) => {
   e.currentTarget.blur();
   gameZoom = ZOOM_STEPS[(ZOOM_STEPS.indexOf(gameZoom) + 1) % ZOOM_STEPS.length];
   try { localStorage.setItem(ZOOM_KEY, String(gameZoom)); } catch {}
@@ -4512,7 +4534,7 @@ zoomSync();
 // click/FIRE and LEFT/RIGHT (data-cycle), persisted, and calls the bridge.
 const DISPLAY_KEY = 'holdout-hd.displaymode';
 const DISPLAY_MODES = ['fullscreen', 'borderless', 'windowed'];
-const DISPLAY_LABEL = { fullscreen: 'Fullscreen', borderless: 'Borderless', windowed: 'Windowed' };
+const DISPLAY_LABEL: Record<string, any> = { fullscreen: 'Fullscreen', borderless: 'Borderless', windowed: 'Windowed' };
 const isDesktopShell = !!window.anchorfallDesktop?.isDesktop;
 let displayMode = localStorage.getItem(DISPLAY_KEY) || 'fullscreen';
 if (!DISPLAY_MODES.includes(displayMode)) displayMode = 'fullscreen';
@@ -4526,7 +4548,7 @@ function cycleDisplayMode(dir = 1) {
 }
 if (isDesktopShell) {
   $('btnDisplayMode').hidden = false;
-  $('btnDisplayMode').onclick = e => { e.currentTarget.blur(); cycleDisplayMode(1); };
+  $('btnDisplayMode').onclick = (e: any) => { e.currentTarget.blur(); cycleDisplayMode(1); };
   displaySync();
   // push the persisted choice to the shell on boot so it matches the UI
   window.anchorfallDesktop?.setDisplayMode?.(displayMode);
@@ -4538,8 +4560,8 @@ if (isDesktopShell) {
 // resolution follows. Works in browser AND desktop. Persisted.
 const ASPECT_KEY = 'holdout-hd.aspect';
 const ASPECT_MODES = ['auto', '16:9', '16:10', '4:3', '21:9'];
-const ASPECT_LABEL = { auto: 'Auto (fill)', '16:9': '16:9', '16:10': '16:10', '4:3': '4:3', '21:9': '21:9' };
-const ASPECT_RATIO = { '16:9': 16 / 9, '16:10': 16 / 10, '4:3': 4 / 3, '21:9': 21 / 9 };
+const ASPECT_LABEL: Record<string, any> = { auto: 'Auto (fill)', '16:9': '16:9', '16:10': '16:10', '4:3': '4:3', '21:9': '21:9' };
+const ASPECT_RATIO: Record<string, any> = { '16:9': 16 / 9, '16:10': 16 / 10, '4:3': 4 / 3, '21:9': 21 / 9 };
 let aspectMode = localStorage.getItem(ASPECT_KEY) || 'auto';
 if (!ASPECT_MODES.includes(aspectMode)) aspectMode = 'auto';
 function applyAspect() {
@@ -4575,7 +4597,7 @@ function cycleAspect(dir = 1) {
   aspectSync();
   applyAspect();
 }
-$('btnAspect').onclick = e => { e.currentTarget.blur(); cycleAspect(1); };
+$('btnAspect').onclick = (e: any) => { e.currentTarget.blur(); cycleAspect(1); };
 aspectSync();
 
 // (c) TV overscan / screen fit — inset the whole #stage a few % per side via
@@ -4583,7 +4605,7 @@ aspectSync();
 // on Batocera / older TVs). Re-fits the canvas resolution. Persisted.
 const OVERSCAN_KEY = 'holdout-hd.overscan';
 const OVERSCAN_STEPS = [0, 2, 3, 4, 5, 6, 8];
-const overscanLabel = v => v === 0 ? 'Full' : `Inset ${v}%`;
+const overscanLabel = (v: any) => v === 0 ? 'Full' : `Inset ${v}%`;
 let overscan = +(localStorage.getItem(OVERSCAN_KEY) || 0);
 if (!OVERSCAN_STEPS.includes(overscan)) overscan = 0;
 function applyOverscan() {
@@ -4598,7 +4620,7 @@ function cycleOverscan(dir = 1) {
   overscanSync();
   applyOverscan();
 }
-$('btnOverscan').onclick = e => { e.currentTarget.blur(); cycleOverscan(1); };
+$('btnOverscan').onclick = (e: any) => { e.currentTarget.blur(); cycleOverscan(1); };
 overscanSync();
 applyOverscan();
 
@@ -4615,7 +4637,7 @@ function cycleGlyphStyle(dir = 1) {
   glyphSig = null;       // force a re-push next frame
   applyPromptGlyph();    // and immediately, so an open settings demo updates
 }
-$('btnGlyphStyle').onclick = e => { e.currentTarget.blur(); cycleGlyphStyle(1); };
+$('btnGlyphStyle').onclick = (e: any) => { e.currentTarget.blur(); cycleGlyphStyle(1); };
 glyphStyleSync();
 
 // Per-player controller readout, rebuilt whenever Settings opens (cheap; pads
@@ -4631,7 +4653,7 @@ function renderCtrlReadout() {
   // then each connected pad, labeled by slot
   for (const c of controllerList()) {
     if (c.type === 'keyboard') continue; // native lane may include a kb entry
-    lines.push([`Pad ${(+c.index) + 1}`, `${c.name || c.id || 'Controller'} (${GLYPH_LABEL[({ xbox: 'xbox', ps4: 'playstation', ps5: 'playstation', switch: 'switch' })[c.type] || 'auto'] || 'Generic'})`]);
+    lines.push([`Pad ${(+c.index) + 1}`, `${c.name || c.id || 'Controller'} (${GLYPH_LABEL[({ xbox: 'xbox', ps4: 'playstation', ps5: 'playstation', switch: 'switch' } as any)[c.type] || 'auto'] || 'Generic'})`]);
   }
   host.innerHTML = lines.map(([k, v]) => `<div><span class="crp">${k}:</span> ${v}</div>`).join('');
 }
@@ -4641,21 +4663,21 @@ function renderCtrlReadout() {
 // focused row (see navTick); FIRE/click steps up and wraps past 100 to 0.
 // The master Audio toggle above is unchanged and still gates everything.
 const VOL_KEY = 'holdout-hd.volumes';
-const VOL_DEF = { music: 70, voice: 100, sfx: 100 };
-const VOL_BTN = { music: 'btnVolMusic', voice: 'btnVolVoice', sfx: 'btnVolSfx' };
-const VOL_NAME = { music: 'Music & ambience', voice: 'Voice (EVA + dialogue)', sfx: 'Effects' };
-const VOL_SET = { music: setMusicVolume, voice: setVoiceVolume, sfx: setSfxVolume };
-let vols = {};
-try { vols = JSON.parse(localStorage.getItem(VOL_KEY)) || {}; } catch {}
+const VOL_DEF: Record<string, any> = { music: 70, voice: 100, sfx: 100 };
+const VOL_BTN: Record<string, any> = { music: 'btnVolMusic', voice: 'btnVolVoice', sfx: 'btnVolSfx' };
+const VOL_NAME: Record<string, any> = { music: 'Music & ambience', voice: 'Voice (EVA + dialogue)', sfx: 'Effects' };
+const VOL_SET: Record<string, any> = { music: setMusicVolume, voice: setVoiceVolume, sfx: setSfxVolume };
+let vols: any = {};
+try { vols = JSON.parse(localStorage.getItem(VOL_KEY) as string) || {}; } catch {}
 for (const k of Object.keys(VOL_DEF)) {
   const v = +vols[k];
   vols[k] = Number.isFinite(v) ? Math.max(0, Math.min(100, Math.round(v / 10) * 10)) : VOL_DEF[k];
 }
-const volSync = k => {
+const volSync = (k: any) => {
   $(VOL_BTN[k]).textContent = `${VOL_NAME[k]}: ${vols[k]}%`;
   VOL_SET[k](vols[k] / 100); // applied on boot + every change
 };
-function adjustVolume(k, d) {
+function adjustVolume(k: any, d: any) {
   // d = ±10 (pad LEFT/RIGHT, clamped); d = 0 means click/FIRE (wrap upward)
   vols[k] = d === 0
     ? (vols[k] >= 100 ? 0 : vols[k] + 10)
@@ -4665,7 +4687,7 @@ function adjustVolume(k, d) {
   playUi('uiTick'); // audible feedback at the new mix
 }
 for (const k of Object.keys(VOL_DEF)) {
-  $(VOL_BTN[k]).onclick = e => { e.currentTarget.blur(); adjustVolume(k, 0); };
+  $(VOL_BTN[k]).onclick = (e: any) => { e.currentTarget.blur(); adjustVolume(k, 0); };
   volSync(k);
 }
 $('nameInput').value = localStorage.getItem('holdout.name') || '';
@@ -4694,7 +4716,7 @@ function resumeSuspended() {
     && typeof g.w === 'number' && Number.isFinite(g.w) && g.w > 0
     && typeof g.h === 'number' && Number.isFinite(g.h) && g.h > 0
     && Array.isArray(g.grid) && g.grid.length === g.h
-    && g.grid.every(row => typeof row === 'string' && row.length === g.w);
+    && g.grid.every((row: any) => typeof row === 'string' && row.length === g.w);
   if (!valid) {
     clearSuspend();
     refreshContinue();
@@ -4708,15 +4730,15 @@ function resumeSuspended() {
   // the run's own roster rides inside the serialized game (createGame keeps
   // it on g.roster); the constructor's mode default covers older data
   if (Array.isArray(g.roster) && g.roster.length) {
-    sess.roster = g.roster.filter(id => charMap[id]);
+    sess.roster = g.roster.filter((id: any) => charMap[id]);
   }
   const seats = Array.isArray(s.seats) ? s.seats : [];
-  sess.players = g.players.map((p, i) => ({
+  sess.players = g.players.map((p: any, i: any) => ({
     pid: p.pid,
     name: p.name,
     // hand each seat back its original device; older slots without the seat
     // map fall back to join order (kb1, kb2, then pads)
-    device: seats.find(q => q && q.pid === p.pid)?.device ?? DEVICES[i] ?? 'kb1',
+    device: seats.find((q: any) => q && q.pid === p.pid)?.device ?? DEVICES[i] ?? 'kb1',
     charId: p.charId ?? null,
     cursor: 0,
     missingT: 0,
@@ -4733,25 +4755,25 @@ function resumeSuspended() {
   hideAll();
   refreshContinue(); // the Resume button hides for the next menu visit
 }
-$('btnResumeGame').onclick = e => {
+$('btnResumeGame').onclick = (e: any) => {
   e.currentTarget.blur();
   resumeSuspended();
 };
 
-$('btnSolo').onclick = e => {
+$('btnSolo').onclick = (e: any) => {
   e.currentTarget.blur();
   localStorage.removeItem(SAVE_KEY);
   session = new LocalSession();
   session.lobby();
 };
-$('btnContinue').onclick = e => {
+$('btnContinue').onclick = (e: any) => {
   e.currentTarget.blur();
   let save = null;
-  try { save = JSON.parse(localStorage.getItem(SAVE_KEY)); } catch {}
+  try { save = JSON.parse(localStorage.getItem(SAVE_KEY) as string); } catch {}
   session = new LocalSession(save);
   session.lobby();
 };
-$('btnStory').onclick = e => {
+$('btnStory').onclick = (e: any) => {
   e.currentTarget.blur();
   if (!storyLevels.length || session) return;
   localStorage.removeItem(STORY_KEY); // fresh start, like btnSolo for classic
@@ -4759,29 +4781,29 @@ $('btnStory').onclick = e => {
   session = new LocalSession(null, { story: true });
   session.lobby();
 };
-$('btnStoryContinue').onclick = e => {
+$('btnStoryContinue').onclick = (e: any) => {
   e.currentTarget.blur();
   if (!storyLevels.length || session) return;
   let save = null;
-  try { save = JSON.parse(localStorage.getItem(STORY_KEY)); } catch {}
+  try { save = JSON.parse(localStorage.getItem(STORY_KEY) as string); } catch {}
   session = new LocalSession(save, { story: true });
   session.lobby();
 };
 // Story level-select: jump straight to any chapter (handy for replays + testing).
-$('btnStorySelect').onclick = e => {
+$('btnStorySelect').onclick = (e: any) => {
   e.currentTarget.blur();
   if (!storyLevels.length) return;
   const list = $('chapterList');
   if (!list.hidden) { list.hidden = true; return; } // toggle closed
   let reached = 1;
-  try { const s = JSON.parse(localStorage.getItem(STORY_KEY)); if (s && s.chapter) reached = s.chapter; } catch {}
+  try { const s = JSON.parse(localStorage.getItem(STORY_KEY) as string); if (s && s.chapter) reached = s.chapter; } catch {}
   list.innerHTML = '';
-  storyLevels.forEach((lvl, i) => {
+  storyLevels.forEach((lvl: any, i: any) => {
     const ch = i + 1;
     const b = document.createElement('button');
     const done = ch < reached, here = ch === reached;
     b.textContent = `${String(ch).padStart(2, '0')} · ${lvl.name}${done ? ' ✓' : here ? ' ◂' : ''}`;
-    b.onclick = ev => {
+    b.onclick = (ev: any) => {
       ev.currentTarget.blur();
       if (session) return;
       clearBeacon(); // a one-off chapter jump starts that chapter fresh
@@ -4792,44 +4814,44 @@ $('btnStorySelect').onclick = e => {
   });
   list.hidden = false;
 };
-$('btnBastion').onclick = e => {
+$('btnBastion').onclick = (e: any) => {
   e.currentTarget.blur();
   if (!bastionLevels.length || session) return;
   shPurpose = 'local';
   showMenuPage('pageSh');
 };
-$('btnCtf').onclick = e => {
+$('btnCtf').onclick = (e: any) => {
   e.currentTarget.blur();
   if (!ctfLevels.length || session) return;
   session = new LocalSession(null, { mode: 'ctf', levelIdx: ctfMapIdx });
   session.lobby();
 };
-$('btnBr').onclick = e => {
+$('btnBr').onclick = (e: any) => {
   e.currentTarget.blur();
   if (!brLevels.length || session) return;
   session = new LocalSession(null, { mode: 'br' });
   session.lobby();
 };
-$('btnSiege').onclick = e => {
+$('btnSiege').onclick = (e: any) => {
   e.currentTarget.blur();
   if (!siegeLevels.length || session) return;
   // solo deploys vs bots; couch teammates can FIRE-join the lobby before deploy
   session = new LocalSession(null, { mode: 'siege' });
   session.lobby();
 };
-$('btnFamily').onclick = e => {
+$('btnFamily').onclick = (e: any) => {
   e.currentTarget.blur();
   if (!familyLevels.length || session) return;
   // gentle co-op: 1-4 players FIRE-join the lobby, then off to the bright maps
   session = new LocalSession(null, { family: true });
   session.lobby();
 };
-$('btnHost').onclick = e => {
+$('btnHost').onclick = (e: any) => {
   e.currentTarget.blur();
   if (session) return;
   session = new NetSession('host', $('joinCode').value.trim().toUpperCase());
 };
-$('btnHostBastion').onclick = e => {
+$('btnHostBastion').onclick = (e: any) => {
   e.currentTarget.blur();
   if (!bastionLevels.length || session) return;
   // the host picks a level FIRST (level select), then the room is created
@@ -4837,41 +4859,41 @@ $('btnHostBastion').onclick = e => {
   shPurpose = 'host';
   showMenuPage('pageSh');
 };
-$('btnHostDaily').onclick = e => {
+$('btnHostDaily').onclick = (e: any) => {
   e.currentTarget.blur();
   if (!bastionLevels.length || session) return;
   // no level select — the server resolves today's daily map+twist itself
   session = new NetSession('host', $('joinCode').value.trim().toUpperCase(), 'bastion', 0, { daily: true });
 };
-$('btnHostCtf').onclick = e => {
+$('btnHostCtf').onclick = (e: any) => {
   e.currentTarget.blur();
   if (!ctfLevels.length || session) return;
   session = new NetSession('host', $('joinCode').value.trim().toUpperCase(), 'ctf', ctfMapIdx);
 };
-$('btnHostBr').onclick = e => {
+$('btnHostBr').onclick = (e: any) => {
   e.currentTarget.blur();
   if (!brLevels.length || session) return;
   session = new NetSession('host', $('joinCode').value.trim().toUpperCase(), 'br');
 };
-$('btnHostSiege').onclick = e => {
+$('btnHostSiege').onclick = (e: any) => {
   e.currentTarget.blur();
   if (!siegeLevels.length || session) return;
   session = new NetSession('host', $('joinCode').value.trim().toUpperCase(), 'siege');
 };
-$('btnHostStory').onclick = e => {
+$('btnHostStory').onclick = (e: any) => {
   e.currentTarget.blur();
   if (session) return;
   // a resumed save's stored mode wins over this button (server rule)
   session = new NetSession('host', $('joinCode').value.trim().toUpperCase(), 'story');
 };
-$('btnJoin').onclick = e => {
+$('btnJoin').onclick = (e: any) => {
   e.currentTarget.blur();
   if (session) return;
   const code = $('joinCode').value.trim().toUpperCase();
   if (code.length !== 4) return showMsg('Co-op', 'Enter the 4-letter room code first.', 'OK', () => show('menu'));
   session = new NetSession('join', code);
 };
-$('btnStart').onclick = e => { e.currentTarget.blur(); session?.start(); };
+$('btnStart').onclick = (e: any) => { e.currentTarget.blur(); session?.start(); };
 $('btnLeave').onclick = () => session?.leave();
 
 // ---------- demo / attract mode ----------
@@ -4884,7 +4906,7 @@ if (demoMode) {
   } else {
     session = new LocalSession(null, { expedition: expeditions.length > 0 });
   }
-  session.roster.slice(0, 4).forEach((charId, i) => {
+  session.roster.slice(0, 4).forEach((charId: any, i: any) => {
     session.players.push({ pid: i, name: 'BOT' + (i + 1), device: 'bot' + i, charId, cursor: 0, missingT: 0 });
   });
   session.inLobby = true;
@@ -4895,7 +4917,7 @@ if (demoMode) {
     const [wx, wy] = warp.split(',').map(Number);
     if (Number.isFinite(wx) && Number.isFinite(wy)) {
       const grid = session.game.grid;
-      const open = (x, y) => grid[y]?.[x] && !'#T~o'.includes(grid[y][x]);
+      const open = (x: any, y: any) => grid[y]?.[x] && !'#T~o'.includes(grid[y][x]);
       // ring-scan to the nearest passable tile so a warp can't trap the squad
       let tx = wx, ty = wy;
       outer: for (let r = 0; r < 8; r++) {
@@ -4906,7 +4928,7 @@ if (demoMode) {
           }
         }
       }
-      session.game.players.forEach((p, i) => {
+      session.game.players.forEach((p: any, i: any) => {
         p.x = (tx + 0.5) * TILE + (i % 2) * 20;
         p.y = (ty + 0.5) * TILE + (i >> 1) * 20;
       });
@@ -4945,7 +4967,7 @@ function fitStage() {
 addEventListener('resize', fitStage);
 fitStage();
 
-$('btnFullscreen').onclick = e => {
+$('btnFullscreen').onclick = (e: any) => {
   e.currentTarget.blur();
   if (document.fullscreenElement) document.exitFullscreen();
   else document.documentElement.requestFullscreen?.({ navigationUI: 'hide' })?.catch?.(() => {});
@@ -4954,7 +4976,7 @@ document.addEventListener('fullscreenchange', () => { fitStage(); });
 
 // ---------- main loop ----------
 let last = performance.now();
-function frame(now) {
+function frame(now: any) {
   try {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
@@ -5015,7 +5037,7 @@ function frame(now) {
         // hold-MAP full-map overlay (pad SELECT / Tab / M) — play only;
         // lobbies, menus and dialogs ignore the map button entirely
         if (snap.status === 'play' && !visibleScreen()
-            && Object.values(polled).some(st => st.map)) {
+            && Object.values<any>(polled).some(st => st.map)) {
           drawMapOverlay(ctx, snap, now / 1000);
         }
       }

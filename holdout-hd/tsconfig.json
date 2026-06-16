@@ -1,0 +1,32 @@
+{
+  "//": "TypeScript migration (issue #4). Type-checking only (noEmit) — esbuild does the transpile (scripts/build.js). Files mid-migration carry `// @ts-nocheck`; typing a file means removing that pragma and making it strict-clean. `npm run check` must stay green at every commit.",
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "paths": { "/shared/*": ["./shared/*"] },
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "strict": true,
+    "noEmit": true,
+    "allowJs": true,
+    "checkJs": false,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "forceConsistentCasingInFileNames": true,
+    "useUnknownInCatchVariables": false,
+    "types": ["node"]
+  },
+  "include": [
+    "shared/**/*.ts",
+    "public/**/*.ts",
+    "server.ts",
+    "db.ts",
+    "auth.ts",
+    "test/**/*.ts",
+    "scripts/**/*.ts",
+    "types/**/*.ts",
+    "types/**/*.d.ts"
+  ],
+  "exclude": ["node_modules", "dist", "desktop", "**/*.mjs"]
+}

@@ -2,7 +2,7 @@
 // The Relic Awakening horde runs for EXACTLY this long (the song plays once,
 // no loop). Deterministic input to the sim (server + client). Regenerate when
 // tracks change. Fallback ~120s if a key is missing.
-export const MUSIC_DURATIONS = {
+export const MUSIC_DURATIONS: Record<string, number> = {
   "musicbox-default": 110,
   "story-ch01": 117,
   "story-ch02": 127,
@@ -40,4 +40,4 @@ export const MUSIC_DURATIONS = {
   "stronghold-sh23": 157,
   "stronghold-sh24": 154
 };
-export const RELIC_WAVE_FALLBACK = 120;
+export const RELIC_WAVE_FALLBACK: number = 120;
