@@ -1,0 +1,459 @@
+{
+  "name": "The Anchorcraft",
+  "story": true,
+  "chapter": 7,
+  "title": "Chapter VII — The Anchorcraft",
+  "theme": "glacis",
+  "expedition": true,
+  "objective": "Fell the ice-locked coil mounts, forge the burn-seal, settle the helm rite, and reach the helm — launch the frozen Anchorcraft before the glaciers close",
+  "time": 900,
+  "captiveChars": [],
+  "npcs": [
+    {
+      "id": "pilots-plaque",
+      "name": "The Pilot’s Plaque",
+      "lines": [
+        "IN MEMORIAM — she flew between checkpoints, and rests frozen between them too.",
+        "The rite, continued: first, fell the six mounts the ice has claimed. Then the seal that cannot be unsaid.",
+        "Glyph, then seal, then bulkhead, then helm. The launch is a promise read in order, and finality signs it.",
+        "SEALED — READ AT INCLUSION. The hold will not catch until the helm rite settles."
+      ]
+    },
+    {
+      "id": "elder-sefa",
+      "name": "Elder Sefa Tenwright",
+      "lines": [
+        "Ten keepers founded this village. I have buried six in the snow. You see the arithmetic of my problem.",
+        "The craft in the ice fell before the Fall finished falling. Six coil-mounts froze solid — fell them, every one, and the hull will breathe.",
+        "Hask keeps the burn-anvil aft. A proof fragment and the count of shards mint the seal that thaws the chamber.",
+        "The helm answers four runes in order — the breath the field takes together, then one voice, once, and only once. The pilot’s plaque keeps the rest.",
+        "Throw the airlock bulkheads when the seal is forged. The Anchor takes no fractions, operator. Neither does the ice.",
+        "Reach the helm last of all. Behind you, a world that holds; ahead, one that doesn’t yet."
+      ],
+      "gift": {
+        "shards": 8
+      }
+    },
+    {
+      "id": "warden-mirelle",
+      "name": "Mirelle, Corridor Warden",
+      "lines": [
+        "You don’t move. The ice agrees you’ve slid. Try to be the kind of person glaciers agree with.",
+        "The skitter nest at the north-west drift is cold made hungry. Thin it out and the road breathes again.",
+        "Watch the leads — the cracks in the floe don’t lose travelers. They reconsider them, slowly, going down.",
+        "Take the skiff if a lead bars you. I never send anyone across mid-slide."
+      ]
+    },
+    {
+      "id": "hask-embervein",
+      "name": "Hask Embervein, Forgekeeper",
+      "lines": [
+        "One key is a confession. Seven keys are a country. Burn-seals are colder comfort, but they thaw a hull.",
+        "A keeper fell in the skitter nest, north-west, carrying a proof fragment. Bring me fragments, not promises — the anvil cannot interpolate promises.",
+        "Six fragments make slag. Don’t look at me like that — six is not a quorum at this anvil either.",
+        "Count your hammer blows out loud over the wind and you will never lose track of what is true."
+      ]
+    }
+  ],
+  "builds": [
+    {
+      "kind": "barricade",
+      "cost": 4,
+      "prebuilt": true
+    },
+    {
+      "kind": "pylon",
+      "cost": 18
+    },
+    {
+      "kind": "barricade",
+      "cost": 4,
+      "prebuilt": true
+    },
+    {
+      "kind": "beacon",
+      "cost": 10,
+      "prebuilt": true
+    },
+    {
+      "kind": "turret",
+      "cost": 10,
+      "prebuilt": true,
+      "ttype": "gun"
+    }
+  ],
+  "chests": [
+    {
+      "loot": "shield",
+      "amount": 1
+    },
+    {
+      "loot": "cracker",
+      "amount": 2
+    },
+    {
+      "loot": "shards",
+      "amount": 8
+    },
+    {
+      "loot": "shards",
+      "amount": 9
+    },
+    {
+      "loot": "medkit",
+      "amount": 1
+    },
+    {
+      "loot": "medkit",
+      "amount": 1
+    },
+    {
+      "loot": "shards",
+      "amount": 10
+    },
+    {
+      "loot": "shards",
+      "amount": 12
+    }
+  ],
+  "vehicles": [
+    {
+      "kind": "skiff"
+    }
+  ],
+  "pickups": [
+    {
+      "kind": "flamer"
+    },
+    {
+      "kind": "mortarMk2"
+    }
+  ],
+  "qitems": [
+    {
+      "id": "qi-plating",
+      "kind": "plating"
+    },
+    {
+      "id": "qi-coil",
+      "kind": "coil"
+    },
+    {
+      "id": "qi-regulator",
+      "kind": "regulator"
+    },
+    {
+      "id": "qi-fragment",
+      "kind": "fragment"
+    }
+  ],
+  "switches": [
+    {
+      "id": "airlock-bulkhead",
+      "group": 0
+    },
+    {
+      "id": "hold-bulkhead",
+      "group": 1
+    }
+  ],
+  "switchGroups": [
+    {
+      "group": 0,
+      "need": 1,
+      "of": 1,
+      "reward": {
+        "openDoor": "door-hold"
+      }
+    },
+    {
+      "group": 1,
+      "need": 1,
+      "of": 1,
+      "reward": {
+        "openDoor": "door-helm"
+      }
+    }
+  ],
+  "glyphs": [
+    {
+      "symbol": 1,
+      "group": 1
+    },
+    {
+      "symbol": 2,
+      "group": 1
+    },
+    {
+      "symbol": 3,
+      "group": 1
+    },
+    {
+      "symbol": 4,
+      "group": 1
+    },
+    {
+      "symbol": 0,
+      "group": 1
+    },
+    {
+      "symbol": 0,
+      "group": 0
+    },
+    {
+      "symbol": 6,
+      "group": 0
+    },
+    {
+      "symbol": 7,
+      "group": 0
+    }
+  ],
+  "glyphGroups": [
+    {
+      "group": 0,
+      "order": [
+        0,
+        6,
+        7
+      ],
+      "reward": {
+        "openDoor": "vault-door"
+      }
+    },
+    {
+      "group": 1,
+      "order": [
+        1,
+        2,
+        3,
+        4,
+        0
+      ],
+      "reward": {
+        "openDoor": "door-reactor"
+      }
+    }
+  ],
+  "doors": [
+    {
+      "id": "vault-door",
+      "x": 39,
+      "y": 26,
+      "w": 1,
+      "h": 1
+    },
+    {
+      "id": "door-hold",
+      "x": 22,
+      "y": 16,
+      "w": 1,
+      "h": 1
+    },
+    {
+      "id": "door-reactor",
+      "x": 39,
+      "y": 23,
+      "w": 1,
+      "h": 1
+    },
+    {
+      "id": "door-helm",
+      "x": 30,
+      "y": 12,
+      "w": 1,
+      "h": 1,
+      "open": false
+    }
+  ],
+  "teleports": [],
+  "quests": [
+    {
+      "id": "fell-mounts",
+      "main": true,
+      "title": "Fell the six ice-locked coil mounts",
+      "giver": "elder-sefa",
+      "kind": "destroy",
+      "target": "pillar",
+      "count": 6,
+      "reward": {
+        "shards": 12
+      },
+      "hint": "Six coil-mounts froze around the hull. Shatter every one — while one stands, the burn chamber stays cold."
+    },
+    {
+      "id": "forge-seal",
+      "main": true,
+      "title": "Forge the burn-seal at Hask’s anvil",
+      "giver": "hask-embervein",
+      "kind": "craft",
+      "target": "lythseal",
+      "count": 1,
+      "reward": {
+        "shards": 8
+      },
+      "hint": "A proof fragment and twenty shards at the aft anvil. The anvil cannot interpolate promises."
+    },
+    {
+      "id": "helm-rite",
+      "main": true,
+      "title": "Settle the helm rite — light the glyph set in order",
+      "giver": "elder-sefa",
+      "kind": "glyph",
+      "target": "1",
+      "count": 1,
+      "reward": {
+        "shards": 6
+      },
+      "hint": "It begins with the breath the field takes together, then one voice, once, and only once. The pilot’s plaque keeps the order."
+    },
+    {
+      "id": "bulkheads",
+      "main": true,
+      "title": "Throw the airlock bulkhead",
+      "giver": "elder-sefa",
+      "kind": "switch",
+      "target": "0",
+      "count": 1,
+      "reward": {
+        "shards": 6
+      },
+      "hint": "Seal the airlock corridor — one agreed state, and you are simply already inside."
+    },
+    {
+      "id": "launch",
+      "main": true,
+      "title": "Reach the helm — launch the Anchorcraft",
+      "giver": "elder-sefa",
+      "kind": "reach",
+      "target": {
+        "x": 30,
+        "y": 14
+      },
+      "count": 1,
+      "hint": "Behind you, a world that holds. Ahead, one that doesn’t yet."
+    },
+    {
+      "id": "skitter-nest",
+      "title": "Clear the north-west skitter nest",
+      "giver": "warden-mirelle",
+      "kind": "kill",
+      "target": "w",
+      "count": 10,
+      "reward": {
+        "shards": 10
+      },
+      "hint": "The nest at the north-west drift is cold made hungry. Ten skitters down and the road breathes again."
+    },
+    {
+      "id": "keepers-fragment",
+      "title": "Recover the fallen keeper’s proof fragment",
+      "giver": "hask-embervein",
+      "kind": "fetch",
+      "item": "fragment",
+      "count": 1,
+      "reward": {
+        "shards": 12
+      },
+      "hint": "Bring me fragments, not promises. The anvil cannot interpolate promises."
+    }
+  ],
+  "intro": [
+    {
+      "title": "Chapter VII — The Anchorcraft",
+      "lines": [
+        "Act II. East of the village, a starcraft lies where it fell — hull frozen into the glacier, helm sealed under frost.",
+        "Elder Tenwright keeps the salvage ledger: six coil-mounts, one burn-seal, the helm rite in order.",
+        "The Crossing continues. This Anchor takes no fractions — and neither does the ice."
+      ],
+      "art": "anchorcraft"
+    }
+  ],
+  "outro": [
+    {
+      "title": "Relight",
+      "lines": [
+        "The burn chamber catches with a chord, and the frost walks aft to fore in retreating sheets.",
+        "The field goes gold edge to edge across the floe — the corridor of sky settles.",
+        "The Anchorcraft rises off the glacier on one long wave-tunnel."
+      ],
+      "art": "anchorcraft"
+    },
+    {
+      "title": "The Crossing Continues",
+      "lines": [
+        "Behind you, a world that holds. Ahead, one that doesn’t yet.",
+        "Next: the Prover Array — where mountains are ground into receipts."
+      ],
+      "art": "crossing"
+    }
+  ],
+  "modifiers": {
+    "waves": [
+      {
+        "at": 180,
+        "letters": "wwwww",
+        "edge": "n"
+      },
+      {
+        "at": 360,
+        "letters": "wwhhx",
+        "edge": "e"
+      },
+      {
+        "at": 600,
+        "letters": "whhxyi",
+        "edge": "s"
+      },
+      {
+        "at": 840,
+        "letters": "hhxyii",
+        "edge": "w"
+      }
+    ]
+  },
+  "tiles": [
+    "##############################################################",
+    "#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^#",
+    "#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^#",
+    "#^----------------------------------------------------------^#",
+    "#^y^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^y^^#",
+    "#^^-w-w-w--^^^^^^^^^Y^^^^^^^^^^^^^^^^^^^^Y^^^^^^^^^---------^#",
+    "#^^w-C-w---^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^-----C---^#",
+    "#^^-Iw--w--^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^---------^#",
+    "#^^^w^w^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^#",
+    "#^^^^w^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^A^^^^^#",
+    "#^^^^^^^~~^^^^^^^^^^^^^^^^^^^^x^^^^^^^^^^^^^^^^^^^^^~~^^^^^^^#",
+    "#^^^^^^^C~^^^^^x^^^^^^^^^^X^^^^^^^^X^^^^^^^^^^x^^^^^~C^^^^^^^#",
+    "#^^^^^^^~~^^^^^^^^^^h^^^^^^^^^^^^^^^^^^^^h^^^^^^^^^^~~^^^^^^^#",
+    "#^^^^^^^~~^^^^^^^^^^^^##################^^^^^^^^^^^^~~^^^^^^^#",
+    "#^^^^^^^^^^^^^^^^^^^^^#;;;;;;;E;;;;;;;;#^^^^^^^^^^^^^^^^^^^^^#",
+    "#^^^^^^^^^^^^^^^^^^^^^#;;;;J;;N;;;J;;;;#^^^^^^^^^^^^^^^^^^^^^#",
+    "#^^^^^^^~~^^^^^^^^h^^^;;;;;;;;C;;;;;;;;#^^^h^^^^^^^^~~^^^^^^^#",
+    "#^^^^^^^~~^^^^^^^^^^^^#;;;;;;;Q;;;;;;;;#^^^^^^^^^^^^~~^^^^^^^#",
+    "#^^^^^^^~~^^^^^^^^^^^^#;;J;;;;;;;;;;J;;#^^^^^^^^^^^^~~^^^^^^^#",
+    "#^^^^^^^~~^^^^^^^^^^^^#;;;;;;;Q;;;;;;;;#^^^^^^^^^^^^~~^^^^^^^#",
+    "#^^^^^^^~~^^^^i^^^X^^^;;;;;;;;y;;;;;;;;;^^^X^^i^^^^^~~^^^^^^^#",
+    "#^^^^^^^~~^^^^^^^^^^^^#;;;;;;;;;;;;;;;;#^^^^^^^^^^^^~~^^^^^^^#",
+    "#^^^^^^^~~^^^^^^^^^^^^#;;;;J;;;;;;J;;;;#^^^^^^^^^^^^~~^^^^^^^#",
+    "#^^^^^^^~~^^^^^^^^^^^^#;;;;;;;;;;;;;;;;;^^^^^^^^^^^^~~^^^^^^^#",
+    "#^^^^^^^^^^^^^^^^^^^^^#;;;;;;;Z;;;;;;;;#^^^^^^^^^^^^^^^^^^^^^#",
+    "#^^^^^^^^^^^^^^^^^^^^^#;;;;;;;;;;;;;;;;#^^^^^^^^^^^^^^^^^^^^^#",
+    "#^^^^^^^~~^^^^^^^^^^^^#;;;;J;;;;;;J;;;;;^^^^^^^^^^^^~~^^^^^^^#",
+    "#^^^^^^^~~^^^^^^^^^^^^#;;;;;;;C;;;;;;;;#^^^^^^^^^^^^~~^^^^^^^#",
+    "#^^^^^^^~~^^^^^^^^^^^^#######;;#########^^^^^^^^^^^^~~^^^^^^^#",
+    "#^^^^^^^~~^^^^^^^^^^h^^^^^^^^^^^^^^^^^^^^h^^^^^^^^^^~~^^^^^^^#",
+    "#^^^^^^^~~^^^^^^x^^^^^^^^^XB^^B^^B^X^^^^^^^^^x^^^^^^~~^^^^^^^#",
+    "#^^^^^^^^^^^I^^^^^^^^^^^B^^^^^^^^^^^B^^^^^^^^^^^^I^^^^^^^^^^^#",
+    "#^^^^^^^A^^^^^^^^^^^^^^^h^^^^i^i^^^^^h^^^^^^^^^^^^^^^^^^^^^^^#",
+    "#^^y^^V^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^y^^#",
+    "#^^--------^^^^^^^^^^^^^^^i^^^h^^^i^^^^^^^^^^^^^^^^---------^#",
+    "#^^---C----^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^----C----^#",
+    "#^^--------^^^^^^^^^Y^^^^^^^^^N^^^^^^^^^^Y^^^^^^^^^-----I---^#",
+    "#^^^^^^^^^^^N^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^N^^^^^^^^^^^#",
+    "#^----------------------------P-----------------------------^#",
+    "#^^^^^^^^^^^^^^^^^^^^^^^^^^^^PPP^^^^^^^^^^^^^^^^^^^^^^^^^^^^^#",
+    "#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^#",
+    "##############################################################"
+  ]
+}

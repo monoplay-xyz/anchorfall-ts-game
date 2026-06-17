@@ -1,0 +1,145 @@
+{
+  "stranded": true,
+  "name": "Comm Rising",
+  "objective": "Raise the comm-rig, then escort it down the tidal causeway to the far transmitter",
+  "time": 600,
+  "expedition": true,
+  "mode": "bastion",
+  "theme": "saltworks",
+  "bastion": {
+    "nights": 4,
+    "bloodMoons": [
+      4
+    ],
+    "wavesPerNight": 2,
+    "waveMult": 2.47,
+    "roster": [
+      "s",
+      "r",
+      "v",
+      "$",
+      "k"
+    ],
+    "edges": [
+      "e"
+    ]
+  },
+  "escort": {
+    "path": [
+      [
+        4,
+        12
+      ],
+      [
+        12,
+        12
+      ],
+      [
+        20,
+        12
+      ],
+      [
+        30,
+        12
+      ],
+      [
+        40,
+        12
+      ],
+      [
+        50,
+        12
+      ],
+      [
+        58,
+        12
+      ]
+    ],
+    "speed": 1.2,
+    "holdRadius": 3,
+    "hp": 52
+  },
+  "stronghold": {
+    "level": 23,
+    "name": "Comm Rising",
+    "sizeLabel": "XL",
+    "difficulty": 5,
+    "waves": 10,
+    "hpMult": 1.73,
+    "unlock": "atlas",
+    "blurb": "Raise the comm-rig on the west jetty, then march it the length of a fog-bound tidal causeway to the far transmitter — brine-hulks sap the rig, phaseborn drift the gantry walls.",
+    "newFeatures": [
+      "Mobile comm-rig escort down the causeway",
+      "Brine-hulk sappers double-gnaw the rig",
+      "Phaseborn drift through the gantry walls"
+    ]
+  },
+  "weather": "fog",
+  "ambience": "city",
+  "intro": [
+    {
+      "title": "Comm Rising",
+      "lines": [
+        "The transmitter sits at the far end of the causeway, dead and silent.",
+        "Raise the rig on the jetty, then walk it through the tide — slow, exposed, contested.",
+        "Stay on the rig. The moment you drift off, the march stalls."
+      ],
+      "art": "siege"
+    }
+  ],
+  "outro": [
+    {
+      "title": "Signal Out",
+      "lines": [
+        "The rig grinds onto the moorage and the transmitter wakes.",
+        "Across the brine, the relay answers — Comm is up."
+      ],
+      "art": "dawn"
+    }
+  ],
+  "captiveChars": [],
+  "tiles": [
+    "##############################################################",
+    "#............................................................#",
+    "#.~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#.~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#.~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#.~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#.~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#............................................................#",
+    "#.;;;;;;;;;;;;;;;;;;;;;;;;;;~~~~~;;;;;;;;;;;;;;;;;;;;;;;;;;;;#",
+    "#.;;;;;;;;;;;;;###;;~;;;v;;;~~~~~;k;;;~;;;;###;;;;;;;;;;;;;;;#",
+    "#.;;C;;;;;#;;;;###;;;;o;;;;;~~~~~;;;#;;;;;;###;;;;o;;;;;;;;;;#",
+    "#.;P;;;;;;;;;r;;;;;;;;;;;;;;;;;;;;;;;;;;r;;;;;;;;;;;;$;;;;;;;#",
+    "#.;;P;B;;;;;;;;;;;s;;;;;;;;;;;;;;s;;;;;;;;;;;;s;;;;;;;;;;;;;;#",
+    "#.;P;P;;;;;;;;;;;;;;;;;;;;r;;;;;;;;;;;;;;;$;;;;;;;;;;;;;;;C;;#",
+    "#.;;;;;;;;o;;;;ooo;;;;#;;;;;;~~~;;;;o;;;;;;ooo;;;;#;k;;;;;;;;#",
+    "#.;;;;;;;;;;;;;ooo;;~;;;;;;;;~~~;;;;;;~;;;;ooo;;v;;;;;;;;;;;;#",
+    "#.;;;;;;;;;;;;;ooo;;;;;;;;;;;~~~;;;;;;;;;;;ooo;;;;;;;;;;;;;;;#",
+    "#.;;;;;;;;;;;;;ooo;;;;;;;;;;;~~~;;;;;;;;;;;ooo;;;;;;;;;;;;;;;#",
+    "#............................................................#",
+    "#.~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#.~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#.~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#.~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#.~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#............................................................#",
+    "##############################################################"
+  ],
+  "builds": [
+    {
+      "kind": "comm",
+      "cost": 8
+    }
+  ],
+  "chests": [
+    {
+      "loot": "shards",
+      "amount": 12
+    },
+    {
+      "loot": "medkit",
+      "amount": 1
+    }
+  ]
+}

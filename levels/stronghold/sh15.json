@@ -1,0 +1,344 @@
+{
+  "stranded": true,
+  "name": "Phantom Watch",
+  "objective": "Hold the off-set watch-keep through five moonlit nights — the abyss rims your back; phantoms drift the ruins and stalkers blink from the fog.",
+  "time": 600,
+  "expedition": true,
+  "mode": "bastion",
+  "theme": "nocturne",
+  "weather": "fog",
+  "ambience": "night",
+  "bastion": {
+    "nights": 5,
+    "dayLen": 120,
+    "nightLen": 60,
+    "bloodMoons": [
+      3,
+      5
+    ],
+    "waveMult": 1.93,
+    "wavesPerNight": 2,
+    "roster": [
+      "z",
+      "h",
+      "x",
+      "k",
+      "y"
+    ],
+    "edges": [
+      "e",
+      "s"
+    ],
+    "dayEvents": true
+  },
+  "difficulty": "hard",
+  "stronghold": {
+    "level": 15,
+    "name": "Phantom Watch",
+    "sizeLabel": "L",
+    "difficulty": 4,
+    "waves": 14,
+    "hpMult": 1.47,
+    "blurb": "An off-set watch-keep on the rim of the abyss. Phaseborn drift through your walls, vault-wraiths chain-zap from the gloom, and stalkers blink out of the fog along one long diagonal frontage.",
+    "newFeatures": [
+      "Void-rimmed diagonal keep",
+      "Phaseborn (wall-drifters)",
+      "Vault-wraith chain casters",
+      "Moonlit dark + fog"
+    ]
+  },
+  "intro": [
+    {
+      "title": "Phantom Watch",
+      "lines": [
+        "The keep clings to the north-west shelf; void chasms wall your back and flank.",
+        "Only one road in — a long diagonal of moonlit ruins down to the south-east dark.",
+        "Phaseborn slip your walls. Stalkers blink the fog. Vault-wraiths arc lightning. Hold the line."
+      ],
+      "art": "entropy"
+    }
+  ],
+  "outro": [
+    {
+      "title": "The Watch Holds",
+      "lines": [
+        "Five dawns. The phantoms thin to mist over the abyss and do not return.",
+        "The watch-fire still burns on the shelf above the void."
+      ],
+      "art": "dawn"
+    }
+  ],
+  "captiveChars": [],
+  "builds": [
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "turret",
+      "cost": 10,
+      "prebuilt": true,
+      "ttype": "gun"
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "farm",
+      "cost": 6,
+      "prebuilt": true
+    },
+    {
+      "kind": "farm",
+      "cost": 6,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "turret",
+      "cost": 10,
+      "prebuilt": true,
+      "ttype": "gun"
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    }
+  ],
+  "chests": [
+    {
+      "loot": "shards",
+      "amount": 10
+    },
+    {
+      "loot": "medkit",
+      "amount": 1
+    }
+  ],
+  "hires": [
+    {
+      "job": "engineer",
+      "cost": 10,
+      "name": "Shardwright Gil"
+    }
+  ],
+  "pickups": [
+    {
+      "kind": "railcannon"
+    }
+  ],
+  "tiles": [
+    "##################################################",
+    "#.............%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#....................%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#....................%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#....BBBBBBBBBBB.....%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#....BW;;;;;;;WB.....%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#....B;;;;;;;;;B.....%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#%...B;;;;S;;;;B.....%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#%...BH;;PKP;;;B......%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#%...B;;;;;;;;;........%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#%...B;;;;;;;;B..........%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#%...BBB;;A;;;;B..........%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#%...BBBBBB..BBB...........%%%%%%%%%%%%%%%%%%%%%%#",
+    "#%....;;....................%%%%%%%%%%%%%%%%%%%%%#",
+    "#%...........................%%%%%%%%%%%%%%%%%%%%#",
+    "#%%%%%%%%%%.........z.........%%%%%%%%%%%%%%%%%%%#",
+    "#%%%%%%%;;%%%...*.....z.........%%%%%%%%%%%%%%%%%#",
+    "#%%%%%%%;;%%%%,...;;....z........................#",
+    "#%%%%%%%%%;;%%%...;z.............................#",
+    "#%%%%%%%%%;;%%%%z.........;;.....................#",
+    "#%%%%%%%%%%%%%;;%.......*.h;.....................#",
+    "#%%%%%%%%%%%%%;;%%....;;.,,......................#",
+    "#%%%%%%%%%%%%%%%%%%%,.;h....C.h;.................#",
+    "#%%%%%%%%%%%%%%%%%%%%.........;;.................#",
+    "#%%%%%%%%%%%;;%%%%%%%%..;;...,,*x.;;.............#",
+    "#%%%%%%%%%%%;;%%%%%%%%%.;;..x.....;;.............#",
+    "#%%%%%%%%%%%%%%%%%%%;;%%....;;....Y...;;.........#",
+    "#%%%%%%%%%%%%%%%%%%%;;%%%...;;...,,.k.;;.........#",
+    "#%%%%%%%%%%%%%%%;;%%%%%%%%......;;....*...;;o....#",
+    "#%%%%%%%%%%%%%%%;;%%%%%%%%.,,...;;k..,,.C.;;.o...#",
+    "#%%%%%%%%%%%%%%%%%%%%%%%%%..........;;....y.;;...#",
+    "#%%%%%%%%%%%%%%%%%%%%%%%%%..........;;...,,.;;...#",
+    "#%%%%%%%%%%%%%%%%%%%%%%%%%............o.;;...,,..#",
+    "#%%%%%%%%%%%%%%%%%%%%%%%%%.............oy;.Y..;;.#",
+    "#%%%%%%%%%%%%%%%%%%%%%%%%%....................;;.#",
+    "#%%%%%%%%%%%%%%%%%%%%%%%%%.......................#",
+    "#%%%%%%%%%%%%%%%%%%%%%%%%%.......................#",
+    "##################################################"
+  ]
+}

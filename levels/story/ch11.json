@@ -1,0 +1,410 @@
+{
+  "name": "Genesis Drift",
+  "story": true,
+  "chapter": 11,
+  "title": "Chapter XI — Genesis Drift",
+  "expedition": true,
+  "objective": "Make landfall at the First Anchor: forge the Genesis Seal, light the seven founding seats in the born order, then walk the opened nest-gate and settle the first finality.",
+  "time": 900,
+  "weather": null,
+  "ambience": "night",
+  "theme": "reliquary",
+  "modifiers": {
+    "dark": true,
+    "waves": [
+      {
+        "at": 150,
+        "letters": "zzqq",
+        "edge": "s"
+      },
+      {
+        "at": 330,
+        "letters": "zzvv",
+        "edge": "w"
+      },
+      {
+        "at": 330,
+        "letters": "qqaa",
+        "edge": "e"
+      },
+      {
+        "at": 540,
+        "letters": "qqvv",
+        "edge": "n"
+      },
+      {
+        "at": 540,
+        "letters": "zzff",
+        "edge": "s"
+      },
+      {
+        "at": 540,
+        "letters": "vvxx",
+        "edge": "w"
+      },
+      {
+        "at": 540,
+        "letters": "qqzz",
+        "edge": "e"
+      },
+      {
+        "at": 780,
+        "letters": "vvqq",
+        "edge": "n"
+      },
+      {
+        "at": 780,
+        "letters": "xxff",
+        "edge": "e"
+      },
+      {
+        "at": 780,
+        "letters": "qqvv",
+        "edge": "w"
+      },
+      {
+        "at": 900,
+        "letters": "bqqvvxx",
+        "edge": "n"
+      }
+    ]
+  },
+  "captiveChars": [],
+  "npcs": [
+    {
+      "id": "first-keeper",
+      "name": "The First Keeper",
+      "lines": [
+        "Ten of us lit the First Anchor. Nine seats went cold. I am the count that remains, and I never stopped counting.",
+        "Genesis was the first finality — the first promise that stayed promised. Everything you have anchored since is its interest.",
+        "Forge the Seal at my brazier in the heart of the ring. A proof fragment and twenty shards — the hollow answers the Seal and nothing else.",
+        "Seven founding seats ring the forge. Light them in the order they were born — wave, vertex, seal, anchor — once, and only once. A wrong seat snuffs them all.",
+        "When the ring burns true, the nest-gate to the eye opens. Take my shards. I always knew someone would come — counting tells you that."
+      ],
+      "gift": {
+        "shards": 12
+      }
+    },
+    {
+      "id": "cassio-bell",
+      "name": "Cassio 'Quorum' Bell",
+      "lines": [
+        "Cassio Bell. Yes — that Cassio. Word reached the Settlement that Genesis runs seven-in-ten, and I rode three nightwaves to get here.",
+        "The nest spits casters from every edge at once. Count your barricades before the count starts — arithmetic first, heroics never.",
+        "Acolytes mend the pack from the seats; the vault-wraiths arc two-for-one across the pools. Burn the shielders early.",
+        "The phaseborn walk straight through marble — your wall is a suggestion to them. Put bodies, not stone, between you and the seats.",
+        "Here — my whole purse. If the First Anchor settles, money is only the second-best thing it buys back."
+      ],
+      "gift": {
+        "shards": 7
+      }
+    }
+  ],
+  "builds": [
+    {
+      "kind": "turret",
+      "cost": 10,
+      "prebuilt": true,
+      "ttype": "gun"
+    },
+    {
+      "kind": "turret",
+      "cost": 10,
+      "prebuilt": true,
+      "ttype": "gun"
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "beacon",
+      "cost": 10
+    }
+  ],
+  "chests": [
+    {
+      "loot": "shield",
+      "amount": 1
+    },
+    {
+      "loot": "shards",
+      "amount": 10
+    },
+    {
+      "loot": "medkit",
+      "amount": 1
+    },
+    {
+      "loot": "shards",
+      "amount": 9
+    },
+    {
+      "loot": "cracker",
+      "amount": 2
+    },
+    {
+      "loot": "token",
+      "amount": 1
+    },
+    {
+      "loot": "shards",
+      "amount": 8
+    },
+    {
+      "loot": "medkit",
+      "amount": 1
+    }
+  ],
+  "vehicles": [
+    {
+      "kind": "skiff"
+    },
+    {
+      "kind": "skiff"
+    }
+  ],
+  "pickups": [
+    {
+      "kind": "railcannon"
+    },
+    {
+      "kind": "stormgun"
+    },
+    {
+      "kind": "mortarMk2"
+    }
+  ],
+  "qitems": [
+    {
+      "id": "frag-genesis-a",
+      "kind": "fragment"
+    },
+    {
+      "id": "frag-genesis-b",
+      "kind": "fragment"
+    }
+  ],
+  "glyphs": [
+    {
+      "id": "seat-n",
+      "symbol": 0,
+      "group": 0
+    },
+    {
+      "id": "seat-nw",
+      "symbol": 1,
+      "group": 0
+    },
+    {
+      "id": "seat-ne",
+      "symbol": 2,
+      "group": 0
+    },
+    {
+      "id": "seat-w",
+      "symbol": 3,
+      "group": 0
+    },
+    {
+      "id": "seat-e",
+      "symbol": 4,
+      "group": 0
+    },
+    {
+      "id": "seat-sw",
+      "symbol": 5,
+      "group": 0
+    },
+    {
+      "id": "seat-se",
+      "symbol": 6,
+      "group": 0
+    }
+  ],
+  "glyphGroups": [
+    {
+      "group": 0,
+      "order": [
+        0,
+        2,
+        4,
+        6,
+        5,
+        3,
+        1
+      ],
+      "reward": {
+        "openDoor": "nest-gate"
+      }
+    }
+  ],
+  "doors": [
+    {
+      "id": "nest-gate",
+      "x": 39,
+      "y": 7,
+      "w": 2,
+      "h": 1
+    }
+  ],
+  "quests": [
+    {
+      "id": "q-fragment",
+      "title": "The First Keeper's Fragment",
+      "giver": "first-keeper",
+      "kind": "fetch",
+      "item": "fragment",
+      "count": 1,
+      "reward": {
+        "shards": 8
+      },
+      "hint": "The deep flanks hoard what the drift drowned. Skiff the reflecting leads and bring me proof, not promises."
+    },
+    {
+      "id": "q-seal",
+      "title": "Forge the Genesis Seal at the Keeper's brazier",
+      "giver": "first-keeper",
+      "kind": "craft",
+      "target": "lythseal",
+      "count": 1,
+      "reward": {
+        "shards": 8
+      },
+      "hint": "A proof fragment and twenty shards, at the brazier in the heart of the ring. The hollow answers the Seal and nothing else."
+    },
+    {
+      "id": "q-rite",
+      "main": true,
+      "title": "The Founding Seats: light the seven in the born order",
+      "giver": "first-keeper",
+      "kind": "glyph",
+      "target": "0",
+      "count": 1,
+      "reward": {
+        "shards": 12
+      },
+      "hint": "Wave, then vertex, then seal, then anchor — once, and only once. A wrong seat snuffs the ring."
+    },
+    {
+      "id": "q-genesis",
+      "main": true,
+      "title": "Settle the First Finality: touch the First Anchor",
+      "giver": "first-keeper",
+      "kind": "reach",
+      "target": {
+        "x": 40,
+        "y": 4
+      },
+      "count": 1,
+      "hint": "The rite opens the nest-gate into the eye. Settle the first promise, and every other promise holds."
+    }
+  ],
+  "intro": [
+    {
+      "title": "Chapter XI — Genesis Drift",
+      "lines": [
+        "The First Anchor. The first finality. The oldest promise on the frontier.",
+        "It fell first, the night of the Fall — and the Entropy has nested in it since.",
+        "Everything unsettled drains home to Genesis."
+      ],
+      "art": "entropy"
+    },
+    {
+      "title": "The Ring of Seats",
+      "lines": [
+        "Seven founding seats ring the hollow forge. Light them in the order they were born.",
+        "Wave, then vertex, then seal, then anchor — say it where it was born.",
+        "Settle the first promise, and every other promise holds."
+      ],
+      "art": "quorum"
+    }
+  ],
+  "outro": [
+    {
+      "title": "Genesis Settles",
+      "lines": [
+        "The seventh seat snaps true and the ring floods gold — the nest-gate folds open onto morning.",
+        "The First Anchor takes the rite and remembers what it was for.",
+        "A hundred anchors answer in one breath — the checkpoint the frontier was waiting for."
+      ],
+      "art": "dawn"
+    },
+    {
+      "title": "The Hundredth Anchor",
+      "lines": [
+        "Genesis settles, and the light walks home: the Crossing, the Basin, the field that counts to ten, the one city, the camp, the Settlement, the Array.",
+        "A hundred anchors answer in one breath, and the deep checkpoint signs.",
+        "Nothing forged outlives it. Nothing true needs to."
+      ],
+      "art": "dawn"
+    },
+    {
+      "title": "Keep the Signal Alive",
+      "lines": [
+        "The Drift is only a sea now. The frontier holds end to end — the land remembers itself, and this time it is remembered.",
+        "Aboard the Anchorcraft, Doc hums the old transit jingle. The lines run again, the whole way home.",
+        "Behind you, a world that holds. Ahead — so does that one. Keep the signal alive."
+      ],
+      "art": "anchorcraft"
+    }
+  ],
+  "tiles": [
+    "################################################################################",
+    "#;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;#",
+    "#;;;;;;;;;;;;;;;;;;;;;;;;;;;;;####################;;;;;;;;;;;;;;;;;;;;;;;;;;;;;#",
+    "#;;;;;;;;;;;;;;;;;;;;;;;;;;;;;##;;;;;;;;;;;;;;;;##;;;;;;;;;;;;;;;;;;;;;;;;;;;;;#",
+    "#;;;;;;;;;;;;;;;;;;;;;;;;;;;;;##;;;;;;;;b;;;E;;;##;;;;;;;;;;;;;;;;;;;;;;;;;;;;;#",
+    "#;;;;;;;;;;;;;;;;;;;;;;;;;;;;;##;;;;;;;;;;;;;;;;##;;;;;;;;;;;;;;;;;;;;;;;;;;;;;#",
+    "#;;;;;;;;;;;;;;;;;;;;;;;;;;;;;##;;;;;;;;;;;;;;;;##;;;;;;;;;;;;;;;;;;;;;;;;;;;;;#",
+    "#;;;;;;;;;;;;;;;;;;;;;;;;;;;;;#########;;#########;;;;;;;;;;;;;;;;;;;;;;;;;;;;;#",
+    "#;;~~~;;,,;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;,,;;~~~;;#",
+    "#;;~~~;;,,;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;C;;;;;;;;;;;;;;;;;;;;;;;;;;;;;,,;;~~~;;#",
+    "#;;~~~;;,,;;;;;;;;;;;;;;C;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;C;;;;;;;;;;;;;,,;;~~~;;#",
+    "#;;~~~;;,,;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;,,;;~~~;;#",
+    "#;;~~~;;,,;C;;;;Y;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;Y;;;C;,,;;~~~;;#",
+    "#;;~~~;;,,;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;X;;;;;;;;;;;;;;;;;;;;;;;;;;;;;,,;;~~~;;#",
+    "#;;~~~;;,,;;a;;;;;;;;;;;;;;;;;;;;;;;;;;;B;;;;;;;;;;;;;;;;;;;;;;;;;;;a;,,;;~~~;;#",
+    "#;;~~~;;,,;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;,,;;~~~;;#",
+    "#;;~~~;;,,;;;;;;;;;;;;;;y;;;;;;;;;;~~;;;;;;;~~;;;;;;;;;;y;;;;;;;;;;;;;,,;;~~~;;#",
+    "#;;~~~;;,,;;;;;;;;;;;;;;;;;;;;;;~~####;;k;;####~~;;;;;;;;;;;;;;;;;;;;;,,;;~~~;;#",
+    "#;;~~~;;,,;I;;;;;;;;;;;;;;;;;;;~###;;;;;;;;;;;###~;;;;;;;;;;;;;;;;;;I;,,;;~~~;;#",
+    "#;;~~~;;,,;;;;;;;;;;;;;;;;;;;~~##,;;;;;;J;;;;;;,##~~;;;;;;;;;;;;;;;;;;,,;;~~~;;#",
+    "#;;~~~;;,,;;;;;;;;;;;;;;;;;;~~k;;;;;;;;;;;;;;;;;;;k~~;;;;;;;;;;;;;;;;;,,;;~~~;;#",
+    "#;;~~~;;,,;;;;;;;;;;;;;;;;;;~##;;;J;;;;;;;;;;;J;;;##~;;;;;;;;;;;;;;;;;,,;;~~~;;#",
+    "#;;~~~;;,,;;;;;;;;;;;;;;;;;;##;;;;;;;;q;;;q;;;;;;;;##;;;;;;;;;;;;;;;;;,,;;~~~;;#",
+    "#;;~~~;;,,;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;,,;;~~~;;#",
+    "#;;~~~;;,,;;;A;;;;X;;;a;;;;;B;;;;;;;;;;;Z;;;;;;;;;;;B;;;;;a;;;X;;;;A;;,,;;~~~;;#",
+    "#;;~~~;;,,;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;,,;;~~~;;#",
+    "#;;~~~;;,,;;;;;;;;;;;;;;;;;;##;;;J;;;;;;;;;;;;;J;;;##;;;;;;;;;;;;;;;;;,,;;~~~;;#",
+    "#;;~~~;;,,;;;;;;;;;;;;;;;;;;~##;;;;;;q;;B;;q;;;;;;##~;;;;;;;;;;;;;;;;;,,;;~~~;;#",
+    "#;;~~~;;,,;k;;;;;;;;;;;;;;;;~~k;;;;;;;;;;;;;;;;;;;k~~;;;;;;;;;;;;;;;k;,,;;~~~;;#",
+    "#;;~~~;;,,;;;;;;;;;;;;;;;;;;;~~##,;;;J;;;;;J;;;,##~~;;;;;;;;;;;;;;;;;;,,;;~~~;;#",
+    "#;;~~~;;,,;;;;;;;;;;;;;;;;;;;;;~###;;;;;;;;;;;###~;;;;;;;;;;;;;;;;;;;;,,;;~~~;;#",
+    "#;;~~~;;,,;;;;;;;;;;;;;;;;;;;;;;~~####;;k;;####~~;;;;;;;;;;;;;;;;;;;;;,,;;~~~;;#",
+    "#;;~~~;;,,;;;;;;;;;;;;;;y;;;;;;;;;;~~;;;y;;;~~;;;;;;;;;;y;;;;;;;;;;;;;,,;;~~~;;#",
+    "#;;~~~;;,,;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;,,;;~~~;;#",
+    "#;;~~~;;,,;;a;;;;;;;;;;;;;;;;;;;;;;;;;;;B;;;;;;;;;;;;;;;;;;;;;;;;;;;a;,,;;~~~;;#",
+    "#;;~~~;;,,;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;X;;;;;;;;;;;;;;;;;;;;;;;;;;;;;,,;;~~~;;#",
+    "#;;~~~;;,,;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;,,;;~~~;;#",
+    "#;;~~~;;,,;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;,,;;~~~;;#",
+    "#;;~~~;;,,;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;,,;;~~~;;#",
+    "#;;~~~;;,,;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;,,;;~~~;;#",
+    "#;;~~~;;,,;;;;;;Y;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;Y;;;;;,,;;~~~;;#",
+    "#;;~~~;;,,;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;,,;;~~~;;#",
+    "#;;~~~;;,,;;;;C;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;C;;;;,,;;~~~;;#",
+    "#;;~~~;;,,;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;,,;;~~~;;#",
+    "#;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;C;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;#",
+    "#;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;#",
+    "#;;;;;;V;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;A;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;V;;;;;;#",
+    "#;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;#",
+    "#;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;S;N;;;;;;;;;N;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;#",
+    "#;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;PP;P;PP;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;#",
+    "#;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;#",
+    "################################################################################"
+  ]
+}

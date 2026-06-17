@@ -1,0 +1,630 @@
+{
+  "stranded": true,
+  "name": "Dust Perimeter",
+  "objective": "Hold the southern wall through four nights \u2014 every wave crests the open dunes from the north; the core must stand at the fourth dawn",
+  "time": 600,
+  "expedition": true,
+  "mode": "bastion",
+  "theme": "dunes",
+  "bastion": {
+    "nights": 4,
+    "bloodMoons": [
+      4
+    ],
+    "waveMult": 1.07,
+    "roster": [
+      "g",
+      "r",
+      "a",
+      "l"
+    ],
+    "edges": [
+      "n"
+    ]
+  },
+  "stronghold": {
+    "level": 2,
+    "name": "Dust Perimeter",
+    "sizeLabel": "S",
+    "difficulty": 1,
+    "waves": 5,
+    "hpMult": 1.03,
+    "unlock": "sniper",
+    "blurb": "An open Sirocco dune field with the fort wedged on the south edge. Every wave pours down from the north over exposed sand \u2014 face one way and watch the open ground, where buried lurkers wait.",
+    "newFeatures": [
+      "Back-line fort: waves come only from the north",
+      "Sand drag slows every stride",
+      "Buried sand-lurkers surface mid-field"
+    ]
+  },
+  "ambience": "ash",
+  "intro": [
+    {
+      "title": "Dust Perimeter",
+      "lines": [
+        "A supply fort on the south rim of the dune sea, four nights from relief \u2014 and the Entropy massing to the north knows it.",
+        "There is no rear to guard: the desert behind you is empty. Build one wall, face north, and never lose the open ground in front of it.",
+        "Sand slows every stride. Lurkers lie buried in the flats \u2014 they surface when you cross them. Watch the dunes."
+      ],
+      "art": "siege"
+    }
+  ],
+  "outro": [
+    {
+      "title": "The Dune Road Holds",
+      "lines": [
+        "Four dawns of grit and the southern wall still answers.",
+        "The dune road is open \u2014 and the frontier remembers who faced the north and kept it so."
+      ],
+      "art": "dawn"
+    }
+  ],
+  "captiveChars": [],
+  "tiles": [
+    "######################################################################",
+    "#==:.================.====:===========.==========:=====.=============#",
+    "#=====:=.================.===:============.=========:======.=========#",
+    "#========:==.================.==:##===========.========:=======.=====#",
+    "#===========:===.===##===========.#:==============.=======:=##=====.=#",
+    "#==.====##=====:====#================.:=========##====.=====#:=======#",
+    "#======.#==C======:=====.======g=====a===.======#=C=======.=====:====#",
+    "#==========.=========:======.====g==========:.================a====:=#",
+    "#:=====g=g=====.,,======:=====o=.=======Y======:=.========g=======.==#",
+    "#=.=:==========,::,.=======:=======r.======o======:==.======g========#",
+    "#=====.:r======,::,====.======:=========.============:===.===========#",
+    "#=========.=====,,====o====.=====:==========.l==========:r===.=======#",
+    "#=====a======:.=====l==========.====:===========.==========:=====.===#",
+    "#.==============:=.================.===:=##=========.=========:======#",
+    "#====.========##===:==.=====C==========.==#=============.========:===#",
+    "#========.=====#======:===.================.=:=========##===.=======:#",
+    "#=:==========.===========:=##=.=======o========.:======#========.====#",
+    "#====:===========.=========#:=====.================.================.#",
+    "#===.===:============.===Y=====:=r====.=========l=====:.======o======#",
+    "#=======.==:o============.========:=======.=========,,===:=.=========#",
+    "#===========.=:============l=.=====g=:========.====,::,=====:==.=====#",
+    "#===============.:===============.==,,==:=========.,::,========:===.=#",
+    "#==.==========g=====.=====o====a===,::,====:========,,.=====Y=====:==#",
+    "#======.===============:.==========,::,==.====:===========.==========#",
+    "#==:======##r=============:=.=======,,======C.===:====g=======.======#",
+    "#=====:====#===.=============:==.============##==.==:=============.==#",
+    "#=.======:======a==.====##======:===.=========#======.=:r============#",
+    "#=====.=====:==========.#==========:====.================.##=========#",
+    "#=========.====:==l========.==========l=====.===o===a=====#==.=======#",
+    "#=============.===:============.=========:======.===============:.===#",
+    "#.================.C=:==l========##.========:=====l=.=====C========:=#",
+    "#:===.============##==.=:=========#====.=======:========.============#",
+    "#===:====.================.:===============l======##========.========#",
+    "#======:=====.================l===g============.=====:==========.====#",
+    "#=========:======.====g==========:.===========r====.====:===========.#",
+    "#====================================================================#",
+    "#====================================================================#",
+    "#=ooooBBBBBB..BBBBBBBBBBBBBBBBBBBB..BBBBBBBBBBBBBBBBBBBB..BBBBBBoooo=#",
+    "#=========W================================================W=========#",
+    "#=======#;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;#=======#",
+    "#=======#;;;BB;;;;;;;;;;;;;;;;;;;;BB;;;;;;;;;;;;;;;;;;;;BB;;;#=======#",
+    "#=======#;;;;;;;;;;;;;;;;;;;;;B;;;;;;;;B;;;;;;;;;;;;;;;;;;;;;#=======#",
+    "#=======#;;;;;;;;;;;;;;;;;;;;;;;;;*;;;;;;;;;;;;;;;;;;;;;;;;;;#=======#",
+    "#=======#;;;;;;;;;;;;;;;;;;;;;;;;;V;;;;;;;;;;;;;;;;;;;;;;;;;;#=======#",
+    "#=======#;;;;;;;;;;;B;;;;;;;;;;;;;;;;;;;;;;;;;;;B;;;;;;;;;;;;#=======#",
+    "#=======#;;;;;;C;;;;;;;;;;;;;;P;;;;;;;;P;;;;;;;;;;;;;;C;;;;;;#=======#",
+    "#=======#;;;;H;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;H;;;;;#=======#",
+    "#=======#;;;;;;;;;;;;;;;;;P;;;;;;;K;;;;;;;;P;;;;;;;;;;;;;;;;;#=======#",
+    "#=======#;;;;;;;S;;;;;;;Y;;;;;;;;;;;;;;;;;;;;Y;;;;;;;;;;;;;;;#=======#",
+    "#=======############;############################;############=======#",
+    "#====================================================================#",
+    "######################################################################"
+  ],
+  "builds": [
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "farm",
+      "cost": 6
+    },
+    {
+      "kind": "farm",
+      "cost": 6
+    }
+  ],
+  "chests": [
+    {
+      "loot": "shards",
+      "amount": 8
+    },
+    {
+      "loot": "medkit",
+      "amount": 1
+    },
+    {
+      "loot": "controller",
+      "amount": 1
+    },
+    {
+      "loot": "shield",
+      "amount": 1
+    },
+    {
+      "loot": "shards",
+      "amount": 9
+    },
+    {
+      "loot": "medkit",
+      "amount": 1
+    },
+    {
+      "loot": "token",
+      "amount": 1
+    },
+    {
+      "loot": "cracker",
+      "amount": 2
+    }
+  ],
+  "hires": [
+    {
+      "job": "farmer",
+      "cost": 8,
+      "name": "Dunewife Sera"
+    },
+    {
+      "job": "engineer",
+      "cost": 10,
+      "name": "Rigger Tolm"
+    }
+  ],
+  "vehicles": [
+    {
+      "kind": "stag"
+    }
+  ],
+  "groups": [
+    [
+      [
+        7,
+        8
+      ],
+      [
+        9,
+        8
+      ],
+      [
+        8,
+        10
+      ],
+      [
+        6,
+        12
+      ]
+    ],
+    [
+      [
+        31,
+        6
+      ],
+      [
+        33,
+        7
+      ],
+      [
+        35,
+        9
+      ],
+      [
+        37,
+        6
+      ]
+    ],
+    [
+      [
+        58,
+        8
+      ],
+      [
+        60,
+        9
+      ],
+      [
+        57,
+        11
+      ],
+      [
+        62,
+        7
+      ]
+    ],
+    [
+      [
+        14,
+        22
+      ],
+      [
+        12,
+        24
+      ],
+      [
+        16,
+        26
+      ]
+    ],
+    [
+      [
+        54,
+        24
+      ],
+      [
+        56,
+        26
+      ],
+      [
+        52,
+        28
+      ]
+    ],
+    [
+      [
+        33,
+        18
+      ],
+      [
+        35,
+        20
+      ],
+      [
+        31,
+        22
+      ]
+    ]
+  ],
+  "patrols": [
+    {
+      "at": [
+        8,
+        10
+      ],
+      "points": [
+        [
+          11,
+          9
+        ],
+        [
+          5,
+          11
+        ],
+        [
+          10,
+          7
+        ]
+      ]
+    },
+    {
+      "at": [
+        35,
+        9
+      ],
+      "points": [
+        [
+          38,
+          7
+        ],
+        [
+          30,
+          8
+        ],
+        [
+          33,
+          11
+        ]
+      ]
+    },
+    {
+      "at": [
+        57,
+        11
+      ],
+      "points": [
+        [
+          60,
+          9
+        ],
+        [
+          54,
+          12
+        ],
+        [
+          59,
+          13
+        ]
+      ]
+    }
+  ]
+}

@@ -1,0 +1,217 @@
+{
+  "stranded": true,
+  "name": "Dune Bluff",
+  "objective": "Hold the bluff keep four nights — the core must stand at the fourth dawn while the dunes break only against your east and south walls",
+  "time": 600,
+  "expedition": true,
+  "mode": "bastion",
+  "theme": "dunes",
+  "bastion": {
+    "nights": 4,
+    "dayLen": 120,
+    "nightLen": 60,
+    "bloodMoons": [
+      4
+    ],
+    "waveMult": 1.3,
+    "roster": [
+      "g",
+      "r",
+      "l",
+      "e",
+      "s"
+    ],
+    "edges": [
+      "e",
+      "s"
+    ]
+  },
+  "stronghold": {
+    "level": 11,
+    "name": "Dune Bluff",
+    "sizeLabel": "L",
+    "difficulty": 4,
+    "waves": 5,
+    "hpMult": 1.33,
+    "blurb": "A keep wedged in the NW corner against two sheer bone bluffs. The wastes can only crest the east and south walls — build a tight L and face the open dunes.",
+    "newFeatures": [
+      "Two-sided corner last stand",
+      "Buried sand-lurkers surface at the wall",
+      "Ember-kites lob fire over the bluff"
+    ]
+  },
+  "intro": [
+    {
+      "title": "Dune Bluff",
+      "lines": [
+        "Two bluffs wall your back to the north and west — the wastes can only come from the open quarters.",
+        "Build the L and hold the two gates. The sand hides things that surface where you least want them.",
+        "Survive four nights and the bluff is yours."
+      ],
+      "art": "siege"
+    }
+  ],
+  "outro": [
+    {
+      "title": "Dawn on the Bluff",
+      "lines": [
+        "The fourth dawn finds the keep standing and the dunes still.",
+        "Whatever the sand swallowed, it stays buried now."
+      ],
+      "art": "dawn"
+    }
+  ],
+  "captiveChars": [],
+  "builds": [
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "farm",
+      "cost": 6
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "turret",
+      "cost": 10,
+      "prebuilt": true,
+      "ttype": "gun"
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "turret",
+      "cost": 10,
+      "prebuilt": true,
+      "ttype": "gun"
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    }
+  ],
+  "chests": [
+    {
+      "loot": "shards",
+      "amount": 8
+    },
+    {
+      "loot": "shards",
+      "amount": 8
+    }
+  ],
+  "weather": "ashstorm",
+  "ambience": "ash",
+  "tiles": [
+    "############################################",
+    "#############==============================#",
+    "#############==============================#",
+    "###=======B#===============================#",
+    "###=======B========e=======================#",
+    "###==K====B===================##===========#",
+    "###=B======B===g====##=====================#",
+    "###==PP===B=====g===#======================#",
+    "###=P=P==BB====r=========C=================#",
+    "###=====B=B==l====================##=======#",
+    "###BBBBB=BB=======================#========#",
+    "####====B==================================#",
+    "###========================================#",
+    "#===========l==============================#",
+    "#=================================e,,======#",
+    "#==================================,=======#",
+    "#=======================g==##==============#",
+    "#=====================s=====#==============#",
+    "#===============##========r==========e=====#",
+    "#===============#==========================#",
+    "#=======================,============##====#",
+    "#===================g==,:::,===============#",
+    "#=======================:::======s=========#",
+    "#======================,:::,===============#",
+    "#=============g===========,=r==,,==========#",
+    "#==============r===============,===========#",
+    "#=====================##===================#",
+    "#===========##====l===#==========##========#",
+    "#===================C=========g==#=========#",
+    "#==========================================#",
+    "#==========================================#",
+    "#==========================================#",
+    "#==========================================#",
+    "############################################"
+  ]
+}

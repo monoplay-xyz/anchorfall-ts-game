@@ -1,0 +1,315 @@
+{
+  "stranded": true,
+  "name": "The Forked Hold",
+  "objective": "Four beacons ring the brine plaza — keep a quorum lit through the foggy nights while sappers gnaw the causeways",
+  "time": 600,
+  "expedition": true,
+  "mode": "bastion",
+  "bastionVariant": "beacons",
+  "theme": "saltworks",
+  "bastion": {
+    "nights": 4,
+    "bloodMoons": [
+      4
+    ],
+    "waveMult": 1.4,
+    "roster": [
+      "z",
+      "r",
+      "s",
+      "v",
+      "$"
+    ]
+  },
+  "stronghold": {
+    "level": 7,
+    "name": "The Forked Hold",
+    "sizeLabel": "L",
+    "difficulty": 3,
+    "waves": 5,
+    "hpMult": 1.2,
+    "blurb": "Four beacons burn on a forked saltworks, linked by stone causeways over the tidal pools. Keep a quorum lit — but brine-hulks sap your walls, so rove and repair, don't turtle.",
+    "newFeatures": [
+      "Perimeter ring — four beacons, one quorum",
+      "Brine-hulk sappers tear built walls (repair or rove)",
+      "Causeway chokepoints over the tidal pools"
+    ]
+  },
+  "ambience": "city",
+  "intro": [
+    {
+      "title": "The Forked Hold",
+      "lines": [
+        "The tide went out and left a forked saltworks — four beacon monoliths ringing a brine plaza, joined by old stone causeways.",
+        "The pools wall off every flank but the causeways, so the waves must funnel through the lane mouths. Hold them, but keep a beacon lit on every bank.",
+        "Brine-hulks crawl out of the pools and sap any wall you lean on. Rove the ring, repair the breaches, and don't let the lights go dark."
+      ],
+      "art": "siege"
+    }
+  ],
+  "outro": [
+    {
+      "title": "The Forks Still Burn",
+      "lines": [
+        "Four nights of fog, and light still stands on the forks that mattered.",
+        "The tide turns back in over the causeways, quiet now. The sappers have gone back under."
+      ],
+      "art": "dawn"
+    }
+  ],
+  "captiveChars": [],
+  "tiles": [
+    "############################################################",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~;;;~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~;;;~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~;;;~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~;s;~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~;;;~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~r;$~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~;;;~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~BBBB;~~~~~~~~~~~~~;;;~~~~~~~~~~~~;BBBB~~~~~~~~~~#",
+    "#~~~~~~~~~~B.;;;;;;;;;;;;;;;o;;;o;;;;;;;;;;;;;;.B~~~~~~~~~~#",
+    "#~~~~~~~~~~B;K;;;;;;;;;;;;;;;;v;;;;;;;;;;;;;;;K;B~~~~~~~~~~#",
+    "#~~~~~~~~~~B;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;B~~~~~~~~~~#",
+    "#~~~~~~~~~~;;;;;~~~~~~~~~~~~~;;;~~~~~~~~~~~~;;;;;~~~~~~~~~~#",
+    "#~~~~~~~~~~~;;;~~~~~~~~~~~~~~;;;~~~~~~~~~~~~~;;;~~~~~~~~~~~#",
+    "#~~~~~~~~~~~;;;~~~~~~~~~~~~~~;;;~~~~~~~~~~~~~;;;~~~~~~~~~~~#",
+    "#~~~~~~~~~~~;;;~~~~~~~~~~~~~~;;;~~~~~~~~~~~~~;;;~~~~~~~~~~~#",
+    "#~~~~~~~~~~~;;;~~~~~~~~~~~~#~;;;~#~~~~~~~~~~~;;;~~~~~~~~~~~#",
+    "#~~~~~~~~~~~;;;~~~~~~~~~~~~~~;;;~~~~~~~~~~~~~;;;~~~~~~~~~~~#",
+    "#~~~~~~~~~~~;;;~~~~~~~~~~;;;;;;;;;;;~~~~~~~~~;;;~~~~~~~~~~~#",
+    "#~~~~~~~~~~~;;;~~~~~~~~~~;;V;;S;;B;;~~~~~~~~~;;;~~~~~~~~~~~#",
+    "#~~~~~~~~~~~;;;~~~~~~~~~~;;.......;;~~~~~~~~~;;;~~~~~~~~~~~#",
+    "#;;;;;v;;;;;;o;;;;;;;;;;;;;.......;;;;;;;;;;;;o;;;;;;v;;;;;#",
+    "#;;;r;;;;;;;;s;;;;;;;;;;;;C..P.P..C;;;;;;;;;;;$;;;;;;;;$;;;#",
+    "#;;;;;$;;;;;;o;;;;;;;;;;;;;B.....B;;;;;;;;;;;;o;;;;;;r;;;;;#",
+    "#~~~~~~~~~~~;;;~~~~~~~~~~;;.......;;~~~~~~~~~;;;~~~~~~~~~~~#",
+    "#~~~~~~~~~~~;;;~~~~~~~~~~;;B;;H;;;;;~~~~~~~~~;;;~~~~~~~~~~~#",
+    "#~~~~~~~~~~~;;;~~~~~~~~~~;;;;;;;;;;;~~~~~~~~~;;;~~~~~~~~~~~#",
+    "#~~~~~~~~~~~;;;~~~~~~~~~~~~~~;;;~~~~~~~~~~~~~;;;~~~~~~~~~~~#",
+    "#~~~~~~~~~~~;;;~~~~~~~~~~~~#~;;;~#~~~~~~~~~~~;;;~~~~~~~~~~~#",
+    "#~~~~~~~~~~~;;;~~~~~~~~~~~~~~;;;~~~~~~~~~~~~~;;;~~~~~~~~~~~#",
+    "#~~~~~~~~~~~;;;~~~~~~~~~~~~~~;;;~~~~~~~~~~~~~;;;~~~~~~~~~~~#",
+    "#~~~~~~~~~~;;;;;~~~~~~~~~~~~~;;;~~~~~~~~~~~~;;;;;~~~~~~~~~~#",
+    "#~~~~~~~~~~B;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;B~~~~~~~~~~#",
+    "#~~~~~~~~~~B;K;;;;;;;;;;;;;;;;r;;;;;;;;;;;;;;;K;B~~~~~~~~~~#",
+    "#~~~~~~~~~~B.;;;;;;;;;;;;;;;o;;;o;;;;;;;;;;;;;;.B~~~~~~~~~~#",
+    "#~~~~~~~~~~BBBB;~~~~~~~~~~~~~;;;~~~~~~~~~~~~;BBBB~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~;;;~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~;;;~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~s;$~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~;r;~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~;;;~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~;;;~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~;;;~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "############################################################"
+  ],
+  "builds": [
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 1
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 1
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 1
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 1
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 1
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 1
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 1
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 1
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 1
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 1
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 1
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 1
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 1
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 1
+    },
+    {
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "farm",
+      "cost": 6
+    },
+    {
+      "kind": "farm",
+      "cost": 6
+    },
+    {
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 1
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 1
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 1
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 1
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 1
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 1
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 1
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 1
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 1
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 1
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 1
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 1
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 1
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 1
+    }
+  ],
+  "chests": [
+    {
+      "loot": "shards",
+      "amount": 10
+    },
+    {
+      "loot": "shield",
+      "amount": 1
+    }
+  ],
+  "hires": [
+    {
+      "job": "engineer",
+      "cost": 10,
+      "name": "Weir-Wright Salla"
+    }
+  ],
+  "vehicles": [
+    {
+      "kind": "skiff"
+    }
+  ]
+}

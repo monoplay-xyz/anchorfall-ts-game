@@ -1,0 +1,198 @@
+{
+  "stranded": true,
+  "name": "Thaw Crown",
+  "objective": "Storm the ice crown and seize it by daylight, then hold the high ground through four frozen nights",
+  "time": 600,
+  "expedition": true,
+  "mode": "bastion",
+  "theme": "glacis",
+  "capture": {
+    "x": 25,
+    "y": 6,
+    "radius": 3,
+    "duration": 60,
+    "threshold": 1,
+    "decay": 1,
+    "contest": true
+  },
+  "bastion": {
+    "nights": 4,
+    "bloodMoons": [
+      4
+    ],
+    "waveMult": 1.2,
+    "roster": [
+      "w",
+      "r",
+      "h",
+      "i"
+    ],
+    "edges": [
+      "s",
+      "e",
+      "w"
+    ]
+  },
+  "stronghold": {
+    "level": 4,
+    "name": "Thaw Crown",
+    "sizeLabel": "M",
+    "difficulty": 2,
+    "waves": 5,
+    "hpMult": 1.1,
+    "unlock": "pyro",
+    "blurb": "A glacier crown above frozen leads. Climb the slick ramps, take the high ground by day, and hold it while the cold things grind up after you.",
+    "newFeatures": [
+      "King-of-the-Hill: seize the crown to win",
+      "Ice ramps slide \u2014 watch your footing on the climb",
+      "Frostshades chill; a Glacier grinds up the ramp"
+    ]
+  },
+  "ambience": "meadow",
+  "intro": [
+    {
+      "title": "Thaw Crown",
+      "lines": [
+        "The crown sits on a shelf of old glacier ice, ringed in rock with three ramps cut into the slope.",
+        "Take it in daylight \u2014 stand the high ground long enough and it is yours. Then keep it.",
+        "The ramps are sheet ice; you will slide. Frostshades will chill you to a crawl, and a Glacier never stops climbing."
+      ],
+      "art": "siege"
+    }
+  ],
+  "outro": [
+    {
+      "title": "The Crown Holds",
+      "lines": [
+        "Four nights, and the banner still flies over the ice crown.",
+        "Below, the frozen leads crack and refreeze \u2014 the slope is ours now."
+      ],
+      "art": "dawn"
+    }
+  ],
+  "captiveChars": [],
+  "tiles": [
+    "####################################################",
+    "#..................................................#",
+    "#..................##############..................#",
+    "#..................#;;;;;;;;;;;;#..................#",
+    "#..................#;.B.....B..;#..................#",
+    "#.............^^^^^.B.........B;.^^^^^.............#",
+    "#.............^^^^^.;....K.....;.^^^^^.............#",
+    "#.............^^^^^#;..........;#^^^^^.............#",
+    "#..................#;.B.....B..;#..................#",
+    "#..................#;;;;B;B;;;;;#..................#",
+    "#..................#####...######..................#",
+    "#.......................^^^^.......................#",
+    "#.......................^S^^.......................#",
+    "#.......................^^^^.......................#",
+    "#.......................^^^^.......................#",
+    "#.......^^^^^^..........^^^^..........^^^^^^.......#",
+    "#.......^^^^^^..........^h^^..........^^^^^^.......#",
+    "#.......^^^^^^..........^^^^..........^^^^^^.......#",
+    "#.......^w^^^^..........^^^^..........^^^w^^.......#",
+    "#.......^^^^^^..........^^^^..........^^^^^^.......#",
+    "#.......^^^^^^..........r^^^..........^^^^^^.......#",
+    "#.......^^^w^^..........^^^^..........^w^^^^.......#",
+    "#.......^^^^^^..........^^w^..........^^^^^^.......#",
+    "#.......^^^^^^...h......^^^^.......h..^^^^^^.......#",
+    "#.......^^h^^^..........^C^^..........^^^h^^.......#",
+    "#-------^^^^^^------------------------^^^^^^-------#",
+    "#-------^^^^^^----r--------------r----^^^^^^-------#",
+    "#-------^r^^^^------------------------^^r^^^-------#",
+    "#-------^^^^^^-~~~----------------~~~-^^^^^^-------#",
+    "#--------------~~~----------------~~~--------------#",
+    "#--~~~----C-i--~~~-------i--------~~~--i-C----~~~--#",
+    "#--~~~---------~~~----------------~~~---------~~~--#",
+    "#--~~~-----#----------------------------#-----~~~--#",
+    "#--~~~--------------#-H-PPP-H--#-C------------~~~--#",
+    "#-------------------A----------V-------------------#",
+    "####################################################"
+  ],
+  "builds": [
+    {
+      "kind": "turret",
+      "cost": 10,
+      "prebuilt": true,
+      "ttype": "tesla"
+    },
+    {
+      "kind": "turret",
+      "cost": 10,
+      "prebuilt": true,
+      "ttype": "gun"
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "farm",
+      "cost": 6,
+      "prebuilt": true
+    },
+    {
+      "kind": "farm",
+      "cost": 6,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4,
+      "prebuilt": true
+    }
+  ],
+  "chests": [
+    {
+      "loot": "shards",
+      "amount": 8
+    },
+    {
+      "loot": "medkit",
+      "amount": 1
+    },
+    {
+      "loot": "shards",
+      "amount": 10
+    },
+    {
+      "loot": "shield",
+      "amount": 1
+    }
+  ],
+  "hires": [
+    {
+      "job": "engineer",
+      "cost": 10,
+      "name": "Ice-Rigger Brann"
+    },
+    {
+      "job": "smith",
+      "cost": 12,
+      "name": "Frostwright Selka"
+    }
+  ],
+  "vehicles": [
+    {
+      "kind": "stag"
+    }
+  ],
+  "pickups": [
+    {
+      "kind": "stormgun"
+    }
+  ]
+}

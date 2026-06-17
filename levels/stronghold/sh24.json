@@ -1,0 +1,250 @@
+{
+  "stranded": true,
+  "name": "Crucible Endless",
+  "objective": "Endless in the apex furnace: hold the core through unending blood-moon nights as the safe shelves burn away",
+  "time": 600,
+  "expedition": true,
+  "mode": "bastion",
+  "theme": "crucible",
+  "weather": "ashstorm",
+  "ambience": "ash",
+  "bastion": {
+    "endless": true,
+    "nights": 99,
+    "dayLen": 55,
+    "nightLen": 130,
+    "bloodMoons": [
+      3,
+      6,
+      9
+    ],
+    "bloodEvery": 3,
+    "waveMult": 2.6,
+    "wavesPerNight": 2,
+    "roster": [
+      "d",
+      "s",
+      "k",
+      "$",
+      "b"
+    ],
+    "dayEvents": true
+  },
+  "stronghold": {
+    "level": 24,
+    "name": "Crucible Endless",
+    "sizeLabel": "XL",
+    "difficulty": 5,
+    "waves": 99,
+    "hpMult": 1.77,
+    "blurb": "The apex furnace, endless. Concentric ash shelves ring a lava sea around the core; void seals the rim. Molten bruisers, brine-hulk sappers and wall-walking phaseborn climb the blood moons forever, and the safe ground burns out from under you.",
+    "newFeatures": [
+      "Endless survival — no final dawn",
+      "Recurring blood moons every third night",
+      "Concentric lava-and-ash arena rings",
+      "Apex roster: molten, brinehulk, phaseborn, bosses",
+      "Fire-patch ambient that shrinks the shelves"
+    ]
+  },
+  "intro": [
+    {
+      "title": "Crucible Endless",
+      "lines": [
+        "No relief is coming. No dawn ends this one.",
+        "Lava seas ring the core; void seals the rim; only four ash bridges let them in.",
+        "Every third moon runs blood. Hold the center while the shelves burn away."
+      ],
+      "art": "campfire"
+    }
+  ],
+  "outro": [
+    {
+      "title": "The Furnace Never Cools",
+      "lines": [
+        "There is no last night here — only the next one.",
+        "However far you held, the crucible remembers."
+      ],
+      "art": "dawn"
+    }
+  ],
+  "captiveChars": [],
+  "tiles": [
+    "#############################################################",
+    "#########################%%%%___%%%%#########################",
+    "####################%%%%%%%%%___%%%%%%%%%####################",
+    "#################%%%%%%%_____________%%%%%%%#################",
+    "###############%%%%%__________$__________%%%%%###############",
+    "#############%%%%_______!!!!!___!!!!!_______%%%%#############",
+    "###########%%%%_____!!!!!!!!!___!!!!!!!!!_____%%%%###########",
+    "##########%%%%____!!!!!!_____________!!!!!!____%%%%##########",
+    "#########%%%_____!!!__________d__________!!!_____%%%#########",
+    "#######%%%%_$_!!!___________________________!!!_b_%%%%#######",
+    "######%%%%___!!!__________!!!___!!!__________!!!___%%%%######",
+    "######%%%___!!!_______!!!!!!!___!!!!!!!_______!!!___%%%######",
+    "#####%%%___!!!___s___!!!!___________!!!!___s___!!!___%%%#####",
+    "####%%%___!!!______!!_!_______________!_!!______!!!___%%%####",
+    "####%%___!!!_____!!!!_________C_________!!!!_____!!!___%%####",
+    "###%%%__!!!_____!!!!____k___________k____!!!!_____!!!__%%%###",
+    "###%%___!!!_____!!______A__+++++++_________!!_____!!!___%%###",
+    "##%%%__!!!_____!!!_______+++++++++++_______!!!_____!!!__%%%##",
+    "##%%%__!!!____!!!______+++++++++++++++______!!!____!!!__%%%##",
+    "##%%___!!_____!!!_____+++++B+++++B+++++_____!!!_____!!___%%##",
+    "##%%___!!_____!!______++++++BB+BB++++++______!!_____!!___%%##",
+    "##____________________++++++B+P+B++++++____________________##",
+    "##___b_____d_____O_k__C++++++PKP++++++C___kO_____d_____$___##",
+    "##____________________++++++B+P+B++++++____________________##",
+    "##%%___!!_____!!______++++++BB+BB++++++______!!_____!!___%%##",
+    "##%%___!!_____!!!_____+++++B+++++B+++++_____!!!_____!!___%%##",
+    "##%%%__!!!____!!!______+++++++++++++++______!!!____!!!__%%%##",
+    "##%%%__!!!_____!!!_______+++++++++++_______!!!_____!!!__%%%##",
+    "###%%___!!!_____!!_________+++++++__A______!!_____!!!___%%###",
+    "###%%%__!!!_____!!!!____k___________k____!!!!_____!!!__%%%###",
+    "####%%___!!!_____!!!!_________C_________!!!!_____!!!___%%####",
+    "####%%%___!!!______!!_!_______________!_!!______!!!___%%%####",
+    "#####%%%___!!!___s___!!!!___________!!!!___s___!!!___%%%#####",
+    "######%%%___!!!_______!!!!!!!___!!!!!!!_______!!!___%%%######",
+    "######%%%%___!!!__________!!!___!!!__________!!!___%%%%######",
+    "#######%%%%_$_!!!___________________________!!!_b_%%%%#######",
+    "#########%%%_____!!!__________d__________!!!_____%%%#########",
+    "##########%%%%____!!!!!!_____________!!!!!!____%%%%##########",
+    "###########%%%%_____!!!!!!!!!___!!!!!!!!!_____%%%%###########",
+    "#############%%%%_______!!!!!___!!!!!_______%%%%#############",
+    "###############%%%%%__________$__________%%%%%###############",
+    "#################%%%%%%%_____________%%%%%%%#################",
+    "####################%%%%%%%%%___%%%%%%%%%####################",
+    "#########################%%%%___%%%%#########################",
+    "#############################################################"
+  ],
+  "builds": [
+    {
+      "kind": "turret",
+      "cost": 10,
+      "prebuilt": true,
+      "ttype": "gun"
+    },
+    {
+      "kind": "turret",
+      "cost": 10,
+      "prebuilt": true,
+      "ttype": "gun"
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "farm",
+      "cost": 6,
+      "prebuilt": true
+    },
+    {
+      "kind": "farm",
+      "cost": 6,
+      "prebuilt": true
+    }
+  ],
+  "chests": [
+    {
+      "loot": "shards",
+      "amount": 14
+    },
+    {
+      "loot": "medkit",
+      "amount": 1
+    },
+    {
+      "loot": "shield",
+      "amount": 1
+    },
+    {
+      "loot": "shards",
+      "amount": 12
+    }
+  ],
+  "pickups": [
+    {
+      "kind": "flamer"
+    },
+    {
+      "kind": "railcannon"
+    }
+  ],
+  "teleports": [
+    {
+      "id": "t24a",
+      "twin": "t24b"
+    },
+    {
+      "id": "t24b",
+      "twin": "t24a"
+    }
+  ]
+}

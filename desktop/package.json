@@ -1,0 +1,23 @@
+{
+  "name": "anchorfall-desktop",
+  "version": "1.20.0",
+  "description": "MONOLYTHIUM — THE ANCHORFALL — native desktop shell (Electron) around the web game",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "prepare:runtime": "node scripts/prepare-runtime.js",
+    "build:game": "npm --prefix .. run build",
+    "dist": "npm run build:game && npm run prepare:runtime && electron-builder",
+    "dist:dir": "npm run build:game && npm run prepare:runtime && electron-builder --dir",
+    "dist:mac": "npm run build:game && npm run prepare:runtime && electron-builder --mac",
+    "dist:win": "npm run build:game && npm run prepare:runtime && electron-builder --win",
+    "dist:linux": "npm run build:game && npm run prepare:runtime && electron-builder --linux"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^26.0.0"
+  },
+  "dependencies": {
+    "@kmamal/sdl": "^0.11.13"
+  }
+}

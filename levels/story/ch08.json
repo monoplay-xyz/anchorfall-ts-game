@@ -1,0 +1,346 @@
+{
+  "name": "The Prover Array",
+  "story": true,
+  "chapter": 8,
+  "title": "Chapter VIII — The Prover Array",
+  "theme": "reliquary",
+  "expedition": true,
+  "objective": "Fell the six colonnade pillars, forge the LythiumSeal at Hask's anvil, light the rite, then bring seven of ten breaker voices true and walk the gold gate to the Array core",
+  "time": 900,
+  "captiveChars": [],
+  "npcs": [
+    {
+      "id": "hask-embervein",
+      "name": "Hask Embervein, Forgekeeper",
+      "lines": [
+        "Hask Embervein. Mind the sparks. One key is a confession; seven keys are a country.",
+        "Bring me fragments, not promises. The anvil can't interpolate promises.",
+        "A proof fragment and twenty shards buy you the Combining. Six fragments make slag — six is not a quorum at this anvil either.",
+        "The Seal never names the innocent. It only fails the forged. Walk it near a Phantom and watch the stolen face boil off.",
+        "The colonnade pillars? Good servants, bad gods. They served between checkpoints. Let them rest between them too."
+      ],
+      "gift": {
+        "shards": 10
+      }
+    },
+    {
+      "id": "sel-brakka",
+      "name": "Sel Brakka, Prover Foreman",
+      "lines": [
+        "Sel Brakka, foreman of the Array. We grind mountains into receipts here — when the stacks are lit. They are not lit.",
+        "The Entropy threw the count. Ten breaker voices ring this sanctum, and seven true make a quorum. Six is not a quorum. The gate text means it.",
+        "Mind the window: the moment the first voice goes up, the field starts counting. Seven inside two minutes, or it forgets every voice you threw.",
+        "Six grey pillars stand on the dead curve around the dais. While one stands, the Phantoms re-knit out of drift. Put the Migration through.",
+        "Hask keeps the forge across the west wing — the reflecting pools draw the path. The vault out there only answers a LythiumSeal.",
+        "Keep the canals wet and the colonnade gold. Generation is costly, verification is cheap. That's mercy, engineered."
+      ],
+      "gift": {
+        "shards": 6
+      }
+    }
+  ],
+  "builds": [
+    {
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "beacon",
+      "cost": 10
+    }
+  ],
+  "chests": [
+    {
+      "loot": "shards",
+      "amount": 10
+    },
+    {
+      "loot": "cracker",
+      "amount": 2
+    },
+    {
+      "loot": "medkit",
+      "amount": 1
+    }
+  ],
+  "vehicles": [
+    {
+      "kind": "stag"
+    },
+    {
+      "kind": "stag"
+    }
+  ],
+  "pickups": [
+    {
+      "kind": "railcannon"
+    },
+    {
+      "kind": "stormgun"
+    }
+  ],
+  "qitems": [
+    {
+      "id": "frag-relay",
+      "kind": "fragment"
+    },
+    {
+      "id": "frag-keeper",
+      "kind": "fragment"
+    }
+  ],
+  "switches": [
+    {
+      "id": "voice-1",
+      "group": 0
+    },
+    {
+      "id": "voice-2",
+      "group": 0
+    },
+    {
+      "id": "voice-3",
+      "group": 0
+    },
+    {
+      "id": "voice-4",
+      "group": 0
+    },
+    {
+      "id": "voice-5",
+      "group": 0
+    },
+    {
+      "id": "voice-6",
+      "group": 0
+    },
+    {
+      "id": "voice-7",
+      "group": 0
+    },
+    {
+      "id": "voice-8",
+      "group": 0
+    },
+    {
+      "id": "voice-9",
+      "group": 0
+    },
+    {
+      "id": "voice-10",
+      "group": 0
+    }
+  ],
+  "switchGroups": [
+    {
+      "group": 0,
+      "need": 7,
+      "of": 10,
+      "window": 120,
+      "reward": {
+        "openDoor": "core-gate"
+      }
+    }
+  ],
+  "doors": [
+    {
+      "id": "vault",
+      "x": 6,
+      "y": 18,
+      "w": 1,
+      "h": 2,
+      "sealLock": true
+    },
+    {
+      "id": "core-gate",
+      "x": 30,
+      "y": 2,
+      "w": 1,
+      "h": 1
+    }
+  ],
+  "teleports": [
+    {
+      "id": "cor-west-a",
+      "twin": "cor-east-a"
+    },
+    {
+      "id": "cor-east-a",
+      "twin": "cor-west-a"
+    },
+    {
+      "id": "cor-west-b",
+      "twin": "cor-east-b"
+    },
+    {
+      "id": "cor-east-b",
+      "twin": "cor-west-b"
+    }
+  ],
+  "quests": [
+    {
+      "id": "q-migration",
+      "main": true,
+      "title": "The Migration: fell the six colonnade pillars",
+      "giver": "sel-brakka",
+      "kind": "destroy",
+      "target": "pillar",
+      "count": 6,
+      "reward": {
+        "shards": 14
+      },
+      "hint": "They served between checkpoints. Let them rest between them too."
+    },
+    {
+      "id": "q-seal",
+      "title": "Forge a LythiumSeal at Hask's anvil",
+      "giver": "hask-embervein",
+      "kind": "craft",
+      "target": "lythseal",
+      "count": 1,
+      "reward": {
+        "shards": 8
+      },
+      "hint": "A proof fragment and twenty shards. The anvil cannot interpolate promises."
+    },
+    {
+      "id": "q-quorum",
+      "title": "The Count: bring seven of ten voices online",
+      "giver": "sel-brakka",
+      "kind": "switch",
+      "target": "0",
+      "count": 1,
+      "reward": {
+        "shards": 10
+      },
+      "hint": "Seven inside the window, or the field forgets every voice you threw. Six is not a quorum."
+    },
+    {
+      "id": "q-core",
+      "title": "Reach the Array core",
+      "giver": "sel-brakka",
+      "kind": "reach",
+      "target": {
+        "x": 30,
+        "y": 4
+      },
+      "count": 1,
+      "hint": "The gold gate answers the quorum. Walk in and prove the frontier whole."
+    }
+  ],
+  "intro": [
+    {
+      "title": "Chapter VIII — The Prover Array",
+      "lines": [
+        "The Entropy threw the count at the Prover Array. The stacks stand cold, the colonnade grey.",
+        "While one classical pillar stands, the slain Phantoms re-knit out of drift.",
+        "A forged name dies at the next checkpoint. Become the checkpoint."
+      ],
+      "art": "entropy"
+    },
+    {
+      "title": "Six Is Not a Quorum",
+      "lines": [
+        "Ten breaker voices ring the dais, and any seven true voices give the same answer.",
+        "The Anchor takes no fractions."
+      ],
+      "art": "quorum"
+    }
+  ],
+  "outro": [
+    {
+      "title": "The Field Proves Whole",
+      "lines": [
+        "The seventh voice snaps true and gold floods the sanctum — every pylon answers at once.",
+        "The stacks roar back to work; feather-light receipts ride the settled corridors to every village gate.",
+        "What the curve promised, the lattice keeps."
+      ],
+      "art": "dawn"
+    },
+    {
+      "title": "Act II — Settled",
+      "lines": [
+        "From the Basin to the Array, the frontier holds: anchored, counted, proven whole.",
+        "The Anchorcraft waits on its pad for the hundredth-anchor checkpoint. The Crossing continues.",
+        "Behind you, a world that holds. Ahead, one that does not yet."
+      ],
+      "art": "settlement"
+    }
+  ],
+  "modifiers": {
+    "waves": [
+      {
+        "at": 300,
+        "letters": "qqaakk",
+        "edge": "e"
+      },
+      {
+        "at": 600,
+        "letters": "aayykk",
+        "edge": "w"
+      },
+      {
+        "at": 960,
+        "letters": "kkqqaay",
+        "edge": "n"
+      },
+      {
+        "at": 1320,
+        "letters": "yykkqqaa",
+        "edge": "s"
+      }
+    ]
+  },
+  "tiles": [
+    "############################################################",
+    "#;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;#",
+    "#;,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,;#",
+    "#;,;;;;;;;;;;;;;;;;;;;;;;;;;;;E;;;;;;;;;;;;;;;;;;;;;;;;;;,;#",
+    "#;,;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;,;#",
+    "#;,;;C;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;,;#",
+    "#;,;;;Q;;;;;;;;;;;;;;;;;;;;;;;Q;;;;;;;;;;;;;;;;;;;;;;Q;;;,;#",
+    "#;,;;;;;;;;;;;;;;;;;;;;;;;;;;;a;;;;;;;;;;;;;;;;;;;;;;;;;;,;#",
+    "#;,;;;k;;;;;;;;;;;;;;;;;;;;;;;k;;;;;;;;;;;;;;;;;;;;;;k;;;,;#",
+    "#;,;;;;;;;;;;;;;;;~~~~~~~~~~~~;~~~~~~~~~~~;;;;;;;;;;;;;;;,;#",
+    "#;,;;;;;;;;;;;;;;;~~~~~~~~~~~~;~~~~~~~~~~~;;;;;;;;;;;;;;;,;#",
+    "#;,;;;;;;;;;;;;;;;~;;;;;;;;;;;;;;;;;;;;;;~;;;;;;;;;;;;;;;,;#",
+    "#;,;;;;;;;;;;;;;;;~;a;;;;;;;;;;;;;;;;;;a;~;;;;;;;;;;;;;;;,;#",
+    "#;,;;;;;;;;;;;;;;;~;;;;;;;;;;;;;;;;;;;;;;~;;;;;;;;;;;;;;;,;#",
+    "#;,;;;;;;;;;;;;;;;~;;;;;;;;;;;X;;;;;;;;;;~;;;;;;;;;;;;;;;,;#",
+    "#;,;;;;;;;;;;;;;;;~;;;;;X;;;;;q;;;;;X;;;;~;;;;;;;;;;;;;;;,;#",
+    "#;,;;;;;;;;;Q;;;;;~;;;;;q;;;;;J;;;;;q;;;;~;;;;;;;;;;;;;;;,;#",
+    "#;,;;;;O;;;;I;;;;;~;;;;;;;;J;;;;;J;;;;;;;~;;;;;;A;;;O;;;;,;#",
+    "#;,;;;;;;;;;;;;;;;~;;;;;;;;;B;;;B;;;;;;;;~;;;;;;;;;;;;;;;,;#",
+    "#;,;;;Q;ZN;;;;q;;;;;;;;;;;B;y;;;y;B;;;;;;;;;;q;;;;;;;Q;;;,;#",
+    "#;,;;;;;;;;;;;;;;;~;;;;;;;;;;;;;;;;;;;;;;~;;;;;;;;;;;;;;;,;#",
+    "#;,;;;;O;;IA;;;;;;~;;;;;;;;J;;;;;J;;;;;;;~;;;;;;;;;;O;;;;,;#",
+    "#;,;;;;;;;;;;;;;;;~;;;;;;;;;;;B;;;;;;;;;;~;;;;;Q;;;;;;;;;,;#",
+    "#;,;;;;;;;;;;;;;;;~;;;;;X;;;;;;;;;;;X;;;;~;;;;;;;;;;;;;;;,;#",
+    "#;,;;;;;;;;;;;;;;;~;;;;;q;;;;;X;;;;;q;;;;~;;;;;;;;;;;;;;;,;#",
+    "#;,;;;;;;;;;;;;;;;~;;;;;;;;;;;q;;;;;;;;;;~;;;;;;;;;;;;;;;,;#",
+    "#;,;;;;;;;;;;;;;;;~;a;;;;;;;;;;;;;;;;;;a;~;;;;;;;;;;;;;;;,;#",
+    "#;,;;;;;;;;;;;;;;;~;;;;;;;;;;;;;;;;;;;;;;~;;;;;;;;;;;;;;;,;#",
+    "#;,;;;;;;;;;;;;;;;~~~~~~~~~~~~;~~~~~~~~~~~;;;;;;;;;;;;;;;,;#",
+    "#;,;;;k;;;;;;;;;;;~~~~~~~~~~~~;~~~~~~~~~~~;;;;;;;;;;;k;;;,;#",
+    "#;,;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;,;#",
+    "#;,;;;Q;;;;;;;;;;;;;;;;;;;;;;;Q;;;;;;;;;;;;;;;;;;;;;;Q;;;,;#",
+    "#;,;;C;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;C;;,;#",
+    "#;,;;;;;;;;;;;;;;;;;;;;;;;;;;;N;;;;;;;;;;;;;;;;;;;;;;;;;;,;#",
+    "#;,;;;;;;;;;;;;;;;;;;;;;;;;;;P;P;;;;;;;;;;;;;;;;;;;;;;;;;,;#",
+    "#;,,,,,,,,,,,,,,,,,,,,V,,,,,,P,P,,,,,,V,,,,,,,,,,,,,,,,,,,;#",
+    "#;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;#",
+    "############################################################"
+  ]
+}

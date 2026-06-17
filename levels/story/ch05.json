@@ -1,0 +1,309 @@
+{
+  "name": "Cluster Siege",
+  "story": true,
+  "chapter": 5,
+  "title": "Chapter V — Cluster Siege",
+  "objective": "Hold the drowned cluster camp through the fogged nightwaves — sortie the reed causeways to raise all three relay pylons, then take the east road home",
+  "theme": "mire",
+  "time": 720,
+  "expedition": true,
+  "intro": [
+    {
+      "title": "The Long Night",
+      "lines": [
+        "Fog rolls off the black water and the cluster camp douses its lights.",
+        "Three relay pylons stand cold in the reeds — north, west, south.",
+        "The peat seeps poison and the Entropy wades the channels. Hold the ring. Sortie between waves."
+      ],
+      "art": "siege"
+    }
+  ],
+  "modifiers": {
+    "dark": true,
+    "waves": [
+      {
+        "at": 120,
+        "letters": "zzzzhh",
+        "edge": "n"
+      },
+      {
+        "at": 280,
+        "letters": "zzvvhh",
+        "edge": "w"
+      },
+      {
+        "at": 440,
+        "letters": "zzzjjh",
+        "edge": "s"
+      },
+      {
+        "at": 580,
+        "letters": "zvvjqh",
+        "edge": "e"
+      }
+    ]
+  },
+  "outro": [
+    {
+      "title": "Dawn Over the Mire",
+      "lines": [
+        "The last wave sinks back into the fog and does not surface again.",
+        "Three relays burn steady over the black water. The warden finally sits down.",
+        "One road left: east, on dry causeways, to the Settlement."
+      ],
+      "art": "dawn"
+    }
+  ],
+  "captiveChars": [
+    "bastion"
+  ],
+  "npcs": [
+    {
+      "id": "warden-okafor",
+      "name": "Warden Okafor",
+      "lines": [
+        "Nightwave's close — walls up, lights low. The fog hides them till they're on the wire.",
+        "In this dark they see eight tiles, no further. Stay dim, strike first.",
+        "Five gaps in my barricade ring, frames already stood. Mind the lane gaps.",
+        "The pylons sit out in the black — north, west, south. Sortie between waves, never during.",
+        "Watch the peat — it weeps poison. And the toads spit it onto the causeways. Don't dawdle on a bridge."
+      ],
+      "gift": {
+        "shards": 10
+      }
+    },
+    {
+      "id": "doc-aroyo",
+      "name": "Doc Aroyo",
+      "lines": [
+        "You again! Last needle I put in you was at the Crossing keep. Small frontier.",
+        "Hm, hm-hmm... the old transit jingle. Pre-Fall. It keeps my hands steady.",
+        "Crystal nodes glow along the causeways — four shards a node. Crack them before the waves trample through.",
+        "Stay by the braziers between sorties. This cold fog gets into the joints.",
+        "When the relays settle, the lines run again. I'll hum us the whole way home."
+      ]
+    }
+  ],
+  "builds": [
+    {
+      "kind": "pylon",
+      "cost": 12
+    },
+    {
+      "kind": "turret",
+      "cost": 10,
+      "prebuilt": true,
+      "ttype": "gun"
+    },
+    {
+      "kind": "turret",
+      "cost": 10,
+      "prebuilt": true,
+      "ttype": "gun"
+    },
+    {
+      "kind": "barricade",
+      "cost": 4,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4,
+      "prebuilt": true
+    },
+    {
+      "kind": "pylon",
+      "cost": 12
+    },
+    {
+      "kind": "barricade",
+      "cost": 4,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4,
+      "prebuilt": true
+    },
+    {
+      "kind": "pylon",
+      "cost": 12
+    }
+  ],
+  "gate": {
+    "need": 3,
+    "after": 600
+  },
+  "tiles": [
+    "######################################################################",
+    "#,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,#",
+    "#,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,#",
+    "#,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,#",
+    "#,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,#",
+    "#,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,#",
+    "#,,,,,,,,,,,,,##~~~~,,,,,,,,,,,,,,@,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,#",
+    "#,,,,,,,,,,,,,,~~~~~~~,,,,,,,,,,,,,@,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,#",
+    "#,,,,,~,,,,,,,~~,,,,~~~,,,,##,,,,,j,,,,,###,,,,,,,,,,,,,,,,,,,,,,,,,,#",
+    "#,,,,,~~~,,,j~~,,,,,,,~,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,##,,,,,,,,,,,,#",
+    "#,,,,,,~~~~~~~,,,,,,,,,,,,,,,,,,,,B,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,#",
+    "#,,,,,,,,~~~,,,,,,,,,,,,,,,,,,,,,,;,,,,,,,,,,,,,,@,,,,,,,,,,,,,,,,,,,#",
+    "#,,,,,,,,,,,,,,,,,,,,,,,,,z,,,,,,,;,,,,,,,,z,,,,@,,,,,,,,,,,,,,,,,,,,#",
+    "#,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,@;,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,#",
+    "#,,,,,,,##,,,,,,,q,,,,,h,,,,,,,,,,Y,,,,,,,,,,,h,,,,,,,,,,,,,,,,,,,,,,#",
+    "#,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,;,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,#",
+    "#,,,,,,,,,,,,,,,,,,,,,,,::::::::::;:::::::::::,,,,,,,,,,##,,,,,,,,,,,#",
+    "#,,,,,,,,,,,,,,,,,,,,,,,::::::::::;:::::::::::,,,,,,,,,,,,,,,,,,,,,,,#",
+    "#,,,,,,,,,,,,,,,,,##,,,,::::::::::Y:::::::::::,,,,v,,,,,,,,,,z,,,,,,,#",
+    "#,,,,,,,,,,,,,,,,,,,,,,,::::::::::;:::::::::::,,,,,,,,,,,,,,,,,,,,,,,#",
+    "#,,,,,,,,,,,,,,,,,,,,,,,::::::BBBB:BBBBB::::::,,,,,,,,,,,,,,,,,,,,,,,#",
+    "#,,,,,,,,,,,,,,,,,,,,,,,:::::B::::::::::B:::::,,,,,,,,,,,,,,,,,,,,,,,#",
+    "#,,,,,,,,,,,,,,,,,,,,,,,:::::B:*::::::::B:::::,,,,,,,,,,,@@,,,,,,,,,,#",
+    "#,,,,,,,,,,,,,,,,,,,,,,,:::::B:::P::P:::B:::::,,,,,,,,,,,,,,;;;,,,,,,#",
+    "#,;;;;;;;j@;;;B;;;@v;;Y;;;;Y;:::::*:::N::;;;;;;Y;;@;;;;;;;;j;;;EE,,,,#",
+    "#,;;;;;;;;;@;;;;Y;;;;;;;;;;;;::N:::::::::;Y;;;;;;;Y;;;;;;;;;;;;EE,,,,#",
+    "#,,,,,,,,,,,,,,,,,,,,,,,:::::B:::Pc:P:::B:::::,,,,,,,,,,,,,,;;;,,,,,,#",
+    "#,,,,,,,,,,,,,,,,,,,,,,,:::::B::::::::*:B:::::,,,,,,~~,,,,,,,,,,,,,,,#",
+    "#,,,,,,,,,,,,,,,,,,,,,,,:::::B::::::::::B:::::,,,,,,~~,,,,,,,,,,,,,,,#",
+    "#,,,,,,,,,,,,,,,,,,,,,,,::::::BBBB:BBBBB::::::,,,,,,~~,,,,,,,,,,,,,,,#",
+    "#,,,,,,,z,,,,,,,,,,,,,,,::::::::::;:::::::::::,,,,,,~~,,,,,,,,,,,,,,,#",
+    "#,,,,,,,,,,,,,,,,,,,,,,,::::::::::Y:::::::::::,,,,,,~~,,,,,,##,,,,,,,#",
+    "#,,,,,,,,,,,,,,,,,,,,,,,::::::::::;:::::::::::,,,,,,~~,,,,,,,,,,,,,,,#",
+    "#,,,,,,,,,,,##,,,,,,,,,,::::::::::;:::::::::::,,,,,,~~,,,,,,,,,,,,,,,#",
+    "#,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,;,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,#",
+    "#,,,,,,,,,,,,,,,,,,,,,,h,,,,,,,,,,Y,,,,,,,,,,,h,,,,,q,,,,,,,,,,,,,,,,#",
+    "#,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,;,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,#",
+    "#,,,,,,,,,,,,,,,,,,,,,,,,,z,,,,,,@;,,,,,,,,z,,,,,,,,##,,,,,,,,,,,,,,,#",
+    "#,,,,,,,,,,,,,,,,,,,@,,,,,,,,,,,,,;,,,,,,,,,,,,,,,,,,,,,~~~~,,,,,,,,,#",
+    "#,,,,,,,,,,,,,,,,,,,,@,,,,,,,,,,,,B,,,,,,,,,,,,,,,,,,,,~~~~~~~,,,,,,,#",
+    "#,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,;,,,,,,,,,,,~,,,,,,,~~,,,,~~~,,,,,,#",
+    "#,,,,,,,,,,,,,,,,,,,,,,,,,,##,,,,,j,,,,,###,,,~~~,,,~~~,,,,,,,~~,,,,,#",
+    "#,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,;@,,,,,,,,,,,~~~j~~~,,,,,,,,,~,,,,,#",
+    "#,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,@,,,,,,,,,,,,,,~~~,,,,,,,,,,,,,,,,,#",
+    "#,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,;,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,#",
+    "#,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,;,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,#",
+    "#,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,;,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,#",
+    "#,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,;,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,#",
+    "#,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,#",
+    "######################################################################"
+  ]
+}

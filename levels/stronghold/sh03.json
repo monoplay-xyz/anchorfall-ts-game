@@ -1,0 +1,260 @@
+{
+  "stranded": true,
+  "name": "The Rifts",
+  "objective": "Hold the rift-shelf keep through four nights — phaseborn drift the void, so trust your inner guns, not your walls",
+  "time": 600,
+  "expedition": true,
+  "mode": "bastion",
+  "theme": "voidscar",
+  "bastion": {
+    "nights": 4,
+    "bloodMoons": [
+      3
+    ],
+    "waveMult": 1.13,
+    "roster": [
+      "z",
+      "w",
+      "r",
+      "k"
+    ]
+  },
+  "stronghold": {
+    "level": 3,
+    "name": "The Rifts",
+    "sizeLabel": "M",
+    "difficulty": 2,
+    "waves": 5,
+    "hpMult": 1.07,
+    "unlock": "raider",
+    "blurb": "A stone shelf marooned in a starlit void. Rifts swallow the south and west, so every wave climbs one long diagonal causeway — and phaseborn walk straight through your walls.",
+    "newFeatures": [
+      "Voidscar — '%' rifts block movement, sight AND shots",
+      "Phaseborn debut — revenants drift through walls",
+      "Diagonal frontage — one causeway, no rear assault"
+    ]
+  },
+  "ambience": "night",
+  "intro": [
+    {
+      "title": "The Rifts",
+      "lines": [
+        "The shelf is all that holds — black void on three sides, stars in the deep where the ground used to be.",
+        "Shots die in the rifts. So does anyone shoved off the causeway. Your only real front is the long diagonal up from the southwest.",
+        "And the dead here don't need doors. Phaseborn step through stone like fog. Walls won't save you — guns inside the keep will."
+      ],
+      "art": "siege"
+    }
+  ],
+  "outro": [
+    {
+      "title": "Stars Stand Still",
+      "lines": [
+        "The fourth dawn finds the shelf intact and the rifts gone quiet, their starlight cold and unmoving.",
+        "Whatever drifts through walls drifted back into the dark. For now."
+      ],
+      "art": "dawn"
+    }
+  ],
+  "quests": [],
+  "captiveChars": [],
+  "tiles": [
+    "############################################",
+    "#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%;#",
+    "#%%%%%%%%%%%%%%%%%%%%%%%;;;;;;;;;;;;;;;;;;;#",
+    "#%%%%%%%%%%%%%%%%%%%%%%%;;;;;;;;;;;;;;;;C;;#",
+    "#%%%%%%%%%%%%%%%%%%%%%%%;;;;;;;;BHBBBBB;;;;#",
+    "#%%%%%%%%%%%%%%%%%%%%%%%;;;;;;;;BBB;;BB;;;;#",
+    "#%%%%%%%%%%%%%%%%%%%%%%%;;;;;;;;B;;K;;B;;;;#",
+    "#%%%%%%%%%%%%%%%%%%%%%%%;;;;;;;;B;P;P;B;;;;#",
+    "#%%%%%%%%%%%%%%%%%%%%%%%;;;;k;;;;V;;;;B;;S;#",
+    "#%%%%%%%%%%%%%%%%%%%%%%%;;/r;zC;B;BBNBB;;;;#",
+    "#%%%%%%%%%%%%%%%%%%%%%%%/w;;;;;;;;;;;;;;;;;#",
+    "#%%%%%%%%%%%%%%%%%%%%%/zk;;;;;;;;;;;;;;;;;;#",
+    "#%%%%%%%%%%%%%%%%%%%/;r;;;;;;;;;;;;;;;;;;;;#",
+    "#%%%%%%%%%%%%%%%%%/k;;;;;;;;;;;;;;;;;;;;;;;#",
+    "#%%%%%%%%%%%%%%%/;r;w;;;;;;;;;;;;;%%%%%%%%%#",
+    "#%%%%%%%%%%%%%/k;;C;;;;;;;;;;;;;%%%%%%%%%%%#",
+    "#%%%%%%%%%%%;;r;w;;;;;;;;;;;;;%%%%%%%%%%%%%#",
+    "#%%%%%%%%%;;/z;;;;;;;;;;;;;;%%%%%%%%%%%%%%%#",
+    "#%%%%%%%;;;;z;;;;;;;;;;;;;%%%%%%%%%%%%%%%%%#",
+    "#%%%%%;;;;/z;;;;;;;;;;;;%%%%%%%%%%%%%%%%%%%#",
+    "#%;;;;;;;;r;;;;;;;;;;;%%%%%%%%%%%%%%%%%%%%%#",
+    "#%;r;;;;/w;;;;;;;;;;%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#;;;;;wC;;;;;;;;;;%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#;;;z;;w;;;;;;;;%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#;;;;z;;z;;;;;%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#;;;;;;;;;;;%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#;;;;;;;;;%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#;;;;;;;%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "#;;;;;%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#",
+    "############################################"
+  ],
+  "builds": [
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "turret",
+      "cost": 10,
+      "prebuilt": true,
+      "ttype": "prism"
+    },
+    {
+      "kind": "farm",
+      "cost": 6
+    },
+    {
+      "kind": "turret",
+      "cost": 10,
+      "prebuilt": true,
+      "ttype": "prism"
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    }
+  ],
+  "chests": [
+    {
+      "loot": "shards",
+      "amount": 9
+    },
+    {
+      "loot": "medkit",
+      "amount": 1
+    },
+    {
+      "loot": "cracker",
+      "amount": 2
+    },
+    {
+      "loot": "shards",
+      "amount": 7
+    }
+  ],
+  "hires": [
+    {
+      "job": "engineer",
+      "cost": 10,
+      "name": "Rift-Wright Sable"
+    }
+  ],
+  "vehicles": [
+    {
+      "kind": "stag"
+    }
+  ],
+  "npcs": [
+    {
+      "id": "vex",
+      "name": "Voidwarden Vex",
+      "lines": [
+        "Don't waste shots into the rifts — the void eats them whole.",
+        "The walls are theater. Phaseborn walk through them. Keep your turrets inside, where the killing is.",
+        "Hold the shelf. Stay off the edges. The drop never ends."
+      ]
+    }
+  ]
+}

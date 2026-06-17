@@ -1,0 +1,221 @@
+{
+  "stranded": true,
+  "name": "Anchor Bastion",
+  "objective": "Push the wrecked anchor-rig up the tidal causeway to the far moorage — keep its deck clear or the brine-hulks scuttle it",
+  "mode": "bastion",
+  "theme": "saltworks",
+  "expedition": true,
+  "time": 600,
+  "bastion": {
+    "nights": 6,
+    "dayLen": 120,
+    "nightLen": 70,
+    "bloodMoons": [
+      3,
+      5
+    ],
+    "waveMult": 1.6,
+    "wavesPerNight": 2,
+    "roster": [
+      "r",
+      "s",
+      "v",
+      "j",
+      "$"
+    ]
+  },
+  "escort": {
+    "path": [
+      [
+        5,
+        27
+      ],
+      [
+        14,
+        27
+      ],
+      [
+        20,
+        22
+      ],
+      [
+        26,
+        22
+      ],
+      [
+        32,
+        16
+      ],
+      [
+        40,
+        16
+      ],
+      [
+        45,
+        10
+      ],
+      [
+        52,
+        7
+      ]
+    ],
+    "speed": 1.25,
+    "holdRadius": 3,
+    "hp": 48
+  },
+  "difficulty": "hard",
+  "stronghold": {
+    "level": 16,
+    "name": "Anchor Bastion",
+    "sizeLabel": "L",
+    "difficulty": 5,
+    "waves": 16,
+    "hpMult": 1.5,
+    "unlock": "shade",
+    "blurb": "A drowned saltworks of stone causeways over brine pools. Walk the wrecked anchor-rig from the near moorage to the far, and keep its deck clear every dragging stride.",
+    "newFeatures": [
+      "Escort the anchor-rig (first push map)",
+      "Brine-hulks scuttle the deck (double sap)",
+      "Bog-spitters zone the causeway"
+    ]
+  },
+  "intro": [
+    {
+      "title": "Anchor Bastion",
+      "lines": [
+        "The rig is dead in the flats. We walk it to the far moorage on foot — it only rolls while its deck is clear, and a single hulk on the boards stalls it.",
+        "Brine-hulks come for the hull, spitters foul the stone. Keep the deck open, move it forward.",
+        "Shade has crossed these flats before. Land the rig and she steps from the haze."
+      ],
+      "art": "crossing"
+    }
+  ],
+  "outro": [
+    {
+      "title": "Moored",
+      "lines": [
+        "The rig grinds onto the far stone. The flats fall quiet under the fog."
+      ],
+      "art": "dawn"
+    }
+  ],
+  "captiveChars": [],
+  "builds": [
+    {
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    }
+  ],
+  "chests": [
+    {
+      "loot": "medkit",
+      "amount": 1
+    },
+    {
+      "loot": "shards",
+      "amount": 9
+    },
+    {
+      "loot": "cracker",
+      "amount": 2
+    },
+    {
+      "loot": "shards",
+      "amount": 12
+    },
+    {
+      "loot": "shield",
+      "amount": 1
+    }
+  ],
+  "hires": [
+    {
+      "job": "engineer",
+      "cost": 10,
+      "name": "Saltwright Tev"
+    }
+  ],
+  "pickups": [
+    {
+      "kind": "mortarMk2"
+    }
+  ],
+  "vehicles": [],
+  "ambience": "meadow",
+  "tiles": [
+    "############################################################",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~;;;;;;;;;~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~;;;;;;;;;~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~;;;s;;;;;~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~;;=C;;;;;;~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~;;;;;v;;;;;;;~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~;;;;j;;;;;$;;;~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~;;;;;oo;=;;;;;;~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~;;;;;A;;;;;;;;;;~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~;;;;=r;;;;;;;;;;;~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~;;;;;s;;;;~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~;;;;##;;~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~##;;;;;;;=;;;$#;;;~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~j;;;B;;;;;;;;;;;;~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~;;s;;$v;;;;;;;;;;~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~;;;;r;;;;;;;;C;;;~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~;;;;;;;;oo;rv;;;;~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~##~~~~~;;;;;;;;;~~~##~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~#;;;=;;;;;;;;;;~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~;;;;j;;;;;C;;;;;~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~;;;s;;;;;;;;;;;;~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~;;;;;;;;;~~~;;;;;C;;;;;;;;;;~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~;B;;;;;B;~~;;;;;;;;;;;;;;=;~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~;;B;;;B;=;;;;;oo;;;;~~##~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~;;;PP;;;;;;;;;;r;;;~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~;;;;;H;;;;;;;;r;;;~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~;;;PP;;;;;C;;;;;;~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~;;B;;;B;;=;;;;;~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~;B;;;;;B;~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~;;;;;;;;;~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "############################################################"
+  ]
+}

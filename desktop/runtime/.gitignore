@@ -1,0 +1,3 @@
+# the staged Node binary is built per-platform in CI, never committed
+node
+node.exe

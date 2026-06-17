@@ -1,0 +1,34 @@
+{
+  "name": "anchorfall-ts-game",
+  "version": "1.0.0",
+  "description": "Monolythium — The Anchorfall: top-down tactical co-op on the Monolythium frontier. Solo, couch and online multiplayer.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "build": "node scripts/build.js",
+    "check": "tsc --noEmit",
+    "prestart": "node scripts/build.js",
+    "start": "node server.js",
+    "pretest": "node scripts/build.js",
+    "test": "node test/sim.test.js && node test/frame-error.test.js",
+    "gen-assets": "node scripts/gen-assets.js",
+    "gen-expedition": "node scripts/gen-expedition.js",
+    "build-static": "node scripts/build.js && node scripts/build-static.js"
+  },
+  "dependencies": {
+    "compression": "^1.8.1",
+    "express": "^4.19.0",
+    "pg": "^8.21.0",
+    "ws": "^8.17.0"
+  },
+  "devDependencies": {
+    "@types/compression": "^1.8.1",
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.9.3",
+    "@types/pg": "^8.20.0",
+    "@types/ws": "^8.18.1",
+    "esbuild": "^0.28.1",
+    "pngjs": "^7.0.0",
+    "typescript": "^6.0.3"
+  }
+}

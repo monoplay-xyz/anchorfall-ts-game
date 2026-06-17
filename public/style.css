@@ -1,0 +1,774 @@
+* { box-sizing: border-box; margin: 0; }
+
+/* Monolythium: Anchorfall UI grade — cold moonlit night, Frontier Teal
+   accents, LYTH gold for value, Relay Cyan for energy/data. */
+:root {
+  --teal: #36A08A;        /* Frontier Teal — friendly identity */
+  --relay: #6FD8F2;       /* Relay Cyan — energy mid */
+  --green: #6FD8F2;       /* legacy alias: mission titles read relay cyan */
+  --amber: #FFD98A;       /* LYTH Gold — shards, value */
+  --panel-bg: rgba(13, 14, 24, 0.9);
+  --panel-edge: rgba(23, 74, 74, 0.85); /* Deep Teal borders */
+}
+
+body {
+  overflow: hidden;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(900px 500px at 20% 0%, rgba(46, 58, 92, .3), transparent 60%),
+    radial-gradient(900px 600px at 85% 100%, rgba(23, 74, 74, .26), transparent 60%),
+    #0B0A14;
+  font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  color: #cfd8e8;
+}
+
+#stage {
+  transform-origin: center center; /* scaled by fitStage() to fill the window */
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+  padding: 12px;
+}
+
+#left, #right {
+  width: 218px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+#left { justify-content: flex-start; }
+#squadPanels { display: flex; flex-direction: column; gap: 10px; }
+#squadStatusPanel { margin-top: auto; }
+
+#center { position: relative; }
+
+#game {
+  display: block;
+  border-radius: 6px;
+  box-shadow: 0 24px 70px rgba(0,0,0,.75), 0 0 0 1px rgba(54, 160, 138, .22);
+  background: #0B0A14;
+}
+
+/* --- sci-fi panels --- */
+.panel {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-edge);
+  border-radius: 4px;
+  padding: 10px 12px;
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+  box-shadow: inset 0 0 30px rgba(23, 74, 74, .14);
+}
+
+.ptitle {
+  color: var(--teal);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  margin-bottom: 6px;
+}
+.ptitle.green { color: var(--green); }
+.ptitle.amber { color: var(--amber); }
+.dim { color: #76829c; font-size: 12px; line-height: 1.5; }
+.amber { color: var(--amber); }
+
+/* --- squad cards --- */
+.squadcard {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-edge);
+  border-radius: 4px;
+  padding: 8px;
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
+  transition: border-color .15s, opacity .2s;
+}
+.squadcard.infield { border-color: rgba(111, 216, 242, .75); box-shadow: 0 0 16px rgba(111, 216, 242, .22); }
+.squadcard.down { border-color: rgba(224, 72, 72, .7); }
+.squadcard.lostc { opacity: .35; filter: grayscale(.8); }
+.squadcard canvas { border-radius: 3px; flex-shrink: 0; }
+.squadcard .info { flex: 1; min-width: 0; }
+.squadcard .nm { font-weight: 800; font-size: 13px; letter-spacing: 1px; }
+.squadcard .rl { color: #76829c; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; }
+.squadcard .bar {
+  height: 6px; margin-top: 5px;
+  background: rgba(255,255,255,.08);
+  border-radius: 3px; overflow: hidden;
+}
+.squadcard .bar i { display: block; height: 100%; background: linear-gradient(90deg, #36A08A, #6FD8F2); transition: width .3s; }
+.squadcard.down .bar i { background: #E04848; }
+.squadcard .st { font-size: 9px; letter-spacing: 1.5px; margin-top: 4px; color: #8A98B8; }
+
+/* --- score panel --- */
+.srow { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; letter-spacing: 1px; }
+.srow span { color: #76829c; }
+.srow b { color: var(--relay); font-variant-numeric: tabular-nums; }
+.srow b.amber { color: var(--amber); }
+
+#minimap { display: block; width: 100%; }
+#wIcon { display: block; margin: 4px auto; }
+#wStats { text-align: center; }
+/* a held FIELD weapon reads relay-cyan in the panel (character arms stay amber) */
+.ptitle.fieldweapon { color: var(--relay); text-shadow: 0 0 8px rgba(111, 216, 242, 0.45); }
+#missionName { font-weight: 700; font-size: 15px; letter-spacing: 1px; margin-bottom: 3px; }
+
+/* --- overlays --- */
+.screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 13px;
+  background: rgba(5, 9, 7, .85);
+  backdrop-filter: blur(8px);
+  border-radius: 6px;
+  text-align: center;
+  padding: 28px;
+}
+.screen[hidden] { display: none; }
+
+h1 { font-size: 56px; letter-spacing: 8px; font-weight: 800; color: #fff; text-shadow: 0 0 34px rgba(111, 216, 242, .45); }
+h1 span { color: var(--relay); }
+h1 em { font-style: normal; font-size: 22px; color: var(--amber); vertical-align: super; letter-spacing: 3px; }
+/* the title's second line — THE ANCHORFALL — amber like the old HD mark */
+.sub { color: var(--amber); font-size: 17px; letter-spacing: 9px; text-transform: uppercase; margin: -4px 0 10px; text-shadow: 0 0 18px rgba(255, 190, 90, .35); }
+h2 { font-size: 26px; letter-spacing: 3px; }
+h3 { color: #76829c; font-size: 12px; letter-spacing: 2px; text-transform: uppercase; }
+.tag { color: #8A98B8; letter-spacing: 2px; text-transform: uppercase; font-size: 12px; }
+.help { color: #5E6B8C; font-size: 12px; line-height: 1.7; margin-top: 14px; }
+
+input {
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(54, 160, 138, .35);
+  border-radius: 4px;
+  color: #fff; font-size: 15px; padding: 9px 13px;
+  width: 230px; text-align: center; outline: none;
+}
+input:focus { border-color: var(--relay); }
+#joinCode { width: 105px; text-transform: uppercase; letter-spacing: 4px; }
+
+button {
+  background: linear-gradient(180deg, #36A08A, #1d6e60);
+  border: none; border-radius: 4px;
+  color: #041110; font-size: 15px; font-weight: 800; letter-spacing: 1px;
+  padding: 10px 24px; width: 230px; cursor: pointer;
+  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
+  transition: filter .12s;
+}
+button:hover { filter: brightness(1.18); }
+button:disabled { opacity: .35; cursor: default; }
+button.ghost { background: rgba(255,255,255,.1); color: #c2cde0; }
+
+.joinrow, .btnrow { display: flex; gap: 10px; align-items: center; justify-content: center; }
+.joinrow button { width: 120px; }
+.btnrow button { width: 160px; }
+
+#roomInfo { color: #8A98B8; font-size: 14px; }
+#roomInfo b { color: var(--amber); letter-spacing: 4px; font-size: 19px; }
+
+#playerList { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.pchip {
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(54,160,138,.3);
+  border-radius: 16px; padding: 4px 13px; font-size: 12px; color: #c2cde0;
+}
+.pchip .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: #555; }
+
+#charGrid { display: flex; gap: 9px; flex-wrap: wrap; justify-content: center; max-width: 700px; }
+.card {
+  position: relative;
+  width: 120px;
+  background: rgba(255,255,255,.04);
+  border: 2px solid rgba(54,160,138,.22);
+  border-radius: 6px; padding: 10px 6px; cursor: pointer;
+  transition: border-color .12s;
+}
+.card.selected { border-color: var(--relay); background: rgba(111,216,242,.08); }
+.card.claimed { background: rgba(255,255,255,.07); }
+.card.taken { opacity: .3; cursor: default; }
+.pbadge {
+  position: absolute; top: -8px; right: -6px;
+  min-width: 22px; height: 18px; line-height: 18px;
+  border-radius: 9px; padding: 0 4px;
+  font-size: 10px; font-weight: 800; color: #03110d; text-align: center;
+  box-shadow: 0 2px 6px rgba(0,0,0,.5);
+}
+.pbadge.hoverb { top: auto; bottom: -8px; opacity: .9; }
+.card canvas { border-radius: 4px; }
+.card .cname { font-weight: 800; font-size: 13px; letter-spacing: 1px; margin-top: 6px; }
+.card .cstats { color: #76829c; font-size: 10px; line-height: 1.5; margin-top: 3px; }
+#msgBody { color: #aebad0; line-height: 1.7; max-width: 440px; white-space: pre-line; }
+
+/* --- pause / leave dialog (Esc-Start during play; client-managed) ---
+   same .screen overlay language as #msg; buttons stack like the main menu */
+#pauseBody { color: #aebad0; line-height: 1.7; max-width: 460px; white-space: pre-line; }
+#pauseBtns { display: flex; flex-direction: column; gap: 11px; align-items: center; }
+#pause .help { margin-top: 6px; letter-spacing: 1px; }
+
+/* --- dialogue box (NPC talk lines, client-managed) --- */
+#dialogueBox {
+  position: fixed;
+  left: 50%;
+  bottom: 7vh;
+  transform: translateX(-50%);
+  min-width: 300px;
+  max-width: 580px;
+  padding: 10px 18px 11px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-edge);
+  border-left: 3px solid var(--teal);
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+  box-shadow: 0 14px 44px rgba(0, 0, 0, .65), inset 0 0 26px rgba(23, 74, 74, .18);
+  z-index: 40;
+  pointer-events: none;
+  text-align: left;
+}
+#dialogueBox[hidden] { display: none; }
+#dialogueBox .dname {
+  display: block;
+  color: var(--relay);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 3px;
+}
+#dialogueBox .dtext { color: #cfd8e8; font-size: 14px; line-height: 1.55; }
+
+/* LYTH shard accent — use anywhere a shard amount appears */
+.shard { color: var(--amber); font-weight: 700; }
+
+/* --- gamepad menu nav (Batocera: no mouse) -----------------------------
+   .navfocus marks the focused control. Buttons are clip-path'd, so a normal
+   outline would be clipped away — use inset shadows that follow the angular
+   shape instead, plus a brightness lift so the ring reads from the couch. */
+button.navfocus, .navfocus {
+  box-shadow:
+    inset 0 0 0 2px var(--relay),
+    inset 0 0 16px rgba(111, 216, 242, .35);
+  filter: brightness(1.18);
+}
+button.ghost.navfocus { color: #eaf6ff; }
+.card.navfocus {
+  border-color: var(--relay);
+  box-shadow: 0 0 16px rgba(111, 216, 242, .45), inset 0 0 0 1px var(--relay);
+}
+
+/* --- story cutscenes (drawn on the game canvas by render.drawCutscene) --- */
+#game.cutscene { cursor: pointer; }
+
+/* --- frontier survival HUD (bastion / versus; markup is client-managed) ---
+   hearts row: <div class="hearts"><i class="hp"></i><i class="hpe"></i>
+   <i class="sp"></i></div> — .hp lit heart, .hpe empty, .sp shield pip. */
+.hearts { display: flex; gap: 3px; align-items: center; margin-top: 5px; }
+.hearts i {
+  display: block; width: 10px; height: 10px;
+  clip-path: polygon(50% 100%, 0 35%, 12% 8%, 38% 8%, 50% 26%, 62% 8%, 88% 8%, 100% 35%);
+}
+.hearts .hp  { background: #E04848; box-shadow: 0 0 6px rgba(224, 72, 72, .6); }
+.hearts .hpe { background: rgba(255, 255, 255, .12); }
+.hearts .sp  { /* shield pip — relay hex */
+  background: var(--relay);
+  box-shadow: 0 0 6px rgba(111, 216, 242, .6);
+  clip-path: polygon(50% 0, 100% 28%, 100% 72%, 50% 100%, 0 72%, 0 28%);
+}
+
+/* item slot (weapon panel): icon canvas/img + count + key hint */
+.itemslot {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 6px; padding: 5px 8px;
+  background: rgba(255, 255, 255, .05);
+  border: 1px solid var(--panel-edge);
+  border-radius: 4px;
+}
+.itemslot .icn { width: 18px; height: 18px; flex-shrink: 0; }
+.itemslot .inm { font-size: 11px; letter-spacing: 1px; color: #c2cde0; text-transform: uppercase; }
+.itemslot .cnt { color: var(--amber); font-weight: 800; font-size: 13px; }
+.itemslot .hint { margin-left: auto; color: #5E6B8C; font-size: 10px; letter-spacing: 1px; }
+.itemslot.empty { opacity: .4; }
+
+/* bastion mission readouts: night counter + phase clock + core hp */
+.nightclock { display: flex; justify-content: space-between; font-size: 12px; letter-spacing: 1px; color: #8A98B8; margin-top: 4px; }
+.nightclock b { color: var(--relay); font-variant-numeric: tabular-nums; }
+.nightclock.day b { color: var(--amber); }
+.nightclock.blood b { color: #FF5A66; }
+.corebar { height: 7px; margin-top: 5px; background: rgba(255, 255, 255, .08); border-radius: 3px; overflow: hidden; }
+.corebar i { display: block; height: 100%; background: linear-gradient(90deg, #F0A93C, #FFD98A); transition: width .3s; }
+.corebar.low i { background: linear-gradient(90deg, #7A2230, #E04848); }
+
+/* blood moon banner — client toggles .show on the 'bloodWarn' event */
+#bloodBanner {
+  position: fixed; top: 12vh; left: 50%; transform: translateX(-50%);
+  padding: 10px 30px;
+  color: #FF5A66; font-weight: 800; font-size: 24px; letter-spacing: 6px;
+  background: rgba(20, 4, 9, .85);
+  border: 1px solid rgba(199, 34, 48, .7);
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+  text-shadow: 0 0 18px rgba(224, 72, 72, .8);
+  z-index: 50; pointer-events: none;
+  opacity: 0; transition: opacity .5s;
+}
+#bloodBanner.show { opacity: 1; animation: bloodpulse 1.2s ease-in-out infinite; }
+@keyframes bloodpulse { 50% { text-shadow: 0 0 32px rgba(255, 90, 102, 1); } }
+
+/* versus: team badges (lobby seats + squad cards) and score readouts */
+.teambadge {
+  display: inline-block; min-width: 34px; padding: 2px 8px;
+  border-radius: 9px; font-size: 10px; font-weight: 800;
+  letter-spacing: 1px; text-align: center; text-transform: uppercase;
+}
+.teambadge.t0 { background: rgba(111, 216, 242, .18); color: var(--relay); border: 1px solid rgba(111, 216, 242, .6); }
+.teambadge.t1 { background: rgba(224, 72, 72, .16); color: #FF8A80; border: 1px solid rgba(224, 72, 72, .6); }
+.pchip.team0 { border-color: rgba(111, 216, 242, .6); }
+.pchip.team1 { border-color: rgba(224, 72, 72, .55); }
+.squadcard.team0 { border-left: 3px solid rgba(111, 216, 242, .75); }
+.squadcard.team1 { border-left: 3px solid rgba(224, 72, 72, .7); }
+.vsscore { display: flex; justify-content: center; align-items: baseline; gap: 10px; font-size: 16px; font-weight: 800; letter-spacing: 2px; font-variant-numeric: tabular-nums; }
+.vsscore .you { color: var(--relay); }
+.vsscore .foe { color: #FF8A80; }
+.vsscore .sep { color: #5E6B8C; font-size: 11px; }
+.flagstate { font-size: 10px; letter-spacing: 1.5px; color: #8A98B8; text-align: center; margin-top: 3px; text-transform: uppercase; }
+.brinfo { font-size: 12px; letter-spacing: 1px; color: #8A98B8; }
+.brinfo b { color: var(--relay); font-variant-numeric: tabular-nums; }
+.brinfo .zonet { color: var(--amber); }
+
+/* --- combat depth: mission XP + followers (markup is client-managed) ---
+   level badge: <span class="lvlbadge">LVL 3</span> (add .max at level 4)
+   xp bar:      <div class="xpbar"><i style="width:40%"></i></div>
+   follower:    <span class="followchip">HOUND</span> (.down while lost) */
+.lvlbadge {
+  display: inline-block; min-width: 30px; padding: 1px 6px;
+  border-radius: 3px; text-align: center;
+  font-size: 10px; font-weight: 800; letter-spacing: 1px;
+  color: var(--amber); background: rgba(240, 169, 60, .12);
+  border: 1px solid rgba(240, 169, 60, .5);
+  font-variant-numeric: tabular-nums;
+}
+.lvlbadge.max {
+  color: #FFEFC2;
+  box-shadow: 0 0 8px rgba(255, 217, 138, .45);
+  border-color: rgba(255, 239, 194, .7);
+}
+.xpbar { height: 4px; margin-top: 4px; background: rgba(255, 255, 255, .08); border-radius: 2px; overflow: hidden; }
+.xpbar i { display: block; height: 100%; background: linear-gradient(90deg, #F0A93C, #FFD98A); transition: width .25s; }
+.followchip {
+  display: inline-block; margin-right: 4px; padding: 1px 7px;
+  border-radius: 8px; font-size: 9px; font-weight: 800;
+  letter-spacing: 1px; text-transform: uppercase;
+  color: var(--teal); background: rgba(54, 160, 138, .14);
+  border: 1px solid rgba(54, 160, 138, .55);
+}
+.followchip.down { opacity: .35; text-decoration: line-through; }
+
+/* --- objectives panel (top of the LEFT column; markup is client-managed) ---
+   <div id="objectivesPanel" class="panel">
+     <div class="ptitle amber">OBJECTIVE</div>
+     <div class="objrow main"><i class="check"></i><span>main quest title</span></div>
+     <div class="objrow"><i class="check"></i><span>secondary…</span></div>   (≤3)
+   </div>
+   Add .done to a row when its quest completes; the check fills gold. */
+#objectivesPanel { order: -1; } /* always above the squad cards */
+.objrow {
+  display: flex; gap: 8px; align-items: flex-start;
+  padding: 3px 0; font-size: 11px; line-height: 1.45;
+  color: #9aa6bc; letter-spacing: .4px;
+}
+.objrow.main { font-size: 13px; font-weight: 700; color: #DFF3FF; letter-spacing: .6px; }
+.objrow .check {
+  flex-shrink: 0; width: 11px; height: 11px; margin-top: 2px;
+  border: 1px solid rgba(138, 152, 184, .65);
+  border-radius: 2px; position: relative;
+  background: rgba(255, 255, 255, .04);
+}
+.objrow.main .check { width: 13px; height: 13px; border-color: rgba(255, 217, 138, .7); }
+.objrow.done { color: #6d7890; }
+.objrow.done span { text-decoration: line-through; text-decoration-color: rgba(255, 217, 138, .5); }
+.objrow.done .check {
+  background: rgba(240, 169, 60, .85);
+  border-color: var(--amber);
+  box-shadow: 0 0 8px rgba(255, 217, 138, .5);
+}
+.objrow.done .check::after {
+  content: ''; position: absolute; left: 2px; top: 0;
+  width: 4px; height: 7px;
+  border: solid #1a1206; border-width: 0 2px 2px 0;
+  transform: rotate(40deg);
+}
+.objrow .prog { margin-left: auto; color: var(--amber); font-variant-numeric: tabular-nums; font-weight: 700; }
+
+/* quest toast — client toggles .show on 'quest' events, then removes it.
+   <div id="questToast"><b>NEW OBJECTIVE</b><span>title…</span></div> */
+#questToast {
+  position: fixed; top: 18vh; left: 50%; transform: translateX(-50%);
+  display: flex; flex-direction: column; gap: 2px; align-items: center;
+  padding: 9px 26px;
+  background: rgba(18, 14, 4, .88);
+  border: 1px solid rgba(240, 169, 60, .65);
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+  z-index: 50; pointer-events: none;
+  opacity: 0; transition: opacity .4s;
+}
+#questToast b { color: var(--amber); font-size: 12px; letter-spacing: 4px; text-shadow: 0 0 12px rgba(255, 217, 138, .7); }
+#questToast span { color: #DFF3FF; font-size: 15px; letter-spacing: 1px; }
+#questToast.show { opacity: 1; }
+#questToast.done b { color: var(--relay); text-shadow: 0 0 12px rgba(111, 216, 242, .7); }
+
+/* field weapon slot (weapon panel): the picked-up gun overrides FIRE.
+   <div class="fieldslot"><span class="fnm">RAILCANNON</span>
+   <span class="fammo">10</span></div> — add .low under 25% ammo. */
+.fieldslot {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 6px; padding: 5px 9px;
+  background: rgba(240, 169, 60, .08);
+  border: 1px solid rgba(240, 169, 60, .5);
+  border-radius: 4px;
+}
+.fieldslot .fnm { font-size: 11px; font-weight: 800; letter-spacing: 1px; color: var(--amber); text-transform: uppercase; }
+.fieldslot .fammo { margin-left: auto; color: #FFEFC2; font-weight: 800; font-size: 13px; font-variant-numeric: tabular-nums; }
+.fieldslot .hint { color: #5E6B8C; font-size: 9px; letter-spacing: 1px; }
+.fieldslot.low { border-color: rgba(224, 72, 72, .6); }
+.fieldslot.low .fammo { color: #FF8A80; }
+
+/* lythseal tag beside a squad card name while the seal is carried */
+.sealchip {
+  display: inline-block; margin-left: 4px; padding: 1px 6px;
+  border-radius: 8px; font-size: 9px; font-weight: 800; letter-spacing: 1px;
+  color: #1a1206; background: linear-gradient(180deg, #FFD98A, #F0A93C);
+  box-shadow: 0 0 8px rgba(255, 217, 138, .55);
+}
+
+/* untimed story missions: the clock counts UP and must not read as a warning.
+   Client swaps .clock-down for .clock-up on the mission clock readout. */
+.clock-up { color: var(--teal) !important; }
+.clock-up::after { content: ' ▲'; font-size: 9px; color: #5E6B8C; }
+
+/* ============================================================================
+   MENU UPLIFT — animated backdrop, screen/page entrance transitions, and a
+   tile-style main menu (replaces the flat stacked-button look).
+   ============================================================================ */
+
+/* slow-drifting cold-night glow behind every full-screen overlay */
+.screen { overflow: hidden; }
+.screen::before {
+  content: ''; position: absolute; inset: -25%;
+  background:
+    radial-gradient(58% 50% at 24% 14%, rgba(54, 160, 138, .20), transparent 60%),
+    radial-gradient(52% 48% at 82% 86%, rgba(111, 216, 242, .15), transparent 60%);
+  pointer-events: none; z-index: 0;
+  animation: bgDrift 24s ease-in-out infinite alternate;
+}
+.screen > * { position: relative; z-index: 1; }
+@keyframes bgDrift {
+  from { transform: translate3d(-2%, -1%, 0) scale(1.02); }
+  to   { transform: translate3d(2%,  1%, 0) scale(1.06); }
+}
+
+/* re-triggered from client.js (show / showMenuPage): fade the screen in, and
+   stagger the active page's children up into place */
+@keyframes screenIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes itemIn {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: none; }
+}
+.screen.anim-in { animation: screenIn .24s ease-out; }
+.mpage.anim-in > *, .screen.anim-in > h2, .screen.anim-in > #playerList,
+.screen.anim-in > h3, .screen.anim-in > #charGrid, .screen.anim-in > .btnrow,
+.screen.anim-in > #msgBody, .screen.anim-in > #btnMsgOk, .screen.anim-in > p {
+  animation: itemIn .36s cubic-bezier(.2, .7, .2, 1) both;
+}
+.mpage.anim-in > *:nth-child(1){animation-delay:.02s}  .mpage.anim-in > *:nth-child(2){animation-delay:.05s}
+.mpage.anim-in > *:nth-child(3){animation-delay:.08s}  .mpage.anim-in > *:nth-child(4){animation-delay:.11s}
+.mpage.anim-in > *:nth-child(5){animation-delay:.14s}  .mpage.anim-in > *:nth-child(6){animation-delay:.17s}
+.mpage.anim-in > *:nth-child(7){animation-delay:.20s}  .mpage.anim-in > *:nth-child(8){animation-delay:.23s}
+.mpage.anim-in > *:nth-child(9){animation-delay:.26s}  .mpage.anim-in > *:nth-child(10){animation-delay:.29s}
+.mpage.anim-in > *:nth-child(11){animation-delay:.32s} .mpage.anim-in > *:nth-child(12){animation-delay:.35s}
+.mpage.anim-in > *:nth-child(n+13){animation-delay:.38s}
+@media (prefers-reduced-motion: reduce) {
+  .screen::before, .screen.anim-in, .mpage.anim-in > * { animation: none; }
+}
+
+/* ---- tile-style navigation buttons on the primary menu pages ----
+   Hub + every nav page share one polished tile look (accent bar + chevron +
+   hover/focus lift). Kept as a vertical list so gamepad up/down nav maps
+   straight to DOM order. */
+#pageMain button, #pagePlay button, #pageSingle button,
+#pageClassic button, #pageStory button,
+#pageVersus button, #pageOnline > button {
+  width: 330px; text-align: left; padding: 13px 46px 13px 22px;
+  font-size: 16px; letter-spacing: 1.5px;
+  background: linear-gradient(100deg, #2d927f 0%, #185349 100%);
+  box-shadow: inset 3px 0 0 rgba(111, 216, 242, .55),
+              inset 0 1px 0 rgba(255, 255, 255, .12),
+              0 7px 18px rgba(0, 0, 0, .38);
+  transition: transform .14s ease, filter .14s ease, box-shadow .14s ease;
+}
+#pageMain button::after, #pagePlay button::after, #pageSingle button::after,
+#pageClassic button::after, #pageStory button::after,
+#pageVersus button::after, #pageOnline > button::after {
+  content: '›'; position: absolute; right: 18px; top: 50%;
+  transform: translateY(-50%); font-size: 22px; font-weight: 600;
+  color: rgba(111, 216, 242, .65); transition: transform .14s ease, opacity .14s ease;
+}
+#pageMain button, #pagePlay button, #pageSingle button,
+#pageClassic button, #pageStory button,
+#pageVersus button, #pageOnline > button { position: relative; }
+#pageMain button:hover, #pageMain button.navfocus,
+#pagePlay button:hover, #pagePlay button.navfocus,
+#pageSingle button:hover, #pageSingle button.navfocus,
+#pageClassic button:hover, #pageClassic button.navfocus,
+#pageStory button:hover, #pageStory button.navfocus,
+#pageVersus button:hover, #pageVersus button.navfocus,
+#pageOnline > button:hover, #pageOnline > button.navfocus {
+  transform: translateY(-2px);
+  box-shadow: inset 3px 0 0 var(--relay),
+              inset 0 1px 0 rgba(255, 255, 255, .2),
+              0 10px 26px rgba(54, 160, 138, .34);
+}
+#pageMain button:hover::after, #pageMain button.navfocus::after,
+#pagePlay button:hover::after, #pagePlay button.navfocus::after,
+#pageSingle button:hover::after, #pageSingle button.navfocus::after,
+#pageClassic button:hover::after, #pageClassic button.navfocus::after,
+#pageStory button:hover::after, #pageStory button.navfocus::after,
+#pageVersus button:hover::after, #pageVersus button.navfocus::after,
+#pageOnline > button:hover::after, #pageOnline > button.navfocus::after {
+  transform: translate(5px, -50%); color: var(--relay);
+}
+/* secondary (ghost) tiles read muted; their accent is steel not cyan */
+#pageMain button.ghost, #pagePlay button.ghost, #pageSingle button.ghost,
+#pageClassic button.ghost, #pageStory button.ghost,
+#pageVersus button.ghost, #pageOnline > button.ghost {
+  background: rgba(255, 255, 255, .08);
+  box-shadow: inset 3px 0 0 rgba(140, 152, 184, .5), 0 5px 14px rgba(0, 0, 0, .32);
+}
+#pageMain button.ghost::after, #pagePlay button.ghost::after, #pageSingle button.ghost::after,
+#pageClassic button.ghost::after, #pageStory button.ghost::after,
+#pageVersus button.ghost::after, #pageOnline > button.ghost::after { color: rgba(140, 152, 184, .6); }
+/* featured entries read brightest — Play on the hub, and the primary action on
+   the campaign/story pages (Continue when a save exists, else New Game) */
+#pageMain #btnPlay,
+#btnContinue, #btnStoryContinue,
+#btnContinue[hidden] ~ #btnSolo,
+#btnStoryContinue[hidden] ~ #btnStory {
+  background: linear-gradient(100deg, #40d0af 0%, #1d8e76 100%);
+  box-shadow: inset 3px 0 0 var(--relay),
+              inset 0 1px 0 rgba(255, 255, 255, .22),
+              0 9px 24px rgba(54, 160, 138, .34);
+}
+
+/* ---- lobby character carousel + live ability preview ---- */
+#charSelect { display: flex; align-items: center; justify-content: center; gap: 16px; min-height: 232px; }
+.carnav {
+  width: 46px; height: 92px; padding: 0; font-size: 32px; line-height: 1;
+  background: rgba(255, 255, 255, .06); color: var(--relay);
+  border: 1px solid var(--panel-edge); border-radius: 8px; clip-path: none; flex: 0 0 auto;
+}
+.carnav:hover, .carnav.navfocus { background: rgba(111, 216, 242, .14); filter: brightness(1.12); }
+#charGrid { display: block; max-width: none; flex: 0 0 auto; }
+/* tactical operative dossier — dark, gritty, angular (not a bright cartoon card) */
+#charGrid .bigcard {
+  position: relative; width: 232px; padding: 18px 16px 14px;
+  background:
+    radial-gradient(130% 70% at 50% 16%, rgba(54, 160, 138, .10), transparent 62%),
+    linear-gradient(180deg, rgba(18, 22, 32, .97) 0%, rgba(8, 10, 16, .99) 100%);
+  border: 1px solid rgba(54, 160, 138, .42);
+  clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 16px 100%, 0 calc(100% - 16px));
+  box-shadow: 0 16px 40px rgba(0, 0, 0, .62), inset 0 0 46px rgba(6, 9, 16, .7);
+  animation: cardSwap .16s ease both;
+}
+@keyframes cardSwap { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: none; } }
+/* corner targeting brackets */
+#charGrid .bigcard::before {
+  content: ''; position: absolute; inset: 6px; pointer-events: none; opacity: .55;
+  background:
+    linear-gradient(var(--relay), var(--relay)) 0 0 / 15px 2px no-repeat,
+    linear-gradient(var(--relay), var(--relay)) 0 0 / 2px 15px no-repeat,
+    linear-gradient(var(--relay), var(--relay)) 100% 0 / 15px 2px no-repeat,
+    linear-gradient(var(--relay), var(--relay)) 100% 0 / 2px 15px no-repeat,
+    linear-gradient(var(--relay), var(--relay)) 0 100% / 15px 2px no-repeat,
+    linear-gradient(var(--relay), var(--relay)) 0 100% / 2px 15px no-repeat,
+    linear-gradient(var(--relay), var(--relay)) 100% 100% / 15px 2px no-repeat,
+    linear-gradient(var(--relay), var(--relay)) 100% 100% / 2px 15px no-repeat;
+}
+/* scanline veil to break up the flat cartoon shading */
+#charGrid .bigcard::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(0, 0, 0, .16) 0 1px, transparent 1px 3px);
+  mix-blend-mode: multiply; opacity: .55;
+}
+#charGrid .bigcard.selected { border-color: var(--relay); box-shadow: 0 0 30px rgba(111, 216, 242, .4), inset 0 0 46px rgba(6, 9, 16, .7); }
+#charGrid .bigcard.selected::before { opacity: 1; }
+#charGrid .bigcard.taken { opacity: .4; filter: grayscale(.8) brightness(.7); }
+/* portrait: darker, desaturated, lit from within — reads tactical not toon */
+#charGrid .bigcard canvas {
+  display: block; margin: 0 auto; border-radius: 6px;
+  filter: contrast(1.14) saturate(.78) brightness(.88);
+  background: radial-gradient(circle at 50% 38%, rgba(22, 28, 40, .95), rgba(5, 7, 12, .98));
+  box-shadow: inset 0 0 0 1px rgba(54, 160, 138, .35), 0 6px 20px rgba(0, 0, 0, .55);
+}
+#charGrid .bigcard .cname { font-weight: 800; font-size: 19px; letter-spacing: 3px; margin-top: 11px; text-align: center; text-shadow: 0 2px 10px rgba(0, 0, 0, .8); }
+#charGrid .bigcard .crole { color: #8A98B8; font-size: 10px; letter-spacing: 2px; text-transform: uppercase; text-align: center; margin-top: 3px; }
+#charGrid .bigcard .cstats { color: #9fb0cc; font-size: 12px; line-height: 1.8; margin-top: 10px; text-align: center; font-variant-numeric: tabular-nums; }
+#charGrid .bigcard .cstats b { color: var(--relay); }
+#charGrid .bigcard .cidx { position: absolute; top: 8px; right: 11px; font-size: 10px; color: #5E6B8C; letter-spacing: 1px; }
+#charGrid .bigcard .powner { position: absolute; top: -10px; left: 50%; transform: translateX(-50%); display: flex; gap: 4px; }
+#charGrid .bigcard .powner .pbadge { position: static; }
+#abilityWrap { display: flex; flex-direction: column; align-items: center; gap: 7px; flex: 0 0 auto; }
+#abilityPreview { width: 200px; height: 200px; border-radius: 10px; background: #0b0e16; border: 1px solid var(--panel-edge); }
+#abilityCaption { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; max-width: 210px; min-height: 20px; }
+#abilityCaption .wname { width: 100%; text-align: center; font-size: 12px; font-weight: 800; letter-spacing: 1px; color: var(--amber); }
+#abilityCaption .wtag { font-size: 9px; font-weight: 800; letter-spacing: 1px; color: var(--teal); border: 1px solid rgba(54, 160, 138, .5); border-radius: 3px; padding: 1px 5px; }
+#carDots { display: flex; gap: 5px; flex-wrap: wrap; justify-content: center; max-width: 460px; margin-top: 4px; }
+#carDots .cdot { width: 9px; height: 9px; border-radius: 50%; background: rgba(255, 255, 255, .16); transition: transform .12s, background .12s; }
+#carDots .cdot.here { background: var(--relay); transform: scale(1.55); box-shadow: 0 0 8px rgba(111, 216, 242, .6); }
+#carDots .cdot.picked { background: var(--teal); }
+
+/* story level-select: a compact scrollable grid of chapter buttons */
+.chapterList { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; max-height: 44vh; overflow-y: auto; margin: 8px 0; }
+.chapterList button { margin: 0; width: 100%; }
+
+/* ===========================================================================
+   MAP BUILDER (issue #5) — a wide, three-column authoring page that overrides
+   the narrow centered .mpage layout: palette | canvas+preview | def panel.
+   =========================================================================== */
+.mpage.mbuilder { width: 100%; max-width: 1220px; align-items: stretch; text-align: left; }
+.mpage.mbuilder > h2, .mpage.mbuilder > .tag { text-align: center; }
+.mb-layout {
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr) 270px;
+  gap: 14px;
+  align-items: start;
+  width: 100%;
+}
+.mb-layout .panel { padding: 12px; margin: 0; max-height: 70vh; overflow-y: auto; }
+.mb-palette-groups { display: flex; flex-direction: column; gap: 9px; }
+.mb-pgroup-title { color: #8A98B8; font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; margin: 2px 0; }
+.mb-swatches { display: flex; flex-wrap: wrap; gap: 4px; }
+.mb-swatch {
+  width: 26px; height: 26px; border-radius: 3px; cursor: pointer;
+  border: 1px solid rgba(255,255,255,.14);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 800; color: #e8f0ff;
+  text-shadow: 0 1px 2px rgba(0,0,0,.8); padding: 0; width: 26px; min-width: 0;
+}
+.mb-swatch.sel { border-color: var(--teal, #6fd8f2); box-shadow: 0 0 0 2px rgba(111,216,242,.5); }
+.mb-selrow { margin-top: 10px; color: #c2cde0; font-size: 12px; }
+.mb-selrow .mb-selch { font-family: monospace; background: rgba(255,255,255,.1); padding: 1px 6px; border-radius: 3px; }
+
+.mb-center { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.mb-canvaswrap, .mb-previewwrap { background: rgba(8,10,16,.7); border: 1px solid rgba(54,160,138,.25); border-radius: 5px; padding: 8px; }
+#mbGrid { width: 100%; height: auto; display: block; image-rendering: pixelated; cursor: crosshair; background: #06070e; }
+#mbPreview { width: 100%; height: auto; display: block; background: #06070e; border-radius: 4px; }
+.mb-gridctl { flex-wrap: wrap; }
+.mb-gridctl label { color: #c2cde0; font-size: 12px; display: flex; align-items: center; gap: 4px; }
+.mb-gridctl input { width: 52px; }
+.mb-gridctl button { width: auto; padding: 8px 14px; font-size: 12px; }
+.mb-previewwrap .ptitle { margin-bottom: 6px; }
+.mb-note { color: var(--amber, #f0a93c); font-size: 12px; margin-top: 6px; min-height: 16px; }
+
+.mb-def .mb-field { margin: 7px 0; }
+.mb-def label { display: flex; flex-direction: column; gap: 3px; color: #8A98B8; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; }
+.mb-def input, .mb-def select { font-size: 13px; }
+.mb-subpanel { border-top: 1px solid rgba(255,255,255,.08); margin-top: 8px; padding-top: 6px; }
+.mb-subpanel .ptitle { font-size: 11px; }
+.mb-hint { color: #5E6B8C; font-size: 11px; line-height: 1.5; margin: 4px 0; text-transform: none; letter-spacing: 0; }
+.mb-actions { display: flex; gap: 8px; margin-top: 12px; }
+.mb-actions button { width: auto; flex: 1; padding: 9px 0; font-size: 13px; }
+.mb-problems { margin-top: 10px; font-size: 12px; line-height: 1.5; max-height: 160px; overflow-y: auto; }
+.mb-problems .ok { color: #7adf8a; }
+.mb-problems .bad { color: #e0556a; }
+.mb-problems ul { margin: 4px 0 0; padding-left: 18px; }
+.mb-problems li { color: #d99; margin: 2px 0; }
+
+/* form controls inside the builder share the input look used elsewhere */
+.mbuilder input[type="text"], .mbuilder input[type="number"], .mbuilder select,
+.mbuilder textarea {
+  background: rgba(255,255,255,.06); border: 1px solid rgba(54,160,138,.3);
+  border-radius: 3px; color: #eaf2ff; padding: 6px 8px; font-family: inherit; width: 100%;
+}
+.mbuilder textarea { resize: vertical; font-size: 12px; line-height: 1.4; min-height: 48px; }
+.mbuilder input[type="file"] { font-size: 11px; padding: 4px; background: transparent; border: 1px dashed rgba(54,160,138,.4); }
+.mbuilder select { cursor: pointer; }
+/* import / publish status lines reuse the problem-box ok/bad colours */
+.mb-hint.ok { color: #7adf8a; }
+.mb-hint.bad { color: #e0556a; }
+
+@media (max-width: 980px) {
+  .mb-layout { grid-template-columns: 1fr; }
+  .mb-layout .panel { max-height: none; }
+}
+
+/* ---------- frame-loop error surface ----------
+   Shown by client.ts when the render/tick frame-loop catch fires (once per
+   distinct error). Sits above everything; the card itself catches pointer
+   events but input polling keeps running, so the game stays playable. */
+#frameError {
+  position: absolute; inset: 0; z-index: 90;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(6, 9, 14, .72); padding: 4vh 3vw;
+  pointer-events: none; /* the backdrop never steals pad/keyboard input */
+}
+#frameError .fe-card {
+  pointer-events: auto;
+  max-width: 760px; width: 100%; max-height: 86vh; overflow: auto;
+  background: rgba(18, 8, 12, .96);
+  border: 1px solid rgba(224, 72, 72, .7);
+  border-radius: 6px; padding: 18px 22px;
+  box-shadow: 0 0 40px rgba(224, 72, 72, .35);
+  font-family: ui-monospace, Menlo, monospace;
+}
+#frameError .fe-title {
+  color: #FF5A66; font-weight: 800; letter-spacing: 4px; font-size: 18px;
+  text-shadow: 0 0 14px rgba(224, 72, 72, .6); margin-bottom: 10px;
+}
+#frameError .fe-msg {
+  color: #ffe0e4; font-size: 14px; line-height: 1.5; word-break: break-word;
+  white-space: pre-wrap; margin-bottom: 10px;
+}
+#frameError .fe-stack {
+  color: #b8c2d0; font-size: 11px; line-height: 1.45;
+  background: rgba(255, 255, 255, .04); border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 4px; padding: 8px 10px; margin: 0 0 12px;
+  white-space: pre-wrap; word-break: break-word; max-height: 38vh; overflow: auto;
+}
+#frameError .fe-hint {
+  color: #8fd6c4; font-size: 12px; letter-spacing: 2px; text-transform: uppercase;
+}
+
+/* ---------- controller diagnostic (Settings > Input Remapping) ----------
+   Lists each connected pad (index -> seat, detected type) and live-highlights
+   the button/axis currently pressed. Repainted only when its signature changes
+   (cheap from the frame loop while the remap page is open). */
+#padDiag {
+  margin: 10px 0 4px; padding: 10px 12px;
+  background: rgba(255, 255, 255, .03);
+  border: 1px solid rgba(54, 160, 138, .28); border-radius: 5px;
+}
+#padDiag .pd-head {
+  font-size: 11px; letter-spacing: 2px; color: #8fd6c4; text-transform: uppercase;
+  margin-bottom: 8px;
+}
+#padDiag .pd-sub { color: #7d8aa0; letter-spacing: 1px; margin-left: 8px; text-transform: none; }
+#padDiagBody .pd-pad { margin-bottom: 10px; }
+#padDiagBody .pd-pad:last-child { margin-bottom: 0; }
+#padDiagBody .pd-none { color: #9aa6ba; font-size: 12px; }
+#padDiagBody .pd-title { font-size: 12px; color: #eaf2ff; margin-bottom: 5px; }
+#padDiagBody .pd-title b { color: #FFD98A; }
+#padDiagBody .pd-title .pd-type { color: #8fd6c4; font-size: 11px; margin-left: 6px; }
+#padDiagBody .pd-btns { display: flex; flex-wrap: wrap; gap: 4px; }
+#padDiagBody .pd-btn {
+  min-width: 30px; padding: 3px 6px; text-align: center;
+  font-size: 10px; font-family: ui-monospace, Menlo, monospace;
+  border-radius: 3px; background: rgba(255, 255, 255, .05);
+  border: 1px solid rgba(255, 255, 255, .1); color: #aeb8c8;
+}
+#padDiagBody .pd-btn.on {
+  background: rgba(54, 160, 138, .8); border-color: #5fe0c0; color: #06120f;
+  box-shadow: 0 0 8px rgba(95, 224, 192, .6); font-weight: 800;
+}
+#padDiagBody .pd-axes { margin-top: 4px; font-size: 10px; color: #8a96aa; font-family: ui-monospace, Menlo, monospace; }
+#padDiagBody .pd-axes .pd-ax.on { color: #5fe0c0; font-weight: 800; }

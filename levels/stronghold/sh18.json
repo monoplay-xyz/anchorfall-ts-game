@@ -1,0 +1,254 @@
+{
+  "stranded": true,
+  "name": "Precinct Fog",
+  "objective": "Wall the SE precinct keep and hold the corner through five fog-drowned nights",
+  "time": 600,
+  "expedition": true,
+  "mode": "bastion",
+  "theme": "nocturne",
+  "ambience": "night",
+  "modifiers": {
+    "dark": true
+  },
+  "bastion": {
+    "nights": 5,
+    "bloodMoons": [
+      3,
+      5
+    ],
+    "waveMult": 2.13,
+    "roster": [
+      "a",
+      "x",
+      "h",
+      "k"
+    ],
+    "edges": [
+      "n",
+      "w"
+    ]
+  },
+  "stronghold": {
+    "level": 18,
+    "name": "Precinct Fog",
+    "sizeLabel": "XL",
+    "difficulty": 4,
+    "waves": 7,
+    "hpMult": 1.57,
+    "unlock": "helix",
+    "blurb": "A ruined precinct drowned in fog and dark. Wedge the keep into the SE corner; only the north and west approaches stay open. Things loom out of the murk at arm's length.",
+    "newFeatures": [
+      "Corner last-stand: only two open edges",
+      "Nocturne dark + fog — point-blank ambush",
+      "Phaseborn drift through the keep walls"
+    ]
+  },
+  "intro": [
+    {
+      "title": "Precinct Fog",
+      "lines": [
+        "The old precinct went quiet the night the lamps drowned. Now the fog owns it.",
+        "Back into the corner — south wall and east wall are stone. Watch the north and the west.",
+        "Five nights. You won't see them until they're on you. Some don't bother with the walls at all."
+      ],
+      "art": "siege"
+    }
+  ],
+  "outro": [
+    {
+      "title": "The Corner Holds",
+      "lines": [
+        "Fifth dawn burns the fog off the flagstones. The two open lanes are choked with the dead.",
+        "Whatever the precinct was guarding, it's still standing. So are you."
+      ],
+      "art": "dawn"
+    }
+  ],
+  "captiveChars": [],
+  "tiles": [
+    "################################################",
+    "#..............................................#",
+    "#..............................................#",
+    "#...................;;;;;;;;;.,................#",
+    "#...;;;;;;;;;.......;;;;a;;;;..,..;;;;;;;;;....#",
+    "#...;;;a;;;;;..,,...;;;;;;*;;.....;;;;;;;;;....#",
+    "#...;;;;;;*;Y.......;;;;;;;;;.....;;;;;a;;;....#",
+    "#...;;;;;;;;;.......k;;;;;;;;.....;;;;*;;;;....#",
+    "#...;;;;;;;;;#................#...;;;;;;;;;....#",
+    "#.........C..#....####..,,....#...;;;;;;;;;....#",
+    "#.....~~~....#................#..k.............#",
+    "#.....~~~.,,.#............x...#................#",
+    "#............#....h...;;;;;;;;;..,,...C........#",
+    "#.....................;;;;;#;;;................#",
+    "#.....;;;;;;;;;.....*.;;;;;#;;;....####........#",
+    "#.....;;;;;;;;;.,.....;;;;;#Y;;................#",
+    "#.....;;;;;;x;;..,....;;;;;#;*;.......,,.......#",
+    "#..,..;;;;;;;;;.....,.;;;;;;;;;................#",
+    "#..,..h;;;;;;;;.....,..........h...............#",
+    "#.....;;;;;;;;;.............,..................#",
+    "#.......####...k.............,.................#",
+    "#.................;;;;;;#;;....................#",
+    "#...;;;;;;;;;...#.;;;;;;#;;........,,..........#",
+    "#...;;;;;;;;;...#.;;;;x;#;;....................#",
+    "#...;;;;;x;;*.,,#.;;;;;;;C;....~~~..BBB;BBB;BBB#",
+    "#...;;;;;;;;;...#.;;;;;;;;;....~~~..B;B;;;;;;;;#",
+    "#...;;;;;;;;;.....;;;;;;;;;....~~~..B;*;;H;;B;;#",
+    "#...;;;;;;;;;..................~~~..B;;;;;;;;;;#",
+    "#.......,,.....A....................BB;;;;;;;;;#",
+    "#....................,,.............;;;;C;;;;;;#",
+    "#.......V...........................B;;S;;P*;K;#",
+    "#...................................B;;P;;;;B;;#",
+    "#...................................B;;;;;;;;;;#",
+    "################################################"
+  ],
+  "builds": [
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "farm",
+      "cost": 6
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    }
+  ],
+  "chests": [
+    {
+      "loot": "shield",
+      "amount": 1
+    },
+    {
+      "loot": "shards",
+      "amount": 9
+    },
+    {
+      "loot": "medkit",
+      "amount": 1
+    },
+    {
+      "loot": "cracker",
+      "amount": 2
+    }
+  ],
+  "hires": [
+    {
+      "job": "engineer",
+      "cost": 10,
+      "name": "Warden Sael"
+    }
+  ],
+  "vehicles": [
+    {
+      "kind": "stag"
+    }
+  ],
+  "pickups": [
+    {
+      "kind": "mortarMk2"
+    }
+  ],
+  "npcs": []
+}

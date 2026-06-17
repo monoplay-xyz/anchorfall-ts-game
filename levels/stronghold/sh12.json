@@ -1,0 +1,472 @@
+{
+  "stranded": true,
+  "name": "Cinder Gate",
+  "objective": "Hold the south gate of the Emberwaste basin for five nights — the molten tide pours down the cinder plazas from the north, and the dead leave fire where they fall.",
+  "time": 600,
+  "expedition": true,
+  "mode": "bastion",
+  "theme": "emberwaste",
+  "bastion": {
+    "nights": 5,
+    "bloodMoons": [
+      3,
+      5
+    ],
+    "waveMult": 1.73,
+    "roster": [
+      "u",
+      "r",
+      "d",
+      "s"
+    ],
+    "edges": [
+      "n"
+    ]
+  },
+  "stronghold": {
+    "level": 12,
+    "name": "Cinder Gate",
+    "sizeLabel": "L",
+    "difficulty": 4,
+    "waves": 7,
+    "hpMult": 1.37,
+    "unlock": "boomer",
+    "blurb": "A south gate walled across an Emberwaste basin. Every night the tide rolls down the cinder plazas from the north, and molten bruisers carpet the killing ground in flame.",
+    "newFeatures": [
+      "Boomer joins the roster",
+      "Burn-hazard roster: molten bruisers + pyre-beetles",
+      "Back-line gate — one front, all pressure from the north"
+    ]
+  },
+  "intro": [
+    {
+      "title": "Cinder Gate",
+      "lines": [
+        "The basin breathes heat. Lava threads the ash in glowing veins and the wind carries cinder like snow.",
+        "Wall the south gate and hold it. Everything comes down the plazas from the north — there is no other way in.",
+        "Their dead burn where they drop — by the third night the ground in front of your wall is a carpet of fire. Boomer waits past the embers; hold the gate and he is yours."
+      ],
+      "art": "siege"
+    }
+  ],
+  "outro": [
+    {
+      "title": "Dawn over the ash",
+      "lines": [
+        "The last ember dies and the gate still stands. The molten tide has spent itself against your wall.",
+        "Boomer steps out of the smoke, nodding once. The basin is yours."
+      ],
+      "art": "dawn"
+    }
+  ],
+  "captiveChars": [],
+  "builds": [
+    {
+      "kind": "barricade",
+      "cost": 4,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4,
+      "prebuilt": true
+    },
+    {
+      "kind": "turret",
+      "cost": 10,
+      "prebuilt": true,
+      "ttype": "gun"
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "turret",
+      "cost": 10,
+      "prebuilt": true,
+      "ttype": "gun"
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    }
+  ],
+  "chests": [
+    {
+      "loot": "shards",
+      "amount": 8
+    },
+    {
+      "loot": "shards",
+      "amount": 7
+    },
+    {
+      "loot": "cracker",
+      "amount": 2
+    },
+    {
+      "loot": "medkit",
+      "amount": 1
+    },
+    {
+      "loot": "shards",
+      "amount": 9
+    }
+  ],
+  "pickups": [
+    {
+      "kind": "flamer"
+    }
+  ],
+  "hires": [
+    {
+      "job": "engineer",
+      "cost": 10,
+      "name": "Cinderwright Vane"
+    }
+  ],
+  "ambience": "lava",
+  "tiles": [
+    "################################################################",
+    "#______________________________________________________________#",
+    "#_____++++++++++++++++++++++++++++++++++++++++++++++++++++_____#",
+    "#_____++C+++++u+++r++++++++++++++++++++++++++++++u++++++++_____#",
+    "#_____+++++++++u++++!+!+++++++++++++++++++!+!+++r+++++++++_____#",
+    "#_____++++++#+++++++!+!+++++++++*+++++++++!+!+u+++#+++C+++_____#",
+    "#_____++++++#+++++++!+!+u+++++++++++++++++!+!+++++#+++++++_____#",
+    "#_____++++++++++++++!+!+++++++#+++++++++u+!+!+++++++++++++_____#",
+    "#_____++++++++++++++!+!+++d++++#++++++++++!+!+++++++++++++_____#",
+    "#_____++++++++++++++_+_+++++++++++++++d+++!+!+++++++++++++_____#",
+    "#_______________________________s_________!_!__________________#",
+    "#________+__________!_!_____#__________________________________#",
+    "#_______________+___!_!___________________________Y____#_______#",
+    "#___________________!_!______!!!!!!!______!_!__________________#",
+    "#___________________!_!___d__!!!!!!!__d___!_!__________________#",
+    "#___________________!_!_____+++++++++_____!_!__________________#",
+    "#___________________!_!_____+++++++++_____!_!__________________#",
+    "#_____________u______________!!!!!!!______!_!__________________#",
+    "#____________________________!!!!!!!______!_!_____u____________#",
+    "#___________________!_!____+____s_________!_!__________________#",
+    "#___________#_______!_!________________________________+_______#",
+    "#____________#______!_!_______u________________________________#",
+    "#___________________r_!___________________!_r____#_____________#",
+    "#___________________!_!_________r_____+___!_!_____#____________#",
+    "#___________C_______!_!_____u____#__u_____!_!__________________#",
+    "#___________________!_!_______+___________!_!__________________#",
+    "#______________+_______________________________________________#",
+    "#_________________________________________________+____________#",
+    "#________+____________________________________________+________#",
+    "#______________________________________________________________#",
+    "#___________________+_______________________+__________________#",
+    "#_______++++++++++++++++A+++++++r+++++++++++++++++++++++_______#",
+    "#_______++++++d+++++++++++++++++++++++++++++++++++d+++++_______#",
+    "#_______++++++++++++++s+++++++++++++++++++s+++++++++++++_______#",
+    "#_______++++++++++++++++++++++B+++B+++++++++++++++++++++_______#",
+    "#___________________________B_______B__________________________#",
+    "#_______________BBBBBBBB+BBBBBBB+BBBBBBB+BBBBBBB_______________#",
+    "#_______________B;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;B_______________#",
+    "#_______________B;;W;;;;;;;;;;;;;;;;;;;;;;;;W;;B_______________#",
+    "#_______________B;;;;;;;;;;;;BBB*BBB;;;;;;;;;;;B_______________#",
+    "#_______________B;;;;;;;;;;;;B;;P;;B;;;;;;;;;;;B_______________#",
+    "#_______________B;;;;;;;;;;;;B;PKP;B;;;;;;;;;;;B_______________#",
+    "#_______________B;;S;;;;;;;C;;;;;;;;;C;;;;;;;H;B_______________#",
+    "################################################################"
+  ]
+}

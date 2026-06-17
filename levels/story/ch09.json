@@ -1,0 +1,256 @@
+{
+  "name": "The Drift Sea",
+  "story": true,
+  "chapter": 9,
+  "title": "Chapter IX — The Drift Sea",
+  "expedition": true,
+  "theme": "saltworks",
+  "objective": "Cross the Drift over open brine — skiff the pontoon causeways and raise the three drowned wave-logs to settle a corridor, then make landfall on the east shore.",
+  "time": 900,
+  "gate": {
+    "need": 3
+  },
+  "captiveChars": [],
+  "intro": [
+    {
+      "title": "Chapter IX — The Drift Sea",
+      "lines": [
+        "Act III. Past the last checkpoint, the map stops promising.",
+        "The Drift: every wave that never settled, wide as a sea.",
+        "Nothing out there is final. Bring finality with you."
+      ],
+      "art": "crossing"
+    },
+    {
+      "title": "Last Light Pier",
+      "lines": [
+        "Skiffs from the pier. Shoal to shoal across the brine.",
+        "Three drowned wave-logs sleep under the sheen — raise them and the corridor settles.",
+        "Walk the causeway, not the sheen. Keep the signal alive."
+      ],
+      "art": "anchorcraft"
+    }
+  ],
+  "outro": [
+    {
+      "title": "Across the Unsettled",
+      "lines": [
+        "The corridor settles: the wave-logs stand and the deep is simply crossed.",
+        "Behind the crew, the buoys burn in a line — the first true road on the sea.",
+        "Mid-Drift, an island of black glass glows. Names were burned there once."
+      ],
+      "art": "dawn"
+    }
+  ],
+  "npcs": [
+    {
+      "id": "noor-avesh",
+      "name": "Chartwright Noor Avesh",
+      "lines": [
+        "Noor Avesh, chartwright. Mind the maps — out here they redraw themselves while your back is turned.",
+        "Past this pier, nothing has ever happened once and for all. That is the Drift. Sail accordingly.",
+        "Three survey buoys went down with their wave-logs. Take a skiff, raise the logs, and my chart becomes a promise instead of a guess.",
+        "Raise all three and a corridor settles east — you won't feel the crossing. You'll simply already be ashore.",
+        "The deep takes no hull and no causeway that isn't settled. Three logs standing, or nothing."
+      ],
+      "gift": {
+        "shards": 8
+      }
+    },
+    {
+      "id": "joss-maru",
+      "name": "Joss Maru, Tidewarden",
+      "lines": [
+        "Tide's out. Tide's always out here. What comes in instead, we ring the bell for.",
+        "The shoals hold. The sheen between them doesn't. Old Tarn's law travels: walk the causeway, not the sheen.",
+        "Husks come up the channels glowing wrong — drift made flesh. Thin them on the water or meet them on your pier.",
+        "Brine-hulks crust onto the spans and crack your barricades to salt. Keep the wave-logs standing and don't lean on a wall out here.",
+        "Take these, salvage pay. Out here the LYTH remembers who carried it better than the sea remembers the ship."
+      ],
+      "gift": {
+        "shards": 6
+      }
+    }
+  ],
+  "builds": [
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "pylon",
+      "cost": 14
+    },
+    {
+      "kind": "pylon",
+      "cost": 14
+    },
+    {
+      "kind": "pylon",
+      "cost": 14
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    }
+  ],
+  "chests": [
+    {
+      "loot": "shards",
+      "amount": 8
+    },
+    {
+      "loot": "medkit",
+      "amount": 1
+    },
+    {
+      "loot": "shards",
+      "amount": 10
+    },
+    {
+      "loot": "shield",
+      "amount": 1
+    }
+  ],
+  "vehicles": [
+    {
+      "kind": "skiff"
+    },
+    {
+      "kind": "skiff"
+    },
+    {
+      "kind": "skiff"
+    }
+  ],
+  "pickups": [
+    {
+      "kind": "flamer"
+    },
+    {
+      "kind": "stormgun"
+    }
+  ],
+  "quests": [
+    {
+      "id": "wave-logs",
+      "main": true,
+      "title": "Raise the Wave-Logs",
+      "giver": "noor-avesh",
+      "kind": "build",
+      "target": "pylon",
+      "count": 3,
+      "reward": {
+        "shards": 12
+      },
+      "hint": "Three survey buoys went down with their wave-logs. Raise a wave-log pylon on each shoal — A, B, and the far drift — to settle the corridor."
+    },
+    {
+      "id": "cross-the-deep",
+      "main": true,
+      "title": "Cross the Deep",
+      "giver": "noor-avesh",
+      "kind": "reach",
+      "target": {
+        "x": 78,
+        "y": 22
+      },
+      "count": 1,
+      "hint": "With the corridor settled, make landfall on the east shore — the field includes you, and you are simply already across."
+    },
+    {
+      "id": "channel-husks",
+      "title": "Thin the Channel Husks",
+      "giver": "joss-maru",
+      "kind": "kill",
+      "target": "j",
+      "count": 3,
+      "reward": {
+        "shards": 8
+      },
+      "hint": "Bog-spitters squat on the bridge mouths and zone the spans with toxin. Silence them so the causeways stay crossable."
+    },
+    {
+      "id": "break-the-hulks",
+      "title": "Break the Brine Hulks",
+      "giver": "joss-maru",
+      "kind": "kill",
+      "target": "$",
+      "count": 3,
+      "reward": {
+        "shards": 12
+      },
+      "hint": "Brine-hulks crust onto the shoals and crack your barricades to salt. Put them down before they sap the spans."
+    }
+  ],
+  "modifiers": {
+    "waves": [
+      {
+        "at": 200,
+        "letters": "zzs",
+        "edge": "n"
+      },
+      {
+        "at": 360,
+        "letters": "zzw",
+        "edge": "s"
+      },
+      {
+        "at": 520,
+        "letters": "zsv",
+        "edge": "e"
+      },
+      {
+        "at": 700,
+        "letters": "zzsv",
+        "edge": "e"
+      }
+    ]
+  },
+  "tiles": [
+    "################################################################################",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~,,,,,,,,~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~,,,,,,,,~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~;;;;;;;;~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~;;;N;;;;~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~;;$##;;;~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~,,,,,,,,,,,~~~~~~~~~~~;;;;;v;;~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~,,,,,,,,,,,~~~~~~~~~~~;;;;;;C;~~~~~~~~~~~~,,,,,,,,,,,,~~~~~~~~~~~~,,,,,,,,,~~#",
+    "#~;;;;;;;;;;;~~~~~~~~~~~;;;;;;;;~~~~~~~~~~~~,,,,,,,,,,,,~~~~~~~~~~~~,,,,,,,,,~~#",
+    "#~;;;;;;;;;;;~~~~~~~~~~~,,,,;,,,,,~~~~~~~~~~;;;;;oo;;;;;~~~~~~~~~~~~;;;;oo;;;~~#",
+    "#~;;##;;;;;;;~~~~~~~~~~~,,,,;,,,,,~~~~~~~~~~;$;;;;;;;;;#~~~~~~~~~~~~;;;v;;;;;~~#",
+    "#~;;;;;;;;;;;~~~~~~~~~~~;;;;;o;;;;~~~~~~~~~~#;;;;;;;A;;;~~~~~~~~~~~~#;;;;;;;;~~#",
+    "#~;;;;S;;;;V;~~~~~~~~~~~;j;;;;;;;#~~~~~~~~~~#;;j;;;;;;;;~~~~~~~~~~~~;$;;;;;;;~~#",
+    "#~;;;;;;;;;;;~~~~~~~~~~~#;;;;;B;;;~~~~~~~~~~;;;;;;;;;v;#~~~~~~~~~~~~;;;;;;;;;~~#",
+    "#~;PP;;oo;;;;;;;;;;;k;;;#;;;;;;;;;;;;;;;k;;;;;;;;;;;;;;;;;;;;;;;k;;;;;;;B;;;;;E#",
+    "#~;PP;;;;;;;;;;;;;;;;;;;;;;;B;;;;;;;;;;;;;;;;;;;;B;;;;;;;;;;;;;;;;;;;;;;;;;;;;E#",
+    "#~;;;;;;N;;;;~~~~~~~~~~~;;;;;;;;;#~~~~~~~~~~;;;;;;;;;;;;~~~~~;~~~~~~;;;;;;s;;~~#",
+    "#~;;;;;;;;;V;~~~~~~~~~~~#;;;;;;A;;~~~~~~~~~~;;;;;;;;;;;#~~~~~;~~~~~~;;;;;;C;;~~#",
+    "#~;;;;;;;##;;~~~~~~~~~~~;;Y;;;;s;;~~~~~~~~~~;;;;;;;B;;;;~~~~~;~~~~~~#;j;;;;;;~~#",
+    "#~;;;;;;;;;;V~~~~~~~~~~~;;;;;;;;;;~~~~~~~~~~#;;;;;;;;;s;~~~~~;~~~~~~;;Y;;;;;;~~#",
+    "#~;;;;;;;;;;;~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#;;;C;;;;Y;#~~~~~;~~~~~~;;;;;;;;;~~#",
+    "#~,,,,,,,,,,,~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~;;;;;oo;;;;;~~~~~;~~~~~~~~~~~~~~~~~#",
+    "#~,,,,,,,,,,,~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~,,,,,,,,,,,,~~~~j;~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~,,,,,,,,,,,,~~~~~;~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~;~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~;;;;;;;~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~;;k;~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~;;C;~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~;;;;~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#",
+    "################################################################################"
+  ]
+}

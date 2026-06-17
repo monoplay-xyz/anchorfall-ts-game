@@ -1,0 +1,37 @@
+# Copyrighted game files used as local design reference only — NEVER commit
+*.sms
+*.iso
+*.rom
+*.bin
+
+# Dependencies & runtime artifacts
+node_modules/
+saves/
+*.log
+nohup.out
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Railway link state
+.railway/
+*.chd
+*.zip
+
+# --- TypeScript build artifacts (esbuild emits these .js from their .ts sources;
+# the .ts are the source of truth — see scripts/build.js) ---
+dist/
+/db.js
+/shared/music-durations.js
+/auth.js
+/server.js
+/public/audio.js
+/public/render.js
+/public/client.js
+/public/mapBuilder.js
+/shared/game.js
+/shared/mapValidate.js
+/shared/mapgen.js
+/test/sim.test.js

@@ -1,0 +1,185 @@
+{
+  "name": "The Long Crossing",
+  "objective": "Cross the Overgrowth west to east — raise the three relay pylons to wake the dormant Anchor, then reach the east gate.",
+  "time": 720,
+  "story": true,
+  "chapter": 1,
+  "title": "Chapter I — The Long Crossing",
+  "expedition": true,
+  "theme": "verdance",
+  "intro": [
+    {
+      "title": "After the Anchorfall",
+      "lines": [
+        "The night the Anchors fell, the frontier forgot itself.",
+        "Roads unwrote. Names ran like wet ink.",
+        "The Anchorcraft carries the last operators east."
+      ],
+      "art": "anchorcraft"
+    },
+    {
+      "title": "The Long Crossing",
+      "lines": [
+        "Beyond the meadow, the Overgrowth has swallowed the old road.",
+        "Three dormant relay pylons sleep in its clearings.",
+        "Raise them all, and the east gate remembers how to open."
+      ],
+      "art": "crossing"
+    }
+  ],
+  "outro": [
+    {
+      "title": "First Light",
+      "lines": [
+        "The first Anchor settles. Finality, even out here.",
+        "The crew rests by the fire. One road remembered.",
+        "Eastward, the basin glows wrong."
+      ],
+      "art": "campfire"
+    }
+  ],
+  "captiveChars": [
+    "raider",
+    "sniper",
+    "duelist",
+    "pyro"
+  ],
+  "npcs": [
+    {
+      "id": "doc-aroyo",
+      "name": "Doc Aroyo",
+      "lines": [
+        "Hold still — there. Good as before the Fall. Almost.",
+        "This camp held three nightwaves. The garrison didn’t. I stayed for the patients.",
+        "Hm, hm-hmm... sorry. Old transit jingle. The lines will run again once the Anchor settles.",
+        "A barricade and a working turret would do more for my patients than I ever could.",
+        "Watch the Lurkers in the green. They wait buried until you’re close, then they aren’t buried."
+      ]
+    },
+    {
+      "id": "wrenna-halv",
+      "name": "Wrenna Halv",
+      "lines": [
+        "Operator on your feet — good. The Anchor east of here is dormant. Cold since the Fall.",
+        "Three relay pylons feed it. All three online or the gate stays cold — quorums don’t negotiate.",
+        "Pylons take LYTH. The Entropy drops shards when it falls — kill it, take them, build.",
+        "Crystal nodes grow along the road. Crack them open; unsealed LYTH helps nobody but the Leeches.",
+        "People lie. Quorums don’t. Get my three pylons up and we all go home."
+      ],
+      "gift": {
+        "shards": 6
+      }
+    },
+    {
+      "id": "cassio-bell",
+      "name": "Cassio ‘Quorum’ Bell",
+      "lines": [
+        "Three pylons for one gate. Counted twice on my fingers. I don’t like the odds.",
+        "I don’t run jobs under seven-in-ten. This lane? Coin flip. That’s why I’m sitting down.",
+        "Nightwave took the last courier through here. Keep to the clearings, operator.",
+        "Forklings in the trees. See one, there are already two. That’s how forks work."
+      ]
+    },
+    {
+      "id": "old-tarn",
+      "name": "Old Tarn",
+      "lines": [
+        "Stranded two seasons in this green. Thought nobody kept the signal.",
+        "Here — shards I pulled before my lantern drowned. The LYTH remembers who carried it. Fondly, in my case.",
+        "Wet leaves hide dry teeth. Walk the open ground, not the thicket.",
+        "A Phantom past the ridge wears an operator’s coat. It is not an operator. Burn anything classical it offers.",
+        "Settle the Anchor. Once it settles, that’s finality — even out here."
+      ],
+      "gift": {
+        "shards": 4
+      }
+    }
+  ],
+  "builds": [
+    {
+      "kind": "pylon",
+      "cost": 14
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "pylon",
+      "cost": 14
+    },
+    {
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "pylon",
+      "cost": 14
+    }
+  ],
+  "gate": {
+    "need": 3
+  },
+  "tiles": [
+    "################################################################################",
+    "#,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,#",
+    "#,..........,,,,,,,,,,,,,,,,,,,~,,,,,,,,,,,,,,,,,,,,~,,,,,,,,,,,,,,,,,#........#",
+    "#,..........,,,,,,,,,,,,,,,,,,,~,,,,,,,,,,,,,,,,,,,,~,,,,,,,,,,,,,,,,,#........#",
+    "#,..........,,,,,,,,,,,,,,,,,,,~,,,,,,,,,,,,,,,,,,,,~,,,,,,,,,,,,,,,,,#........#",
+    "#,....,,....,,,,,,,,,,,,,C,,...~,,,,,,,,,,,,,,,,,,,,~,,,,,,,,,,,,,,,,,#........#",
+    "#,....,,....,,,,,,,,,,,,,,,,...~,,,,,,,,,,,,,,,...,,~,,,,,,,,,,,,,,,,,#........#",
+    "#,....,,z...,,,,,,,,,,,,,,,,...~,,,,,,,,,,,,,,,...,,~,,,,,,,,,,,,,,,,,#........#",
+    "#,..........,,,,,,,,,,,,,,,,...~,,#............#..,,,,,,,,,,,,,,,,,,,,#........#",
+    "#,..........,,,,l,,,,,,,,,,,.........,,...c..z....,,,,,,,,,,,,,,,,,,,,#........#",
+    "#,..........,,,,,,,,,,,,,,,,.....z.......B.............,,,,,,,,,,,,,,,#........#",
+    "#,.......,,.,,,,,,,,,,,,,,,,.................g.........,,,,,,,,,,,,,,,#........#",
+    "#,.......,,.,,,,,,,,,,,,,,,,...~,,,..w.................,,,,,,,,,,,,,,,#........#",
+    "#,..........,,,,,,,,,,,,,,,,...~,,,...B....B,,.........,,,,,,,,,,,,,,,#........#",
+    "#,..........,,,,,,,,,,,,,,,,...~,,,.l.......,,.........,,,,,,,,,,,,,,,#........#",
+    "#,..........,,,,,,,,,,,,,,,,...~,,#............#...................,,,#........#",
+    "#,..........,,,#....g......#,,,,,,,,,,,...,,,,,.............w...Y..,,,#........#",
+    "#,..........,,,,..,........,,,,,,,,,,,,...,,,,,,,,.......,,........,,,#........#",
+    "#,.....N....,,,,..,B....B.l,,,,,,,,,,,,...,,,,,,,,,,,,...,,...........#........#",
+    "#,..........,,,,....c......,,,,,,,,,,,,...,,,,,,,,,,,,................#........#",
+    "#,..PP...Y...........N..................Y................z.....g...........EE..#",
+    "#,....................Y.......l.................z.g.........Y.c............EE..#",
+    "#,..PP............B..............................................z.............#",
+    "#,..........,,,,.w......,z.,,,,,,,,,,,,...,,,,,,,,,,,,................#........#",
+    "#,......N...,,,#...........#,,,,,,,,,,,...,,,,,,,,,,,,........,,......#........#",
+    "#,..........,,,,,,,,,,,,,,,,...,,,,,,,,...,,,,,,,,............,,...,,,#........#",
+    "#,..........,,,,,,,,,,,,,,,,...,,,,,,,,...,,,,,,,,..........l......,,,#........#",
+    "#,..........,,,,,,,,,,,,,,,,...,,,,,,,,...,,,,,....................,,,#........#",
+    "#,..........,,,,,,,,,,,,,,,,...~,,#............#.......,,,,,,,,,,,,,,,#........#",
+    "#,..........,,,,,,,,,,,,,,,,...~,,,.l.......,g.........,,,,,,,,,,,,,,,#........#",
+    "#,..........,,,,,,,,,,,,,,,,...~,,,...B....B....C......,,,,,,,,,,,,,,,#........#",
+    "#,..,,......,,,,,,,,,,,,,,,,...~,,,.....N..............,,,,,,,,,,,,,,,#........#",
+    "#,..,,......,,,,,,,,,,,,,,,,.........w.................,,,,,,,,,,,,,,,#........#",
+    "#,..,,g.....,,,,,,,,,,,,,,,,.....g...,,..B...z....,,,,,,,,,,,,,,,,,,,,#........#",
+    "#,..........,,,,,,,,,,,,,,,,.........,,...c.......,,,,,,,,,,,,,,,,,,,,#........#",
+    "#,..........,,,,,,,,,,,,,,,,...~,,#............#..,,,,,,,,,,,,,,,,,,,,#........#",
+    "#,..........,,,,,,,,,,,,,,,,,,,~,,,,,,,,,,,,,,,...,,~,,,,,,,,,,,,,,,,,#........#",
+    "#,..........,,,,,,,,,,,,,,,,,,,~,,,,,,,,,,,,,,,...,,~,,,,,,,,,,,,,,,,,#........#",
+    "#,......,,..,,,,,,,,,,,,,,,,,,,~,,,,,,,,,,,,,,,,,,,,~,,,,,,,,,,,,,,,,,#........#",
+    "#,......,,..,,,,,,,,,,,,,,,,,,,~,,,,,,,,,,,,,,,,,,,,~,,,,,,,,,,,,,,,,,#........#",
+    "#,..........,,,,,,,,,,,,,,,,,,,~,,,,,,,,,,,,,,,,,,,,~,,,,,,,,,,,,,,,,,#........#",
+    "#,..........,,,,,,,,,,,,,,,,,,,~,,,,,,,,,,,,,,,,,,,,~,,,,,,,,,,,,,,,,,#........#",
+    "#,..........,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,#........#",
+    "################################################################################"
+  ]
+}

@@ -1,0 +1,484 @@
+{
+  "stranded": true,
+  "name": "Beacon Crossing",
+  "objective": "Hold a quorum of tidal beacons across the divide — cross the central causeway to relight the far lights while the near ones burn",
+  "time": 600,
+  "expedition": true,
+  "mode": "bastion",
+  "theme": "saltworks",
+  "bastion": {
+    "nights": 6,
+    "bloodMoons": [
+      5
+    ],
+    "waveMult": 1.53,
+    "roster": [
+      "r",
+      "s",
+      "j",
+      "$"
+    ]
+  },
+  "bastionVariant": "beacons",
+  "difficulty": "normal",
+  "stronghold": {
+    "level": 9,
+    "name": "Beacon Crossing",
+    "sizeLabel": "L",
+    "difficulty": 3,
+    "waves": 7,
+    "hpMult": 1.27,
+    "blurb": "A tidal saltworks split by a single causeway. Four beacons, two banks, one bridge — keep a quorum lit while the brine-hulks saw at your barricades.",
+    "newFeatures": [
+      "Beacon quorum across a water divide",
+      "Brine-hulk sappers (double structure damage)",
+      "Bog-spitters zone the crossing with toxin"
+    ]
+  },
+  "intro": [
+    {
+      "title": "Beacon Crossing",
+      "lines": [
+        "Four beacons ring the flats, two to a bank, and the channel cuts between them.",
+        "Keep any three burning at dawn. The far pair only relights if you cross under fire.",
+        "Brine-hulks chew the barricades on the bridge — repair, or lose the span."
+      ],
+      "art": "siege"
+    }
+  ],
+  "outro": [
+    {
+      "title": "Quorum Held",
+      "lines": [
+        "The crossing held. The lights answer the dawn from both banks.",
+        "The tide will turn again — but not tonight."
+      ],
+      "art": "dawn"
+    }
+  ],
+  "captiveChars": [],
+  "builds": [
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "farm",
+      "cost": 6
+    },
+    {
+      "kind": "farm",
+      "cost": 6
+    }
+  ],
+  "chests": [
+    {
+      "loot": "shards",
+      "amount": 9
+    },
+    {
+      "loot": "mask",
+      "amount": 1
+    },
+    {
+      "loot": "shards",
+      "amount": 8
+    }
+  ],
+  "vehicles": [
+    {
+      "kind": "skiff"
+    },
+    {
+      "kind": "skiff"
+    }
+  ],
+  "hires": [
+    {
+      "job": "engineer",
+      "cost": 10,
+      "name": "Sluice Harran"
+    },
+    {
+      "job": "smith",
+      "cost": 12,
+      "name": "Brack Toll"
+    },
+    {
+      "job": "smith",
+      "cost": 12,
+      "name": "Spit Nessa"
+    }
+  ],
+  "npcs": [
+    {
+      "id": "keeper-marl",
+      "name": "Causeway Keeper Marl",
+      "lines": [
+        "Three of four beacons lit at dawn and the grid pays. The bridge is your lifeline to the far pair.",
+        "The hulks come for the barricades, not for you. Mend the span or you'll be swimming.",
+        "Spitters foul the crossing with toxin. Time your runs between the globs."
+      ]
+    }
+  ],
+  "weather": "fog",
+  "ambience": "city",
+  "tiles": [
+    "########################################################",
+    "#;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;#",
+    "#;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;#",
+    "#;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;#",
+    "#;;;;;;;;;;;;;;;;;;;;;##;;;;s;;;;;;;;;;;;;;;;;;;##;;;;;#",
+    "#;;;;;##;;$;;;;;;;s;;;;;;;;;;;;;;;;;;;s;;;;;;;$;;;;;;;;#",
+    "#;;;;;#;;;;;;;;;;;;;;;;;j;;;;;;;j##;;;;;;;;;;;;;;;;;;;;#",
+    "#;;;;;;;;;;;BBBBC;;;;;;;;;;;;;;;;;;;;;;;CBBBB;;;;;;;;;;#",
+    "#;;;;;;;;;;;BB;;B;;;;;;;;;;;;;;;;;;;;;;;BB;;B;;;;;;;;;;#",
+    "#;;;;;;;;;;;B;K;B;;;;;;;;;;;;;;;;;;;;;;;B;K;B;;;;;;;;;;#",
+    "#;;;;;;;;;;;B;;BB;;;;;;;;;;;;;;;;;;;;;;;B;;BB;;;;;;;;;;#",
+    "#;;;;;;;j;;;BB;BB;;;;;;;;;#;;;#;;;;;;;;;BB;BB;;;j;;;;;;#",
+    "#;;;;;;;;;;;r;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;r;;;;;;;;;;#",
+    "#;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;#",
+    "#;;;;;;;;;;;;;;;;;;;;;;;;;;;r;;;;;;;;;;;;;;;;;;;;;;;;;;#",
+    "#;;;;;;;;;;;;;~~;;;;;;;;~~s;;;$;;;;;;;;;~~;;;;;;;;;;;;;#",
+    "#;;;;;~~;;;;;;;;;;;;;;;;;o;;;;~~;;;;;;;;;;;;;;;;;;;;;;;#",
+    "#;;;;;;;;;;;;;;;~~;;;;;;;;;;C;;;;;;;;;;;;;~~;;;o;o;;;;;#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~;;;~~~~~~~~~~~~~~~~~~;~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~;;;~~~~~~~~~~~~~~~~~~;~~~~~~#",
+    "#~~~~~~~~~~~~~~~~~~~~~~~~~~;;;~~~~~~~~~~~~~~~~~~;~~~~~~#",
+    "#;;;;;;;;;~~;;;;;;;;;;;;;;;;;;;;;;;;~~;;;;;;;;;o;o;;;;;#",
+    "#;;;;;;;;;;;;;;;;;;;;;~~;o;;;;;o;;;;;;;;;;;;;;;;~~;;;;;#",
+    "#;;;;;;;;;;;;;;;;;;;;;;;;;V;V;;;;~~;;;;;;;;;;;;;;;;;;;;#",
+    "#;;;;;;;;;;;;;;;;;;;H;H;H;;N;;;;;;;;;;;;;;;;;;;;;;;;;;;#",
+    "#;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;#",
+    "#;;;;;;;r;;;;;;;;;;;;;;;;;#;;;#;;;;;;;;;;;;;;;;;r;;;;;;#",
+    "#;;;;;;;;;;;BB;BB;;;;;;;;;;;;;;;;;;;;;;;BB;BB;;;;;;;;;;#",
+    "#;;;;;;;;;;;BB;;B;;;;;;;;;;;;;;;;;;;;;;;BB;;B;;;;;;;;;;#",
+    "#;;;;;;;;;;;B;K;B;;;;;;;;;;;;;;;;;;;;;;;B;K;B;;;;;;;;;;#",
+    "#;;;;;;;;;;;B;;BB;;;;;;;;;;PPP;;;;;;;;;;B;;BB;;;;;;;;;;#",
+    "#;;;;;;;;;;;BBBBB;;;;;;;;;;;P;;;;;;;;;;;BBBBB;;;;;;;;;;#",
+    "#;;;;;#;;;;;;;;;;;;;;;;;;B;;;;;B;##;;;;;;;;;;;;;;;;;;;;#",
+    "#;;;;;##;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;##s;;;;#",
+    "#;;;;;;;;;;;;;;;;;;;j;##;;;;;;;;;;;;j;;;;;;;;;;;;;;;;;;#",
+    "#;;;;;;;;;;;;;;;;;;;;;;;S;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;#",
+    "#;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;#",
+    "########################################################"
+  ]
+}

@@ -1,0 +1,155 @@
+{
+  "name": "Final Settlement",
+  "story": true,
+  "chapter": 6,
+  "title": "Chapter VI — Final Settlement",
+  "expedition": true,
+  "theme": "dunes",
+  "objective": "Breach the three desert rings west to east — raise all three relay pylons to wake the Settlement Anchor, then reach the great gate.",
+  "time": 840,
+  "captiveChars": [
+    "atlas"
+  ],
+  "npcs": [
+    {
+      "id": "old-tarn",
+      "name": "Old Tarn",
+      "lines": [
+        "You. Thought the swamp kept you. Then I thought the road did. Glad to be wrong twice.",
+        "Take these — saved them since the crossing. The LYTH remembers everyone who ever carried it.",
+        "Three rings of berms stand between us and the Anchor. A pylon sleeps behind each one. Light all three.",
+        "The rings were raised to keep the Entropy out. Now it mans the windbreaks. Funny old frontier.",
+        "Snipers and fire-kites nest along the sandbags — rush a gap and they can't lead you fast enough.",
+        "Lurkers bury themselves in the open sand between the rings. They wait until you're close, then they aren't buried.",
+        "Settle it for good, operator. I'm done walking."
+      ],
+      "gift": {
+        "shards": 8
+      }
+    },
+    {
+      "id": "quiet-settler",
+      "name": "The Quiet Settler",
+      "lines": [
+        "We held this frontier with a whisper, not a wall: keep the signal alive.",
+        "Say it once and you are one of us. Keep the signal alive.",
+        "Light all three pylons before you touch the gate — a quorum will not open for half a promise.",
+        "The sand drags at your boots out there. So plan your dash through each ring; don't dawdle in the open.",
+        "When the Anchor settles, finality spreads across the dunes. Out here we just call it morning."
+      ]
+    }
+  ],
+  "builds": [
+    {
+      "kind": "turret",
+      "cost": 10
+    },
+    {
+      "kind": "pylon",
+      "cost": 15
+    },
+    {
+      "kind": "pylon",
+      "cost": 15
+    },
+    {
+      "kind": "pylon",
+      "cost": 15
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    }
+  ],
+  "gate": {
+    "need": 3
+  },
+  "modifiers": {
+    "waves": [
+      {
+        "at": 300,
+        "letters": "aanrr",
+        "edge": "e"
+      },
+      {
+        "at": 540,
+        "letters": "nnrree",
+        "edge": "e"
+      }
+    ]
+  },
+  "intro": [
+    {
+      "title": "Chapter VI — Final Settlement",
+      "lines": [
+        "Three rings of berms cross the open desert between the expedition and the great Settlement Anchor.",
+        "The Entropy garrisons every windbreak it ever broke.",
+        "One last march across the sand. Keep the signal alive."
+      ],
+      "art": "settlement"
+    }
+  ],
+  "outro": [
+    {
+      "title": "The Anchor Settles",
+      "lines": [
+        "Light walks outward from the gate, ring by ring across the dunes.",
+        "Finality spreads over the frontier like a slow, dry dawn.",
+        "The land remembers itself."
+      ],
+      "art": "dawn"
+    },
+    {
+      "title": "Home",
+      "lines": [
+        "Wrenna's quorum sings. Tarn's odds finally come good.",
+        "The Settlement Anchor holds. The frontier is anchored for good — the expedition is home."
+      ],
+      "art": "anchorcraft"
+    }
+  ],
+  "tiles": [
+    "################################################################################",
+    "#==============================================================================#",
+    "#==============================================================================#",
+    "#==============================================================================#",
+    "#===,,=========================================================================#",
+    "#=,::::====================================================#===================#",
+    "#==::::==================================#=================#===================#",
+    "#==::::==================================#=================#===================#",
+    "#=,::::==============#===================#==================o==================#",
+    "#===,,===============#====================o=================o==================#",
+    "#=====================o===================o=n===============o=n================#",
+    "#=====================o=a=================o=================o==================#",
+    "#=======Y=============o===================or================or=================#",
+    "#======================r==================o========l========o=e================#",
+    "#==========B==============================o=e===============o==================#",
+    "#=====================o=n========l========o=================o==================#",
+    "#=====N==========l====o===================o=================o=a=======#========#",
+    "#=====================o=====================================o=========#========#",
+    "#==PP=================o===B==========================l==============a==========#",
+    "#==PP=================o=a============,====o==a==================B========EE====#",
+    "#=======c=============o============l:::===o===B=============o============EE====#",
+    "#=====N===============o=============:::===o=================o==n====n==========#",
+    "#===============l=====o=============:::===o=======l=========o=========#========#",
+    "#==========B=========================,====o=n===============or========#========#",
+    "#=============================l===========o==============B==o==================#",
+    "#=====================o=e===================================o=e================#",
+    "#======Y==============o===================or================o==================#",
+    "#=================l===o===================o===========l=====o==================#",
+    "#====================#====================o=e===============o==================#",
+    "#====================#============l=======o=================o=n================#",
+    "#====C===================================#==================or=================#",
+    "#======================a=================#=r========l======#===================#",
+    "#========================================#=================#===================#",
+    "#======================r====================a==============#==a================#",
+    "#==============================================================================#",
+    "#==============================================================================#",
+    "#==============================================================================#",
+    "################################################################################"
+  ]
+}

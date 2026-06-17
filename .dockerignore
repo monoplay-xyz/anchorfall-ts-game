@@ -1,0 +1,7 @@
+node_modules
+saves
+dist
+docs
+.railwayignore
+Dockerfile
+.dockerignore

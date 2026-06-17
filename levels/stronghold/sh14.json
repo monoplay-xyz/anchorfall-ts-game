@@ -1,0 +1,322 @@
+{
+  "stranded": true,
+  "name": "Relay Shrine",
+  "objective": "Seize the marble dais and keep the relay lit through the long defense \u2014 wraith-fire crosses the plaza and revenants drift the colonnade.",
+  "time": 600,
+  "expedition": true,
+  "mode": "bastion",
+  "theme": "reliquary",
+  "weather": "fog",
+  "ambience": "night",
+  "bastion": {
+    "nights": 6,
+    "dayLen": 70,
+    "nightLen": 95,
+    "bloodMoons": [
+      6
+    ],
+    "waveMult": 1.87,
+    "roster": [
+      "q",
+      "a",
+      "k",
+      "y"
+    ],
+    "wavesPerNight": 1
+  },
+  "capture": {
+    "x": 23,
+    "y": 19,
+    "radius": 3,
+    "duration": 90,
+    "threshold": 1,
+    "decay": 1,
+    "contest": true
+  },
+  "stronghold": {
+    "level": 14,
+    "name": "Relay Shrine",
+    "sizeLabel": "L",
+    "difficulty": 4,
+    "waves": 7,
+    "hpMult": 1.43,
+    "unlock": "warden",
+    "blurb": "A sacred relay on a central marble dais. Seize the high ground by day, then hold it lit while vault-wraiths chain-zap the plaza and phaseborn slip the colonnade.",
+    "newFeatures": [
+      "Capture-and-hold the central dais",
+      "Caster-heavy reliquary roster",
+      "Phaseborn drift through the colonnade"
+    ]
+  },
+  "intro": [
+    {
+      "title": "Relay Shrine",
+      "lines": [
+        "The relay sleeps on the marble dais at the heart of the shrine. Light it, and hold it lit.",
+        "Vault-wraiths arc their fire across the open plaza \u2014 never line up two of you.",
+        "The colonnade will not stop the phaseborn. They walk through stone."
+      ],
+      "art": "campfire"
+    }
+  ],
+  "outro": [
+    {
+      "title": "The Relay Holds",
+      "lines": [
+        "Dawn finds the dais yours and the relay still burning.",
+        "The casters have gone back to whatever void birthed them."
+      ],
+      "art": "dawn"
+    }
+  ],
+  "captiveChars": [],
+  "builds": [
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "turret",
+      "cost": 10,
+      "prebuilt": true,
+      "ttype": "prism"
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "turret",
+      "cost": 10,
+      "prebuilt": true,
+      "ttype": "prism"
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 2
+    }
+  ],
+  "chests": [
+    {
+      "loot": "token",
+      "amount": 1
+    },
+    {
+      "loot": "shards",
+      "amount": 12
+    },
+    {
+      "loot": "medkit",
+      "amount": 1
+    },
+    {
+      "loot": "shield",
+      "amount": 1
+    }
+  ],
+  "vehicles": [],
+  "hires": [
+    {
+      "job": "engineer",
+      "cost": 10,
+      "name": "Reliquar Vael"
+    },
+    {
+      "job": "smith",
+      "cost": 12,
+      "name": "Goldanvil Sere"
+    }
+  ],
+  "pickups": [],
+  "tiles": [
+    "###############################################",
+    "#;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;#",
+    "#;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;#",
+    "#;;,,,,,;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;,,,,,;;#",
+    "#;;,,,,,;;;;;;;;;;;~~~~~~~~~;;;;;;;;;;;,,,,,;;#",
+    "#;;,,C,,;;;;;;;;;;;~~~~~~~~~;;;;;;;;;;;,,C,,;;#",
+    "#;;,,,,,;;;;;;;;;;;~~~~~~~~~;;;;;;;;;;;,,,,,;;#",
+    "#;;;;;;;;;;;;;;;;;;~~~~~~~~~;;;;;;;;;;;;;;;;;;#",
+    "#;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;#",
+    "#;;;;;;;;;a;;;;;;;;;;;;;;;;;;;;;;;;;a;;;;;;;;;#",
+    "#;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;#",
+    "#;;;;;;;;;;;;#;;;;;;;;;#;;;;;;;;;#;;;;;;;;;;;;#",
+    "#;;;;;;;;;;;;;;k;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;#",
+    "#;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;k;;;;;;;;;;;;;#",
+    "#;;;;;;;;;;;;;q;;;;;;;;*;;;;;;;;q;;;;y;;;;;;;;#",
+    "#;;;;;;;;;;;;;;;;;BBBB;;;BBBB;;;;;;;;;;;;;;;;;#",
+    "#;;;~~~~~;;;;;;;;;B;;;;;;;;;B;;;;;;;;;~~~~~;;;#",
+    "#;;;~~~~~;;;;;;;;;B;B;;;;;;;B;;;;;;;;;~~~~~;;;#",
+    "#;;;~~~~~;;;;;;;;;B;;P;;;;;;;;;;;;;;;;~~~~~;;;#",
+    "#;;;~~~~~;;;;#;;;;B;;;;K;;;;;*;;;#;;;;~~~~~;;;#",
+    "#;;;~~~~~;;;;;;;;;B;;S;;;P;;;;H;H;;;;;~~~~~;;;#",
+    "#;;;~~~~~;;;;;;;;;B;;;;;;;B;B;;;;;;;;;~~~~~;;;#",
+    "#;;;~~~~~;;;;;;;;;B;;;;;;;;;B;;;;;;;;;~~~~~;;;#",
+    "#;;;;;;;;;;;;;;;;;BBBB;;;BBBB;;;;;;;;;;;;;;;;;#",
+    "#;;;;;;;;y;;;;q;;;;;;;;*;;;;;;;;;a;;;;;;;;;;;;#",
+    "#;;;;;;;;;;;;;k;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;#",
+    "#;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;k;;;;;;;;;;;;;;#",
+    "#;;;;;;;;;;;;#;y;;;;;;;#;;;;;;;;;#;;;;;;;;;;;;#",
+    "#;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;#",
+    "#;;;;;;;;;a;;;;;;;;;;;;;;;;;;;;;;;;;a;;;;;;;;;#",
+    "#;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;y;;;;;;;;;;;;;;#",
+    "#;;;;;;;;;;;;;;;;;;~~~~~~~~~;;;;;;;;;;;;;;;;;;#",
+    "#;;,,,,,;;;;;;;;;;;~~~~~~~~~;;;;;;;;;;;,,,,,;;#",
+    "#;;,,C,,;;;;;;;;;;;~~~~~~~~~;;;;;;;;;;;,,C,,;;#",
+    "#;;,,,,,;;;;;;;;;;;~~~~~~~~~;;;;;;;;;;;,,,,,;;#",
+    "#;;,,,,,;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;,,,,,;;#",
+    "#;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;#",
+    "#;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;#",
+    "###############################################"
+  ]
+}

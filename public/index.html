@@ -1,0 +1,670 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Monolythium &mdash; The Anchorfall</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    /* client-owned HUD additions (style.css belongs to the render pass) */
+    #heartsPanel { display: flex; flex-direction: column; gap: 6px; }
+    #heartsPanel[hidden] { display: none; }
+    .heartrow { background: var(--panel-bg); border: 1px solid var(--panel-edge); border-radius: 4px; padding: 5px 9px; display: flex; align-items: center; gap: 8px; }
+    .heartrow .hr-name { font-weight: 800; font-size: 10px; letter-spacing: 1px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .heartrow .pips { white-space: nowrap; }
+    .heartrow .pip { font-size: 13px; }
+    .heartrow .pip.hp { color: #ff6a7a; }
+    .heartrow .pip.off { color: rgba(255,255,255,.18); }
+    .heartrow .pip.sh { color: var(--relay); }
+    .heartrow.outrow { opacity: .4; filter: grayscale(.8); }
+    #banner { position: absolute; top: 9%; left: 50%; transform: translateX(-50%); padding: 9px 26px; font-weight: 800; letter-spacing: 4px; font-size: 19px; color: #eaf6ff; white-space: nowrap; background: rgba(8,10,18,.8); border: 1px solid var(--panel-edge); border-left: 3px solid var(--relay); pointer-events: none; text-transform: uppercase; }
+    #banner.blood { border-left-color: #E04848; color: #ffb3a8; text-shadow: 0 0 18px rgba(255,60,40,.55); }
+    #banner[hidden], #spectateTag[hidden] { display: none; }
+    /* tutorial coach: the current step's instruction, bottom-center */
+    #tutorialCoach { position: absolute; bottom: 17%; left: 50%; transform: translateX(-50%); max-width: 80%; padding: 10px 24px; font-weight: 800; letter-spacing: 1.2px; font-size: 16px; color: #d9f6ff; text-align: center; background: rgba(8,12,22,.86); border: 1px solid var(--panel-edge); border-bottom: 3px solid var(--relay); border-radius: 4px; pointer-events: none; box-shadow: 0 0 22px rgba(20,40,60,.5); }
+    #tutorialCoach.ok { border-bottom-color: #5fd2b4; color: #b9ffe6; }
+    #tutorialCoach[hidden] { display: none; }
+    #spectateTag { position: absolute; bottom: 7%; left: 50%; transform: translateX(-50%); padding: 6px 18px; font-size: 12px; font-weight: 800; letter-spacing: 3px; color: #ffb3a8; background: rgba(8,10,18,.7); border: 1px solid rgba(224,72,72,.5); pointer-events: none; }
+    #bastionInfo { margin-top: 6px; }
+    #cyclePhase { font-size: 12px; letter-spacing: 1px; }
+    #pvpInfo { margin-top: 6px; font-size: 12px; letter-spacing: 1px; color: var(--relay); white-space: pre-line; }
+    .hbar { height: 6px; margin-top: 3px; background: rgba(255,255,255,.08); border-radius: 3px; overflow: hidden; }
+    .hbar i { display: block; height: 100%; width: 100%; background: linear-gradient(90deg, #E04848, #FFD98A); transition: width .2s; }
+    #coreLabel { margin-top: 4px; }
+    #wItem .srow em { font-style: normal; font-size: 10px; color: #5E6B8C; letter-spacing: 0; margin-left: 4px; }
+    /* loot toast: small transient popup over the field (chest pickups) */
+    #toast { position: absolute; bottom: 12%; left: 50%; transform: translateX(-50%); padding: 6px 16px; font-size: 13px; font-weight: 800; letter-spacing: 2px; color: #ffe9b0; background: rgba(8,10,18,.82); border: 1px solid var(--panel-edge); border-left: 3px solid var(--amber); pointer-events: none; text-transform: uppercase; white-space: nowrap; }
+    #toast[hidden] { display: none; }
+    /* system notices (corrupt save beacon, stronghold unlocks) surface above the screen overlays */
+    #toast.front { z-index: 6; }
+    /* per-mission XP readout in the weapon panel (non-arcade missions only) */
+    #wXp .xpbar { height: 3px; margin-top: 2px; background: rgba(255,255,255,.08); border-radius: 2px; overflow: hidden; }
+    #wXp .xpbar i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, var(--relay), var(--amber)); transition: width .2s; }
+    /* objectives checklist (top of the left column): main quest + up to 3 secondaries */
+    #objectivesPanel[hidden] { display: none; }
+    #objectivesPanel .obj { display: flex; gap: 7px; align-items: baseline; margin-top: 3px; }
+    #objectivesPanel .obj .chk { color: var(--amber); flex: none; }
+    #objectivesPanel .obj.done .chk { color: var(--green); }
+    #objectivesPanel .obj.done .otxt { color: #5E6B8C; text-decoration: line-through; }
+    #objectivesPanel .obj.main .otxt { font-weight: 800; letter-spacing: 1px; }
+    #objectivesPanel .obj.sec { font-size: 10px; color: #9fb0cc; }
+
+    /* ---- true fullscreen fill: the canvas's LOGICAL resolution adapts to the
+       window (set by fitStage in client.js) — no letterboxing, no distortion.
+       Side panels keep their fixed width and stretch to full height. ---- */
+    body { align-items: stretch; justify-content: stretch; }
+    /* --ov = TV-overscan inset (per side): vh top/bottom, vw left/right. The
+       page void shows through as a black safe-area border so nothing the TV
+       crops past the edge matters. box-sizing keeps #stage at 100vw/vh. */
+    #stage { width: 100vw; height: 100vh; box-sizing: border-box; background: #000; padding: calc(var(--ov, 0) * 1vh) calc(var(--ov, 0) * 1vw); }
+    #center { flex: 1 1 auto; min-width: 0; }
+    #game { width: 100%; height: 100%; }
+
+    /* ---- menu pages (MAIN / SINGLEPLAYER / VERSUS / ONLINE / SETTINGS /
+       REMAP / STRONGHOLD SELECT) — one .mpage visible at a time ---- */
+    .mpage { display: flex; flex-direction: column; align-items: center; gap: 13px; width: 100%; min-height: 0; }
+    .mpage[hidden] { display: none; }
+
+    /* ---- per-player controller readout (Settings) ---- */
+    .ctrlreadout { display: flex; flex-direction: column; gap: 3px; font: 11px/1.5 ui-monospace, Menlo, monospace; color: #8fa0bc; letter-spacing: .5px; }
+    .ctrlreadout:empty { display: none; }
+    .ctrlreadout .crp { color: var(--relay); font-weight: 700; }
+
+    /* ---- wave countdown banner (dusk / zone shrink / sudden death) ---- */
+    #countdown { position: absolute; top: 15%; left: 50%; transform: translateX(-50%); padding: 8px 28px; font-size: 26px; font-weight: 800; letter-spacing: 5px; color: var(--amber); background: rgba(8,10,18,.78); border: 1px solid var(--panel-edge); pointer-events: none; white-space: nowrap; animation: cdblink .8s steps(2, jump-none) infinite; }
+    #countdown.blood { color: #ff7a6a; text-shadow: 0 0 18px rgba(255,60,40,.55); }
+    #countdown[hidden] { display: none; }
+    @keyframes cdblink { 50% { opacity: .35; } }
+
+    /* ---- controls overlay (corner panel, toggle in Settings) ---- */
+    #ctrlOverlay { position: absolute; left: 10px; bottom: 10px; padding: 7px 10px; font: 10px/1.65 ui-monospace, Menlo, monospace; letter-spacing: .5px; color: #9fb0cc; background: rgba(8,10,18,.62); border: 1px solid rgba(23,74,74,.6); border-radius: 4px; pointer-events: none; white-space: nowrap; }
+    #ctrlOverlay[hidden] { display: none; }
+    #ctrlOverlay .chint { color: var(--amber); margin-top: 3px; }
+
+    /* ---- beacon pips (beacon-defense strongholds: 4 monoliths) ---- */
+    #beaconPips { margin-top: 4px; letter-spacing: 4px; font-size: 15px; }
+    #beaconPips[hidden] { display: none; }
+    .bpip.lit { color: var(--amber); text-shadow: 0 0 8px rgba(255,217,138,.6); }
+    .bpip.dark { color: rgba(255,255,255,.16); }
+    .bship { color: var(--relay); font-size: 10px; letter-spacing: 1px; }
+
+    /* ---- stronghold level select (25 cards, pad-navigable grid) ---- */
+    #shGrid { display: grid; grid-template-columns: repeat(5, 158px); gap: 8px; max-height: 56vh; overflow-y: auto; padding: 4px; }
+    /* operator gallery */
+    #opGrid { display: grid; grid-template-columns: repeat(2, minmax(230px, 1fr)); gap: 8px; max-height: 60vh; overflow-y: auto; padding: 4px; width: 100%; max-width: 740px; }
+    .opcard { display: flex; gap: 10px; align-items: center; padding: 7px 10px; background: rgba(14,18,28,.7); border: 1px solid var(--panel-edge); border-radius: 5px; text-align: left; }
+    .opcard canvas { width: 48px; height: 48px; border-radius: 4px; flex: 0 0 auto; }
+    .opcard.locked { opacity: .6; }
+    .opcard.locked canvas { filter: grayscale(1) brightness(.7); }
+    .opmeta { min-width: 0; }
+    .opname { font-weight: 800; letter-spacing: 1px; font-size: 14px; }
+    .opwpn { font-size: 11px; color: #8fa0bc; margin-top: 1px; }
+    .opstat { font-size: 11px; color: #c9b06a; margin-top: 2px; }
+    .opstat.on { color: #5fd2b4; }
+    /* account forms */
+    .acctbox { display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: 340px; align-items: stretch; }
+    .acctinput { padding: 9px 12px; font: 14px ui-monospace, Menlo, monospace; background: rgba(8,12,22,.85); border: 1px solid var(--panel-edge); border-radius: 4px; color: #eaf6ff; }
+    .acctinput:focus { outline: none; border-color: var(--relay); }
+    button.shcard { width: 158px; padding: 7px 9px 8px; text-align: left; background: rgba(255,255,255,.05); color: #cfd8e8; clip-path: none; border: 1px solid rgba(54,160,138,.3); border-radius: 5px; display: flex; flex-direction: column; gap: 3px; font-weight: 500; letter-spacing: 0; font-size: 11px; }
+    button.shcard .shtop { display: flex; justify-content: space-between; align-items: baseline; }
+    button.shcard .shno { color: var(--relay); font-weight: 800; font-size: 12px; }
+    button.shcard .shmark { font-size: 11px; color: var(--green); }
+    button.shcard .shname { font-weight: 800; font-size: 12px; letter-spacing: .5px; color: #eaf6ff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    button.shcard .shmeta { color: #76829c; font-size: 10px; }
+    button.shcard .shmeta .pips { font-style: normal; color: var(--amber); letter-spacing: 1px; }
+    button.shcard .shbadges { display: flex; gap: 4px; flex-wrap: wrap; min-height: 13px; }
+    button.shcard .shnew { font-style: normal; font-size: 8px; font-weight: 800; letter-spacing: .5px; color: #0b121a; background: var(--amber); border-radius: 3px; padding: 1px 4px; max-width: 136px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    button.shcard .shchar { font-style: normal; font-size: 8px; font-weight: 800; letter-spacing: .5px; color: var(--teal); border: 1px solid rgba(54,160,138,.55); border-radius: 3px; padding: 0 4px; }
+    button.shcard.locked { opacity: .38; filter: grayscale(.7); cursor: default; }
+    button.shcard.beaten { border-color: rgba(111,216,242,.5); }
+    #shBlurb { min-height: 2.6em; max-width: 640px; margin-top: 4px; }
+
+    /* ---- input remapping (Settings > Input remapping) ---- */
+    #remapList { display: flex; flex-direction: column; gap: 5px; max-height: 44vh; overflow-y: auto; padding: 3px; }
+    button.rrow { width: 330px; display: flex; justify-content: space-between; gap: 14px; background: rgba(255,255,255,.06); color: #c2cde0; clip-path: none; border-radius: 4px; padding: 7px 14px; font-size: 12px; letter-spacing: 1px; }
+    button.rrow b { color: var(--amber); }
+    button.rrow.custom b { color: var(--relay); }
+    #remapDevs .rdev { width: 150px; font-size: 12px; padding: 8px 6px; }
+    #remapDevs .rdev.active { box-shadow: inset 0 0 0 2px var(--teal); color: #eaf6ff; }
+
+    /* ---- rankings (menu pages: grouped level picker + one board) ---- */
+    #rankGroups { display: flex; flex-direction: column; gap: 5px; width: min(440px, 86vw); max-height: 52vh; overflow-y: auto; padding: 3px; }
+    #rankGroups .rgrp, #rankTable .rgrp { font-size: 10px; font-weight: 800; letter-spacing: 2px; color: #5E6B8C; margin-top: 7px; text-align: left; }
+    button.rlev { width: 100%; display: flex; justify-content: space-between; gap: 14px; background: rgba(255,255,255,.06); color: #c2cde0; clip-path: none; border-radius: 4px; padding: 7px 14px; font-size: 12px; letter-spacing: 1px; }
+    button.rlev b { color: var(--amber); font-size: 10px; letter-spacing: 1px; white-space: nowrap; }
+    #rankTable { width: min(680px, 86vw); max-height: 50vh; overflow-y: auto; padding: 3px; font: 12px/1.5 ui-monospace, Menlo, monospace; }
+    #rankTable .rrowt { display: grid; grid-template-columns: 34px minmax(0, 1fr) 28px 76px 64px 86px; gap: 10px; padding: 4px 10px; text-align: left; align-items: baseline; color: #c2cde0; }
+    #rankTable .rrowt span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #rankTable .rrowt.head { color: #5E6B8C; font-size: 10px; letter-spacing: 1px; position: sticky; top: 0; background: rgba(8,10,18,.94); }
+    #rankTable .rrowt:nth-child(even) { background: rgba(255,255,255,.03); }
+    #rankTable .rrowt.mine { background: rgba(255,217,138,.14); color: #ffe9b0; outline: 1px solid rgba(255,217,138,.45); }
+    /* board rows are inert buttons so the pad focus ring can scroll them */
+    #rankTable button.rrowt { width: 100%; background: none; clip-path: none; border-radius: 0; font: inherit; font-weight: 400; letter-spacing: 0; cursor: default; transition: none; }
+    #rankTable button.rrowt:hover { filter: none; }
+    #rankTable button.rrowt:nth-child(even) { background: rgba(255,255,255,.03); }
+    #rankTable button.rrowt.mine { background: rgba(255,217,138,.14); }
+
+    /* ---- CTF overtime chip (sudden-death escalation level: OVERTIME +n) ---- */
+    #otChip { position: absolute; top: 22%; left: 50%; transform: translateX(-50%); padding: 5px 16px; font-size: 14px; font-weight: 800; letter-spacing: 3px; color: #ff7a6a; background: rgba(8,10,18,.78); border: 1px solid rgba(224,72,72,.55); pointer-events: none; white-space: nowrap; animation: cdblink 1.1s steps(2, jump-none) infinite; }
+    #otChip[hidden] { display: none; }
+
+    /* ---- public room browser (Online > Browse Games) ---- */
+    #browseList { display: flex; flex-direction: column; gap: 5px; width: min(560px, 86vw); max-height: 52vh; overflow-y: auto; padding: 3px; }
+    button.brow { width: 100%; display: flex; align-items: baseline; gap: 10px; background: rgba(255,255,255,.06); color: #c2cde0; clip-path: none; border-radius: 4px; padding: 7px 14px; font-size: 12px; letter-spacing: 1px; font-weight: 500; }
+    button.brow .bmode { flex: none; font-style: normal; font-size: 9px; font-weight: 800; letter-spacing: 1px; color: var(--teal); border: 1px solid rgba(54,160,138,.55); border-radius: 3px; padding: 1px 5px; }
+    button.brow .bmap { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; font-weight: 800; letter-spacing: .5px; color: #eaf6ff; }
+    button.brow .bcount { flex: none; color: var(--amber); font-weight: 800; font-size: 11px; white-space: nowrap; }
+    button.brow .blive { flex: none; font-style: normal; font-size: 9px; font-weight: 800; letter-spacing: 1px; color: #0b121a; background: #ff7a6a; border-radius: 3px; padding: 1px 5px; animation: cdblink 1.1s steps(2, jump-none) infinite; }
+    #browseList .bempty { font-size: 11px; font-weight: 800; letter-spacing: 2px; color: #5E6B8C; padding: 14px 4px; text-align: center; }
+
+    /* ---- community maps browser (Play > Community Maps) — mirrors .brow ---- */
+    #communityList { display: flex; flex-direction: column; gap: 5px; width: min(560px, 86vw); max-height: 44vh; overflow-y: auto; padding: 3px; }
+    button.cmrow { width: 100%; display: flex; align-items: baseline; gap: 10px; background: rgba(255,255,255,.06); color: #c2cde0; clip-path: none; border-radius: 4px; padding: 7px 14px; font-size: 12px; letter-spacing: 1px; font-weight: 500; }
+    button.cmrow .cmname { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; font-weight: 800; letter-spacing: .5px; color: #eaf6ff; }
+    button.cmrow .cmauthor { flex: none; max-width: 30%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #8fa0c0; font-size: 10px; font-weight: 600; }
+    button.cmrow .cmtag { flex: none; font-style: normal; font-size: 9px; font-weight: 800; letter-spacing: 1px; color: var(--teal); border: 1px solid rgba(54,160,138,.55); border-radius: 3px; padding: 1px 5px; }
+    button.cmrow .cmplays { flex: none; color: var(--amber); font-weight: 800; font-size: 11px; white-space: nowrap; }
+    #communityList .bempty { font-size: 11px; font-weight: 800; letter-spacing: 2px; color: #5E6B8C; padding: 14px 4px; text-align: center; }
+
+    /* ---- 32-player CTF lobby: two team columns of chips (chips stay inert
+       spans — pad nav only ever targets buttons) ---- */
+    #playerList.teamcols { display: flex; gap: 18px; justify-content: center; align-items: flex-start; flex-wrap: nowrap; width: min(880px, 92vw); max-height: 24vh; overflow-y: auto; }
+    #playerList.teamcols .tcol { flex: 1 1 0; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; align-content: flex-start; }
+    #playerList.teamcols .tcol .thead { width: 100%; text-align: center; font-size: 10px; font-weight: 800; letter-spacing: 2px; margin-bottom: 2px; }
+  </style>
+</head>
+<body>
+  <div id="stage">
+    <aside id="left">
+      <div class="panel" id="objectivesPanel" hidden>
+        <div class="ptitle" id="objTitle">OBJECTIVE</div>
+        <div id="objList"></div>
+      </div>
+      <div id="squadPanels"></div>
+      <div id="heartsPanel" hidden></div>
+      <div class="panel" id="squadStatusPanel">
+        <div class="ptitle">SQUAD STATUS</div>
+        <div id="squadStatusBody">—</div>
+      </div>
+    </aside>
+
+    <main id="center">
+      <canvas id="game" width="1280" height="720"></canvas>
+      <!-- event banner + spectate tag + countdown + controls overlay sit below
+           the .screen overlays in DOM order, so open menus/dialogs paint over them -->
+      <div id="banner" hidden></div>
+      <div id="toast" hidden></div>
+      <!-- frame-loop error surface: shown (once per distinct error) when the
+           render/tick catch fires, instead of a silent freeze. Dismiss with
+           X / B / Esc; input stays live so the game can keep running. -->
+      <div id="frameError" hidden>
+        <div class="fe-card">
+          <div class="fe-title">THE GAME HIT AN ERROR</div>
+          <div class="fe-msg" id="frameErrorMsg"></div>
+          <pre class="fe-stack" id="frameErrorStack"></pre>
+          <div class="fe-hint">press X / B / Esc to continue</div>
+        </div>
+      </div>
+      <div id="tutorialCoach" hidden></div>
+      <div id="spectateTag" hidden>ELIMINATED &mdash; SPECTATING</div>
+      <div id="countdown" hidden></div>
+      <div id="otChip" hidden></div>
+      <div id="ctrlOverlay" hidden></div>
+
+      <div id="menu" class="screen">
+        <!-- MAIN — clean hub: Play / Rankings / Operators / Settings / How to Play -->
+        <div class="mpage" id="pageMain">
+          <h1>MONO<span>LYTHIUM</span></h1>
+          <p class="sub">&mdash; THE ANCHORFALL &mdash;</p>
+          <p class="tag">Hold the line. Rescue the lost. Reach the exit.</p>
+          <!-- Save & Quit bookmark — quick-resume at the top, shown only while a suspended run parses -->
+          <button id="btnResumeGame" hidden>Resume Game</button>
+          <!-- featured hub entry — opens the Play submenu (modes live there now) -->
+          <button id="btnPlay">Play</button>
+          <button id="btnRankings">Rankings</button>
+          <!-- operator gallery + milestone unlock progress -->
+          <button id="btnOperators">Achievements / Operators</button>
+          <button id="btnSettings">Settings</button>
+          <!-- interactive coached first mission for new players -->
+          <button id="btnTutorial" class="ghost">How to Play</button>
+          <!-- native desktop (Electron) only: quit the app -->
+          <button id="btnQuitDesktop" class="ghost" hidden>Quit to Desktop</button>
+          <p class="help">Couch co-op everywhere: plug in controllers, everyone presses FIRE in a lobby to join.<br>
+          Audio wakes on your first click or button press. Pad: A selects &middot; B backs out of any page.</p>
+        </div>
+
+        <!-- PLAY — every game mode lives under here -->
+        <div class="mpage" id="pagePlay" hidden>
+          <h2>Play</h2>
+          <p class="tag">choose how you drop in</p>
+          <button id="btnSingle">Single Player</button>
+          <!-- gentle child-friendly co-op (1-4 players, bright, forgiving) -->
+          <button id="btnFamily" hidden>Family Mode</button>
+          <button id="btnVersus">Versus</button>
+          <button id="btnOnline">Online</button>
+          <!-- seeded daily siege — same map+twist worldwide, shared daily board -->
+          <button id="btnDaily">Daily Challenge</button>
+          <!-- random generated map (seed + valid params rolled at click), solo/couch -->
+          <button id="btnRandomMap">Random Map &mdash; Surprise Me</button>
+          <!-- community maps: browse player-published levels and play them solo/couch -->
+          <button id="btnCommunity">Community Maps</button>
+          <!-- visual map builder: author/edit a LevelDef without hand-writing JSON (issue #5) -->
+          <button id="btnMapBuilder">Map Builder</button>
+          <button class="ghost mback">Back</button>
+        </div>
+
+        <!-- SINGLE PLAYER — pick a mode, then New Game / Continue inside it -->
+        <div class="mpage" id="pageSingle" hidden>
+          <h2>Single Player</h2>
+          <p class="tag">1&ndash;4 players, one screen</p>
+          <button id="btnClassic">Classic Campaign</button>
+          <button id="btnStoryMode">Story: Anchorfall Crossing</button>
+          <button id="btnBastion" hidden>Stronghold</button>
+          <!-- MOBA lane-push: solo vs bots (online hosting is on the Online page) -->
+          <button id="btnSiege" hidden>Anchor Siege &mdash; MOBA</button>
+          <button class="ghost mback">Back</button>
+        </div>
+
+        <!-- CLASSIC CAMPAIGN — New Game / Continue (Continue only when a save exists) -->
+        <div class="mpage" id="pageClassic" hidden>
+          <h2>Classic Campaign</h2>
+          <p class="tag">survive the Anchorfall, level by level</p>
+          <!-- resume a saved campaign — shown first so a blind FIRE never wipes a run -->
+          <button id="btnContinue" hidden>Continue</button>
+          <button id="btnSolo">New Game</button>
+          <button class="ghost mback">Back</button>
+        </div>
+
+        <!-- STORY — New Game / Continue (Continue only when a save exists) -->
+        <div class="mpage" id="pageStory" hidden>
+          <h2>Story: Anchorfall Crossing</h2>
+          <p class="tag">a guided run with beacons &amp; dialogue</p>
+          <!-- resume a saved story — shown first so a blind FIRE never wipes a run -->
+          <button id="btnStoryContinue" hidden>Continue Story</button>
+          <button id="btnStory">New Game</button>
+          <button id="btnStorySelect">Select Chapter</button>
+          <div id="chapterList" class="chapterList" hidden></div>
+          <button class="ghost mback">Back</button>
+        </div>
+
+        <!-- VERSUS (couch) -->
+        <div class="mpage" id="pageVersus" hidden>
+          <h2>Versus &mdash; Couch</h2>
+          <p class="tag">2&ndash;4 players, one screen</p>
+          <button id="btnCtf" hidden>Capture the Flag</button>
+          <!-- mirrors the Online-page cycler: couch CTF uses the same persisted pick -->
+          <button id="btnCtfMapV" class="ghost" hidden>CTF map: &mdash;</button>
+          <button id="btnBr" hidden>Battle Royale</button>
+          <button class="ghost mback">Back</button>
+        </div>
+
+        <!-- ONLINE -->
+        <div class="mpage" id="pageOnline" hidden>
+          <h2>Online</h2>
+          <p class="tag">host a room, browse public games, or join with a code &mdash; 4 couch seats per machine &middot; co-op rooms hold 8, CTF 32, Royale 16</p>
+          <button id="btnHost">Host Classic</button>
+          <button id="btnHostStory">Host Story</button>
+          <button id="btnHostBastion" hidden>Host Stronghold</button>
+          <!-- co-op Daily Challenge: server resolves today's map+twist -->
+          <button id="btnHostDaily" hidden>Host Daily Challenge</button>
+          <button id="btnHostCtf" hidden>Host CTF</button>
+          <button id="btnHostBr" hidden>Host Battle Royale</button>
+          <!-- MOBA lane-push online: host a room, friends join by code -->
+          <button id="btnHostSiege" hidden>Host Anchor Siege</button>
+          <!-- ctf map choice (shows once 2+ ctf maps ship) — cycles, persisted;
+               rides the host message levelIdx like stronghold hosting does -->
+          <button id="btnCtfMap" class="ghost" hidden>CTF map: &mdash;</button>
+          <!-- room visibility for the NEXT hosted room, persisted per mode
+               group: co-op rooms default Private, versus rooms default Public -->
+          <button id="btnVisCoop" class="ghost">Co-op visibility: Private</button>
+          <button id="btnVisVersus" class="ghost" hidden>Versus visibility: Public</button>
+          <button id="btnBrowse">Browse Games</button>
+          <div class="joinrow">
+            <input id="joinCode" placeholder="CODE" maxlength="4" autocomplete="off">
+            <button id="btnJoin">Join Online</button>
+          </div>
+          <button class="ghost mback">Back</button>
+        </div>
+
+        <!-- BROWSE PUBLIC GAMES -->
+        <div class="mpage" id="pageBrowse" hidden>
+          <h2>Browse Games</h2>
+          <p class="tag">public rooms &mdash; refreshes every 5s &middot; LIVE CTF matches are joinable mid-game</p>
+          <div id="browseList"></div>
+          <button class="ghost mback" data-back="pageOnline">Back</button>
+        </div>
+
+        <!-- COMMUNITY MAPS — browse + play player-published levels (issue #7) -->
+        <div class="mpage" id="pageCommunity" hidden>
+          <h2>Community Maps</h2>
+          <p class="tag">player-published levels &mdash; pick one to play solo or couch</p>
+          <!-- filter cyclers: each FIRE/click advances the value, LEFT/RIGHT nudges it -->
+          <div class="btnrow">
+            <button id="btnCmBiome" class="ghost" data-cycle="cmBiome">Biome: Any</button>
+            <button id="btnCmObjective" class="ghost" data-cycle="cmObjective">Objective: Any</button>
+            <button id="btnCmMode" class="ghost" data-cycle="cmMode">Mode: Any</button>
+          </div>
+          <!-- sort toggle: Newest / Most Played / Top Rated -->
+          <button id="btnCmSort" class="ghost" data-cycle="cmSort">Sort: Newest</button>
+          <div id="communityList"></div>
+          <!-- paging row: Prev / page readout / Next -->
+          <div class="btnrow">
+            <button id="btnCmPrev" class="ghost">&lsaquo; Prev</button>
+            <span id="cmPageLabel" class="tag">Page 1</span>
+            <button id="btnCmNext" class="ghost">Next &rsaquo;</button>
+          </div>
+          <button class="ghost mback" data-back="pagePlay">Back</button>
+        </div>
+
+        <!-- SETTINGS -->
+        <div class="mpage" id="pageSettings" hidden>
+          <h2>Settings</h2>
+          <input id="nameInput" placeholder="Your name" maxlength="12" autocomplete="off">
+          <button id="btnAudio" class="ghost">Audio: On</button>
+          <button id="btnFullscreen" class="ghost">Fullscreen</button>
+          <button id="btnCtrlHud" class="ghost">Controls overlay: On</button>
+          <button id="btnSplitscreen" class="ghost">Splitscreen: Dynamic</button>
+          <button id="btnGameZoom" class="ghost">Game zoom: 100%</button>
+          <!-- Display: desktop-only display mode + always-on aspect-ratio letterbox.
+               Both cycle on click/FIRE and respond to LEFT/RIGHT (data-cycle). -->
+          <button id="btnDisplayMode" class="ghost" data-cycle="display" hidden>Display mode: Fullscreen</button>
+          <button id="btnAspect" class="ghost" data-cycle="aspect">Aspect ratio: Auto (fill)</button>
+          <!-- TV overscan: inset the whole view a few % so nothing spills past
+               the screen edge (common on TVs / Batocera). LEFT/RIGHT adjusts. -->
+          <button id="btnOverscan" class="ghost" data-cycle="overscan">Screen fit: Full</button>
+          <!-- Controller prompts: shows the active pad's glyph in the world prompts.
+               Per-player readout below lists each connected controller. -->
+          <button id="btnGlyphStyle" class="ghost" data-cycle="glyph">Button prompts: Auto</button>
+          <div id="ctrlReadout" class="ctrlreadout"></div>
+          <!-- volume rows: click/FIRE steps +10% (wraps), pad/keys LEFT-RIGHT nudge ±10% -->
+          <button id="btnVolMusic" class="ghost" data-vol="music">Music &amp; ambience: 70%</button>
+          <button id="btnVolVoice" class="ghost" data-vol="voice">Voice (EVA + dialogue): 100%</button>
+          <button id="btnVolSfx" class="ghost" data-vol="sfx">Effects: 100%</button>
+          <button id="btnRemap" class="ghost">Input remapping</button>
+          <!-- account: sync operators + progress across devices — folded under Settings -->
+          <button id="btnAccount" class="ghost" hidden>Account</button>
+          <p class="help">Keyboard fits two: WASD &middot; Space fire &middot; E talk/build &middot; F special &middot; Q item &middot; hold Tab for the map &nbsp;|&nbsp; Arrows &middot; Enter fire &middot; / talk/build &middot; RShift special &middot; . item &middot; hold M for the map<br>
+          Gamepad: stick/d-pad &middot; A/RT fire &middot; X talk/build &middot; B/RB special &middot; Y item &middot; hold SELECT for the map &middot; Start pauses<br>
+          Splitscreen (couch): <b>Dynamic</b> shares one camera until local players spread apart, then splits the screen and merges back when they regroup &middot; <b>Always</b> splits whenever 2+ local players deploy &middot; <b>Off</b> keeps the classic shared camera. 3 players get a tactical-map fourth cell; couch Battle Royale always splits.<br>
+          Hold E/X on a build site to construct &mdash; LYTH shards drop from fallen Entropy. Your own shots demolish your own walls and barricades (direct hits) &mdash; built yourself in? Shoot your way out. Your turrets are friendly-fire-proof; hold E/X to dismantle one.<br>
+          New turrets ask for a type: stand close, hold E/X &mdash; LEFT/RIGHT cycles Gun &middot; Prism &middot; Tesla &middot; Toxin, FIRE confirms<br>
+          Field weapon caches dot the wild &mdash; press E/X to shoulder one, hold Q&hairsp;/&hairsp;.&hairsp;/&hairsp;Y to drop it for a teammate<br>
+          Teleport pads jump you to their twin &mdash; enemies can't follow. Save beacons checkpoint story runs.<br>
+          Walk into stranded allies to pick them up &mdash; carry them to the exit to recruit them.</p>
+          <button class="ghost mback">Back</button>
+        </div>
+
+        <!-- INPUT REMAPPING -->
+        <div class="mpage" id="pageRemap" hidden>
+          <h2>Input Remapping</h2>
+          <p class="tag">pick a device, pick an action, then press its new key/button &mdash; Esc cancels</p>
+          <div class="btnrow" id="remapDevs">
+            <button class="ghost rdev" data-dev="kb1">Keyboard WASD</button>
+            <button class="ghost rdev" data-dev="kb2">Keyboard Arrows</button>
+            <button class="ghost rdev" data-dev="pad">Gamepad</button>
+          </div>
+          <div id="remapList"></div>
+          <!-- press-any-button / not-detected diagnostic: lists each connected
+               pad (index -> seat, detected type) and live-highlights the
+               button/axis being pressed so a user can confirm a pad works. -->
+          <div id="padDiag">
+            <div class="pd-head">CONTROLLER DIAGNOSTIC <span class="pd-sub">press any button on a pad to confirm it&rsquo;s detected</span></div>
+            <div id="padDiagBody"></div>
+          </div>
+          <button id="btnRemapReset" class="ghost">Reset device to defaults</button>
+          <button class="ghost mback" data-back="pageSettings">Back</button>
+        </div>
+
+        <!-- STRONGHOLD LEVEL SELECT -->
+        <div class="mpage" id="pageSh" hidden>
+          <h2>Stronghold</h2>
+          <p class="tag" id="shSub">beat a stronghold to unlock the next &middot; new operatives join the roster</p>
+          <button id="btnShEndless" class="ghost" data-cycle="shmode">Mode: Campaign</button>
+          <div id="shGrid" class="navgrid" data-cols="5"></div>
+          <p class="help" id="shBlurb">&nbsp;</p>
+          <button class="ghost mback" data-back="pageSingle">Back</button>
+        </div>
+
+        <!-- RANKINGS: grouped level picker -->
+        <div class="mpage" id="pageRank" hidden>
+          <h2>Rankings</h2>
+          <p class="tag">top runs &mdash; points first, completion time breaks ties</p>
+          <div id="rankGroups"></div>
+          <p class="help" id="rankNote" hidden>&nbsp;</p>
+          <button class="ghost mback" data-back="pageMain">Back</button>
+        </div>
+
+        <!-- ACCOUNT: register / sign in, cloud-sync operators + progress -->
+        <div class="mpage" id="pageAccount" hidden>
+          <h2>Account</h2>
+          <p class="tag">sign in to sync your operators &amp; progress across devices</p>
+          <div id="acctForms" class="acctbox">
+            <input id="acctName" class="acctinput" placeholder="username — 3-16: letters, numbers, _" autocomplete="username" maxlength="16">
+            <input id="acctPass" class="acctinput" type="password" placeholder="password — 8+ characters" autocomplete="current-password" maxlength="200">
+            <button id="btnRegister">Create Account</button>
+            <button id="btnLogin">Sign In</button>
+          </div>
+          <div id="acctSignedIn" class="acctbox" hidden>
+            <p id="acctWho"></p>
+            <button id="btnSyncNow" class="ghost">Sync Now</button>
+            <button id="btnLogout" class="ghost">Sign Out</button>
+          </div>
+          <p class="help" id="acctMsg">&nbsp;</p>
+          <button class="ghost mback" data-back="pageSettings">Back</button>
+        </div>
+
+        <!-- OPERATOR GALLERY + milestone unlock progress -->
+        <div class="mpage" id="pageOperators" hidden>
+          <h2>Operators</h2>
+          <p class="tag">earn new operators by playing — Endless, Daily &amp; missions</p>
+          <div id="opGrid"></div>
+          <button class="ghost mback" data-back="pageMain">Back</button>
+        </div>
+
+        <!-- RANKINGS: one board -->
+        <div class="mpage" id="pageRankBoard" hidden>
+          <h2 id="rankBoardTitle">Rankings</h2>
+          <p class="tag" id="rankBoardSub">&nbsp;</p>
+          <button id="btnRankSort" class="ghost">Sort: Score</button>
+          <div id="rankTable"></div>
+          <button class="ghost mback" data-back="pageRank">Back</button>
+        </div>
+
+        <!-- MAP BUILDER — visual grid editor + live validation + export (issue #5) -->
+        <div class="mpage mbuilder" id="pageBuilder" hidden>
+          <h2>Map Builder</h2>
+          <p class="tag">paint or import a map &mdash; validate &mdash; export, share or publish</p>
+          <div class="mb-layout">
+            <!-- LEFT: the tile palette, grouped per the authoring contract -->
+            <aside class="mb-palette panel">
+              <div class="ptitle">PALETTE</div>
+              <div id="mbPalette" class="mb-palette-groups"></div>
+              <div class="mb-selrow">Selected: <b id="mbSelName">Floor</b> <span id="mbSelChar" class="mb-selch">.</span></div>
+            </aside>
+
+            <!-- CENTER: the paint canvas + live preview + grid controls -->
+            <section class="mb-center">
+              <div class="mb-canvaswrap">
+                <canvas id="mbGrid" width="640" height="480"></canvas>
+              </div>
+              <div class="btnrow mb-gridctl">
+                <label>W <input id="mbW" type="number" min="8" max="64" value="16"></label>
+                <label>H <input id="mbH" type="number" min="8" max="64" value="12"></label>
+                <button id="mbResize" class="ghost">Resize</button>
+                <button id="mbBorder" class="ghost">Solid Border</button>
+                <button id="mbClear" class="ghost">Clear</button>
+              </div>
+              <div class="mb-previewwrap">
+                <div class="ptitle">LIVE PREVIEW</div>
+                <canvas id="mbPreview" width="640" height="300"></canvas>
+                <div id="mbPreviewNote" class="mb-note" hidden></div>
+              </div>
+            </section>
+
+            <!-- RIGHT: the def panel (name/mode/theme/objective/bastion/sizes) + actions -->
+            <aside class="mb-def panel">
+              <div class="ptitle">DEFINITION</div>
+              <div class="mb-field"><label>Name<input id="mbName" type="text" maxlength="48" value="Untitled Map"></label></div>
+              <div class="mb-field"><label>Mode<select id="mbMode"></select></label></div>
+              <div class="mb-field"><label>Theme<select id="mbTheme"></select></label></div>
+              <div class="mb-field"><label>Objective<select id="mbObjective"></select></label></div>
+              <div class="mb-field"><label>Difficulty<select id="mbDifficulty"></select></label></div>
+
+              <!-- objective params (shown for the active objective) -->
+              <div id="mbCaptureParams" class="mb-subpanel" hidden>
+                <div class="mb-field"><label>Capture radius<input id="mbCapRadius" type="number" min="1" max="12" value="3"></label></div>
+                <div class="mb-field"><label>Hold seconds<input id="mbCapDuration" type="number" min="5" max="600" value="30"></label></div>
+              </div>
+              <div id="mbGateParams" class="mb-subpanel" hidden>
+                <div class="mb-field"><label>Pylon quorum (need)<input id="mbGateNeed" type="number" min="1" max="12" value="1"></label></div>
+                <p class="mb-hint">need &le; the number of pylon build sites (B)</p>
+              </div>
+              <div id="mbEscortNote" class="mb-subpanel" hidden>
+                <p class="mb-hint">Escort maps are coreless &mdash; any K is dropped and a path is threaded spawn&rarr;centre. Refine waypoints in the exported JSON.</p>
+              </div>
+
+              <!-- bastion config (shown when mode === bastion) -->
+              <div id="mbBastionParams" class="mb-subpanel">
+                <div class="ptitle">BASTION</div>
+                <div class="mb-field"><label>Nights<input id="mbNights" type="number" min="1" max="25" value="5"></label></div>
+                <div class="mb-field"><label>Waves / night<input id="mbWavesPerNight" type="number" min="1" max="3" value="1"></label></div>
+                <div class="mb-field"><label>Size<select id="mbSize"></select></label></div>
+                <div class="mb-field"><label>Blood moons (csv nights)<input id="mbBloodMoons" type="text" placeholder="e.g. 3,5"></label></div>
+                <div class="mb-field"><label>Roster (enemy letters)<input id="mbRoster" type="text" value="grwz"></label></div>
+                <div class="mb-field"><label>Wave edges<input id="mbEdges" type="text" value="n,s,e,w"></label></div>
+              </div>
+
+              <div class="mb-actions">
+                <button id="mbValidate" class="ghost">Validate</button>
+                <button id="mbExport" disabled>Export .json</button>
+              </div>
+
+              <!-- IMPORT: load a .json file or paste a shareable string to remix -->
+              <div class="mb-subpanel" id="mbImportPanel">
+                <div class="ptitle">IMPORT / SHARE</div>
+                <div class="mb-field">
+                  <label>Load .json
+                    <input id="mbImportFile" type="file" accept="application/json,.json">
+                  </label>
+                </div>
+                <div class="mb-field">
+                  <label>Paste shareable string
+                    <textarea id="mbImportText" rows="3" placeholder="MONOMAP1:… or raw LevelDef JSON"></textarea>
+                  </label>
+                </div>
+                <div class="btnrow">
+                  <button id="mbImportLoad" class="ghost">Load Pasted</button>
+                  <button id="mbCopyShare" class="ghost" disabled>Copy Shareable String</button>
+                </div>
+                <p class="mb-hint" id="mbImportNote" hidden></p>
+              </div>
+
+              <!-- PUBLISH: validate -> POST /api/maps -> show the returned id -->
+              <div class="mb-subpanel" id="mbPublishPanel">
+                <div class="ptitle">PUBLISH TO COMMUNITY</div>
+                <div class="mb-field"><label>Author<input id="mbAuthor" type="text" maxlength="24" placeholder="Anonymous"></label></div>
+                <div class="mb-field"><label>Description<input id="mbDesc" type="text" maxlength="240" placeholder="short blurb (optional)"></label></div>
+                <div class="btnrow">
+                  <button id="mbPublish" disabled>Publish</button>
+                </div>
+                <p class="mb-hint" id="mbPublishNote" hidden></p>
+              </div>
+
+              <div id="mbProblems" class="mb-problems"></div>
+            </aside>
+          </div>
+          <button class="ghost mback" data-back="pagePlay">Back</button>
+        </div>
+      </div>
+
+      <div id="lobby" class="screen" hidden>
+        <h2 id="lobbyTitle"></h2>
+        <p id="roomInfo"></p>
+        <p id="lobbyHint" class="help"></p>
+        <div id="playerList"></div>
+        <h3>Choose your operative</h3>
+        <div id="charSelect">
+          <button id="carPrev" class="carnav" aria-label="previous">‹</button>
+          <div id="charGrid"></div>
+          <div id="abilityWrap">
+            <canvas id="abilityPreview" width="200" height="200"></canvas>
+            <div id="abilityCaption">&nbsp;</div>
+          </div>
+          <button id="carNext" class="carnav" aria-label="next">›</button>
+        </div>
+        <div id="carDots"></div>
+        <div class="btnrow">
+          <button id="btnStart">Deploy</button>
+          <button id="btnDifficulty" class="ghost" hidden>Difficulty: Normal</button>
+          <button id="btnLeave" class="ghost">Leave</button>
+        </div>
+      </div>
+
+      <div id="msg" class="screen" hidden>
+        <h2 id="msgTitle"></h2>
+        <p id="msgBody"></p>
+        <button id="btnMsgOk">Continue</button>
+        <!-- optional second action (e.g. 'Resume from beacon' on a story fail) -->
+        <button id="btnMsgAlt" class="ghost" hidden></button>
+      </div>
+
+      <!-- pause / leave dialog (Esc-Start during play; buttons injected by
+           client.js openPauseUi — START/B backs out, FIRE picks, mouse works) -->
+      <div id="pause" class="screen" hidden>
+        <h2 id="pauseTitle">Paused</h2>
+        <p id="pauseBody"></p>
+        <div id="pauseBtns"></div>
+        <p id="pauseHint" class="help"></p>
+      </div>
+    </main>
+
+    <aside id="right">
+      <div class="panel" id="missionPanel">
+        <div class="ptitle green" id="missionNo">MISSION —</div>
+        <div id="missionName">—</div>
+        <div id="missionObj" class="dim">—</div>
+        <div id="missionGate" class="amber" hidden>—</div>
+        <div id="bastionInfo" hidden>
+          <div id="cyclePhase" class="amber">—</div>
+          <div id="coreWrap" hidden>
+            <div id="coreLabel" class="dim">CORE</div>
+            <div class="hbar"><i id="coreFill"></i></div>
+          </div>
+          <div id="beaconPips" hidden></div>
+        </div>
+        <div id="pvpInfo" hidden>—</div>
+      </div>
+      <div class="panel" id="minimapPanel">
+        <canvas id="minimap" width="200" height="140"></canvas>
+      </div>
+      <div class="panel" id="scorePanel">
+        <div class="srow"><span>SCORE</span><b id="hScore">0</b></div>
+        <div class="srow"><span>TIME</span><b id="hTime">--:--</b></div>
+        <div class="srow"><span>KILLS</span><b id="hKills">0</b></div>
+        <div class="srow"><span>COMBO</span><b id="hCombo" class="amber">x1</b></div>
+        <div class="srow"><span>SHARDS</span><b id="hShards" class="amber">◆0</b></div>
+      </div>
+      <div class="panel" id="weaponPanel">
+        <div class="ptitle amber" id="wName">—</div>
+        <canvas id="wIcon" width="170" height="46"></canvas>
+        <div id="wStats" class="dim">—</div>
+        <div id="wSpecial" hidden>
+          <div class="srow"><span>SPECIAL</span><b id="wSpecialName" class="amber">—</b></div>
+          <div style="height:6px;background:rgba(255,255,255,.08);border-radius:3px;overflow:hidden">
+            <i id="wSpecialFill" style="display:block;height:100%;width:0%;background:var(--amber);transition:width .15s"></i>
+          </div>
+        </div>
+        <div id="wItem" hidden>
+          <div class="srow"><span>ITEM <em>Q&hairsp;/&hairsp;.&hairsp;/&hairsp;Y</em></span><b id="wItemLabel" class="amber">—</b></div>
+        </div>
+        <div id="wXp" hidden>
+          <div class="srow"><span>LVL</span><b id="wLvl" class="amber">1</b></div>
+          <div class="xpbar"><i id="wXpFill"></i></div>
+        </div>
+      </div>
+    </aside>
+  </div>
+  <div id="dialogueBox" hidden><b class="dname"></b><span class="dtext"></span></div>
+  <script type="module" src="client.js"></script>
+</body>
+</html>

@@ -1,0 +1,436 @@
+{
+  "stranded": true,
+  "name": "The Four Lights",
+  "objective": "Keep at least one of the four corner beacons burning through the moonlit dark of four nights",
+  "time": 600,
+  "expedition": true,
+  "mode": "bastion",
+  "theme": "nocturne",
+  "bastionVariant": "beacons",
+  "bastion": {
+    "nights": 4,
+    "bloodMoons": [
+      3
+    ],
+    "waveMult": 1.27,
+    "roster": [
+      "z",
+      "g",
+      "a",
+      "h",
+      "k"
+    ],
+    "dayEvents": true
+  },
+  "stronghold": {
+    "level": 5,
+    "name": "The Four Lights",
+    "sizeLabel": "M",
+    "difficulty": 2,
+    "waves": 5,
+    "hpMult": 1.13,
+    "unlock": "engineer",
+    "blurb": "Four corner beacons in a fog-drowned moonlit vale. The dark hides what comes; keep one light burning to dawn and rove between the corners to relight what falls.",
+    "newFeatures": [
+      "BEACON DEFENSE: four corner lights, keep one burning",
+      "NIGHT VEIL: darkness shrinks enemy sight — brazier pools matter",
+      "PHASEBORN drift through the ruin walls; FROSTSHADES chill in the gloom"
+    ]
+  },
+  "ambience": "meadow",
+  "intro": [
+    {
+      "title": "The Four Lights",
+      "lines": [
+        "Four beacon monoliths anchor the corners of this fog-drowned vale, and the waves split between every light still burning.",
+        "Out here the dark is a wall — the enemy can't see far, and neither can you past the brazier pools. Phaseborn slip the ruin stones; frostshades chill where they touch.",
+        "A beacon beaten to nothing goes DARK, not dead: stand at it by day, hold ACT, pay 8 shards — it burns again. Lose only if all four go dark at once."
+      ],
+      "art": "siege"
+    }
+  ],
+  "outro": [
+    {
+      "title": "Lights Over the Vale",
+      "lines": [
+        "However it ended, the vale kept a light burning against the dark.",
+        "Four monoliths hum behind you in the lifting fog. The frontier maps call it holdable now."
+      ],
+      "art": "dawn"
+    }
+  ],
+  "captiveChars": [],
+  "tiles": [
+    "####################################################",
+    "#..................................................#",
+    "#..................................................#",
+    "#.........................;........................#",
+    "#....BBBBB.........;............;.........BBBBB....#",
+    "#....B;*;B...............,,...............B;*;B....#",
+    "#....B;K;B................,...............B;K;B....#",
+    "#....B;;;B................................B;;;B....#",
+    "#....BB;BB,,......g..............g......,,BB;BB....#",
+    "#.........,.,...........z..............,,..........#",
+    "#..................................................#",
+    "#............z........................z............#",
+    "#.;...................,.k....,...................;.#",
+    "#.............;.h....................;.............#",
+    "#..................................................#",
+    "#......................C.....C.....................#",
+    "#......;.a......,,....H.*P;P*.....,,......a.;......#",
+    "#.......;.......,.......*P;P*.H....,.......;.......#",
+    "#......................C.....C.....................#",
+    "#.........................V........................#",
+    "#.............;....................h.;.............#",
+    "#.;...................,....k.,...................;.#",
+    "#............z........................z............#",
+    "#..................................................#",
+    "#..........,,..............z............,,.........#",
+    "#....BB;BB,,......g..............g.....,,.BB;BB....#",
+    "#....B;*;B................................B;*;B....#",
+    "#....B;K;B...............,................B;K;B....#",
+    "#....B;;;B...............,,...............B;;;B....#",
+    "#....BBBBB.........;............;.........BBBBB....#",
+    "#........................;.........................#",
+    "#..................................................#",
+    "#..................................................#",
+    "####################################################"
+  ],
+  "builds": [
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true
+    }
+  ],
+  "chests": [
+    {
+      "loot": "shards",
+      "amount": 9
+    },
+    {
+      "loot": "shield",
+      "amount": 1
+    },
+    {
+      "loot": "medkit",
+      "amount": 1
+    },
+    {
+      "loot": "shards",
+      "amount": 8
+    }
+  ],
+  "hires": [
+    {
+      "job": "farmer",
+      "cost": 8,
+      "name": "Vale-Sage Onna"
+    },
+    {
+      "job": "engineer",
+      "cost": 10,
+      "name": "Lampkeep Duro"
+    }
+  ],
+  "vehicles": [
+    {
+      "kind": "stag"
+    }
+  ]
+}

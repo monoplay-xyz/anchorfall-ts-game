@@ -1,0 +1,290 @@
+{
+  "stranded": true,
+  "name": "The Glass Forge",
+  "objective": "Wedge the forge-keep in the dead corner of the Crucible — hold four nights as fire and ruin pour from the open east and south, and a warlord crowns the last.",
+  "time": 600,
+  "expedition": true,
+  "mode": "bastion",
+  "theme": "crucible",
+  "bastion": {
+    "nights": 4,
+    "dayLen": 120,
+    "nightLen": 60,
+    "bloodMoons": [
+      4
+    ],
+    "waveMult": 1.6,
+    "wavesPerNight": 2,
+    "roster": [
+      "s",
+      "d",
+      "e",
+      "$"
+    ],
+    "edges": [
+      "e",
+      "s"
+    ],
+    "bossNights": [
+      4
+    ],
+    "dayEvents": true
+  },
+  "difficulty": "extreme",
+  "stronghold": {
+    "level": 25,
+    "name": "The Glass Forge",
+    "sizeLabel": "XL",
+    "difficulty": 5,
+    "waves": 10,
+    "hpMult": 1.5,
+    "blurb": "A forge-keep jammed in the dead corner of the Crucible. Lava lakes and a void rim seal the rear; every wave crests the two open quadrants. Molten bruisers and ember-kites carpet the killing field in fire, brine-hulks crack the walls, and a warlord anchors the blood-moon last night. A focused, brutal last stand.",
+    "newFeatures": [
+      "Corner keep: only east and south are open",
+      "Crucible fire patches shrink the safe ground",
+      "Brine-hulk sappers double-hit your walls",
+      "Blood-moon warlord on the final night"
+    ]
+  },
+  "ambience": "ship",
+  "intro": [
+    {
+      "title": "The Glass Forge",
+      "lines": [
+        "The Crucible has only one corner the lava and the void left standing.",
+        "Wall the two open faces. Everything else is a lethal edge.",
+        "Four nights. Fire from the east, ruin from the south, and a warlord at the end."
+      ],
+      "art": "siege"
+    }
+  ],
+  "outro": [
+    {
+      "title": "Cooled to Glass",
+      "lines": [
+        "The killing field has set to black glass, every ember spent.",
+        "The corner held. The warlord did not.",
+        "Dawn over the Crucible — and the forge still stands."
+      ],
+      "art": "dawn"
+    }
+  ],
+  "captiveChars": [],
+  "tiles": [
+    "############################################################",
+    "#__________________________________________________________#",
+    "#_++++++++++B______________________________________________#",
+    "#_+S+++++H++B______________________________________________#",
+    "#_++++++O+++B______________________________________________#",
+    "#_++++++++++B______________________________________________#",
+    "#_++++K*++++B______________________________________________#",
+    "#_+++++++++++B__________#__________________________________#",
+    "#_+++P+P++++B_____o________________________________________#",
+    "#_++++P++BB+B_____o_++++++++++A+++#+++++C++++++_#__________#",
+    "#_+C++++++++B_______++++++++++d+++++++++++++C+e____________#",
+    "#_++++++++++B_______++++++++s+++++++++++#++++++____________#",
+    "#_BBBB+BBBBBB_______+++++++++++++++++++++++++++________%___#",
+    "#_____B_____________________________________++++++++++%%%__#",
+    "#_____________++++++________!!!!!!!_________+Y++++++e+%%%__#",
+    "#_____________++++++______!!!!!!!!!!!_______++++++O+++%%%__#",
+    "#_____________++++o+_____!!!!!!!!!!!!!______++++++++++%%%%_#",
+    "#_____________++++o+____!!!!!!!!!!!!!!!_____+d++++#+++%%%__#",
+    "#_____________++++++_____!!!!!!!!!!!!!______+++++++++V%%%__#",
+    "#_____________++++++______!!!!!!!!!!!_______++++$+++++%%%__#",
+    "#_____________++++++________!!!!!!!_________++++++++++_%___#",
+    "#___________________+++++++++++++++++++++++#++C+___________#",
+    "#___________________++C++++++++++d++s+e++$++++++___________#",
+    "#___________________++++++++++++++++++++++++++++___________#",
+    "#________________________________##________!!!!!!!_________#",
+    "#___________!!!!!!!_______________________!!!!!!!!!________#",
+    "#_________!!!!!!!!!!!____________________!!!!!!!!!!!___%%%%#",
+    "#___________!!!!!!!_______________________!!!!!!!!!___%%%%%#",
+    "#__________________________________________!!!!!!!___%%%%%%#",
+    "#___________________________________________________%%%%%%%#",
+    "#__________________________________________________%%%%%%%%#",
+    "#_________________________________________________%%%%%%%%%#",
+    "#_________________________________________________%%%%%%%%%#",
+    "############################################################"
+  ],
+  "builds": [
+    {
+      "kind": "turret",
+      "cost": 10,
+      "prebuilt": true,
+      "ttype": "tesla"
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "farm",
+      "cost": 6
+    },
+    {
+      "kind": "farm",
+      "cost": 6
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "wall",
+      "cost": 5,
+      "prebuilt": true,
+      "level": 3
+    },
+    {
+      "kind": "turret",
+      "cost": 10,
+      "prebuilt": true,
+      "ttype": "tesla"
+    },
+    {
+      "kind": "barricade",
+      "cost": 4
+    }
+  ],
+  "chests": [
+    {
+      "loot": "shards",
+      "amount": 14
+    },
+    {
+      "loot": "medkit",
+      "amount": 1
+    },
+    {
+      "loot": "shield",
+      "amount": 1
+    },
+    {
+      "loot": "cracker",
+      "amount": 2
+    },
+    {
+      "loot": "shards",
+      "amount": 12
+    }
+  ],
+  "hires": [
+    {
+      "job": "engineer",
+      "cost": 10,
+      "name": "Wrench Omega"
+    }
+  ],
+  "vehicles": [
+    {
+      "kind": "stag"
+    }
+  ],
+  "pickups": [
+    {
+      "kind": "flamer"
+    }
+  ],
+  "teleports": [
+    {
+      "id": "t25a",
+      "twin": "t25b"
+    },
+    {
+      "id": "t25b",
+      "twin": "t25a"
+    }
+  ]
+}
