@@ -7927,10 +7927,18 @@ const TTYPE_OFFERS = [
   ['tesla', 'TESLA — CHAIN STUN'],
   ['toxin', 'TOXIN — AREA DENIAL'],
 ];
+// --- field debug gate (off in prod) -----------------------------------------
+// render.ts has no gate of its own; reuse globalThis.__AF_DEBUG (client.ts sets
+// it from ?debug=1 / localStorage). __afCarouselSeen edge-gates the carousel log
+// so it fires only when a build's cursor index actually changes, never per-frame.
+const __afCarouselSeen = new Map<string, number>();
+const __afDbg = (...a: unknown[]) => { try { if ((globalThis as any).__AF_DEBUG) console.log('[rnd]', ...a); } catch { /* no-op */ } };
 function drawTypeSelect(ctx: any, b: any, t: any) {
   const { x, y } = b;
   // the live carousel cursor ships as tsIdx (ttype only exists once confirmed)
   const selIdx = Math.max(0, Math.min(TTYPE_OFFERS.length - 1, b.tsIdx ?? 0));
+  const __k = `${Math.round(x)},${Math.round(y)}`;
+  if (__afCarouselSeen.get(__k) !== selIdx) { __afCarouselSeen.set(__k, selIdx); __afDbg('carousel.render', { build: [x, y], selIdx, label: TTYPE_OFFERS[selIdx]?.[0] }); }
   // typeSelect may be a boolean or the remaining auto-confirm seconds
   const cd = typeof b.typeSelect === 'number' ? Math.ceil(b.typeSelect)
     : typeof b.typeSelectT === 'number' ? Math.ceil(b.typeSelectT) : null;
@@ -7958,7 +7966,7 @@ function drawTypeSelect(ctx: any, b: any, t: any) {
     ctx.fillText(label, px + 16, ry + 8);
   });
   ctx.fillStyle = 'rgba(94,107,140,0.9)';
-  ctx.fillText('◄ ► CYCLE · FIRE = CONFIRM', px + 8, py + phh - 5);
+  ctx.fillText(rewritePromptGlyph('HOLD E/X + ◄ ► CYCLE · FIRE = OK'), px + 8, py + phh - 5);
   // relay marker over the waiting turret
   ctx.fillStyle = `rgba(111,216,242,${0.5 + 0.4 * Math.sin(t * 4)})`;
   ctx.beginPath();
@@ -10137,7 +10145,7 @@ function renderWorldView(ctx: any, snap: any, charMap: any, t: any, dt: any, opt
       continue;
     }
     if (b.kind === 'pylon' || b.level == null) continue; // pylons keep classic semantics
-    if (b.typeSelect) continue; // the carousel owns this turret's prompt space
+    if (b.typeSelect) { cands.push({ x: b.x, y: b.y, py: b.y - 30, text: '[hold E/X] PICK TURRET TYPE' }); continue; }
     if (b.hp != null && b.maxHp && b.hp < b.maxHp) cands.push({ x: b.x, y: b.y, py: b.y - 30, text: '[hold E/X] REPAIR 1◆/3HP' });
     else if (b.level < 3) cands.push({ x: b.x, y: b.y, py: b.y - 30, text: `[hold E/X] UPGRADE ${b.level * 8}◆` });
     else cands.push({ x: b.x, y: b.y, py: b.y - 30, text: '[hold E/X] DISMANTLE' });

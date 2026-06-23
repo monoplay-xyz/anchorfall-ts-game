@@ -154,6 +154,7 @@ export type GameEventType =
   | 'special'
   | 'stormStart'
   | 'superBlast'
+  | 'superweaponBlocked'
   | 'superweaponDown'
   | 'superweaponFired'
   | 'superweaponReady'

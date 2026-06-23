@@ -116,6 +116,8 @@ const TICK = 1 / 30;
 // the server behaves exactly like the couch/LAN build.
 const PUBLIC_DEPLOY = process.env.PUBLIC_DEPLOY === '1';
 const SMOKE_HOOK = process.env.HOLDOUT_SMOKE === '1' && !PUBLIC_DEPLOY;
+const DEBUG = process.env.HOLDOUT_DEBUG === '1';
+const dbg = (...a: unknown[]) => { if (DEBUG) try { console.log('[srv]', ...a); } catch { /* no-op */ } };
 const ROOM_CAP = Math.max(1, Number(process.env.ROOM_CAP) || 200); // global concurrent rooms
 const WS_CONN_CAP = 1024; // global concurrent sockets (per-room caps already bound per-IP at 8)
 const WS_PER_IP = 8;      // concurrent sockets per client IP
@@ -980,6 +982,7 @@ function endLevel(room: Room) {
   const list = roomLevels(room);
   const def = roomDef(room); // the chapter just played (a community def when hosted)
   const g = room.game!;
+  dbg('endLevel', { code: room.code, mode: room.mode, status: g.status, levelIdx: room.levelIdx, players: room.players.size, oneShot: isOneShot(room), community: !!room.customDef });
   const res = applyResults(room.roster, g); // pvp: sim returns the roster untouched
   room.roster = res.roster;
   let victory = false;
@@ -990,10 +993,21 @@ function endLevel(room: Room) {
   if (g.status === 'cleared' && !isOneShot(room) && !room.customDef) {
     room.levelIdx++;
     victory = room.levelIdx >= list.length;
+    dbg('endLevel advanced', { code: room.code, newLevelIdx: room.levelIdx, victory });
     fs.writeFileSync(savePath(room.code), JSON.stringify({ mode: room.mode, levelIdx: room.levelIdx, roster: room.roster }));
   }
-  // pvp/bastion/community rooms never save and never advance — rematch replays the same map (levelIdx stays 0)
-  for (const p of room.players.values()) p.charId = null;
+  // Co-op campaign (story/classic) CARRIES operators across the level so the
+  // post-level lobby is a one-press Continue (everyone stays picked, the host's
+  // Deploy is live), not a full re-pick + re-deploy that reads as rejoining.
+  // An operator LOST this level (captured, never rescued — res.roster already
+  // dropped it) is unpicked so the next level can't redeploy it (startLevel's
+  // party filter checks charMap, not room.roster). pvp/bastion/community
+  // one-shots never advance — they rematch the same map, so they re-pick from
+  // scratch as before (levelIdx stays 0).
+  const carryPicks = !isOneShot(room) && !room.customDef;
+  for (const p of room.players.values()) {
+    if (!carryPicks || (p.charId && !room.roster.includes(p.charId))) p.charId = null;
+  }
   room.phase = 'lobby';
   room.lastActivity = Date.now(); // fresh idle window for the post-level lobby
   room.holds = []; // back in the lobby, rejoins are just normal joins
@@ -1011,6 +1025,7 @@ function endLevel(room: Room) {
     const next = list[room.levelIdx];
     if (next?.title) msg.nextTitle = next.title;
   }
+  dbg('endLevel -> levelEnd', { code: room.code, victory, rank: (msg as any).rank, winner: (msg as any).winner });
   broadcast(room, msg);
   room.game = null;
   // picks were cleared — push the fresh lobby so Deploy can't act on stale state
@@ -1022,8 +1037,8 @@ function startLevel(room: Room) {
   // own-property check: a prototype-key charId ('constructor', '__proto__'…)
   // would resolve truthy through charMap in the sim and crash the tick
   const party = [...room.players.values()].filter(p => p.charId && Object.hasOwn(charMap, p.charId)).map(p => ({ pid: p.pid, name: p.name, charId: p.charId, team: p.team }));
-  if (!party.length) return;
-  if (room.mode === 'br' && party.length < 2) return; // BR is meaningless solo
+  if (!party.length) { dbg('startLevel ABORT: no party', { code: room.code, mode: room.mode }); return; }
+  if (room.mode === 'br' && party.length < 2) { dbg('startLevel ABORT: br needs 2+', { code: room.code, party: party.length }); return; } // BR is meaningless solo
   for (const p of room.players.values()) p.input = {};
   // Endless Siege: a stronghold room flagged endless plays the same map with no
   // night cap. Clone the def (never mutate the shared catalog) and flip the flag.
@@ -1048,6 +1063,7 @@ function startLevel(room: Room) {
   }
   room.game = createGame(gameDef, party, charMap, room.roster) as Game;
   room.phase = 'play';
+  dbg('startLevel', { code: room.code, mode: room.mode, levelIdx: room.levelIdx, party: party.length, def: (gameDef as any).name ?? (gameDef as any).title, daily: !!room.daily, endless: !!room.endless });
   room.tick = 0;
   room.holds = []; // seat holds are per-level; a fresh level starts clean
   // The static grid rides along once here; per-tick snapshots omit it.
@@ -1339,6 +1355,7 @@ wss.on('connection', (ws, req) => {
     }
     else if (m.t === 'start' && room && me.pid === room.hostPid && room.phase === 'lobby' && !room.game) {
       room.lastActivity = Date.now();
+      dbg('msg start', { code: room.code, phase: room.phase, levelIdx: room.levelIdx, fromHost: me.pid === room.hostPid });
       const list = roomLevels(room);
       if (!room.customDef && room.levelIdx >= list.length) return; // built-in campaign finished
       // br needs a real field — the client greys Deploy out too, this is the backstop
@@ -1352,6 +1369,7 @@ wss.on('connection', (ws, req) => {
     }
     else if (m.t === 'cutsceneDone' && room && me.pid === room.hostPid && room.phase === 'intro') {
       room.lastActivity = Date.now();
+      dbg('msg cutsceneDone', { code: room.code, phase: room.phase });
       startLevel(room);
       if (!room.game) { room.phase = 'lobby'; broadcast(room, lobbyState(room)); } // party evaporated mid-cutscene
     }

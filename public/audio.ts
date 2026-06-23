@@ -15,6 +15,12 @@ let voiceBus: any = null;
 let sfxBus: any = null;
 const vols = { music: 0.7, voice: 1, sfx: 1 };
 let muted = false;
+// --- field debug gate (off in prod) -----------------------------------------
+// Reads globalThis.__AF_DEBUG (client.ts sets it from ?debug=1 / localStorage) so
+// the whole field shares ONE toggle. Lazy + guarded: headless tests never throw.
+const dbg = (...a: unknown[]) => {
+  try { if (typeof globalThis !== 'undefined' && (globalThis as any).__AF_DEBUG) console.log('[aud]', ...a); } catch { /* no-op */ }
+};
 let storageKey = 'holdout.audio.muted';
 
 function ensureAudio() {
@@ -340,8 +346,10 @@ const MUSIC = {
   day: ['ambient-day-only/Restless_Melody_01.ogg', 'ambient-day-only/Mysterious_Theme.ogg', 'ambient-day-only/Restless_Melody_02.ogg', 'ambient-day-only/Lofi_Creepy_Theme.ogg'],
   night: ['ambient-night-only/06.There_In_Spirit.ogg', 'ambient-night-only/Dark_Pulsating_Ambient.ogg', 'ambient-night-only/04.Those_Who_Wait.ogg', 'ambient-night-only/Ambient_Lingering_Action.ogg', 'ambient-night-only/05.From_The_Ashes.ogg', 'ambient-night-only/Mellow_Ambient_Track.ogg'],
   blood: ['ambient-situation/Chaos_Loop.ogg', 'ambient-situation/Breathless_Oblivion.ogg'],
+  // the Anchor reaches full quorum and charges/opens: the intense rock bed
+  boss: ['ambient-situation/Boss_Battle_Sequence.ogg'],
 };
-const MUSIC_VOL = { day: 0.14, night: 0.17, blood: 0.22 };
+const MUSIC_VOL = { day: 0.14, night: 0.17, blood: 0.22, boss: 0.26 };
 const STORY_BEDS = {
   intro: ['ambient-situation/sad-intro-new-map-or-final-map.ogg'],
   ending: ['ambient-situation/ending-cut-scenes.ogg'],
@@ -369,6 +377,7 @@ export function setScene(snap: Snapshot | null) {
     lastSceneAt = evaNow();
     if (!snap) { sceneOff(); return; }
     if (!scene.active) {
+      dbg('scene.on', { ambience: snap.ambience, dark: snap.dark, weather: snap.weather ?? (snap as any).modifiers?.weather, theme: snap.theme });
       // mission (re)start: fresh per-mission rotation counters + NPC memory
       seq = new Map();
       cueGateAt = new Map();
@@ -385,15 +394,19 @@ export function setScene(snap: Snapshot | null) {
     scene.weather = (w === 'rain' || w === 'snow' || w === 'ashstorm' || w === 'fog' || w === 'thunderstorm') ? w : 'clear';
     // map theme drives a low per-theme ambient bed (see themeTick)
     scene.theme = typeof snap.theme === 'string' ? snap.theme : null;
+    // the Anchor at full quorum (charging) or woken (open) commands the rock bed
+    scene.boss = !!(snap.gate && (snap.gate.charging || snap.gate.open));
   } catch { /* a malformed snapshot never breaks audio */ }
 }
 
 function sceneOff() {
   if (!scene.active) return;
+  dbg('scene.off', { wasAmbience: scene.ambience, wasWeather: scene.weather });
   scene.active = false;
   scene.blood = false;
   scene.weather = 'clear';
   scene.theme = null;
+  scene.boss = false;
 }
 
 function startSceneEngine() {
@@ -404,7 +417,7 @@ function startSceneEngine() {
 function sceneTick() {
   if (!ctx || !amb) return;
   // watchdog: render stopped feeding us (cutscene, results, pause) -> menus
-  if (scene.active && evaNow() - lastSceneAt > 1.5) sceneOff();
+  if (scene.active && evaNow() - lastSceneAt > 1.5) { dbg('scene.watchdog fired', { gap: +(evaNow() - lastSceneAt).toFixed(2) }); sceneOff(); }
   musicTick();
   bloodTick();
   weatherTick();
@@ -413,8 +426,8 @@ function sceneTick() {
 
 // --- rotating music beds -------------------------------------------------
 function musicTick() {
-  const want = scene.active ? (scene.blood ? 'blood' : scene.phase === 'night' ? 'night' : 'day') : null;
-  if (music && music.cat !== want) stopMusic(want ? (want === 'blood' ? 0.35 : 1.2) : 2.0);
+  const want = scene.active ? (scene.boss ? 'boss' : scene.blood ? 'blood' : scene.phase === 'night' ? 'night' : 'day') : null;
+  if (music && music.cat !== want) stopMusic(want ? (want === 'boss' || want === 'blood' ? 0.35 : 1.2) : 2.0);
   if (!music && want && evaNow() >= musicGapUntil && !muted) startMusic(want);
 }
 
@@ -429,11 +442,11 @@ function startMusic(cat: keyof typeof MUSIC) {
   seq.set(key, n + 1);
   const src = ctx.createBufferSource();
   src.buffer = f.buf;
-  src.loop = cat === 'blood'; // the dread bed holds until dawn breaks it
+  src.loop = cat === 'blood' || cat === 'boss'; // dread/rock beds hold until the state breaks them
   const g = ctx.createGain();
   const t0 = ctx.currentTime;
   g.gain.setValueAtTime(0.0001, t0);
-  g.gain.exponentialRampToValueAtTime(MUSIC_VOL[cat] ?? 0.15, t0 + (cat === 'blood' ? 0.7 : 2.5));
+  g.gain.exponentialRampToValueAtTime(MUSIC_VOL[cat] ?? 0.15, t0 + (cat === 'blood' ? 0.7 : cat === 'boss' ? 0.4 : 2.5));
   src.connect(g);
   g.connect(amb.out);
   const mine = { cat, src, g };
@@ -442,12 +455,14 @@ function startMusic(cat: keyof typeof MUSIC) {
   };
   src.start();
   music = mine;
+  dbg('music.start', { cat, track: list[n % list.length], vol: MUSIC_VOL[cat] ?? 0.15 });
 }
 
 function stopMusic(fade = 1.2) {
   const m = music;
   if (!m) return;
   music = null;
+  dbg('music.stop', { cat: m.cat, fade });
   try {
     m.src.onended = null;
     const t0 = ctx.currentTime;
@@ -832,6 +847,7 @@ export function announce(id: string) {
     const last = evaLast.get(id);
     if (last != null && t - last < (line.cd ?? 3)) return;
     evaLast.set(id, t);
+    dbg('eva.say', { id, pri: line.pri ?? 0, speaking: evaSpeaking?.id ?? null, queued: evaQueue.length });
     if (line.once) evaOnce.add(id);
     evaLoad(id);
     const pri = line.pri ?? 0;
@@ -1444,6 +1460,7 @@ export function playEvent(ev: any) {
   }
   // --- RELIC AWAKENING horde event ---
   else if (ev.type === 'relicAwaken') {
+    dbg('event.relicAwaken (boss/horde trigger)', { x: ev.x, y: ev.y, dur: ev.dur });
     // the sky cracks open: a full thunder wallop + a long tense dread swell
     thunder(1);
     tone(40, 2.4, 'sawtooth', 0.14, 1.3);   // rising dread rumble

@@ -24,7 +24,7 @@ import { render, renderMinimap, addEventFX, initTextures, drawPortrait, drawWeap
 // Namespace import so optional renderer features (cutscenes, menu backdrop) can
 // ship independently — accessed via renderMod.* with runtime existence checks.
 import * as renderMod from './render.js';
-import { playEvent, playUi, setupAudioToggle, setMusicVolume, setVoiceVolume, setSfxVolume, playMusicBox, stopMusicBox } from './audio.js';
+import { playEvent, playUi, setupAudioToggle, setMusicVolume, setVoiceVolume, setSfxVolume, playMusicBox, stopMusicBox, setScene } from './audio.js';
 // Map Builder (issue #5): the PURE assembly core + palette live in mapBuilder.ts
 // (DOM-free, node-smokeable); validateLevelDef is the shared validate-before-save
 // gate. Both are plain value imports — the editor shell below is the thin UI.
@@ -164,6 +164,20 @@ let session: any = null;
 setupAudioToggle($('btnAudio'));
 // ?demo=1 -> 4-bot attract mode; ?demo=2 -> same but pacifist (never fires)
 const demoMode = +(new URLSearchParams(location.search).get('demo') || 0);
+// --- field debug gate (off in prod) -----------------------------------------
+// ?debug=1 in the URL, or localStorage 'holdout-hd.debug' === '1' (sticky across
+// reloads). Mirrors the demoMode pattern above. Also flips globalThis.__AF_DEBUG
+// so the shared sim (game.ts) and audio engine light up in the same session.
+const DEBUG = (() => {
+  let on = +(new URLSearchParams(location.search).get('debug') || 0) === 1;
+  try {
+    if (on) localStorage.setItem('holdout-hd.debug', '1');
+    else if (localStorage.getItem('holdout-hd.debug') === '1') on = true;
+  } catch { /* no-op */ }
+  return on;
+})();
+(globalThis as any).__AF_DEBUG = DEBUG;
+const dbg = (...a: unknown[]) => { if (DEBUG) try { console.log('[cli]', ...a); } catch { /* no-op */ } };
 
 // ---------- input devices ----------
 // Couch co-op input model: the keyboard is split into two devices and up to
@@ -687,6 +701,7 @@ function handleEvent(ev: any) {
     showToast(`RELIC QUELLED — +${ev.score ?? 0} BONUS${bd}`, 5000, true);
   }
   if (ev.type === 'relicFailed') showToast('THE RELIC FALLS DORMANT — NO BONUS', 4000, true);
+  if (ev.type === 'superweaponBlocked') showToast('NO CLEAR SITE — MOVE TO OPEN GROUND AND TRY AGAIN', 3500, true);
   const b = bannerFor(ev);
   if (b) showBanner(b.text, b.blood);
 }
@@ -2134,7 +2149,7 @@ class LocalSession {
   // Queue a one-shot superBuild edge for the local primary seat. tick() drains it
   // into that seat's input on the very next step and clears it, so the sim sees a
   // single rising edge of inp.superBuild (matching the dev/keybind contract).
-  queueSuperBuild(kind: any) { if (SUPER_KINDS.has(kind)) this.pendingSuperBuild = kind; }
+  queueSuperBuild(kind: any) { if (SUPER_KINDS.has(kind)) { this.pendingSuperBuild = kind; dbg('super.queued', { kind, primaryPid: this.primaryPid?.() }); } }
   // Dev cheats are gated to a SOLO OFFLINE run: a LocalSession (never the online
   // NetSession), a single human seat, and never a versus mode (ctf/br/siege).
   // Demo/attract runs never see it either.
@@ -2425,6 +2440,7 @@ class LocalSession {
     if (this.pendingSuperBuild) {
       const pid = this.primaryPid();
       (inputs[pid] ||= {}).superBuild = this.pendingSuperBuild;
+      dbg('super.drain local', { pid, kind: this.pendingSuperBuild });
       this.pendingSuperBuild = null;
     }
     step(this.game, inputs, dt);
@@ -2918,7 +2934,7 @@ class NetSession {
         // SUPERWEAPON LAUNCH: the ready device's owner fires with its fire edge.
         if (seatCanFireSuper(this.snap, this.myPid)) o.superFire = o.fire;
         // BUILD: drain a queued one-shot build edge for this connection's player.
-        if (this.pendingSuperBuild) { o.superBuild = this.pendingSuperBuild; this.pendingSuperBuild = null; }
+        if (this.pendingSuperBuild) { o.superBuild = this.pendingSuperBuild; dbg('super.drain net-merged', { pid: this.myPid, kind: this.pendingSuperBuild }); this.pendingSuperBuild = null; }
         this.ws.send(JSON.stringify({ t: 'input', input: o }));
       }
     }, 33); // ~30Hz to match the server tick (was 20Hz) — removes ~50ms input latency
@@ -3041,6 +3057,7 @@ class NetSession {
     // BUILD: drain a queued one-shot build into the primary seat's uplink only.
     if (this.pendingSuperBuild && pid === this.primaryPid()) {
       o.superBuild = this.pendingSuperBuild;
+      dbg('super.drain net-device', { pid, kind: this.pendingSuperBuild });
       this.pendingSuperBuild = null;
     }
     return o;
@@ -3087,6 +3104,7 @@ class NetSession {
       }
     }
     else if (m.t === 'lobby') {
+      dbg('net.lobby', { levelIdx: m.levelIdx, totalLevels: m.totalLevels, players: m.players?.length, snapStatus: this.snap?.status });
       // host migration also reads straight off the lobby broadcast (belt and
       // braces with the explicit message): the crown moved to another pid.
       // Guarded against the explicit message's record so a MID-LEVEL
@@ -3129,11 +3147,13 @@ class NetSession {
       // story intro: everyone plays the slides; the host's finish starts the
       // level for the whole room, so non-hosts hold on their last slide
       const host = this.isHost();
+      dbg('net.cutscene', { slides: m.slides?.length, title: m.title, isHost: host });
       startSlides(this, m.slides, () => {
-        if (host && this.ws.readyState === 1) this.ws.send(JSON.stringify({ t: 'cutsceneDone' }));
+        if (host && this.ws.readyState === 1) { dbg('net.send cutsceneDone'); this.ws.send(JSON.stringify({ t: 'cutsceneDone' })); }
       }, { hold: true, holdHint: host ? '' : 'waiting for the host…' });
     }
     else if (m.t === 'levelStart') {
+      dbg('net.levelStart', { mode: m.mode ?? m.s?.mode, levelIdx: m.levelIdx, status: m.s?.status, hadCutscene: !!this.cutscene });
       if (this.cutscene) endSlides(this); // the host moved on — drop our slides
       // Full snapshot rides along once; later 'state' ticks omit the grid.
       if (m.s?.grid) this.grid = m.s.grid;
@@ -3171,6 +3191,7 @@ class NetSession {
       if (!prev) hideAll();
     }
     else if (m.t === 'levelEnd') {
+      dbg('net.levelEnd', { status: m.status, victory: m.victory, rank: m.rank, roster: m.roster?.length, winner: m.winner });
       this.myPick = null;
       // online rooms auto-record rankings server-side; the recorded rank may
       // ride back on levelEnd — deferred a beat so the results dialog's
@@ -3312,7 +3333,7 @@ class NetSession {
   }
   // mouse click — picks for the primary seat (legacy form, no pid)
   pickChar(id: any) { this.ws.send(JSON.stringify({ t: 'select', charId: id })); }
-  start() { this.ws.send(JSON.stringify({ t: 'start' })); }
+  start() { dbg('net.send start'); this.ws.send(JSON.stringify({ t: 'start' })); }
   unbindSeat(dev: any) {
     this.seats.delete(dev);
     delete this.cursors[dev];
@@ -3464,7 +3485,7 @@ class NetSession {
   }
   // Queue a one-shot superBuild edge for this connection's player; the input
   // dispatcher drains it into the next uplink (single rising edge) and clears it.
-  queueSuperBuild(kind: any) { if (SUPER_KINDS.has(kind)) this.pendingSuperBuild = kind; }
+  queueSuperBuild(kind: any) { if (SUPER_KINDS.has(kind)) { this.pendingSuperBuild = kind; dbg('super.queued', { kind, primaryPid: this.primaryPid?.() }); } }
   close() {
     clearInterval(this.inputTimer);
     this.ws.onclose = null;
@@ -5862,6 +5883,10 @@ function frame(now: any) {
     const cs = session.cutscene;
     if (cs) {
       stopMusicBox(); // a level's relic music never bleeds into the next cutscene
+      // keep the audio scene engine fed so its 1.5s watchdog doesn't silence
+      // the music mid-cutscene; the outro that plays right after the Anchor
+      // opens still carries the boss/charge bed (snap.gate.open is true).
+      setScene(session.snap ?? null);
       renderMod.drawCutscene?.(ctx, cs.slides[cs.idx], now / 1000, cs.t, cs.holdT || 0, cs.holdThreshold || 3);
       if (cs.waiting && cs.holdHint) {
         // online intro: our slides are done, the host hasn't moved on yet
