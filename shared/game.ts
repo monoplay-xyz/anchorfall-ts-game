@@ -37,6 +37,19 @@ export const TILE = 48;
 // the server reads the rest for lobby gating. Versus scales up to massed
 // fields; co-op stays a tight squad of 8.
 export const MODE_CAPS = { classic: 8, story: 8, bastion: 8, ctf: 32, br: 16 };
+// --- field debug gate (off in prod) -----------------------------------------
+// Dual-runtime: the browser sets globalThis.__AF_DEBUG (client.ts does this from
+// ?debug=1 / localStorage); the server sets HOLDOUT_DEBUG=1. Read LAZILY so a
+// missing `process` (browser) or `globalThis` quirk never throws, and so the
+// browser flag set AFTER this module loads is still honored.
+function dbgOn(): boolean {
+  try {
+    if (typeof globalThis !== 'undefined' && (globalThis as any).__AF_DEBUG) return true;
+    if (typeof process !== 'undefined' && process?.env?.HOLDOUT_DEBUG === '1') return true;
+  } catch { /* no-op */ }
+  return false;
+}
+const dbg = (...a: unknown[]) => { if (dbgOn()) try { console.log('[sim]', ...a); } catch { /* never throw */ } };
 const PLAYER_R = 14;
 const ENEMY_R = 14;
 const SHOT_R = 5;
@@ -4428,6 +4441,7 @@ function confirmTurretType(g: Game,  b: Build) {
     b.hp = Math.min(b.hp, b.maxHp);
   }
   g.events.push({ type: 'turretType', x: b.x, y: b.y, ttype: b.ttype });
+  dbg('carousel.committed', { build: [b.x, b.y], ttype: b.ttype, tsIdx: b.tsIdx || 0 });
 }
 
 function stepEnemy(g: Game,  e: Enemy,  dt: number) {
@@ -5129,6 +5143,33 @@ function canBuildSuperweaponAt(g: Game,  x: number,  y: number) {
   return true;
 }
 
+// Tiles to search outward from the seat for a legal superweapon site when the
+// operative's own tile is too cramped (1 tile clear of wall/cover is common to
+// fail). Small so the device always lands within reach of where the squad stands.
+const SUPER_SITE_SEARCH = 4; // tiles
+
+// Find the NEAREST legal build site to a world point, the seat's own tile first
+// (so an already-legal tile is byte-identical to the original behavior), then
+// expanding box-ring shells out to SUPER_SITE_SEARCH tiles. Deterministic scan
+// order (inner shells first; within a shell, dy then dx) — fully reproducible,
+// no Math.random. Returns the tile-center {x,y}, or null when nothing legal is
+// near enough.
+function findSuperweaponSiteNear(g: Game,  wx: number,  wy: number) {
+  const stx = Math.floor(wx / TILE), sty = Math.floor(wy / TILE);
+  for (let r = 0; r <= SUPER_SITE_SEARCH; r++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue; // ring shell only
+        const tx = stx + dx, ty = sty + dy;
+        if (tx < 0 || ty < 0 || tx >= g.w || ty >= g.h) continue;
+        const cx = (tx + 0.5) * TILE, cy = (ty + 0.5) * TILE;
+        if (canBuildSuperweaponAt(g, cx, cy)) return { x: cx, y: cy };
+      }
+    }
+  }
+  return null;
+}
+
 // Player input drives the relic superweapon lifecycle. Called per active seat
 // from the player loop. inp.superBuild ('nuke'|'weather') asks to assemble on
 // the seat's tile; inp.superFire is a plain TRIGGER (no aim) that auto-targets
@@ -5140,14 +5181,27 @@ function stepSuperweaponInput(g: Game,  p: Player,  inp: Input) {
   // BUILD: one device per run. A fresh edge of inp.superBuild on a valid site
   // starts a 6s standing channel (channelT) — interruptible by moving/downing.
   if (!sw && SUPER_KINDS.has(inp.superBuild!) && !p.superBuildPrev) {
-    const c = tileCenter(p.x, p.y);
-    if (canBuildSuperweaponAt(g, c.x, c.y)) {
+    // Assemble on the seat's tile when it is already a legal site (byte-identical
+    // to the original path); otherwise snap to the NEAREST legal site within a few
+    // tiles, since the squad expects a build 'near their operative' (the menu copy
+    // says exactly that) and a typical operating tile is too close to walls/cover.
+    // The search is a deterministic expanding box-ring scan (no randomness) so
+    // server, client and replays agree. If nothing legal sits nearby we surface a
+    // 'superweaponBlocked' event so the player gets feedback instead of a silent
+    // no-op (the one-shot edge would otherwise vanish with nothing to show for it).
+    const site = findSuperweaponSiteNear(g, p.x, p.y);
+    dbg('super.build edge', { pid: p.pid, kind: inp.superBuild, seat: [p.x, p.y], site: site ? [site.x, site.y] : null });
+    if (site) {
       g.superweapon = {
         type: inp.superBuild!, state: 'building',
         buildT: 0, chargeT: SUPER_CHARGE_SECONDS, used: false,
-        x: c.x, y: c.y, ownerPid: p.pid, hp: SUPER_DEVICE_HP, maxHp: SUPER_DEVICE_HP,
+        x: site.x, y: site.y, ownerPid: p.pid, hp: SUPER_DEVICE_HP, maxHp: SUPER_DEVICE_HP,
       };
-      g.events.push({ type: 'superweaponSite', x: c.x, y: c.y, kind: inp.superBuild, pid: p.pid });
+      g.events.push({ type: 'superweaponSite', x: site.x, y: site.y, kind: inp.superBuild, pid: p.pid });
+      dbg('super.device created', { kind: inp.superBuild, ownerPid: p.pid, x: site.x, y: site.y, state: 'building' });
+    } else {
+      g.events.push({ type: 'superweaponBlocked', x: p.x, y: p.y, kind: inp.superBuild, pid: p.pid });
+      dbg('super.build blocked', { pid: p.pid, kind: inp.superBuild, seat: [p.x, p.y] });
     }
   }
   p.superBuildPrev = SUPER_KINDS.has(inp.superBuild!);
@@ -5231,6 +5285,7 @@ function stepSuperweapon(g: Game,  dt: number) {
       if (sw.hp <= 0) {
         sw.hp = 0;
         sw.state = 'wrecked';
+        dbg('super.state', { from: 'building/charging', to: 'wrecked', kind: sw.type, hp: sw.hp });
         g.events.push({ type: 'superweaponDown', x: sw.x, y: sw.y, kind: sw.type });
         break;
       }
@@ -5249,6 +5304,7 @@ function stepSuperweapon(g: Game,  dt: number) {
         sw.state = 'charging';
         sw.buildT = SUPER_BUILD_TIME;
         sw.chargeT = SUPER_CHARGE_SECONDS;
+        dbg('super.state', { from: 'building', to: 'charging', kind: sw.type, chargeT: sw.chargeT });
         g.events.push({ type: 'buildSuperweapon', x: sw.x, y: sw.y, kind: sw.type });
         spawnSuperweaponMiniWave(g, sw);
       }
@@ -5260,6 +5316,7 @@ function stepSuperweapon(g: Game,  dt: number) {
     if (sw.chargeT <= 0) {
       sw.chargeT = 0;
       sw.state = 'ready';
+      dbg('super.state', { from: 'charging', to: 'ready', kind: sw.type });
       g.events.push({ type: 'superweaponReady', x: sw.x, y: sw.y, kind: sw.type });
     }
   }
@@ -5292,6 +5349,7 @@ function fireSuperweapon(g: Game,  sw: Superweapon,  ax: number,  ay: number) {
   const c = tileCenter(ax, ay);
   sw.used = true;
   sw.state = 'spent';
+  dbg('super.fired', { kind: sw.type, ownerPid: sw.ownerPid, target: [c.x, c.y] });
   sw.targetX = c.x;
   sw.targetY = c.y;
   if (sw.type === 'nuke') {
@@ -6822,6 +6880,7 @@ export function step(g: Game,  inputs: Inputs,  dt: number) {
     p.selecting = !!selB;
     const selEngaged = p.selecting && !wasSelecting;
     if (selEngaged) p.selPrev = { left: !!inp.left, right: !!inp.right, fire: !!inp.fire };
+    if (selEngaged && selB) dbg('carousel.engage', { pid: p.pid, build: [selB.x, selB.y], tsIdx: selB.tsIdx || 0 });
     if (selB) {
       selB.attended = true; // the unattended-confirm clock holds while driven
       const edgeL = !!inp.left && !p.selPrev!.left;
@@ -6830,9 +6889,10 @@ export function step(g: Game,  inputs: Inputs,  dt: number) {
       p.selPrev = { left: !!inp.left, right: !!inp.right, fire: !!inp.fire };
       if (edgeL) selB.tsIdx = ((selB.tsIdx || 0) + TURRET_TYPES.length - 1) % TURRET_TYPES.length;
       if (edgeR) selB.tsIdx = ((selB.tsIdx || 0) + 1) % TURRET_TYPES.length;
+      if (dbgOn() && (edgeL || edgeR)) dbg('carousel.step', { pid: p.pid, dir: edgeL ? 'L' : 'R', tsIdx: selB.tsIdx || 0, type: TURRET_TYPES[selB.tsIdx || 0] });
       // p.selecting stays set through the confirming tick so the press never
       // falls through to the main weapon or the act chain
-      if (edgeF) confirmTurretType(g, selB);
+      if (edgeF) { dbg('carousel.confirm', { pid: p.pid, build: [selB.x, selB.y], tsIdx: selB.tsIdx || 0 }); confirmTurretType(g, selB); }
     }
 
     // --- shop carousel: holding act inside 1.5 tiles of a stall locks
